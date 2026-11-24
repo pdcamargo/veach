@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+"""Repository hygiene checks. Run from the repo root; CI and CTest run it too.
+
+1. Every TODO/FIXME in code references a backlog item: TODO(VCH-123): ...
+   and that item exists in docs/backlog/BACKLOG.md.
+2. No `flecs::` in apps/ — apps use the veach:: aliases (ADR 0005).
+3. CLAUDE.md is exactly one line: @AGENTS.md (ADR 0018).
+"""
+
+from __future__ import annotations
+
+import pathlib
+import re
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+CODE_DIRS = ["engine", "apps", "tools", "tests", "cmake", ".github"]
+CODE_SUFFIXES = {".cpp", ".hpp", ".h", ".mm", ".inl", ".luau", ".cmake", ".py", ".yml", ".yaml", ".json", ".sh"}
+CODE_NAMES = {"CMakeLists.txt"}
+MARKER = re.compile(r"\b(TODO|FIXME|XXX|HACK)\b(?!\(VCH-\d{3,}\))")
+REFERENCE = re.compile(r"\b(?:TODO|FIXME|XXX|HACK)\(VCH-(\d{3,})\)")
+SELF = pathlib.Path(__file__).resolve()
+
+
+def code_files():
+    for top in CODE_DIRS:
+        base = ROOT / top
+        if not base.exists():
+            continue
+        for path in base.rglob("*"):
+            if path.is_file() and (path.suffix in CODE_SUFFIXES or path.name in CODE_NAMES) and path != SELF:
+                yield path
+    yield ROOT / "CMakeLists.txt"
+
+
+def main() -> int:
+    errors: list[str] = []
+    backlog = (ROOT / "docs/backlog/BACKLOG.md").read_text(encoding="utf-8")
+    known_ids = set(re.findall(r"\bVCH-(\d{3,})\b", backlog))
+
+    for path in code_files():
+        rel = path.relative_to(ROOT).as_posix()
+        for lineno, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            if MARKER.search(line):
+                errors.append(f"{rel}:{lineno}: bare TODO — write TODO(VCH-NNN): ... and add the item to "
+                              "docs/backlog/BACKLOG.md")
+            for item in REFERENCE.findall(line):
+                if item not in known_ids:
+                    errors.append(f"{rel}:{lineno}: TODO references VCH-{item}, which is not in BACKLOG.md")
+            if rel.startswith("apps/") and "flecs::" in line:
+                errors.append(f"{rel}:{lineno}: `flecs::` in apps/ — use the veach:: aliases (veach::World, "
+                              "veach::Entity, ...) or veach::ecs:: for raw Flecs")
+
+    claude = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    if claude != "@AGENTS.md\n":
+        errors.append("CLAUDE.md must contain exactly one line, '@AGENTS.md'; put instructions in AGENTS.md")
+
+    for error in errors:
+        print(error)
+    if errors:
+        print(f"\n{len(errors)} problem(s).")
+        return 1
+    print("repo hygiene: ok")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,6 @@
+{
+  "languageMode": "strict",
+  "aliases": {
+    "veach": "./types/veach.d"
+  }
+}

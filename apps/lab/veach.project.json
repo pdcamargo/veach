@@ -1,0 +1,10 @@
+{
+  "$schema": "../../schemas/veach.project.schema.json",
+  "name": "veach-lab",
+  "script": "scripts/hello.luau",
+  "window": {
+    "title": "Veach Lab",
+    "width": 1280,
+    "height": 720
+  }
+}

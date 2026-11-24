@@ -1,0 +1,861 @@
+#include <veach/script/script_runtime.hpp>
+
+#include <veach/core/assert.hpp>
+#include <veach/core/log.hpp>
+#include <veach/core/math.hpp>
+#include <veach/core/profile.hpp>
+#include <veach/core/suggest.hpp>
+#include <veach/ecs/command_buffer.hpp>
+#include <veach/ecs/components.hpp>
+#include <veach/ecs/phases.hpp>
+#include <veach/ecs/reflection.hpp>
+
+#include <lua.h>
+#include <lualib.h>
+
+#include <algorithm>
+#include <array>
+#include <cstring>
+#include <format>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+namespace veach {
+
+namespace {
+
+constexpr int entity_tag = 1;
+constexpr std::size_t max_query_components = 4;
+
+constexpr std::array<std::string_view, 7> api_function_names{
+    "component", "query", "system", "spawn", "log", "time", "components",
+};
+
+// Runs a system's callback over a whole batch. The per-entity loop lives here,
+// in Luau, so C++ calls into the VM once per system run, never once per entity.
+constexpr std::string_view dispatcher_source = R"(
+return function(fn, entities, a, b, c, d)
+    local n = #entities
+    if d ~= nil then
+        for i = 1, n do fn(entities[i], a[i], b[i], c[i], d[i]) end
+    elseif c ~= nil then
+        for i = 1, n do fn(entities[i], a[i], b[i], c[i]) end
+    elseif b ~= nil then
+        for i = 1, n do fn(entities[i], a[i], b[i]) end
+    else
+        for i = 1, n do fn(entities[i], a[i]) end
+    end
+end
+)";
+
+struct ComponentInfo {
+    std::string name;
+    ecs::entity_t id = 0;
+    std::vector<FieldInfo> fields;
+    bool script_defined = false;
+    void* defaults = nullptr;  ///< Owned default value (ecs_ptr_new), copied before each set.
+};
+
+struct ScriptSystem {
+    std::string name;
+    PhaseId phase = PhaseId::simulation;
+    std::vector<const ComponentInfo*> components;
+    int fn_ref = 0;
+    ecs::entity_t entity = 0;
+};
+
+/// Raises a Luau error carrying a Veach error code. Never returns.
+[[noreturn]] void raise(lua_State* L, ErrorCode code, const std::string& message, const std::string& hint = {}) {
+    const Error error{code, message, hint};
+    luaL_error(L, "%s", error.to_string().c_str());
+}
+
+const char* kind_label(ValueKind kind) {
+    switch (kind) {
+        case ValueKind::boolean: return "boolean";
+        case ValueKind::integer:
+        case ValueKind::number: return "number";
+        case ValueKind::string: return "string";
+        case ValueKind::vec3: return "vector";
+        case ValueKind::enumeration: return "string (enum constant)";
+        case ValueKind::structure: return "table";
+        case ValueKind::unsupported: return "unsupported";
+    }
+    return "?";
+}
+
+/// Frees a temporary component value even when a Luau error unwinds the stack.
+struct TempValue {
+    TempValue(const World& w, ecs::entity_t t) : world(w), type(t), ptr(ecs_ptr_new(w.c_ptr(), t)) {}
+    const World& world;
+    ecs::entity_t type;
+    void* ptr;
+    ~TempValue() { ecs_ptr_free(world.c_ptr(), type, ptr); }
+    TempValue(const TempValue&) = delete;
+    TempValue& operator=(const TempValue&) = delete;
+    TempValue(TempValue&&) = delete;
+    TempValue& operator=(TempValue&&) = delete;
+};
+
+}  // namespace
+
+struct ScriptRuntime::Impl {
+    World world;
+    lua_State* L = nullptr;
+    std::unordered_map<std::string, std::unique_ptr<ComponentInfo>> components;
+    std::vector<std::unique_ptr<ScriptSystem>> systems;
+    std::vector<std::unique_ptr<ScriptSystem>> pending_systems;
+    std::vector<int> thread_refs;
+    CommandBuffer* active = nullptr;  ///< Buffer of the invocation currently running.
+    bool loading = false;             ///< A script's top level is running.
+    int dispatcher_ref = 0;
+    int entity_metatable_ref = 0;
+    int veach_ref = 0;
+    int components_ref = 0;
+
+    explicit Impl(World& w) : world(w.c_ptr()) {}
+
+    static Impl& self(lua_State* L) { return *static_cast<Impl*>(lua_tolightuserdata(L, lua_upvalueindex(1))); }
+
+    void push_function(lua_CFunction fn, const char* name) {
+        lua_pushlightuserdata(L, this);
+        lua_pushcclosure(L, fn, name, 1);
+    }
+
+    // ---- values -------------------------------------------------------------
+
+    void push_value(lua_State* S, ecs::entity_t type, const void* ptr) {
+        switch (value_kind(world, type)) {
+            case ValueKind::boolean: lua_pushboolean(S, *static_cast<const bool*>(ptr) ? 1 : 0); return;
+            case ValueKind::integer:
+            case ValueKind::number: lua_pushnumber(S, read_number(world, type, ptr)); return;
+            case ValueKind::string: {
+                const auto& s = *static_cast<const std::string*>(ptr);
+                lua_pushlstring(S, s.data(), s.size());
+                return;
+            }
+            case ValueKind::vec3: {
+                const auto& v = *static_cast<const math::vec3*>(ptr);
+                lua_pushvector(S, v.x, v.y, v.z);
+                return;
+            }
+            case ValueKind::enumeration: {
+                const auto name = read_enum(world, type, ptr);
+                lua_pushstring(S, name ? name->c_str() : "");
+                return;
+            }
+            case ValueKind::structure: {
+                const auto fields = struct_fields(world, type);
+                lua_createtable(S, 0, static_cast<int>(fields.size()));
+                for (const FieldInfo& f : fields) {
+                    if (f.kind == ValueKind::unsupported) {
+                        continue;
+                    }
+                    push_value(S, f.type, static_cast<const char*>(ptr) + f.offset);
+                    lua_setfield(S, -2, f.name.c_str());
+                }
+                return;
+            }
+            case ValueKind::unsupported: lua_pushnil(S); return;
+        }
+    }
+
+    /// Writes the Luau value at `index` into `ptr`. Raises script.invalid_value on mismatch.
+    void read_value(lua_State* S, int index, ecs::entity_t type, void* ptr, const std::string& path) {
+        const ValueKind kind = value_kind(world, type);
+        const auto mismatch = [&] {
+            raise(S, ErrorCode::script_invalid_value,
+                  std::format("'{}' expects a {}, got {}", path, kind_label(kind), luaL_typename(S, index)));
+        };
+        switch (kind) {
+            case ValueKind::boolean:
+                if (!lua_isboolean(S, index)) {
+                    mismatch();
+                }
+                *static_cast<bool*>(ptr) = lua_toboolean(S, index) != 0;
+                return;
+            case ValueKind::integer:
+            case ValueKind::number:
+                if (lua_type(S, index) != LUA_TNUMBER) {
+                    mismatch();
+                }
+                write_number(world, type, ptr, lua_tonumber(S, index));
+                return;
+            case ValueKind::string: {
+                if (lua_type(S, index) != LUA_TSTRING) {
+                    mismatch();
+                }
+                std::size_t len = 0;
+                const char* s = lua_tolstring(S, index, &len);
+                static_cast<std::string*>(ptr)->assign(s, len);
+                return;
+            }
+            case ValueKind::vec3: {
+                const float* v = lua_tovector(S, index);
+                if (!v) {
+                    mismatch();
+                }
+                *static_cast<math::vec3*>(ptr) = math::vec3(v[0], v[1], v[2]);
+                return;
+            }
+            case ValueKind::enumeration: {
+                if (lua_type(S, index) != LUA_TSTRING) {
+                    mismatch();
+                }
+                const char* name = lua_tostring(S, index);
+                if (!write_enum(world, type, ptr, name)) {
+                    raise(S, ErrorCode::script_invalid_value, std::format("'{}' has no constant '{}'", path, name),
+                          did_you_mean(name, enum_constants(world, type)));
+                }
+                return;
+            }
+            case ValueKind::structure: {
+                if (!lua_istable(S, index)) {
+                    mismatch();
+                }
+                const int table = lua_absindex(S, index);
+                const auto fields = struct_fields(world, type);
+                lua_pushnil(S);
+                while (lua_next(S, table) != 0) {
+                    if (lua_type(S, -2) != LUA_TSTRING) {
+                        raise(S, ErrorCode::script_invalid_value, std::format("'{}' has a non-string key", path));
+                    }
+                    const std::string key = lua_tostring(S, -2);
+                    const auto it = std::ranges::find_if(fields, [&](const FieldInfo& f) { return f.name == key; });
+                    if (it == fields.end()) {
+                        std::vector<std::string> names;
+                        for (const FieldInfo& f : fields) {
+                            names.push_back(f.name);
+                        }
+                        raise(S, ErrorCode::script_invalid_value, std::format("unknown field '{}' in {}", key, path),
+                              did_you_mean(key, names));
+                    }
+                    read_value(S, -1, it->type, static_cast<char*>(ptr) + it->offset, path + "." + key);
+                    lua_pop(S, 1);
+                }
+                return;
+            }
+            case ValueKind::unsupported:
+                raise(S, ErrorCode::script_unsupported_field, std::format("'{}' cannot be written from Luau", path));
+        }
+    }
+
+    // ---- entities and components ---------------------------------------------
+
+    void push_entity(lua_State* S, ecs::entity_t id) {
+        auto* data = static_cast<std::uint64_t*>(lua_newuserdatatagged(S, sizeof(std::uint64_t), entity_tag));
+        *data = id;
+        lua_getref(S, entity_metatable_ref);
+        lua_setmetatable(S, -2);
+    }
+
+    static ecs::entity_t check_entity(lua_State* S, int index) {
+        auto* data = static_cast<std::uint64_t*>(lua_touserdatatagged(S, index, entity_tag));
+        if (!data) {
+            luaL_typeerror(S, index, "Entity");
+        }
+        return *data;
+    }
+
+    const ComponentInfo& check_component(lua_State* S, int index) {
+        if (!lua_istable(S, index)) {
+            luaL_typeerror(S, index, "Component");
+        }
+        lua_getfield(S, index, "name");
+        if (lua_type(S, -1) != LUA_TSTRING) {
+            raise(S, ErrorCode::script_unknown_component, "expected a component",
+                  "Pass a value from veach.component(...) or veach.components.<Name>.");
+        }
+        const std::string name = lua_tostring(S, -1);
+        lua_pop(S, 1);
+        const auto it = components.find(name);
+        if (it == components.end()) {
+            std::vector<std::string> names;
+            for (const auto& [n, info] : components) {
+                names.push_back(n);
+            }
+            raise(S, ErrorCode::script_unknown_component, std::format("unknown component '{}'", name),
+                  did_you_mean(name, names));
+        }
+        return *it->second;
+    }
+
+    CommandBuffer& require_active(lua_State* S, const char* what) const {
+        if (!active) {
+            raise(S, ErrorCode::internal, std::format("{} called outside a script invocation", what));
+        }
+        return *active;
+    }
+
+    void require_loading(lua_State* S, const char* what) const {
+        if (!loading) {
+            raise(S, ErrorCode::script_load_time_only, std::format("{} can only be called while a script loads", what),
+                  "Call it at the top level of the script, not inside a system.");
+        }
+    }
+
+    /// Pushes a Component table: { name = ..., defaults = ... }.
+    void push_component_table(lua_State* S, const ComponentInfo& info) {
+        lua_createtable(S, 0, 2);
+        lua_pushstring(S, info.name.c_str());
+        lua_setfield(S, -2, "name");
+        push_value(S, info.id, info.defaults);
+        lua_setfield(S, -2, "defaults");
+        lua_setreadonly(S, -1, 1);
+    }
+
+    /// Picks up C++ components tagged Scriptable that modules registered since the last call.
+    void refresh_cpp_components() {
+        const ecs::entity_t scriptable = world.id<Scriptable>();
+        world.each([&](Entity e, const flecs::Component&) {
+            if (!e.has(scriptable)) {
+                return;
+            }
+            const std::string name = e.name().c_str();
+            if (components.contains(name)) {
+                return;
+            }
+            auto fields = struct_fields(world, e.id());
+            if (value_kind(world, e.id()) != ValueKind::structure ||
+                std::ranges::any_of(fields, [](const FieldInfo& f) { return f.kind == ValueKind::unsupported; })) {
+                log::warn("script", "component '{}' is tagged Scriptable but has fields Luau cannot represent; skipped",
+                          e.path().c_str());
+                return;
+            }
+            auto info = std::make_unique<ComponentInfo>();
+            info->name = name;
+            info->id = e.id();
+            info->fields = std::move(fields);
+            info->defaults = ecs_ptr_new(world.c_ptr(), e.id());
+            components.emplace(name, std::move(info));
+        });
+
+        lua_getref(L, components_ref);
+        lua_setreadonly(L, -1, 0);
+        for (const auto& [name, info] : components) {
+            if (!info->script_defined) {
+                push_component_table(L, *info);
+                lua_setfield(L, -2, name.c_str());
+            }
+        }
+        lua_setreadonly(L, -1, 1);
+        lua_pop(L, 1);
+    }
+
+    // ---- bindings: veach.* ---------------------------------------------------
+
+    static int api_component(lua_State* S) {
+        Impl& rt = self(S);
+        rt.require_loading(S, "veach.component()");
+        const std::string name = luaL_checkstring(S, 1);
+        luaL_checktype(S, 2, LUA_TTABLE);
+
+        struct NewField {
+            std::string name;
+            ecs::entity_t type;
+        };
+        std::vector<NewField> fields;
+        lua_pushnil(S);
+        while (lua_next(S, 2) != 0) {
+            if (lua_type(S, -2) != LUA_TSTRING) {
+                raise(S, ErrorCode::script_unsupported_field,
+                      std::format("component '{}': field names must be strings", name));
+            }
+            const std::string field = lua_tostring(S, -2);
+            ecs::entity_t type = 0;
+            switch (lua_type(S, -1)) {
+                case LUA_TBOOLEAN: type = rt.world.id<bool>(); break;
+                case LUA_TNUMBER: type = rt.world.id<double>(); break;
+                case LUA_TSTRING: type = rt.world.id<std::string>(); break;
+                case LUA_TVECTOR: type = rt.world.id<math::vec3>(); break;
+                default:
+                    raise(S, ErrorCode::script_unsupported_field,
+                          std::format("component '{}': field '{}' has a default of type {}", name, field,
+                                      luaL_typename(S, -1)),
+                          "Fields may be boolean, number, string or vector. Nested tables are not supported yet.");
+            }
+            fields.push_back({field, type});
+            lua_pop(S, 1);
+        }
+        // Lua table order is unspecified; sort so the layout is deterministic.
+        std::ranges::sort(fields, {}, &NewField::name);
+
+        if (const auto it = rt.components.find(name); it != rt.components.end()) {
+            const ComponentInfo& existing = *it->second;
+            bool same = existing.script_defined && existing.fields.size() == fields.size();
+            for (std::size_t i = 0; same && i < fields.size(); ++i) {
+                same = existing.fields[i].name == fields[i].name && existing.fields[i].type == fields[i].type;
+            }
+            if (!same) {
+                raise(S, ErrorCode::script_component_conflict,
+                      std::format("component '{}' is already defined with different fields", name),
+                      "Use a different name, or make the definitions identical.");
+            }
+            rt.push_component_table(S, existing);
+            return 1;
+        }
+        if (rt.world.lookup(name.c_str())) {
+            raise(S, ErrorCode::script_component_conflict,
+                  std::format("'{}' already names an entity or C++ component", name),
+                  "Pick another name for the script component.");
+        }
+
+        auto component = rt.world.component(name.c_str());
+        for (const NewField& f : fields) {
+            component.member(f.type, f.name.c_str());
+        }
+        auto info = std::make_unique<ComponentInfo>();
+        info->name = name;
+        info->id = component.id();
+        info->fields = struct_fields(rt.world, component.id());
+        info->script_defined = true;
+        info->defaults = ecs_ptr_new(rt.world.c_ptr(), component.id());
+        rt.read_value(S, 2, info->id, info->defaults, name);
+        log::debug("script", "component '{}' defined ({} fields)", name, fields.size());
+
+        const ComponentInfo& ref = *info;
+        rt.components.emplace(name, std::move(info));
+        rt.push_component_table(S, ref);
+        return 1;
+    }
+
+    static int api_query(lua_State* S) {
+        Impl& rt = self(S);
+        const int count = lua_gettop(S);
+        if (count < 1 || count > static_cast<int>(max_query_components)) {
+            luaL_error(S, "veach.query takes 1 to %d components, got %d", static_cast<int>(max_query_components),
+                       count);
+        }
+        lua_createtable(S, 0, 1);
+        lua_createtable(S, count, 0);
+        for (int i = 1; i <= count; ++i) {
+            static_cast<void>(rt.check_component(S, i));
+            lua_pushvalue(S, i);
+            lua_rawseti(S, -2, i);
+        }
+        lua_setfield(S, -2, "components");
+        lua_setreadonly(S, -1, 1);
+        return 1;
+    }
+
+    static int api_system(lua_State* S) {
+        Impl& rt = self(S);
+        rt.require_loading(S, "veach.system()");
+        const std::string name = luaL_checkstring(S, 1);
+        const std::string phase_name = luaL_checkstring(S, 2);
+        luaL_checktype(S, 3, LUA_TTABLE);
+        luaL_checktype(S, 4, LUA_TFUNCTION);
+
+        const auto phase = find_phase(phase_name);
+        if (!phase) {
+            std::vector<std::string> names;
+            for (const PhaseInfo& info : phases()) {
+                names.emplace_back(info.name);
+            }
+            raise(S, ErrorCode::ecs_unknown_phase, std::format("unknown phase '{}'", phase_name),
+                  did_you_mean(phase_name, names));
+        }
+        const auto taken = [&](const auto& list) {
+            return std::ranges::any_of(list, [&](const auto& s) { return s->name == name; });
+        };
+        if (taken(rt.systems) || taken(rt.pending_systems)) {
+            raise(S, ErrorCode::script_duplicate_system, std::format("system '{}' is already defined", name),
+                  "System names are global; give this one a unique name.");
+        }
+
+        auto system = std::make_unique<ScriptSystem>();
+        system->name = name;
+        system->phase = *phase;
+        lua_getfield(S, 3, "components");
+        if (!lua_istable(S, -1)) {
+            luaL_error(S, "veach.system: the third argument must be a query from veach.query(...)");
+        }
+        const int count = lua_objlen(S, -1);
+        for (int i = 1; i <= count; ++i) {
+            lua_rawgeti(S, -1, i);
+            system->components.push_back(&rt.check_component(S, lua_gettop(S)));
+            lua_pop(S, 1);
+        }
+        lua_pop(S, 1);
+        lua_pushvalue(S, 4);
+        system->fn_ref = lua_ref(S, -1);
+        lua_pop(S, 1);
+        rt.pending_systems.push_back(std::move(system));
+        return 0;
+    }
+
+    static int api_spawn(lua_State* S) {
+        Impl& rt = self(S);
+        CommandBuffer& cmd = rt.require_active(S, "veach.spawn()");
+        const char* name = luaL_optstring(S, 1, "");
+        const Entity e = cmd.spawn(name);
+        rt.push_entity(S, e.id());
+        return 1;
+    }
+
+    static int api_log(lua_State* S) {
+        const auto level = static_cast<log::Level>(lua_tointeger(S, lua_upvalueindex(2)));
+        log::write(level, "script", luaL_checkstring(S, 1));
+        return 0;
+    }
+
+    static int api_time_frame(lua_State* S) {
+        const Time* t = self(S).world.try_get<Time>();
+        lua_pushnumber(S, t ? static_cast<double>(t->frame) : 0.0);
+        return 1;
+    }
+
+    static int api_time_delta(lua_State* S) {
+        const Time* t = self(S).world.try_get<Time>();
+        lua_pushnumber(S, t ? t->delta : 0.0);
+        return 1;
+    }
+
+    static int api_time_elapsed(lua_State* S) {
+        const Time* t = self(S).world.try_get<Time>();
+        lua_pushnumber(S, t ? t->elapsed : 0.0);
+        return 1;
+    }
+
+    static int api_require(lua_State* S) {
+        Impl& rt = self(S);
+        const std::string name = luaL_checkstring(S, 1);
+        if (name != "@veach") {
+            raise(S, ErrorCode::script_unknown_module, std::format("unknown module '{}'", name),
+                  "The only module available in v0 is \"@veach\".");
+        }
+        lua_getref(S, rt.veach_ref);
+        return 1;
+    }
+
+    // ---- bindings: Entity methods --------------------------------------------
+
+    static int entity_id(lua_State* S) {
+        lua_pushnumber(S, static_cast<double>(check_entity(S, 1)));
+        return 1;
+    }
+
+    static int entity_get(lua_State* S) {
+        Impl& rt = self(S);
+        const ecs::entity_t e = check_entity(S, 1);
+        const ComponentInfo& c = rt.check_component(S, 2);
+        const void* ptr = ecs_is_alive(rt.world.c_ptr(), e) ? ecs_get_id(rt.world.c_ptr(), e, c.id) : nullptr;
+        if (!ptr) {
+            lua_pushnil(S);
+        } else {
+            rt.push_value(S, c.id, ptr);
+        }
+        return 1;
+    }
+
+    static int entity_set(lua_State* S) {
+        Impl& rt = self(S);
+        const ecs::entity_t e = check_entity(S, 1);
+        const ComponentInfo& c = rt.check_component(S, 2);
+        CommandBuffer& cmd = rt.require_active(S, "Entity:set()");
+        TempValue value(rt.world, c.id);
+        ecs_ptr_copy(rt.world.c_ptr(), c.id, value.ptr, c.defaults);
+        rt.read_value(S, 3, c.id, value.ptr, c.name);
+        cmd.set(rt.world.entity(e), c.id, value.ptr);
+        return 0;
+    }
+
+    static int entity_has(lua_State* S) {
+        Impl& rt = self(S);
+        const ecs::entity_t e = check_entity(S, 1);
+        const ComponentInfo& c = rt.check_component(S, 2);
+        lua_pushboolean(S, ecs_is_alive(rt.world.c_ptr(), e) && ecs_has_id(rt.world.c_ptr(), e, c.id) ? 1 : 0);
+        return 1;
+    }
+
+    static int entity_remove(lua_State* S) {
+        Impl& rt = self(S);
+        const ecs::entity_t e = check_entity(S, 1);
+        const ComponentInfo& c = rt.check_component(S, 2);
+        rt.require_active(S, "Entity:remove()").remove(rt.world.entity(e), c.id);
+        return 0;
+    }
+
+    static int entity_despawn(lua_State* S) {
+        Impl& rt = self(S);
+        const ecs::entity_t e = check_entity(S, 1);
+        rt.require_active(S, "Entity:despawn()").despawn(rt.world.entity(e));
+        return 0;
+    }
+
+    static int entity_tostring(lua_State* S) {
+        Impl& rt = self(S);
+        const ecs::entity_t e = check_entity(S, 1);
+        const char* name = ecs_is_alive(rt.world.c_ptr(), e) ? ecs_get_name(rt.world.c_ptr(), e) : nullptr;
+        const std::string text = name ? std::format("Entity({} '{}')", e, name) : std::format("Entity({})", e);
+        lua_pushstring(S, text.c_str());
+        return 1;
+    }
+
+    static int entity_eq(lua_State* S) {
+        lua_pushboolean(S, check_entity(S, 1) == check_entity(S, 2) ? 1 : 0);
+        return 1;
+    }
+
+    // ---- setup -----------------------------------------------------------------
+
+    void open() {
+        L = luaL_newstate();
+        luaL_openlibs(L);
+
+        // Entity metatable.
+        lua_createtable(L, 0, 4);
+        lua_createtable(L, 0, 6);
+        push_function(entity_id, "id");
+        lua_setfield(L, -2, "id");
+        push_function(entity_get, "get");
+        lua_setfield(L, -2, "get");
+        push_function(entity_set, "set");
+        lua_setfield(L, -2, "set");
+        push_function(entity_has, "has");
+        lua_setfield(L, -2, "has");
+        push_function(entity_remove, "remove");
+        lua_setfield(L, -2, "remove");
+        push_function(entity_despawn, "despawn");
+        lua_setfield(L, -2, "despawn");
+        lua_setreadonly(L, -1, 1);
+        lua_setfield(L, -2, "__index");
+        push_function(entity_tostring, "__tostring");
+        lua_setfield(L, -2, "__tostring");
+        push_function(entity_eq, "__eq");
+        lua_setfield(L, -2, "__eq");
+        lua_pushstring(L, "Entity");
+        lua_setfield(L, -2, "__type");
+        lua_setreadonly(L, -1, 1);
+        entity_metatable_ref = lua_ref(L, -1);
+        lua_pop(L, 1);
+
+        // The @veach module.
+        lua_createtable(L, 0, static_cast<int>(api_function_names.size()));
+        push_function(api_component, "component");
+        lua_setfield(L, -2, "component");
+        push_function(api_query, "query");
+        lua_setfield(L, -2, "query");
+        push_function(api_system, "system");
+        lua_setfield(L, -2, "system");
+        push_function(api_spawn, "spawn");
+        lua_setfield(L, -2, "spawn");
+
+        lua_createtable(L, 0, 4);
+        constexpr std::array<std::pair<const char*, log::Level>, 4> levels{{
+            {"debug", log::Level::debug},
+            {"info", log::Level::info},
+            {"warn", log::Level::warn},
+            {"error", log::Level::error},
+        }};
+        for (const auto& [fn_name, level] : levels) {
+            lua_pushlightuserdata(L, this);
+            lua_pushinteger(L, static_cast<int>(level));
+            lua_pushcclosure(L, api_log, fn_name, 2);
+            lua_setfield(L, -2, fn_name);
+        }
+        lua_setreadonly(L, -1, 1);
+        lua_setfield(L, -2, "log");
+
+        lua_createtable(L, 0, 3);
+        push_function(api_time_frame, "frame");
+        lua_setfield(L, -2, "frame");
+        push_function(api_time_delta, "delta");
+        lua_setfield(L, -2, "delta");
+        push_function(api_time_elapsed, "elapsed");
+        lua_setfield(L, -2, "elapsed");
+        lua_setreadonly(L, -1, 1);
+        lua_setfield(L, -2, "time");
+
+        lua_newtable(L);
+        lua_pushvalue(L, -1);
+        components_ref = lua_ref(L, -1);
+        lua_pop(L, 1);
+        lua_setfield(L, -2, "components");
+
+        lua_setreadonly(L, -1, 1);
+        veach_ref = lua_ref(L, -1);
+        lua_pop(L, 1);
+
+        push_function(api_require, "require");
+        lua_setglobal(L, "require");
+
+        // Dispatcher.
+        auto dispatcher = compile_script(dispatcher_source, "veach/dispatch");
+        VEACH_ASSERT(dispatcher.has_value(), "dispatcher failed to compile");
+        if (luau_load(L, dispatcher->chunk_name.c_str(), dispatcher->bytecode.data(), dispatcher->bytecode.size(), 0) !=
+                0 ||
+            lua_pcall(L, 0, 1, 0) != 0) {
+            VEACH_PANIC("dispatcher failed to load: {}", lua_tostring(L, -1));
+        }
+        dispatcher_ref = lua_ref(L, -1);
+        lua_pop(L, 1);
+
+        luaL_sandbox(L);  // freezes globals and builtin libraries
+    }
+
+    void activate(std::unique_ptr<ScriptSystem> system) {
+        const std::string path = "scripts::" + system->name;
+        // immediate(): the batch is fully collected before Luau runs, and the
+        // command buffer is then applied directly (named spawns need a writable world).
+        auto builder = world.system<>(path.c_str()).kind(phase_entity(world, system->phase)).immediate();
+        for (const ComponentInfo* c : system->components) {
+            builder.with(c->id).in();
+        }
+        ScriptSystem* raw = system.get();
+        system->entity = builder.run([this, raw](Iter& it) { run_system(*raw, it); }).id();
+        log::debug("script", "system '{}' registered in {}", system->name, phase_info(system->phase).name);
+        systems.push_back(std::move(system));
+    }
+
+    void run_system(const ScriptSystem& system, Iter& it) {
+        VEACH_ZONE_TEXT("script.system", system.name.data(), system.name.size());
+        const int top = lua_gettop(L);
+        lua_getref(L, dispatcher_ref);
+        lua_getref(L, system.fn_ref);
+        lua_newtable(L);
+        const int entities = lua_gettop(L);
+        for (std::size_t k = 0; k < system.components.size(); ++k) {
+            lua_newtable(L);
+        }
+
+        int row = 0;
+        while (it.next()) {
+            for (const auto i : it) {
+                ++row;
+                push_entity(L, it.entity(i).id());
+                lua_rawseti(L, entities, row);
+                for (std::size_t k = 0; k < system.components.size(); ++k) {
+                    const auto field = static_cast<std::int8_t>(k);
+                    const ecs::entity_t type = system.components[k]->id;
+                    const auto size = static_cast<std::size_t>(ecs_get_type_info(world.c_ptr(), type)->size);
+                    const char* base = static_cast<const char*>(ecs_field_w_size(it.c_ptr(), size, field));
+                    const std::size_t offset = ecs_field_is_self(it.c_ptr(), field) ? i * size : 0;
+                    push_value(L, type, base + offset);
+                    lua_rawseti(L, entities + 1 + static_cast<int>(k), row);
+                }
+            }
+        }
+        if (row == 0) {
+            lua_settop(L, top);
+            return;
+        }
+
+        CommandBuffer cmd(world);
+        active = &cmd;
+        const int status = lua_pcall(L, 2 + static_cast<int>(system.components.size()), 0, 0);
+        active = nullptr;
+        if (status != LUA_OK) {
+            log::error("script", Error{ErrorCode::script_runtime_error,
+                                       std::format("system '{}': {}", system.name, lua_tostring(L, -1)),
+                                       "This run's writes were discarded; the system runs again next time."});
+            cmd.discard();
+            lua_settop(L, top);
+            return;
+        }
+        cmd.apply();
+    }
+
+    Result<> execute(const ScriptAsset& script) {
+        VEACH_ZONE_TEXT("script.execute", script.chunk_name.data(), script.chunk_name.size());
+        if (loading) {
+            return make_error(ErrorCode::internal, "scripts cannot load other scripts while loading");
+        }
+        refresh_cpp_components();
+
+        lua_State* T = lua_newthread(L);
+        thread_refs.push_back(lua_ref(L, -1));
+        lua_pop(L, 1);
+        luaL_sandboxthread(T);
+
+        if (luau_load(T, script.chunk_name.c_str(), script.bytecode.data(), script.bytecode.size(), 0) != 0) {
+            return make_error(ErrorCode::script_compile_failed, lua_tostring(T, -1));
+        }
+
+        CommandBuffer cmd(world);
+        active = &cmd;
+        loading = true;
+        const int status = lua_pcall(T, 0, 0, 0);
+        loading = false;
+        active = nullptr;
+
+        if (status != LUA_OK) {
+            std::string message = lua_tostring(T, -1) ? lua_tostring(T, -1) : "unknown error";
+            lua_pop(T, 1);
+            for (auto& system : pending_systems) {
+                lua_unref(L, system->fn_ref);
+            }
+            pending_systems.clear();
+            cmd.discard();
+            return make_error(ErrorCode::script_runtime_error,
+                              std::format("{}: {}", script.chunk_name.substr(1), message),
+                              "Nothing from this script was applied: its systems and writes were discarded.");
+        }
+        cmd.apply();
+        for (auto& system : pending_systems) {
+            activate(std::move(system));
+        }
+        pending_systems.clear();
+        log::debug("script", "executed {}", script.chunk_name.substr(1));
+        return {};
+    }
+
+    void close() {
+        if (!L) {
+            return;
+        }
+        for (const auto& system : systems) {
+            if (ecs_is_alive(world.c_ptr(), system->entity)) {
+                ecs_delete(world.c_ptr(), system->entity);
+            }
+        }
+        systems.clear();
+        pending_systems.clear();
+        for (const auto& [name, info] : components) {
+            ecs_ptr_free(world.c_ptr(), info->id, info->defaults);
+        }
+        components.clear();
+        lua_close(L);
+        L = nullptr;
+    }
+};
+
+ScriptRuntime::ScriptRuntime(World& world) : impl_(std::make_unique<Impl>(world)) {
+    impl_->open();
+}
+
+ScriptRuntime::~ScriptRuntime() {
+    impl_->close();
+}
+
+Result<> ScriptRuntime::execute(const ScriptAsset& script) {
+    return impl_->execute(script);
+}
+
+Result<> ScriptRuntime::execute_source(std::string_view source, std::string_view chunk_name) {
+    auto script = compile_script(source, chunk_name);
+    if (!script) {
+        return std::unexpected(script.error());
+    }
+    return impl_->execute(*script);
+}
+
+void ScriptRuntime::shutdown() {
+    impl_->close();
+}
+
+std::size_t ScriptRuntime::system_count() const {
+    return impl_->systems.size();
+}
+
+std::size_t ScriptRuntime::component_count() const {
+    return static_cast<std::size_t>(
+        std::ranges::count_if(impl_->components, [](const auto& entry) { return entry.second->script_defined; }));
+}
+
+std::span<const std::string_view> ScriptRuntime::api_names() {
+    return api_function_names;
+}
+
+}  // namespace veach

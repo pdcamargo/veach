@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint (hygiene, format)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Repo hygiene (backlog ids, CLAUDE.md, veach names in apps/)
+        run: python3 tools/scripts/check_repo.py
+      - name: No flecs:: in apps/
+        run: |
+          if grep -rn "flecs::" apps/; then
+            echo "::error::apps/ must use veach:: names (veach::World, veach::Entity, ...), never flecs::"
+            exit 1
+          fi
+      - name: clang-format
+        run: |
+          pip install clang-format==23.1.5
+          git ls-files '*.cpp' '*.hpp' '*.h' '*.mm' '*.inl' | xargs clang-format --dry-run --Werror
+
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (Debug, ASan + UBSan)
+            os: macos-15
+            preset: asan
+          - name: Windows (Debug, MSVC, DX12 stub + null RHI)
+            os: windows-2025
+            preset: debug
+    env:
+      CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache
+    steps:
+      - uses: actions/checkout@v5
+      - uses: lukka/get-cmake@latest
+      - name: MSVC developer environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+      - uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ matrix.os }}-${{ matrix.preset }}
+          max-size: 1G
+      - name: Cache dependency sources
+        uses: actions/cache@v4
+        with:
+          path: .cpm-cache
+          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/VeachDependencies.cmake') }}
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+      - name: Test (unit, hello world, luau-analyze, generated files, hygiene)
+        run: ctest --preset ${{ matrix.preset }}

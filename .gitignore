@@ -1,0 +1,18 @@
+# Build output and dependency cache
+build/
+.cpm-cache/
+out/
+
+# Tooling
+.cache/
+compile_commands.json
+*.tracy
+trace*.csv
+.DS_Store
+.vs/
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Claude Code: personal settings stay local; .claude/settings.json is shared
+.claude/settings.local.json

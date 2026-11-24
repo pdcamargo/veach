@@ -21,7 +21,7 @@ jobs:
           python-version: "3.12"
       - name: Repo hygiene (backlog ids, CLAUDE.md, veach names in apps/)
         run: python3 tools/scripts/check_repo.py
-      - name: No flecs:: in apps/
+      - name: "No flecs:: in apps/"
         run: |
           if grep -rn "flecs::" apps/; then
             echo "::error::apps/ must use veach:: names (veach::World, veach::Entity, ...), never flecs::"

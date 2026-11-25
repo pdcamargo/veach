@@ -102,6 +102,7 @@ def main() -> int:
     parser.add_argument("--candidates", type=int, default=12, help="ReSTIR DI's initial candidates per pixel")
     parser.add_argument("--final", action="store_true",
                         help="the final image instead: denoised, after --realtime-frames of warm-up (temporal.AC6)")
+    parser.add_argument("--render-scale", type=float, default=0.75, help="with --final and an upscaler")
     parser.add_argument("--upscaler", default="none", choices=["none", "automatic", "temporal", "metalfx"],
                         help="with --final: none compares full-resolution pixel centers like v0; an upscaler compares "
                              "its anti-aliased image with an anti-aliased reference")
@@ -140,7 +141,8 @@ def main() -> int:
                            f"spatial_samples = {0 if args.no_reuse else 2} }})\n"
                            # Full resolution through pixel centers like the reference: no jitter, no upscaler (or,
                            # for the final image, the default upscaler against an anti-aliased reference).
-                           + (f"camera:set(veach.components.Upscaling, {{ mode = \"{args.upscaler}\" }})"
+                           + (f"camera:set(veach.components.Upscaling, {{ mode = \"{args.upscaler}\", "
+                              f"render_scale = {args.render_scale} }})"
                               if args.final and args.upscaler != "none" else
                               "camera:set(veach.components.Upscaling, { mode = \"none\", render_scale = 1 })"))
         reference = variant(scene, f"{args.label}reference", size, args.extra + "\n"

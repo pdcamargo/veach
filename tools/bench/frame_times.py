@@ -102,6 +102,7 @@ def main() -> int:
     parser.add_argument("--breakdown", action="store_true", help="also time the shade pass with each part left out")
     parser.add_argument("--lighting", action="append", default=[], metavar="FIELD=VALUE",
                         help="a RealtimeLighting field to set over MCP (repeatable), e.g. spatial_samples=2")
+    parser.add_argument("--render-scale", type=float, default=None, help="the camera's Upscaling.render_scale")
     parser.add_argument("--upscaler", default="automatic", choices=["automatic", "metalfx", "temporal", "none"],
                         help="the camera's Upscaling.mode, set over MCP (scenes may pin one for their goldens)")
     args = parser.parse_args()
@@ -124,7 +125,10 @@ def main() -> int:
         window = mcp.call("get_component", entity="primary_window", component="Window")
         window.update(width=width, height=height)
         mcp.call("set_component", entity="primary_window", component="Window", value=window)
-        mcp.call("set_component", entity="camera", component="Upscaling", value={"mode": args.upscaler})
+        upscaling = {"mode": args.upscaler}
+        if args.render_scale is not None:
+            upscaling["render_scale"] = args.render_scale
+        mcp.call("set_component", entity="camera", component="Upscaling", value=upscaling)
         if args.lighting:
             fields = {k: json.loads(v) for k, v in (item.split("=", 1) for item in args.lighting)}
             mcp.call("set_component", entity="camera", component="RealtimeLighting", value=fields)

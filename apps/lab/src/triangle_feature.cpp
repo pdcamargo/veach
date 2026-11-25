@@ -59,7 +59,7 @@ public:
     [[nodiscard]] veach::Result<> prepare(rhi::Device& device) override {
         auto vertices =
             device.create_buffer({sizeof(triangle), rhi::BufferUsage::storage | rhi::BufferUsage::accel_input,
-                                  rhi::MemoryType::gpu, "triangle vertices"},
+                                  rhi::MemoryType::gpu, "triangle vertices", sizeof(Vertex)},
                                  std::as_bytes(std::span(triangle)));
         if (!vertices) {
             return std::unexpected(vertices.error());

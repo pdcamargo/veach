@@ -16,7 +16,9 @@
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 
+#include <algorithm>
 #include <array>
+#include <cstring>
 #include <format>
 #include <memory>
 #include <optional>
@@ -50,6 +52,59 @@ std::string narrow(const wchar_t* text) {
         WideCharToMultiByte(CP_UTF8, 0, text, -1, out.data(), size, nullptr, nullptr);
     }
     return out;
+}
+
+std::wstring widen(std::string_view text) {
+    const int size = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+    std::wstring out(static_cast<std::size_t>(size), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), out.data(), size);
+    return out;
+}
+
+void set_name(ID3D12Object* object, std::string_view name) {
+    if (!name.empty()) {
+        object->SetName(widen(name).c_str());
+    }
+}
+
+constexpr std::uint64_t align_up(std::uint64_t value, std::uint64_t alignment) {
+    return (value + alignment - 1) / alignment * alignment;
+}
+
+DXGI_FORMAT to_dxgi(Format format) {
+    switch (format) {
+        case Format::rgba8_unorm: return DXGI_FORMAT_R8G8B8A8_UNORM;
+        case Format::bgra8_unorm: return DXGI_FORMAT_B8G8R8A8_UNORM;
+        case Format::rgba16_float: return DXGI_FORMAT_R16G16B16A16_FLOAT;
+        case Format::rgba32_float: return DXGI_FORMAT_R32G32B32A32_FLOAT;
+        case Format::r32_float: return DXGI_FORMAT_R32_FLOAT;
+        case Format::rgb32_float: return DXGI_FORMAT_R32G32B32_FLOAT;
+        case Format::depth32_float: return DXGI_FORMAT_D32_FLOAT;
+        case Format::undefined: return DXGI_FORMAT_UNKNOWN;
+    }
+    return DXGI_FORMAT_UNKNOWN;
+}
+
+D3D12_HEAP_TYPE heap_type(MemoryType memory) {
+    switch (memory) {
+        case MemoryType::upload: return D3D12_HEAP_TYPE_UPLOAD;
+        case MemoryType::readback: return D3D12_HEAP_TYPE_READBACK;
+        case MemoryType::gpu: return D3D12_HEAP_TYPE_DEFAULT;
+    }
+    return D3D12_HEAP_TYPE_DEFAULT;
+}
+
+D3D12_RESOURCE_DESC1 buffer_resource(std::uint64_t size, D3D12_RESOURCE_FLAGS flags) {
+    D3D12_RESOURCE_DESC1 desc{};
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    desc.Width = size;
+    desc.Height = 1;
+    desc.DepthOrArraySize = 1;
+    desc.MipLevels = 1;
+    desc.SampleDesc.Count = 1;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    desc.Flags = flags;
+    return desc;
 }
 
 std::unexpected<Error> gpu_error(std::string_view what, HRESULT hr) {
@@ -112,6 +167,79 @@ struct Recorder {
     ComPtr<ID3D12CommandAllocator> allocator;
     ComPtr<ID3D12GraphicsCommandList7> list;
     std::uint64_t last_use = 0;
+};
+
+/// A descriptor heap with a free list. Index 0 is never handed out, so a zero DescriptorHandle means "none"
+/// on DX12 as it does on Metal. Slots are released through SubmissionTracker::retire() only (ADR 0029).
+class DescriptorHeap {
+public:
+    HRESULT init(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, std::uint32_t capacity, bool shader_visible) {
+        D3D12_DESCRIPTOR_HEAP_DESC desc{};
+        desc.Type = type;
+        desc.NumDescriptors = capacity;
+        desc.Flags = shader_visible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+        if (const HRESULT hr = device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap_)); FAILED(hr)) {
+            return hr;
+        }
+        base_ = heap_->GetCPUDescriptorHandleForHeapStart();
+        increment_ = device->GetDescriptorHandleIncrementSize(type);
+        capacity_ = capacity;
+        return S_OK;
+    }
+
+    /// A free slot, or 0 when the heap is full.
+    [[nodiscard]] std::uint32_t allocate() {
+        if (!free_.empty()) {
+            const std::uint32_t index = free_.back();
+            free_.pop_back();
+            return index;
+        }
+        return next_ < capacity_ ? next_++ : 0;
+    }
+    void release(std::uint32_t index) {
+        if (index != 0) {
+            free_.push_back(index);
+        }
+    }
+
+    [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE cpu(std::uint32_t index) const {
+        return {base_.ptr + std::size_t{index} * increment_};
+    }
+    [[nodiscard]] ID3D12DescriptorHeap* get() const { return heap_.Get(); }
+    [[nodiscard]] std::uint32_t capacity() const { return capacity_; }
+
+private:
+    ComPtr<ID3D12DescriptorHeap> heap_;
+    D3D12_CPU_DESCRIPTOR_HANDLE base_{};
+    UINT increment_ = 0;
+    std::uint32_t capacity_ = 0;
+    std::uint32_t next_ = 1;
+    std::vector<std::uint32_t> free_;
+};
+
+/// Shader-visible heap sizes. 65,536 CBV/SRV/UAV slots fit every tier-3 device; 2,048 is the sampler maximum.
+constexpr std::uint32_t view_heap_capacity = 65'536;
+constexpr std::uint32_t sampler_heap_capacity = 2'048;
+constexpr std::uint32_t rtv_heap_capacity = 1'024;
+
+struct Dx12Buffer {
+    ComPtr<ID3D12Resource> resource;
+    BufferDesc desc;
+    void* mapped = nullptr;  ///< upload and readback heaps: persistently mapped
+    std::uint32_t srv = 0;
+    std::uint32_t uav = 0;
+};
+
+struct Dx12Texture {
+    ComPtr<ID3D12Resource> resource;
+    TextureDesc desc;
+    std::uint32_t srv = 0;
+    std::uint32_t uav = 0;
+    std::uint32_t rtv = 0;  ///< in the CPU-only RTV heap
+};
+
+struct Dx12Sampler {
+    std::uint32_t index = 0;
 };
 
 class Dx12Device;
@@ -205,18 +333,157 @@ public:
         if (event_ == nullptr) {
             return make_error(ErrorCode::rhi_gpu_error, "CreateEvent failed for the D3D12 fence");
         }
+        if (const HRESULT hr =
+                view_heap_.init(device_.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, view_heap_capacity, true);
+            FAILED(hr)) {
+            return gpu_error("creating the CBV/SRV/UAV heap", hr);
+        }
+        if (const HRESULT hr =
+                sampler_heap_.init(device_.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, sampler_heap_capacity, true);
+            FAILED(hr)) {
+            return gpu_error("creating the sampler heap", hr);
+        }
+        if (const HRESULT hr = rtv_heap_.init(device_.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV, rtv_heap_capacity, false);
+            FAILED(hr)) {
+            return gpu_error("creating the RTV heap", hr);
+        }
         return {};
     }
 
     [[nodiscard]] Backend backend() const override { return Backend::dx12; }
     [[nodiscard]] const Capabilities& capabilities() const override { return caps_; }
 
-    // TODO(VCH-012): resources, descriptors, pipelines, acceleration structures and surfaces (next steps).
-    [[nodiscard]] Result<BufferHandle> create_buffer(const BufferDesc&, std::span<const std::byte>) override {
-        return stub("create_buffer");
+    // ---- resources
+
+    [[nodiscard]] Result<BufferHandle> create_buffer(const BufferDesc& desc,
+                                                     std::span<const std::byte> initial) override {
+        const std::uint64_t size = align_up(std::max<std::uint64_t>({desc.size, 16, desc.stride}), 4);
+        const bool gpu_memory = desc.memory == MemoryType::gpu;
+        const bool storage = has(desc.usage, BufferUsage::storage);
+        // Upload and readback heaps can't have UAVs.
+        const D3D12_RESOURCE_FLAGS flags =
+            gpu_memory && storage ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS : D3D12_RESOURCE_FLAG_NONE;
+        auto resource = create_resource(heap_type(desc.memory), buffer_resource(size, flags),
+                                        D3D12_BARRIER_LAYOUT_UNDEFINED, desc.debug_name);
+        if (!resource) {
+            return std::unexpected(resource.error());
+        }
+        Dx12Buffer buffer{std::move(*resource), desc};
+        if (!gpu_memory) {
+            const D3D12_RANGE nothing_read{0, 0};
+            if (const HRESULT hr = buffer.resource->Map(0, desc.memory == MemoryType::upload ? &nothing_read : nullptr,
+                                                        &buffer.mapped);
+                FAILED(hr)) {
+                return gpu_error(std::format("mapping '{}'", desc.debug_name), hr);
+            }
+        }
+        if (storage && desc.memory != MemoryType::readback) {  // readback heaps are copy destinations only
+            buffer.srv = view_heap_.allocate();
+            buffer.uav = gpu_memory ? view_heap_.allocate() : 0;
+            if (buffer.srv == 0 || (gpu_memory && buffer.uav == 0)) {
+                view_heap_.release(buffer.srv);
+                view_heap_.release(buffer.uav);
+                return heap_full("CBV/SRV/UAV", view_heap_.capacity());
+            }
+            create_buffer_views(buffer, size);
+        }
+        if (!initial.empty()) {
+            const auto bytes = initial.first(std::min<std::size_t>(initial.size(), desc.size));
+            if (buffer.mapped != nullptr) {
+                std::memcpy(buffer.mapped, bytes.data(), bytes.size());
+            } else if (auto uploaded = upload(buffer.resource.Get(), bytes); !uploaded) {
+                free_descriptors(buffer);
+                return std::unexpected(uploaded.error());
+            }
+        }
+        return buffers_.insert(std::move(buffer));
     }
-    [[nodiscard]] Result<TextureHandle> create_texture(const TextureDesc&) override { return stub("create_texture"); }
-    [[nodiscard]] Result<SamplerHandle> create_sampler(const SamplerDesc&) override { return stub("create_sampler"); }
+
+    [[nodiscard]] Result<TextureHandle> create_texture(const TextureDesc& desc) override {
+        const DXGI_FORMAT format = to_dxgi(desc.format);
+        if (format == DXGI_FORMAT_UNKNOWN || desc.format == Format::rgb32_float) {
+            return make_error(ErrorCode::rhi_not_implemented,
+                              std::format("'{}': {} is not a texture format", desc.debug_name, to_string(desc.format)));
+        }
+        const bool depth = desc.format == Format::depth32_float;
+        D3D12_RESOURCE_DESC1 d{};
+        d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        d.Width = desc.width;
+        d.Height = desc.height;
+        d.DepthOrArraySize = 1;
+        d.MipLevels = 1;
+        d.Format = format;
+        d.SampleDesc.Count = 1;
+        d.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        if (has(desc.usage, TextureUsage::color_target)) {
+            d.Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+        }
+        if (has(desc.usage, TextureUsage::depth_target)) {
+            d.Flags |= D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+        }
+        if (has(desc.usage, TextureUsage::storage)) {
+            d.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        }
+        // New textures start in COMMON; the graph's first barrier says `undefined`, which is legal from any layout.
+        auto resource = create_resource(D3D12_HEAP_TYPE_DEFAULT, d, D3D12_BARRIER_LAYOUT_COMMON, desc.debug_name);
+        if (!resource) {
+            return std::unexpected(resource.error());
+        }
+        Dx12Texture texture{std::move(*resource), desc};
+        const bool sampled = has(desc.usage, TextureUsage::sampled);
+        const bool storage = has(desc.usage, TextureUsage::storage);
+        const bool target = has(desc.usage, TextureUsage::color_target);
+        texture.srv = sampled ? view_heap_.allocate() : 0;
+        texture.uav = storage ? view_heap_.allocate() : 0;
+        texture.rtv = target ? rtv_heap_.allocate() : 0;
+        if ((sampled && texture.srv == 0) || (storage && texture.uav == 0) || (target && texture.rtv == 0)) {
+            free_descriptors(texture);
+            return heap_full(target && texture.rtv == 0 ? "RTV" : "CBV/SRV/UAV",
+                             target && texture.rtv == 0 ? rtv_heap_.capacity() : view_heap_.capacity());
+        }
+        if (sampled) {
+            D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+            srv.Format = depth ? DXGI_FORMAT_R32_FLOAT : format;
+            srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+            srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            srv.Texture2D.MipLevels = 1;
+            device_->CreateShaderResourceView(texture.resource.Get(), &srv, view_heap_.cpu(texture.srv));
+        }
+        if (storage) {
+            D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
+            uav.Format = format;
+            uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+            device_->CreateUnorderedAccessView(texture.resource.Get(), nullptr, &uav, view_heap_.cpu(texture.uav));
+        }
+        if (target) {
+            D3D12_RENDER_TARGET_VIEW_DESC rtv{};
+            rtv.Format = format;
+            rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+            device_->CreateRenderTargetView(texture.resource.Get(), &rtv, rtv_heap_.cpu(texture.rtv));
+        }
+        return textures_.insert(std::move(texture));
+    }
+
+    [[nodiscard]] Result<SamplerHandle> create_sampler(const SamplerDesc& desc) override {
+        const std::uint32_t index = sampler_heap_.allocate();
+        if (index == 0) {
+            return heap_full("sampler", sampler_heap_.capacity());
+        }
+        D3D12_SAMPLER_DESC d{};
+        d.Filter = desc.filter == Filter::linear ? D3D12_FILTER_MIN_MAG_MIP_LINEAR : D3D12_FILTER_MIN_MAG_MIP_POINT;
+        const D3D12_TEXTURE_ADDRESS_MODE address =
+            desc.address == AddressMode::repeat ? D3D12_TEXTURE_ADDRESS_MODE_WRAP : D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        d.AddressU = address;
+        d.AddressV = address;
+        d.AddressW = address;
+        d.MaxAnisotropy = 1;
+        d.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+        d.MaxLOD = D3D12_FLOAT32_MAX;
+        device_->CreateSampler(&d, sampler_heap_.cpu(index));
+        return samplers_.insert({index});
+    }
+
+    // TODO(VCH-012): pipelines, acceleration structures and surfaces (steps 4, 5 and 8).
     [[nodiscard]] Result<PipelineHandle> create_graphics_pipeline(const GraphicsPipelineDesc&) override {
         return stub("create_graphics_pipeline");
     }
@@ -225,16 +492,35 @@ public:
     }
     [[nodiscard]] Result<AccelHandle> create_blas(const BlasDesc&) override { return stub("create_blas"); }
     [[nodiscard]] Result<AccelHandle> create_tlas(const TlasDesc&) override { return stub("create_tlas"); }
-    void destroy(BufferHandle) override {}
-    void destroy(TextureHandle) override {}
-    void destroy(SamplerHandle) override {}
+    void destroy(BufferHandle h) override { retire(buffers_, h); }
+    void destroy(TextureHandle h) override { retire(textures_, h); }
+    void destroy(SamplerHandle h) override { retire(samplers_, h); }
     void destroy(PipelineHandle) override {}
     void destroy(AccelHandle) override {}
-    [[nodiscard]] void* map(BufferHandle) override { return nullptr; }
-    [[nodiscard]] const TextureDesc* texture_desc(TextureHandle) const override { return nullptr; }
-    [[nodiscard]] DescriptorHandle descriptor(BufferHandle, View) override { return {}; }
-    [[nodiscard]] DescriptorHandle descriptor(TextureHandle, View) override { return {}; }
-    [[nodiscard]] DescriptorHandle descriptor(SamplerHandle) override { return {}; }
+
+    [[nodiscard]] void* map(BufferHandle h) override {
+        Dx12Buffer* b = buffers_.get(h);
+        return b ? b->mapped : nullptr;
+    }
+    [[nodiscard]] const TextureDesc* texture_desc(TextureHandle h) const override {
+        const Dx12Texture* t = textures_.get(h);
+        return t ? &t->desc : nullptr;
+    }
+
+    // ---- bindless descriptors (ADR 0024): heap indices
+
+    [[nodiscard]] DescriptorHandle descriptor(BufferHandle h, View view) override {
+        const Dx12Buffer* b = buffers_.get(h);
+        return {b ? (view == View::storage ? b->uav : b->srv) : 0u};
+    }
+    [[nodiscard]] DescriptorHandle descriptor(TextureHandle h, View view) override {
+        const Dx12Texture* t = textures_.get(h);
+        return {t ? (view == View::storage ? t->uav : t->srv) : 0u};
+    }
+    [[nodiscard]] DescriptorHandle descriptor(SamplerHandle h) override {
+        const Dx12Sampler* s = samplers_.get(h);
+        return {s ? s->index : 0u};
+    }
     [[nodiscard]] DescriptorHandle descriptor(AccelHandle) override { return {}; }
     [[nodiscard]] Result<SurfaceId> create_surface(const NativeWindowHandle&, const SurfaceDesc&) override {
         return stub("create_surface");
@@ -258,13 +544,7 @@ public:
     SubmissionId submit(std::unique_ptr<CommandList> commands, SurfaceId /*present*/) override {
         auto* list = static_cast<Dx12CommandList*>(commands.get());
         list->pop_debug_group();
-        std::unique_ptr<Recorder> recorder = list->finish();
-        std::array<ID3D12CommandList*, 1> lists{recorder->list.Get()};
-        queue_->ExecuteCommandLists(static_cast<UINT>(lists.size()), lists.data());
-        const SubmissionId submission = tracker_.next_submission();
-        queue_->Signal(fence_.Get(), submission.value);
-        recorder->last_use = submission.value;
-        give_back(std::move(recorder));
+        const SubmissionId submission = execute(list->finish());
         poll();
         return submission;
     }
@@ -300,6 +580,112 @@ public:
     void give_back(std::unique_ptr<Recorder> recorder) { recorders_.push_back(std::move(recorder)); }
 
 private:
+    /// Executes a closed list and signals the fence with its new SubmissionId.
+    SubmissionId execute(std::unique_ptr<Recorder> recorder) {
+        std::array<ID3D12CommandList*, 1> lists{recorder->list.Get()};
+        queue_->ExecuteCommandLists(static_cast<UINT>(lists.size()), lists.data());
+        const SubmissionId submission = tracker_.next_submission();
+        queue_->Signal(fence_.Get(), submission.value);
+        recorder->last_use = submission.value;
+        give_back(std::move(recorder));
+        return submission;
+    }
+
+    Result<ComPtr<ID3D12Resource>> create_resource(D3D12_HEAP_TYPE heap, const D3D12_RESOURCE_DESC1& desc,
+                                                   D3D12_BARRIER_LAYOUT layout, std::string_view name) {
+        D3D12_HEAP_PROPERTIES properties{};
+        properties.Type = heap;
+        ComPtr<ID3D12Resource> resource;
+        if (const HRESULT hr = device_->CreateCommittedResource3(&properties, D3D12_HEAP_FLAG_NONE, &desc, layout,
+                                                                 nullptr, nullptr, 0, nullptr, IID_PPV_ARGS(&resource));
+            FAILED(hr)) {
+            return gpu_error(std::format("creating '{}' ({} bytes)", name, desc.Width), hr);
+        }
+        set_name(resource.Get(), name);
+        return resource;
+    }
+
+    static std::unexpected<Error> heap_full(std::string_view heap, std::uint32_t capacity) {
+        return make_error(ErrorCode::rhi_gpu_error,
+                          std::format("the {} descriptor heap is full ({} slots)", heap, capacity),
+                          "Destroyed resources free their slots once the GPU is done with them; this many live "
+                          "resources need a bigger heap (dx12_device.cpp).");
+    }
+
+    void create_buffer_views(const Dx12Buffer& buffer, std::uint64_t size) {
+        const std::uint32_t stride = buffer.desc.stride;
+        D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+        srv.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
+        uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        if (stride != 0) {  // StructuredBuffer<T>
+            srv.Format = DXGI_FORMAT_UNKNOWN;
+            srv.Buffer.NumElements = static_cast<UINT>(size / stride);
+            srv.Buffer.StructureByteStride = stride;
+            uav.Format = DXGI_FORMAT_UNKNOWN;
+            uav.Buffer.NumElements = srv.Buffer.NumElements;
+            uav.Buffer.StructureByteStride = stride;
+        } else {  // ByteAddressBuffer
+            srv.Format = DXGI_FORMAT_R32_TYPELESS;
+            srv.Buffer.NumElements = static_cast<UINT>(size / 4);
+            srv.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+            uav.Format = DXGI_FORMAT_R32_TYPELESS;
+            uav.Buffer.NumElements = srv.Buffer.NumElements;
+            uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+        }
+        device_->CreateShaderResourceView(buffer.resource.Get(), &srv, view_heap_.cpu(buffer.srv));
+        if (buffer.uav != 0) {
+            device_->CreateUnorderedAccessView(buffer.resource.Get(), nullptr, &uav, view_heap_.cpu(buffer.uav));
+        }
+    }
+
+    /// Copies `data` into a device-local buffer through a staging buffer, on its own submission. The queue runs
+    /// in order, so every later submission sees the data; the staging buffer is retired with it.
+    Result<> upload(ID3D12Resource* destination, std::span<const std::byte> data) {
+        auto staging = create_resource(D3D12_HEAP_TYPE_UPLOAD, buffer_resource(data.size(), D3D12_RESOURCE_FLAG_NONE),
+                                       D3D12_BARRIER_LAYOUT_UNDEFINED, "upload staging");
+        if (!staging) {
+            return std::unexpected(staging.error());
+        }
+        void* mapped = nullptr;
+        const D3D12_RANGE nothing_read{0, 0};
+        if (const HRESULT hr = (*staging)->Map(0, &nothing_read, &mapped); FAILED(hr)) {
+            return gpu_error("mapping an upload staging buffer", hr);
+        }
+        std::memcpy(mapped, data.data(), data.size());
+        std::unique_ptr<Recorder> recorder = take_recorder();
+        if (!recorder) {
+            return make_error(ErrorCode::rhi_gpu_error, "D3D12: no command list for an upload");
+        }
+        recorder->list->CopyBufferRegion(destination, 0, staging->Get(), 0, data.size());
+        recorder->list->Close();
+        static_cast<void>(execute(std::move(recorder)));
+        tracker_.retire([keep = std::move(*staging)] {});
+        return {};
+    }
+
+    void free_descriptors(const Dx12Buffer& b) {
+        view_heap_.release(b.srv);
+        view_heap_.release(b.uav);
+    }
+    void free_descriptors(const Dx12Texture& t) {
+        view_heap_.release(t.srv);
+        view_heap_.release(t.uav);
+        rtv_heap_.release(t.rtv);
+    }
+    void free_descriptors(const Dx12Sampler& s) { sampler_heap_.release(s.index); }
+
+    /// The handle dies now; the D3D12 object and its descriptor slots once the GPU is done with them (ADR 0029).
+    template <class Map, class H>
+    void retire(Map& map, H h) {
+        if (auto* object = map.get(h)) {
+            auto keep = std::make_shared<std::decay_t<decltype(*object)>>(std::move(*object));
+            map.erase(h);
+            tracker_.retire([this, keep] { free_descriptors(*keep); });
+        }
+    }
+
     static std::unexpected<Error> stub(std::string_view what) {
         return make_error(ErrorCode::rhi_not_implemented, std::format("DX12: {} is not implemented yet", what),
                           "The DX12 backend is being built step by step (docs/guides/dx12-port.md, VCH-012).");
@@ -365,6 +751,12 @@ private:
     Capabilities caps_;
     SubmissionTracker tracker_;
     std::vector<std::unique_ptr<Recorder>> recorders_;
+    DescriptorHeap view_heap_;
+    DescriptorHeap sampler_heap_;
+    DescriptorHeap rtv_heap_;
+    SlotMap<Dx12Buffer, BufferHandle> buffers_;
+    SlotMap<Dx12Texture, TextureHandle> textures_;
+    SlotMap<Dx12Sampler, SamplerHandle> samplers_;
     bool device_removed_reported_ = false;
 };
 

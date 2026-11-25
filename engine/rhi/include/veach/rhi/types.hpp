@@ -127,6 +127,8 @@ struct BufferDesc {
     BufferUsage usage = BufferUsage::storage;
     MemoryType memory = MemoryType::gpu;
     std::string debug_name;
+    /// Element size for StructuredBuffer<T> views (sizeof(T)); 0 means raw (ByteAddressBuffer). DX12 needs it.
+    std::uint32_t stride = 0;
 };
 
 struct TextureDesc {

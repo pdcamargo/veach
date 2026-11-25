@@ -11,6 +11,7 @@
 
 #include "veach_render_shaders.hpp"
 
+#include <array>
 #include <format>
 
 namespace veach::render {

@@ -3,7 +3,11 @@
 #include "lab_shaders.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstring>
+#include <format>
+#include <optional>
+#include <span>
 
 namespace lab {
 

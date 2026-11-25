@@ -100,7 +100,8 @@ Result<> Engine::run_step(std::string name, const std::function<Result<std::stri
         // Keep the cause's code in the message: it is the actionable one (and what tools match on).
         return make_error(ErrorCode::engine_init_failed,
                           std::format("init step '{}' failed: {} (cause: {})", name, detail.error().message,
-                                      slug(detail.error().code)), detail.error().hint);
+                                      slug(detail.error().code)),
+                          detail.error().hint);
     }
     log::info("engine", "init {}{}", name, detail->empty() ? "" : " (" + *detail + ")");
     steps_.push_back({std::move(name), std::move(teardown)});

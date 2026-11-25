@@ -3,7 +3,8 @@
 
 function(veach_apply_warnings target)
     if(MSVC)
-        target_compile_options(${target} PRIVATE /W4 /permissive- /external:W0)
+        # C4324 (padded due to alignas) is the point of writing alignas, e.g. GPU parameter blocks.
+        target_compile_options(${target} PRIVATE /W4 /permissive- /external:W0 /wd4324)
         if(VEACH_WARNINGS_AS_ERRORS)
             target_compile_options(${target} PRIVATE /WX)
         endif()

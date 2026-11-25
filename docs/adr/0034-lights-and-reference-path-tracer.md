@@ -4,7 +4,7 @@ Date: 2026-11-25
 
 ## Status
 
-Accepted
+Accepted. The "Alpha" bullet is superseded by [ADR 0035](0035-alpha-by-continuing-opaque-rays.md).
 
 ## Context
 

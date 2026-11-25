@@ -108,7 +108,7 @@ struct CornellBox {
     std::unique_ptr<AssetServer> assets;
     CornellBox() {
         const auto dir = test::source_dir() / "apps/lab/assets/cornell_box";
-        for (const char* file : {"cornell_box.gltf", "cornell_box.bin"}) {
+        for (const char* file : {"cornell_box.gltf", "cornell_box.bin", "checker.png"}) {
             project.write(std::string("box/") + file, *fs::read_file(dir / file));
         }
         reopen();
@@ -137,9 +137,10 @@ TEST_CASE("[scene.AC1] glTF imports into scenes, meshes and materials with stabl
     CornellBox box;
     const SceneAsset& first = box.load();
     CHECK_FALSE(first.from_cache);
-    CHECK(first.nodes.size() == 5);
-    CHECK(first.meshes.size() == 4);
-    CHECK(first.materials.size() == 6);  // five, plus the default for primitives without one
+    CHECK(first.nodes.size() == 6);
+    CHECK(first.meshes.size() == 5);
+    CHECK(first.materials.size() == 7);  // six, plus the default for primitives without one
+    CHECK(first.textures.size() == 1);   // the cutout panel's checker, cooked to BC7
     CHECK(first.lights.size() == 1);
     CHECK(first.lights[0].kind == LightKind::point);
     const std::vector<AssetId> meshes = first.meshes;

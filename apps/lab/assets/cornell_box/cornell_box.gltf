@@ -16,7 +16,8 @@
     1,
     2,
     3,
-    4
+    4,
+    5
    ]
   }
  ],
@@ -68,6 +69,15 @@
     0.9876883
    ],
    "mesh": 3
+  },
+  {
+   "name": "cutout panel",
+   "translation": [
+    0.15,
+    0.95,
+    -0.75
+   ],
+   "mesh": 4
   },
   {
    "name": "fill light",
@@ -155,6 +165,20 @@
      },
      "indices": 23,
      "material": 4
+    }
+   ]
+  },
+  {
+   "name": "cutout panel",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 24,
+      "NORMAL": 25,
+      "TEXCOORD_0": 26
+     },
+     "indices": 27,
+     "material": 5
     }
    ]
   }
@@ -247,6 +271,25 @@
    "extras": {
     "veach_material": "GlowMaterial"
    }
+  },
+  {
+   "name": "cutout",
+   "pbrMetallicRoughness": {
+    "baseColorFactor": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "metallicFactor": 0.0,
+    "roughnessFactor": 1.0,
+    "baseColorTexture": {
+     "index": 0
+    }
+   },
+   "alphaMode": "MASK",
+   "alphaCutoff": 0.5,
+   "doubleSided": true
   }
  ],
  "accessors": [
@@ -513,6 +556,50 @@
    "count": 30,
    "type": "SCALAR",
    "bufferView": 23
+  },
+  {
+   "componentType": 5126,
+   "count": 4,
+   "type": "VEC3",
+   "bufferView": 24,
+   "min": [
+    -0.35,
+    0,
+    0
+   ],
+   "max": [
+    0.35,
+    0.7,
+    0
+   ]
+  },
+  {
+   "componentType": 5126,
+   "count": 4,
+   "type": "VEC3",
+   "bufferView": 25,
+   "min": [
+    0,
+    0,
+    1
+   ],
+   "max": [
+    0,
+    0,
+    1
+   ]
+  },
+  {
+   "componentType": 5126,
+   "count": 4,
+   "type": "VEC2",
+   "bufferView": 26
+  },
+  {
+   "componentType": 5125,
+   "count": 6,
+   "type": "SCALAR",
+   "bufferView": 27
   }
  ],
  "bufferViews": [
@@ -659,12 +746,36 @@
    "byteOffset": 2312,
    "byteLength": 120,
    "target": 34963
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 2432,
+   "byteLength": 48,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 2480,
+   "byteLength": 48,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 2528,
+   "byteLength": 32,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 2560,
+   "byteLength": 24,
+   "target": 34963
   }
  ],
  "buffers": [
   {
    "uri": "cornell_box.bin",
-   "byteLength": 2432
+   "byteLength": 2584
   }
  ],
  "extensions": {
@@ -682,5 +793,15 @@
     }
    ]
   }
- }
+ },
+ "images": [
+  {
+   "uri": "checker.png"
+  }
+ ],
+ "textures": [
+  {
+   "source": 0
+  }
+ ]
 }

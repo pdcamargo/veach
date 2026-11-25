@@ -43,4 +43,5 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0031 | [DX12 is verified on WARP in hosted CI, on a pinned Agility SDK](0031-dx12-on-warp-in-ci.md) | Accepted |
 | 0032 | [glTF import and cooked runtime formats](0032-asset-import-and-cooking.md) | Accepted |
 | 0033 | [Material model: Slang interfaces with overridable defaults](0033-material-model.md) | Accepted |
-| 0034 | [Lights in physical units, and a reference path tracer](0034-lights-and-reference-path-tracer.md) | Accepted |
+| 0034 | [Lights in physical units, and a reference path tracer](0034-lights-and-reference-path-tracer.md) | Accepted (alpha part superseded by 0035) |
+| 0035 | [Alpha testing by continuing opaque rays](0035-alpha-by-continuing-opaque-rays.md) | Accepted |

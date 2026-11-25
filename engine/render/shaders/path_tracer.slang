@@ -144,10 +144,9 @@ TriangleHit surface_at(uint instance_index, uint primitive, float2 bary, float3 
     return hit;
 }
 
-/// Alpha coverage at a candidate hit: mask tests the cutoff, blend is stochastic (ADR 0034). Deliberately
-/// minimal (the material and one UV, no full surface): it runs inside the ray query's candidate loop, which
-/// Metal's shader compiler cannot digest with the whole surface reconstruction inlined there.
-bool accept_candidate(uint instance_index, uint primitive, float2 bary, inout Rng rng) {
+/// Alpha coverage at a hit: mask tests the cutoff, blend is stochastic (ADR 0034). Minimal on purpose (the
+/// material and one UV): it runs for every masked or blended surface a ray meets.
+bool covered(uint instance_index, uint primitive, float2 bary, inout Rng rng) {
     const InstanceRecord inst = params.instances[instance_index];
     const MaterialRecord material = params.materials[inst.material_base + inst.slots[primitive]];
     if ((material.flags & (material_alpha_mask | material_alpha_blend)) == 0) {
@@ -177,27 +176,45 @@ struct Trace {
     float t;
 };
 
+/// The closest covered hit. Everything is traced as opaque; when the closest hit is a transparent texel of a
+/// masked or blended surface, the same ray continues just past it. That is deterministic on every backend,
+/// unlike committing non-opaque candidates, whose results varied run to run on Metal (and whose inlined
+/// candidate loop crashed Metal's shader compiler).
 Trace trace(float3 origin, float3 direction, float tmax, inout Rng rng) {
-    RayDesc ray;
-    ray.Origin = origin;
-    ray.Direction = direction;
-    ray.TMin = 0.0;
-    ray.TMax = tmax;
-    RayQuery<RAY_FLAG_NONE> query;
-    query.TraceRayInline(params.scene, RAY_FLAG_NONE, 0xFF, ray);
-    while (query.Proceed()) {
-        if (query.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE &&
-            accept_candidate(query.CandidateInstanceIndex(), query.CandidatePrimitiveIndex(),
-                             query.CandidateTriangleBarycentrics(), rng)) {
-            query.CommitNonOpaqueTriangleHit();
-        }
-    }
     Trace result;
-    result.hit = query.CommittedStatus() == COMMITTED_TRIANGLE_HIT;
-    result.instance = result.hit ? query.CommittedInstanceIndex() : 0;
-    result.primitive = result.hit ? query.CommittedPrimitiveIndex() : 0;
-    result.bary = result.hit ? query.CommittedTriangleBarycentrics() : float2(0.0, 0.0);
-    result.t = result.hit ? query.CommittedRayT() : 0.0;
+    result.hit = false;
+    result.instance = 0;
+    result.primitive = 0;
+    result.bary = float2(0.0, 0.0);
+    result.t = 0.0;
+    float tmin = 0.0;
+    for (uint layer = 0; layer < 16; ++layer) {
+        RayDesc ray;
+        ray.Origin = origin;
+        ray.Direction = direction;
+        ray.TMin = tmin;
+        ray.TMax = tmax;
+        RayQuery<RAY_FLAG_FORCE_OPAQUE> query;
+        query.TraceRayInline(params.scene, RAY_FLAG_NONE, 0xFF, ray);
+        while (query.Proceed()) {
+        }
+        if (query.CommittedStatus() != COMMITTED_TRIANGLE_HIT) {
+            return result;
+        }
+        const uint instance = query.CommittedInstanceIndex();
+        const uint primitive = query.CommittedPrimitiveIndex();
+        const float2 bary = query.CommittedTriangleBarycentrics();
+        const float t = query.CommittedRayT();
+        if (covered(instance, primitive, bary, rng)) {
+            result.hit = true;
+            result.instance = instance;
+            result.primitive = primitive;
+            result.bary = bary;
+            result.t = t;
+            return result;
+        }
+        tmin = t * (1.0 + 1e-5) + 1e-5;
+    }
     return result;
 }
 

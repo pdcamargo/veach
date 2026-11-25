@@ -78,9 +78,10 @@ struct GlowMaterial : IMaterial {
 - **scene.AC4**: A glTF material naming `GlowMaterial` uses the lab's material, which overrides only
   `evalEmission`. A misspelled name fails with a suggestion.
 - **scene.AC5**: `golden: cornell box (path traced)` matches `tests/golden/cornell_box.png` on Metal and DX12/WARP.
-  The scene has an area light (an emissive quad), a point light, and the glow block.
+  The scene has an area light (an emissive quad), a point light, the glow block, and an alpha-masked panel with
+  a BC7 checker texture. Reruns on one backend are bit-identical.
 - **scene.AC6**: `golden: flight helmet (path traced)` matches `tests/golden/flight_helmet.png` on Metal and
-  DX12/WARP: textured, normal-mapped, alpha-masked, under a directional and a spot light.
+  DX12/WARP: textured and normal-mapped, under a directional and a spot light.
 - **scene.AC7**: Over MCP, `path_trace { samples = 64 }` returns the same image as the golden run of the same
   scene (FLIP).
 - **scene.AC8**: The accumulation restarts when the camera moves, and converges: 4× the samples lowers the

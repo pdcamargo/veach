@@ -254,13 +254,14 @@ struct PathTracerFeature::Impl {
         gpu.vertices = *vertices;
         gpu.indices = *indices;
         gpu.slots = *slots;
-        auto blas = device->create_blas({.vertices = gpu.vertices,
-                                         .vertex_count = static_cast<std::uint32_t>(source->vertices.size()),
-                                         .vertex_stride = sizeof(MeshVertex),
-                                         .indices = gpu.indices,
-                                         .index_count = static_cast<std::uint32_t>(source->indices.size()),
-                                         .opaque = false,  // instances decide (TlasInstance::opaque)
-                                         .debug_name = "mesh BLAS"});
+        auto blas =
+            device->create_blas({.vertices = gpu.vertices,
+                                 .vertex_count = static_cast<std::uint32_t>(source->vertices.size()),
+                                 .vertex_stride = sizeof(MeshVertex),
+                                 .indices = gpu.indices,
+                                 .index_count = static_cast<std::uint32_t>(source->indices.size()),
+                                 .opaque = true,  // alpha: rays continue past transparent texels (path_tracer.slang)
+                                 .debug_name = "mesh BLAS"});
         if (!blas) {
             report("blas", blas.error());
             return nullptr;
@@ -439,12 +440,8 @@ void PathTracerFeature::record(RenderGraph& graph, const FrameContext& frame) {
         inst.indices = s.device->descriptor(mesh->indices);
         inst.slots = s.device->descriptor(mesh->slots);
         inst.material_base = static_cast<std::uint32_t>(materials.size());
-        bool opaque = true;
         for (std::uint32_t slot = 0; slot < mesh->source->slot_count; ++slot) {
-            const MaterialRecord record =
-                slot < draw.materials.size() ? s.record_of(draw.materials[slot]) : MaterialRecord{};
-            opaque = opaque && (record.flags & (alpha_mask | alpha_blend)) == 0;
-            materials.push_back(record);
+            materials.push_back(slot < draw.materials.size() ? s.record_of(draw.materials[slot]) : MaterialRecord{});
         }
         inst.object_to_world = rows_of(draw.world);
         inst.normal_to_world = rows_of(math::mat4(math::transpose(math::inverse(math::mat3(draw.world)))));
@@ -455,7 +452,6 @@ void PathTracerFeature::record(RenderGraph& graph, const FrameContext& frame) {
         for (std::size_t r = 0; r < 3; ++r) {
             t.transform.at(r) = {rows.at(r).x, rows.at(r).y, rows.at(r).z, rows.at(r).w};
         }
-        t.opaque = opaque;
         tlas_instances.push_back(t);  // blas_index set below, once the BLAS list is final
     }
     if (instances.empty()) {

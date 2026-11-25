@@ -142,6 +142,7 @@ if(APPLE)
     veach_golden_test("golden: triangle (camera, raster)" triangle_camera_raster triangle_camera metal)
     veach_golden_test("golden: triangle (camera, raytraced)" triangle_camera_raytraced triangle_camera metal)
     veach_golden_test("golden: cornell box (path traced)" cornell_box cornell_box metal FRAMES 4)
+    veach_golden_test("golden: flight helmet (path traced)" flight_helmet flight_helmet metal FRAMES 4)
     add_custom_target(update-goldens
         COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/hello.luau
                 --screenshot "${_golden_dir}/background.png"
@@ -153,6 +154,8 @@ if(APPLE)
                 --screenshot "${_golden_dir}/triangle_camera.png"
         COMMAND veach-lab --rhi metal --headless --frames 4 --script scripts/cornell_box.luau
                 --screenshot "${_golden_dir}/cornell_box.png"
+        COMMAND veach-lab --rhi metal --headless --frames 4 --script scripts/flight_helmet.luau
+                --screenshot "${_golden_dir}/flight_helmet.png"
         COMMENT "Regenerating golden images in tests/golden/ (review the diff before committing)"
         VERBATIM)
 elseif(WIN32)
@@ -162,6 +165,7 @@ elseif(WIN32)
     veach_golden_test("golden: triangle (camera, raster, dx12)" triangle_camera_raster triangle_camera dx12)
     veach_golden_test("golden: triangle (camera, raytraced, dx12)" triangle_camera_raytraced triangle_camera dx12)
     veach_golden_test("golden: cornell box (path traced, dx12)" cornell_box cornell_box dx12 FRAMES 4)
+    veach_golden_test("golden: flight helmet (path traced, dx12)" flight_helmet flight_helmet dx12 FRAMES 4)
     # Two frames in flight under load (dx12.AC6). A debug-layer error makes the exit code 1.
     add_test(NAME "dx12: ray-traced soak"
         COMMAND veach-lab --rhi dx12 --headless --frames 300 --script scripts/triangle_raytraced.luau)

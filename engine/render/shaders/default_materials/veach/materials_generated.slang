@@ -1,5 +1,5 @@
 // The engine's own material dispatch: StandardMaterial only. Apps with materials of their own get a generated
-// one instead (veach_add_path_tracer, docs/adr/0033-material-model.md).
+// one instead (veach_add_scene_shaders, docs/adr/0033-material-model.md).
 import veach.material;
 
 SurfaceSample evaluateSurface(uint kind, MaterialContext c) {

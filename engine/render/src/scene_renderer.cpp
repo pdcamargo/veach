@@ -1,4 +1,4 @@
-#include <veach/render/path_tracer.hpp>
+#include <veach/render/scene_renderer.hpp>
 
 #include <veach/asset/asset_server.hpp>
 #include <veach/asset/scene.hpp>
@@ -217,7 +217,7 @@ std::span<const std::byte> bytes_of(const std::vector<T>& values) {
 
 }  // namespace
 
-struct PathTracerFeature::Impl {
+struct SceneRenderer::Impl {
     struct GpuMesh {
         const MeshAsset* source = nullptr;  ///< the asset data it was made from; changes on hot reload
         rhi::BufferHandle vertices;
@@ -411,7 +411,7 @@ struct PathTracerFeature::Impl {
             {.size = or_one(source->meshlet_triangles.size() * 4), .debug_name = "meshlet triangles", .stride = 4},
             bytes_of(source->meshlet_triangles));
         if (!vertices || !indices || !slots || !meshlets || !meshlet_vertices || !meshlet_triangles) {
-            report("mesh buffers", Error{ErrorCode::rhi_gpu_error, "path tracer: cannot create mesh buffers", {}});
+            report("mesh buffers", Error{ErrorCode::rhi_gpu_error, "scene renderer: cannot create mesh buffers", {}});
             return nullptr;
         }
         gpu.vertices = *vertices;
@@ -542,20 +542,20 @@ struct PathTracerFeature::Impl {
     }
 };
 
-PathTracerFeature::PathTracerFeature(SceneShaders shaders, std::span<const MaterialKind> kinds, AssetServer& assets)
+SceneRenderer::SceneRenderer(SceneShaders shaders, std::span<const MaterialKind> kinds, AssetServer& assets)
     : impl_(std::make_unique<Impl>(shaders, kinds, assets)) {}
 
-PathTracerFeature::~PathTracerFeature() = default;
+SceneRenderer::~SceneRenderer() = default;
 
-void PathTracerFeature::reset() {
+void SceneRenderer::reset() {
     impl_->reset = true;
 }
 
-std::uint64_t PathTracerFeature::samples() const {
+std::uint64_t SceneRenderer::samples() const {
     return impl_->samples;
 }
 
-Result<> PathTracerFeature::prepare(rhi::Device& device) {
+Result<> SceneRenderer::prepare(rhi::Device& device) {
     Impl& s = *impl_;
     s.device = &device;
     if (!device.capabilities().hardware_ray_tracing) {
@@ -623,8 +623,8 @@ Result<> PathTracerFeature::prepare(rhi::Device& device) {
     return {};
 }
 
-void PathTracerFeature::record(RenderGraph& graph, const FrameContext& frame) {
-    VEACH_ZONE("PathTracerFeature::record");
+void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
+    VEACH_ZONE("SceneRenderer::record");
     Impl& s = *impl_;
     const RenderView* view = frame.view;
     if (view == nullptr || frame.world.meshes.empty()) {
@@ -783,10 +783,10 @@ void PathTracerFeature::record(RenderGraph& graph, const FrameContext& frame) {
         }
     }
 
-    const rhi::BufferHandle instance_buffer = s.upload(instances, sizeof(InstanceRecord), "path tracer instances");
-    const rhi::BufferHandle material_buffer = s.upload(materials, sizeof(MaterialRecord), "path tracer materials");
-    const rhi::BufferHandle light_buffer = s.upload(lights, sizeof(LightRecord), "path tracer lights");
-    const rhi::BufferHandle emissive_buffer = s.upload(emitters, sizeof(EmissiveTriangle), "path tracer emitters");
+    const rhi::BufferHandle instance_buffer = s.upload(instances, sizeof(InstanceRecord), "scene instances");
+    const rhi::BufferHandle material_buffer = s.upload(materials, sizeof(MaterialRecord), "scene materials");
+    const rhi::BufferHandle light_buffer = s.upload(lights, sizeof(LightRecord), "scene lights");
+    const rhi::BufferHandle emissive_buffer = s.upload(emitters, sizeof(EmissiveTriangle), "scene emitters");
     if (!instance_buffer.is_valid() || !material_buffer.is_valid() || !light_buffer.is_valid() ||
         !emissive_buffer.is_valid()) {
         return;
@@ -811,7 +811,7 @@ void PathTracerFeature::record(RenderGraph& graph, const FrameContext& frame) {
     }
     if (!to_build.empty()) {
         graph.add_transfer_pass(
-            "path tracer: build BLASes",
+            "scene: build BLASes",
             [&](PassBuilder& b) {
                 for (const GraphResource& r : buffers) {
                     b.read(r);
@@ -832,7 +832,7 @@ void PathTracerFeature::record(RenderGraph& graph, const FrameContext& frame) {
         s.tlas, "scene TLAS", s.tlas_built ? rhi::ResourceState::accel_read : rhi::ResourceState::undefined);
     s.tlas_built = true;
     graph.add_transfer_pass(
-        "path tracer: build TLAS",
+        "scene: build TLAS",
         [&](PassBuilder& b) {
             for (const GraphResource& r : blases) {
                 b.read(r, rhi::ResourceState::accel_read);
@@ -849,7 +849,7 @@ void PathTracerFeature::record(RenderGraph& graph, const FrameContext& frame) {
     }
     std::vector<GraphResource> frame_data;
     for (const rhi::BufferHandle b : {instance_buffer, material_buffer, light_buffer, emissive_buffer}) {
-        frame_data.push_back(graph.import(b, "path tracer frame data", rhi::ResourceState::shader_read));
+        frame_data.push_back(graph.import(b, "scene frame data", rhi::ResourceState::shader_read));
     }
     const auto read_scene = [&](PassBuilder& b) {
         b.read(tlas, rhi::ResourceState::accel_read);

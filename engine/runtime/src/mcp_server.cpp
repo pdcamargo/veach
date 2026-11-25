@@ -8,9 +8,9 @@
 #include <veach/ecs/reflection.hpp>
 #include <veach/platform/input.hpp>
 #include <veach/platform/platform.hpp>
-#include <veach/render/path_tracer.hpp>
 #include <veach/render/png.hpp>
 #include <veach/render/renderer.hpp>
+#include <veach/render/scene_renderer.hpp>
 #include <veach/rhi/rhi.hpp>
 #include <veach/runtime/engine.hpp>
 #include <veach/script/script_runtime.hpp>
@@ -288,7 +288,7 @@ json McpServer::tools() const {
 
 json McpServer::call_tool(std::string_view name, const json& arguments) {
     const auto path_tracer_samples = [&]() -> std::uint64_t {
-        auto* tracer = engine_.services().get<render::Renderer>().feature<render::PathTracerFeature>();
+        auto* tracer = engine_.services().get<render::Renderer>().feature<render::SceneRenderer>();
         return tracer ? tracer->samples() : 0;
     };
     World& world = engine_.world();
@@ -520,7 +520,7 @@ json McpServer::call_tool(std::string_view name, const json& arguments) {
         }
         const auto samples = arguments["samples"].get<std::uint64_t>();
         auto& renderer = engine_.services().get<render::Renderer>();
-        auto* tracer = renderer.feature<render::PathTracerFeature>();
+        auto* tracer = renderer.feature<render::SceneRenderer>();
         // The primary view's camera: the first active one by entity id, as extraction picks it.
         Entity camera;
         world.each([&](Entity e, const Camera& c) {

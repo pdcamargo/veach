@@ -11,5 +11,5 @@ veach_add_shader(veach-lab shaders/triangle.slang ENTRIES vs_main:vertex fs_main
 veach_add_shader(veach-lab shaders/triangle_rt.slang ENTRIES trace:compute)
 # The material model's proof (ADR 0033): GlowMaterial overrides only evalEmission.
 veach_add_material(veach-lab GlowMaterial shaders/glow_material.slang EMISSIVE)
-veach_add_path_tracer(veach-lab NAMESPACE lab_shaders)
+veach_add_scene_shaders(veach-lab NAMESPACE lab_shaders)
 veach_shader_library(veach-lab NAMESPACE lab_shaders)

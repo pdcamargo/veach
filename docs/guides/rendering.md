@@ -138,7 +138,7 @@ encoders, so a transfer pass with many builds is first start to last end.
 macOS builds compile to `.metallib`. Windows builds compile every entry point to DXIL, and the Windows CI job
 renders the goldens with it on WARP, so non-portable Slang fails CI either way.
 
-## Scenes, materials, lights and the reference path tracer
+## Scenes, materials, lights, and the two renderers
 
 - **Scenes:** `SceneInstance { path = "assets/x.gltf" }` spawns the glTF as child entities (`Transform`,
   `MeshInstance`, lights). Import and cooking: [ADR 0032](../adr/0032-asset-import-and-cooking.md).
@@ -153,20 +153,30 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   ```
 
   Register it with `veach_add_material(<app> GlowMaterial shaders/glow_material.slang [EMISSIVE])`, then
-  `veach_add_path_tracer(<app> NAMESPACE <ns>)`. A glTF material selects it with `"extras": {"veach_material":
+  `veach_add_scene_shaders(<app> NAMESPACE <ns>)`. A glTF material selects it with `"extras": {"veach_material":
   "GlowMaterial"}`. Renderers call `evaluateSurface(kind, context)` and never read material records directly
   ([ADR 0033](../adr/0033-material-model.md)).
 - **Lights:** `DirectionalLight` (lux), `PointLight` and `SpotLight` (candela), shining down −Z, and emissive
   surfaces (nits). `Camera.ev100` sets exposure, or derives it from `aperture`, `shutter` and `iso` when 0; a
   display pass applies it and the AgX tonemapper to the linear radiance renderers produce
   ([ADR 0038](../adr/0038-exposure-and-tonemapping.md)).
+- **One feature, two renderers.** The app adds `render::SceneRenderer(SceneShaders{<ns>::path_tracer(),
+  <ns>::realtime_visibility(), <ns>::realtime_shade()}, <ns>::material_kinds, assets)`. It keeps the scene on the
+  GPU (meshes with their meshlets, BLASes and a TLAS, material, light and emitter records) and draws each view
+  with the renderer its camera asks for. Both share the surface reconstruction, BRDF and light sampling
+  (`veach/scene.slang`, `veach/brdf.slang`, `veach/lights.slang`), so a material renders the same in both
+  ([ADR 0037](../adr/0037-realtime-renderer-visibility-buffer.md)).
+- **The real-time renderer** draws a camera without a `PathTracer`: a visibility buffer of meshlet triangles,
+  then one compute pass that lights each pixel with every punctual light (ray-traced hard shadows),
+  `RealtimeLighting.emissive_samples` light samples of the emissive triangles, and the ambient stopgap (sky
+  radiance x diffuse x short-range ray-traced AO; Candela replaces it). Example: `scripts/cornell_box_realtime.luau`.
 - **The reference path tracer** renders a camera that has a `PathTracer { samples_per_frame, max_bounces, sky,
-  mode }`. It accumulates while nothing changes and restarts on any change. The app adds it with
-  `render::PathTracerFeature(<ns>::path_tracer(), <ns>::material_kinds, assets)`. Example:
-  `apps/lab/scripts/cornell_box.luau`. Its surface reconstruction, BRDF and light sampling live in shared modules
-  (`veach/scene.slang`, `veach/brdf.slang`, `veach/lights.slang`, ADR 0037). It counts what should never happen and
-  fails the run: pixels whose accumulation reads back wrong (`render.history_lost`) and NaN or infinite samples
+  mode, jitter }`. It accumulates while nothing changes and restarts on any change. `mode` 1 computes direct light
+  only, which is what the real-time renderer estimates; `tools/bench/compare_direct.py` measures one against the
+  other per scene. Example: `scripts/cornell_box.luau`. It counts what should never happen and fails the run:
+  pixels whose accumulation reads back wrong (`render.history_lost`) and NaN or infinite samples
   (`render.nonfinite_samples`).
+- **GPU timings:** `tools/bench/frame_times.py` reports the frame and each pass over MCP (`gpu_timings`).
 
 ## Screenshots and golden images
 

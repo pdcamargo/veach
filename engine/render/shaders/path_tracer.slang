@@ -2,8 +2,8 @@
 // Unidirectional, progressive, unbiased: next-event estimation to punctual
 // lights and emissive triangles, MIS against BSDF sampling, Russian roulette.
 // Inline ray queries, so it runs as one compute dispatch. Compiled into each
-// app's shader library with its materials (veach_add_path_tracer).
-// Parameter layout must match render::PathTraceParams (path_tracer.cpp).
+// app's shader library with its materials (veach_add_scene_shaders).
+// Parameter layout must match render::PathTraceParams (scene_renderer.cpp).
 
 import veach.bindless;
 import veach.material;

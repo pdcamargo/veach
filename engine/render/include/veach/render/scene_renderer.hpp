@@ -1,12 +1,16 @@
 #pragma once
 
-// The reference path tracer (docs/adr/0034-lights-and-reference-path-tracer.md)
-// as a render feature. It draws the primary view when its camera has a
-// PathTracer component, accumulating while nothing changes. The shader comes
-// from the app's library (veach_add_path_tracer), compiled with its materials.
+// The scene renderer: the scene on the GPU (meshes, meshlets, BLASes and the TLAS, materials, lights) drawn by
+// the camera's choice of renderer. A PathTracer component on the camera selects the reference path tracer
+// (docs/adr/0034-lights-and-reference-path-tracer.md), which accumulates while nothing changes; otherwise the
+// real-time renderer draws it (docs/adr/0037-realtime-renderer-visibility-buffer.md). Both write linear radiance
+// that the display pass turns into scene_color (ADR 0038). The shaders come from the app's library
+// (veach_add_scene_shaders), compiled with its materials.
 //
-//   renderer.add_feature(std::make_unique<veach::render::PathTracerFeature>(
-//       lab_shaders::path_tracer(), lab_shaders::material_kinds, assets));
+//   renderer.add_feature(std::make_unique<veach::render::SceneRenderer>(
+//       veach::render::SceneShaders{lab_shaders::path_tracer(), lab_shaders::realtime_visibility(),
+//                                   lab_shaders::realtime_shade()},
+//       lab_shaders::material_kinds, assets));
 
 #include <veach/core/math.hpp>
 #include <veach/render/renderer.hpp>
@@ -51,7 +55,7 @@ static_assert(offsetof(MaterialRecord, roughness) == 48);
 static_assert(offsetof(MaterialRecord, base_color_texture) == 64);
 static_assert(offsetof(MaterialRecord, custom0) == 96);
 
-/// The scene shaders, compiled with an app's materials (veach_add_path_tracer): the reference path tracer and the
+/// The scene shaders, compiled with an app's materials (veach_add_scene_shaders): the reference path tracer and the
 /// real-time renderer's visibility and shading passes (ADR 0037).
 struct SceneShaders {
     const rhi::ShaderLibrary& path_tracer;
@@ -59,16 +63,16 @@ struct SceneShaders {
     const rhi::ShaderLibrary& shade;
 };
 
-class PathTracerFeature final : public RenderFeature {
+class SceneRenderer final : public RenderFeature {
 public:
-    PathTracerFeature(SceneShaders shaders, std::span<const MaterialKind> kinds, AssetServer& assets);
-    ~PathTracerFeature() override;
-    PathTracerFeature(const PathTracerFeature&) = delete;
-    PathTracerFeature& operator=(const PathTracerFeature&) = delete;
-    PathTracerFeature(PathTracerFeature&&) = delete;
-    PathTracerFeature& operator=(PathTracerFeature&&) = delete;
+    SceneRenderer(SceneShaders shaders, std::span<const MaterialKind> kinds, AssetServer& assets);
+    ~SceneRenderer() override;
+    SceneRenderer(const SceneRenderer&) = delete;
+    SceneRenderer& operator=(const SceneRenderer&) = delete;
+    SceneRenderer(SceneRenderer&&) = delete;
+    SceneRenderer& operator=(SceneRenderer&&) = delete;
 
-    [[nodiscard]] std::string_view name() const override { return "veach.path_tracer"; }
+    [[nodiscard]] std::string_view name() const override { return "veach.scene_renderer"; }
     [[nodiscard]] Result<> prepare(rhi::Device& device) override;
     void record(RenderGraph& graph, const FrameContext& frame) override;
 

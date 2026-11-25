@@ -5,7 +5,7 @@
 #include "lab_shaders.hpp"
 #include "lab_shaders_materials.hpp"
 
-#include <veach/render/path_tracer.hpp>
+#include <veach/render/scene_renderer.hpp>
 
 namespace lab {
 
@@ -31,7 +31,7 @@ LabModule::LabModule(veach::World& world) {
 
     // The reference path tracer, with the lab's materials (scenes/*.luau put a PathTracer on their camera).
     auto& renderer = veach::services(world).get<veach::render::Renderer>();
-    renderer.add_feature(std::make_unique<veach::render::PathTracerFeature>(
+    renderer.add_feature(std::make_unique<veach::render::SceneRenderer>(
         veach::render::SceneShaders{lab_shaders::path_tracer(), lab_shaders::realtime_visibility(),
                                     lab_shaders::realtime_shade()},
         lab_shaders::material_kinds, veach::services(world).get<veach::AssetServer>()));

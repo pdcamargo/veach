@@ -1140,12 +1140,17 @@ private:
             from.pResource = staging->Get();
             from.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
             from.PlacedFootprint = footprints[level];
-            // The footprint covers whole 4x4 blocks. The debug layer wants the box block-aligned for mips smaller
-            // than a block (2x2 copies as 4x4) but no larger than the mip for an unaligned top level (6x6 is 6x6).
-            const std::uint32_t least = is_block_compressed(desc.format) ? 4 : 1;
-            const D3D12_BOX box{
-                0, 0, 0, std::max(mip_size(desc.width, level), least), std::max(mip_size(desc.height, level), least),
-                1};
+            // The footprint covers whole 4x4 blocks; the box must match the mip as D3D12 sizes it. Under a
+            // block-aligned top level, mips are whole blocks (a 2x2 mip copies as 4x4); under an unaligned one
+            // (OPTIONS8 UnalignedBlockTexturesSupported), every mip is its real size (6x6 copies as 6x6).
+            const std::uint32_t round =
+                is_block_compressed(desc.format) && desc.width % 4 == 0 && desc.height % 4 == 0 ? 4 : 1;
+            const D3D12_BOX box{0,
+                                0,
+                                0,
+                                (mip_size(desc.width, level) + round - 1) / round * round,
+                                (mip_size(desc.height, level) + round - 1) / round * round,
+                                1};
             list->CopyTextureRegion(&to, 0, 0, 0, &from, &box);
         }
         transition(D3D12_BARRIER_SYNC_COPY, D3D12_BARRIER_ACCESS_COPY_DEST, D3D12_BARRIER_LAYOUT_COPY_DEST,

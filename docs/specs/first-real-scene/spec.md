@@ -1,6 +1,6 @@
 # First real scene
 
-**Status:** Approved
+**Status:** Implemented
 **Area:** render, asset
 **Owner:** dev lead
 
@@ -98,7 +98,7 @@ struct GlowMaterial : IMaterial {
 ## Open questions
 
 - Sponza: its files are under the CRYENGINE Limited License Agreement, which needs the owner's acceptance.
-  FlightHelmet (CC0) stands in until then.
+  FlightHelmet (CC0) stands in until then (VCH-055).
 
 ## Links
 

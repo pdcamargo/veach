@@ -20,4 +20,4 @@ acceptance criteria (`[area.ACn] ...`) → status Implemented.
 | [Transforms and hierarchy](transforms/spec.md) | ecs | Implemented |
 | [Input actions in Luau](input/spec.md) | script | Implemented |
 | [Hot reload](hot-reload/spec.md) | asset | Implemented |
-| [First real scene](first-real-scene/spec.md) | render, asset | Approved |
+| [First real scene](first-real-scene/spec.md) | render, asset | Implemented |

@@ -7,9 +7,10 @@ hardware raytracing as the baseline, and for AI agents as first-class users. Age
 text formats, reflection everywhere, strictly typed Luau scripting, actionable errors, and deterministic
 headless runs that verify their own work.
 
-> **Status:** first light. The engine runs Luau gameplay scripts, renders through a render graph on Metal and
-> DX12, and draws its first image twice, rasterized and ray traced with ray queries against a TLAS, also through a
-> perspective camera. Golden-image tests keep both backends honest (DX12 runs on WARP in CI). Agents can drive any app over MCP (`--mcp`). See the [roadmap](docs/VISION.md#roadmap) and [backlog](docs/backlog/BACKLOG.md).
+> **Status:** first real scene. The engine imports glTF (cooked to BC7/KTX2), runs Luau gameplay with input
+> actions, transforms and hot reload, and renders on Metal and DX12 through a render graph. A progressive
+> reference path tracer with extendable Slang materials renders a Cornell box and Khronos's FlightHelmet as
+> goldens on both backends (DX12 on WARP in CI). Agents can drive any app over MCP (`--mcp`). See the [roadmap](docs/VISION.md#roadmap) and [backlog](docs/backlog/BACKLOG.md).
 
 ## Quick start
 

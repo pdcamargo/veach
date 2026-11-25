@@ -17,11 +17,17 @@ fi
 
 if [ "$event" != pull_request ]; then
     # A run counts by its hosted jobs alone: its queued GPU job keeps the run itself "in progress" for hours.
+    # Never the run asking (its lint may already be green while its builds are not even listed yet), and only
+    # runs that list their Windows job (or, when it was skipped, the unexpanded matrix).
     for run in $(gh run list --workflow ci.yml --branch main --event push --limit 30 \
         --json databaseId -q '.[].databaseId'); do
+        if [ "$run" = "${GITHUB_RUN_ID:-}" ]; then
+            continue
+        fi
         green=$(gh run view "$run" --json jobs -q \
-            '[.jobs[] | select(.name | test("GPU|Detect") | not)] | length > 0 and
-             all(.status == "completed" and (.conclusion == "success" or .conclusion == "skipped"))')
+            '[.jobs[] | select(.name | test("GPU|Detect") | not)] as $jobs |
+             ($jobs | any(.name | test("Windows|matrix"))) and
+             ($jobs | all(.status == "completed" and (.conclusion == "success" or .conclusion == "skipped")))')
         if [ "$green" = true ]; then
             base=$(gh run view "$run" --json headSha -q .headSha)
             break

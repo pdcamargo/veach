@@ -6,6 +6,7 @@
   python3 tests/mcp/test_mcp_lab.py --lab <veach-lab> fly
   python3 tests/mcp/test_mcp_lab.py --lab <veach-lab> reload
   python3 tests/mcp/test_mcp_lab.py --lab <veach-lab> --imgdiff <veach> --golden <png> --out <dir> --rhi metal path_trace
+  python3 tests/mcp/test_mcp_lab.py --lab <veach-lab> --rhi metal gpu_timings
 
 `protocol`, `fly` (the input spec's fly camera, input.AC5) and `reload` (hot reload, reload.AC5) run on the
 null RHI anywhere. `golden` needs Metal 3 + ray tracing; on other GPUs it prints
@@ -18,7 +19,9 @@ import argparse
 import base64
 import json
 import os
+import math
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -123,6 +126,8 @@ def protocol(lab: str) -> None:
     check("clear" in client.call("render_graph_plan")["content"][0]["text"], "[mcp.AC8] render_graph_plan returns the plan")
     timings = client.call_json("gpu_timings")
     check(timings["backend"] == "null" and timings["frames_in_flight"] == 2, "[mcp.AC8] gpu_timings reports the backend")
+    check(timings["passes"] == [] and timings["passes_unavailable"],
+          "[rt.AC7] without a GPU, gpu_timings says why there are no per-pass times")
     check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
 
 
@@ -242,6 +247,30 @@ def path_trace(lab: str, imgdiff: str, golden_path: str, out_dir: str, rhi: str)
     check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
 
 
+def gpu_timings(lab: str, rhi: str) -> None:
+    client = McpClient([lab, "--mcp", "--headless", "--rhi", rhi, "--script", "scripts/triangle_raytraced.luau"])
+    try:
+        client.initialize()
+    except RuntimeError as error:
+        if "rhi.backend_unavailable" in str(error) and os.environ.get("VEACH_REQUIRE_GPU") != "1":
+            print(f"VEACH_GPU_UNAVAILABLE: skipped (the {rhi} device can't ray trace)")
+            return
+        raise
+    client.call_json("step_frames", count=3)
+    plan = client.call("render_graph_plan")["content"][0]["text"]
+    planned = re.findall(r"^\s+\d+\. (.+) \[(?:graphics|compute|transfer)\]$", plan, re.MULTILINE)
+    timings = client.call_json("gpu_timings")
+    print(json.dumps(timings, indent=2))
+    check("passes_unavailable" not in timings, f"[rt.AC7] {rhi} times passes")
+    check(timings["frame"] >= 3, "[rt.AC7] the timings are from the last frame stepped")
+    names = [p["name"] for p in timings["passes"]]
+    check(planned and names == planned, f"[rt.AC7] gpu_timings lists every pass of the frame, in order: {names}")
+    check(all(isinstance(p["gpu_ms"], (int, float)) and math.isfinite(p["gpu_ms"]) and 0 <= p["gpu_ms"] < 10_000
+              for p in timings["passes"]), "[rt.AC7] every pass has a GPU time in milliseconds")
+    check(any(p["gpu_ms"] > 0 for p in timings["passes"]), "[rt.AC7] the passes that draw take GPU time")
+    check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
+
+
 def golden(lab: str, imgdiff: str, golden_path: str, out: str, rhi: str) -> None:
     client = McpClient([lab, "--mcp", "--headless", "--rhi", rhi])
     try:
@@ -276,7 +305,7 @@ def main() -> int:
     parser.add_argument("--golden")
     parser.add_argument("--out")
     parser.add_argument("--rhi", default="metal")
-    parser.add_argument("mode", choices=["protocol", "golden", "fly", "reload", "path_trace"])
+    parser.add_argument("mode", choices=["protocol", "golden", "fly", "reload", "path_trace", "gpu_timings"])
     args = parser.parse_args()
     if args.mode == "protocol":
         protocol(args.lab)
@@ -284,6 +313,8 @@ def main() -> int:
         fly(args.lab)
     elif args.mode == "reload":
         reload(args.lab)
+    elif args.mode == "gpu_timings":
+        gpu_timings(args.lab, args.rhi)
     elif args.mode == "path_trace":
         path_trace(args.lab, args.imgdiff, args.golden, args.out, args.rhi)
     else:

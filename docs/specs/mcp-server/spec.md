@@ -55,7 +55,7 @@ veach-lab --mcp --rhi metal                      # windowed: the app keeps runni
 | `screenshot` | `path?` (also write the PNG there) | image content (PNG) and a text note |
 | `path_trace` | `samples`, `path?` | restarts the reference path tracer and renders exactly `samples` per pixel, without advancing simulation; image content (PNG) ([first-real-scene](../first-real-scene/spec.md)) |
 | `render_graph_plan` | | the last compiled plan as text (`RenderGraph::describe`) |
-| `gpu_timings` | | `{backend, device, frames_in_flight, last_frame_gpu_ms, path_tracer_samples}` |
+| `gpu_timings` | | `{backend, device, gpu, frames_in_flight, last_frame_gpu_ms, frame, passes: [{name, gpu_ms}], passes_unavailable?, path_tracer_samples}`: waits for the GPU, then the last completed frame's time per render-graph pass, in execution order; `passes_unavailable` says why `passes` is empty on a device that cannot time them (the null RHI). VCH-049, rt.AC7 |
 | `eval` | `source` (Luau) | `{ok, returns: [string], log: [string]}` |
 
 ```cpp
@@ -92,7 +92,6 @@ All of them are checked by `tests/mcp/test_mcp_lab.py`, which drives `veach-lab`
 ## Out of scope
 
 - Other transports (streamable HTTP, so a running editor can be shared by several clients): VCH-048.
-- Per-pass GPU timings (`gpu_timings` reports the whole frame only): VCH-049.
 - Resources and prompts, notifications on world changes, asset tools (import, reload).
 - Authentication: stdio means the client spawned the process and already owns it.
 

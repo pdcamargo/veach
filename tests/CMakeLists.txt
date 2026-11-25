@@ -108,6 +108,13 @@ if(Python3_FOUND)
             WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
         set_tests_properties("mcp: path_trace (${_pt_rhi})" PROPERTIES SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE"
             TIMEOUT 1200)
+        # rt.AC7: gpu_timings lists every render-graph pass of the frame with its GPU time (VCH-049).
+        add_test(NAME "mcp: per-pass gpu_timings (${_pt_rhi})"
+            COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
+                    --lab $<TARGET_FILE:veach-lab> --rhi ${_pt_rhi} gpu_timings
+            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
+        set_tests_properties("mcp: per-pass gpu_timings (${_pt_rhi})" PROPERTIES
+            SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE")
     endif()
     if(WIN32)
         add_test(NAME "mcp: golden through MCP (dx12)"

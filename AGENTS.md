@@ -48,10 +48,10 @@ Building details: [docs/guides/building.md](docs/guides/building.md).
 ## Driving the engine over MCP
 
 `--mcp` turns any Veach app into an MCP server on stdio ([spec](docs/specs/mcp-server/spec.md)): query and edit
-components, spawn entities, step frames, take screenshots, read the render-graph plan and run Luau in the live
-world. The repo's [.mcp.json](.mcp.json) registers the lab as `veach-lab` (headless, Metal), so Claude Code
-offers it once the debug build exists; approve it when asked, or check with `claude mcp list`. To add it by hand
-or with other flags:
+components, spawn entities, step frames, take screenshots, read the render-graph plan and each pass's GPU time
+(`gpu_timings`) and run Luau in the live world. The repo's [.mcp.json](.mcp.json) registers the lab as
+`veach-lab` (headless, Metal), so Claude Code offers it once the debug build exists; approve it when asked, or
+check with `claude mcp list`. To add it by hand or with other flags:
 
 ```sh
 claude mcp add veach-lab -- build/debug/apps/lab/veach-lab --mcp --headless --rhi metal

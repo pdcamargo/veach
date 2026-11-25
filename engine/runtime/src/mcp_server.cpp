@@ -273,7 +273,9 @@ json McpServer::tools() const {
     list.push_back(tool("render_graph_plan",
                         "The last compiled render graph as text: pass order, culled passes and barriers.",
                         {{"type", "object"}, {"properties", json::object()}}));
-    list.push_back(tool("gpu_timings", "GPU backend, device, frames in flight, and the last frame's GPU time.",
+    list.push_back(tool("gpu_timings",
+                        "GPU backend, device, frames in flight, and the last completed frame's GPU time, total and "
+                        "per render-graph pass (waits for the GPU first).",
                         {{"type", "object"}, {"properties", json::object()}}));
     list.push_back(
         tool("eval",
@@ -580,12 +582,30 @@ json McpServer::call_tool(std::string_view name, const json& arguments) {
 
     if (name == "gpu_timings") {
         auto& device = engine_.services().get<rhi::Device>();
-        return json_result({{"backend", rhi::to_string(device.backend())},
-                            {"device", device.capabilities().device_name},
-                            {"gpu", device.capabilities().gpu},
-                            {"frames_in_flight", device.frames_in_flight()},
-                            {"last_frame_gpu_ms", device.last_frame_gpu_ms()},
-                            {"path_tracer_samples", path_tracer_samples()}});
+        // The frame just rendered, not one still on the GPU: timings are read once a frame completes.
+        device.wait_idle();
+        rhi::FrameTimings timings = device.last_frame_timings();
+        if (timings.frame == 0 && timings.unavailable.empty()) {
+            engine_.render_frame();
+            device.wait_idle();
+            timings = device.last_frame_timings();
+        }
+        json passes = json::array();
+        for (const rhi::PassTiming& pass : timings.passes) {
+            passes.push_back({{"name", pass.name}, {"gpu_ms", pass.gpu_ms}});
+        }
+        json out = {{"backend", rhi::to_string(device.backend())},
+                    {"device", device.capabilities().device_name},
+                    {"gpu", device.capabilities().gpu},
+                    {"frames_in_flight", device.frames_in_flight()},
+                    {"last_frame_gpu_ms", device.last_frame_gpu_ms()},
+                    {"frame", timings.frame},
+                    {"passes", passes},
+                    {"path_tracer_samples", path_tracer_samples()}};
+        if (!timings.unavailable.empty()) {
+            out["passes_unavailable"] = timings.unavailable;
+        }
+        return json_result(out);
     }
 
     if (name == "eval") {

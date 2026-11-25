@@ -53,6 +53,17 @@ public:
         return false;
     }
 
+    /// Every error-level message, for a CHECK that prints them when it fails.
+    [[nodiscard]] std::string errors() const {
+        std::string out;
+        for (const auto& r : records) {
+            if (r.level == log::Level::error) {
+                out += r.message + "\n";
+            }
+        }
+        return out;
+    }
+
     [[nodiscard]] bool has_code(std::string_view code) const {
         for (const auto& r : records) {
             if (r.code == code) {

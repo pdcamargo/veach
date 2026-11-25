@@ -109,6 +109,24 @@ elseif(WIN32)
         URL https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/dxc_2026_09_29.zip
         URL_HASH SHA256=ad31b1fc8443175d204f77a611fdb3ef2ec42759bdc2f1167368de24a4a7e7f1
         DOWNLOAD_ONLY YES)
+    # D3D12 Agility SDK (docs/adr/0031-dx12-on-warp-in-ci.md): headers plus D3D12Core.dll and the debug layer,
+    # deployed next to each executable by veach_deploy_d3d12(). A .nupkg is a zip; DOWNLOAD_NAME makes CMake
+    # extract it.
+    CPMAddPackage(
+        NAME d3d12_agility
+        VERSION 1.620.2
+        URL https://api.nuget.org/v3-flatcontainer/microsoft.direct3d.d3d12/1.620.2/microsoft.direct3d.d3d12.1.620.2.nupkg
+        URL_HASH SHA256=70489669c2bbeaf318b62d72b0ac3e753d521387bfc848c9763791c4e920bfcc
+        DOWNLOAD_NAME microsoft.direct3d.d3d12.1.620.2.zip
+        DOWNLOAD_ONLY YES)
+    # WARP, the software D3D12 device (DXR 1.1, SM 6.6+). Hosted CI has no GPU, so this is what runs DX12 there.
+    CPMAddPackage(
+        NAME d3d12_warp
+        VERSION 1.0.22
+        URL https://api.nuget.org/v3-flatcontainer/microsoft.direct3d.warp/1.0.22/microsoft.direct3d.warp.1.0.22.nupkg
+        URL_HASH SHA256=afc058f4d1066edc4231a38f3ab3592b1930f7287d4ac700e6a056e0874bb0be
+        DOWNLOAD_NAME microsoft.direct3d.warp.1.0.22.zip
+        DOWNLOAD_ONLY YES)
 endif()
 
 # stb: PNG read/write for screenshots and golden images. Single-header, public domain / MIT.

@@ -37,6 +37,24 @@ function(veach_add_engine_library area)
     endif()
 endfunction()
 
+# veach_deploy_d3d12(<target>) — on Windows, copies the pinned D3D12 runtime next to an executable that can
+# create a DX12 device: D3D12\D3D12Core.dll and the debug layer (the Agility SDK finds them through the
+# D3D12SDKPath export in dx12_device.cpp), and WARP's d3d10warp.dll, which D3D12 loads from the exe's folder
+# (ADR 0031). Does nothing elsewhere.
+function(veach_deploy_d3d12 target)
+    if(NOT WIN32)
+        return()
+    endif()
+    set(agility "${d3d12_agility_SOURCE_DIR}/build/native/bin/x64")
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:${target}>/D3D12"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${agility}/D3D12Core.dll" "${agility}/d3d12SDKLayers.dll"
+                "$<TARGET_FILE_DIR:${target}>/D3D12"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${d3d12_warp_SOURCE_DIR}/build/native/bin/x64/d3d10warp.dll"
+                "$<TARGET_FILE_DIR:${target}>"
+        VERBATIM)
+endfunction()
+
 # veach_add_app(<name> SOURCES ...) — an executable that links the umbrella target.
 function(veach_add_app name)
     cmake_parse_arguments(ARG "" "" "SOURCES;DEPS" ${ARGN})
@@ -44,4 +62,5 @@ function(veach_add_app name)
     target_link_libraries(${name} PRIVATE veach::veach ${ARG_DEPS})
     set_target_properties(${name} PROPERTIES FOLDER "apps")
     veach_apply_warnings(${name})
+    veach_deploy_d3d12(${name})
 endfunction()

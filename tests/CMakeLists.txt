@@ -8,11 +8,15 @@ add_executable(veach-tests
     render_tests.cpp
     rhi_tests.cpp
     script_tests.cpp)
+if(WIN32)
+    target_sources(veach-tests PRIVATE dx12_tests.cpp)  # DX12 on WARP in hosted CI (ADR 0031)
+endif()
 target_link_libraries(veach-tests PRIVATE veach::veach doctest::doctest)
 target_compile_definitions(veach-tests PRIVATE VEACH_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 target_include_directories(veach-tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 set_target_properties(veach-tests PROPERTIES FOLDER "tests")
 veach_apply_warnings(veach-tests)
+veach_deploy_d3d12(veach-tests)
 
 include("${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake")
 doctest_discover_tests(veach-tests TEST_PREFIX "unit: ")

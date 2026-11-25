@@ -4,8 +4,8 @@
 
 namespace veach::rhi {
 
-/// DX12 backend (stub). Exists so the RHI is shaped for two backends from day
-/// one; device creation lands with VCH-012.
+/// DX12 backend (VCH-012). Windows only; picks a hardware adapter that meets
+/// the feature floor, else WARP (ADR 0031).
 [[nodiscard]] Result<std::unique_ptr<Device>> create_dx12_device(const DeviceDesc& desc);
 
 }  // namespace veach::rhi

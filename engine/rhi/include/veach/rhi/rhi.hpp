@@ -5,7 +5,7 @@
 // (ADR 0025), hardware ray tracing, no legacy paths. Backends:
 //   null  — no GPU; every call succeeds and does nothing (headless, CI, agents)
 //   metal — macOS, Metal 3
-//   dx12  — Windows; a stub whose interface compiles on every Windows build (VCH-012)
+//   dx12  — Windows, D3D12 via the Agility SDK; WARP in hosted CI (VCH-012, ADR 0031)
 
 #include <veach/core/error.hpp>
 #include <veach/platform/native_window.hpp>

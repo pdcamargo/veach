@@ -6,7 +6,9 @@
 #if defined(__APPLE__)
 #include "metal/metal_device.hpp"
 #endif
+#if defined(_WIN32)
 #include "dx12/dx12_device.hpp"
+#endif
 
 namespace veach::rhi {
 
@@ -32,7 +34,6 @@ Result<std::unique_ptr<Device>> create_device(const DeviceDesc& desc) {
 #if defined(_WIN32)
             return create_dx12_device(desc);
 #else
-            static_cast<void>(&create_dx12_device);
             break;
 #endif
     }

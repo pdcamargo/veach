@@ -50,6 +50,17 @@ if(Python3_FOUND)
         WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
 endif()
 
+# Leak checks (macOS `leaks`, ADR 0012). Not under ASan: leaks cannot inspect sanitized processes.
+if(VEACH_LEAK_CHECK)
+    if(NOT APPLE OR VEACH_SANITIZE)
+        message(FATAL_ERROR "VEACH_LEAK_CHECK needs macOS and no VEACH_SANITIZE (use the 'leaks' preset)")
+    endif()
+    set(_leak_check sh "${PROJECT_SOURCE_DIR}/tools/scripts/leak-check.sh")
+    add_test(NAME "leaks: unit tests" COMMAND ${_leak_check} $<TARGET_FILE:veach-tests>)
+    add_test(NAME "leaks: lab headless run"
+        COMMAND ${_leak_check} $<TARGET_FILE:veach-lab> --script scripts/hello.luau --frames 3 --headless)
+endif()
+
 # Benchmarks: built with the tests, run by hand (not part of ctest).
 add_executable(veach-bench-script bench/script_bench.cpp)
 target_link_libraries(veach-bench-script PRIVATE veach::veach)

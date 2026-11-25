@@ -22,7 +22,7 @@ You are **dev lead and co-owner** with the product owner.
 
 ```sh
 cmake --preset debug && cmake --build --preset debug     # or: cmake --workflow --preset debug (configure+build+test)
-ctest --preset debug                                     # all tests; CI runs the 'asan' preset on macOS
+ctest --preset debug                                     # all tests; CI also runs 'asan' and 'leaks' on macOS
 build/debug/tests/veach-tests -tc="*script*"             # filter unit tests
 build/debug/apps/lab/veach-lab --script scripts/hello.luau --frames 3 --headless
 build/debug/apps/lab/veach-lab --window --log-level debug

@@ -25,6 +25,7 @@ cmake --preset debug && cmake --build --preset debug && ctest --preset debug   #
 | `debug` | Debug build. Use this unless you need something else. |
 | `release` | Optimized build. |
 | `asan` | Debug + AddressSanitizer + UndefinedBehaviorSanitizer. Clang only (not available on Windows). `cmake --workflow --preset asan` |
+| `leaks` | Debug + macOS `leaks` checks: `ctest --preset leaks` runs the unit tests and a headless lab run under `leaks --atExit` and fails on any leak. macOS only; cannot be combined with ASan. |
 | `profile` | RelWithDebInfo + Tracy (`VEACH_TRACY=ON`). See [profiling.md](profiling.md). |
 
 Each preset builds into `build/<preset>/`. Binaries:
@@ -46,6 +47,7 @@ Defined in `cmake/VeachOptions.cmake`; pass with `-D` or edit `CMakeUserPresets.
 | `VEACH_USE_CCACHE` | `ON` | Use `ccache` as compiler launcher if installed. |
 | `VEACH_USE_PCH` | `ON` | Precompiled headers for Flecs-, Luau- and JSON-heavy engine targets. |
 | `VEACH_SDL` | `ON` | Build the SDL3 platform backend. The headless backend is always built. |
+| `VEACH_LEAK_CHECK` | `OFF` | Registers the `leaks:` CTest tests (`tools/scripts/leak-check.sh`). The `leaks` preset sets it. |
 | `VEACH_SANITIZE` | empty | Sanitizer list, e.g. `address;undefined` (the `asan` preset sets it). |
 
 ## Dependency cache

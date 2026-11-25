@@ -32,3 +32,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0020 | [Repository layout](0020-repository-layout.md)                           | Accepted |
 | 0021 | [Structured logging and errors](0021-structured-logging-and-errors.md)   | Accepted |
 | 0022 | [Reflection everywhere](0022-reflection-everywhere.md)                   | Accepted |
+| 0023 | [Leak checking with macOS `leaks`](0023-leak-checking-with-macos-leaks.md) | Accepted |

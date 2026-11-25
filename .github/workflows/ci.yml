@@ -42,6 +42,9 @@ jobs:
           - name: macOS (Debug, ASan + UBSan)
             os: macos-15
             preset: asan
+          - name: macOS (Debug, leak checks)
+            os: macos-15
+            preset: leaks
           - name: Windows (Debug, MSVC, DX12 stub + null RHI)
             os: windows-2025
             preset: debug

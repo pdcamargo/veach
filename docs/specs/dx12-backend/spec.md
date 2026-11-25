@@ -1,6 +1,6 @@
 # DX12 backend
 
-**Status:** Approved (in progress: AC1–AC2)
+**Status:** Approved (in progress: AC1–AC3)
 **Area:** rhi
 **Owner:** dev lead
 
@@ -40,7 +40,8 @@ Each is one step of [dx12-port](../../guides/dx12-port.md), proven in the Window
 - **dx12.AC2**: Creating and destroying 70,000 storage buffers (two descriptors each) across frames never runs out
   of the 65,536-slot heap, because slots are freed only once the GPU is done with them. No debug-layer errors.
 - **dx12.AC3**: `golden: background (dx12)`: a frame with only the clear pass, read back, matches
-  `tests/golden/background.png`.
+  `tests/golden/background.png`. A cleared 100×10 target, whose rows aren't 256-byte aligned, reads back with
+  tight rows.
 - **dx12.AC4**: `golden: triangle (raster, dx12)` matches `tests/golden/triangle_raster.png`.
 - **dx12.AC5**: `golden: triangle (raytraced, dx12)` matches `tests/golden/triangle_raytraced.png`. Frame 1 builds
   the BLAS and TLAS; frames 2 and 3 refit the TLAS.

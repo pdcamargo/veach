@@ -94,3 +94,51 @@ TEST_CASE("[dx12.AC2] descriptor slots are recycled once the GPU is done with th
     }
     CHECK_MESSAGE(logs.errors().empty(), logs.errors());
 }
+
+TEST_CASE("[dx12.AC3] a cleared target reads back with tight rows") {
+    test::LogCapture logs;
+    {
+        const std::unique_ptr<rhi::Device> device = make_device();
+        constexpr std::uint32_t width = 100;  // 400-byte rows: D3D12 copies with a 512-byte pitch
+        constexpr std::uint32_t height = 10;
+        auto target = device->create_texture({width, height, rhi::Format::rgba8_unorm,
+                                              rhi::TextureUsage::color_target | rhi::TextureUsage::copy_src, "target"});
+        REQUIRE(target.has_value());
+        auto readback = device->create_buffer({.size = width * height * 4,
+                                               .usage = rhi::BufferUsage::copy_dst,
+                                               .memory = rhi::MemoryType::readback,
+                                               .debug_name = "readback"});
+        REQUIRE(readback.has_value());
+
+        static_cast<void>(device->begin_frame());
+        auto cmd = device->begin_commands("clear and read back");
+        const std::array<rhi::Barrier, 1> to_target{
+            {{*target, rhi::ResourceState::undefined, rhi::ResourceState::color_target}}};
+        cmd->barrier(to_target);
+        rhi::RenderPassDesc pass;
+        pass.colors[0] = {*target, rhi::LoadOp::clear, {1.0f, 0.5f, 0.0f, 1.0f}};
+        pass.color_count = 1;
+        pass.debug_name = "clear";
+        cmd->begin_render_pass(pass);
+        cmd->end_render_pass();
+        const std::array<rhi::Barrier, 2> to_copy{
+            {{*target, rhi::ResourceState::color_target, rhi::ResourceState::copy_src},
+             {*readback, rhi::ResourceState::undefined, rhi::ResourceState::copy_dst}}};
+        cmd->barrier(to_copy);
+        cmd->copy_texture_to_buffer(*target, *readback);
+        const rhi::SubmissionId submission = device->submit(std::move(cmd));
+        device->end_frame();
+        device->wait(submission);
+
+        const auto* pixels = static_cast<const std::uint8_t*>(device->map(*readback));
+        REQUIRE(pixels != nullptr);
+        int wrong = 0;
+        for (std::uint32_t i = 0; i < width * height; ++i) {
+            const std::uint8_t* p = pixels + std::size_t{i} * 4;
+            const bool orange = p[0] == 255 && (p[1] == 127 || p[1] == 128) && p[2] == 0 && p[3] == 255;
+            wrong += orange ? 0 : 1;
+        }
+        CHECK_MESSAGE(wrong == 0, wrong, " of ", width * height, " pixels are not the clear color");
+    }
+    CHECK_MESSAGE(logs.errors().empty(), logs.errors());
+}

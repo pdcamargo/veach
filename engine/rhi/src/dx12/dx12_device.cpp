@@ -222,13 +222,64 @@ constexpr std::uint32_t view_heap_capacity = 65'536;
 constexpr std::uint32_t sampler_heap_capacity = 2'048;
 constexpr std::uint32_t rtv_heap_capacity = 1'024;
 
+/// Rows a texture copy wrote with D3D12's 256-byte pitch, to be packed tightly on map().
+struct PitchedReadback {
+    ComPtr<ID3D12Resource> resource;  ///< readback heap, persistently mapped
+    void* mapped = nullptr;
+    std::uint64_t size = 0;
+    std::uint32_t row_bytes = 0;
+    std::uint32_t pitch = 0;
+    std::uint32_t rows = 0;
+    bool pending = false;
+};
+
 struct Dx12Buffer {
     ComPtr<ID3D12Resource> resource;
     BufferDesc desc;
     void* mapped = nullptr;  ///< upload and readback heaps: persistently mapped
     std::uint32_t srv = 0;
     std::uint32_t uav = 0;
+    std::shared_ptr<PitchedReadback> pitched;  ///< readback buffers whose copies needed a row pitch
 };
+
+/// ADR 0025's mapping of graph states to enhanced-barrier layout, access and sync.
+struct BarrierState {
+    D3D12_BARRIER_LAYOUT layout;
+    D3D12_BARRIER_ACCESS access;
+    D3D12_BARRIER_SYNC sync;
+};
+
+BarrierState barrier_state(ResourceState state) {
+    switch (state) {
+        case ResourceState::undefined:
+            return {D3D12_BARRIER_LAYOUT_UNDEFINED, D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_SYNC_NONE};
+        case ResourceState::shader_read:
+            return {D3D12_BARRIER_LAYOUT_SHADER_RESOURCE, D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
+                    D3D12_BARRIER_SYNC_ALL_SHADING};
+        case ResourceState::shader_write:
+            return {D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS, D3D12_BARRIER_ACCESS_UNORDERED_ACCESS,
+                    D3D12_BARRIER_SYNC_ALL_SHADING};
+        case ResourceState::color_target:
+            return {D3D12_BARRIER_LAYOUT_RENDER_TARGET, D3D12_BARRIER_ACCESS_RENDER_TARGET,
+                    D3D12_BARRIER_SYNC_RENDER_TARGET};
+        case ResourceState::depth_write:
+            return {D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE, D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE,
+                    D3D12_BARRIER_SYNC_DEPTH_STENCIL};
+        case ResourceState::copy_src:
+            return {D3D12_BARRIER_LAYOUT_COPY_SOURCE, D3D12_BARRIER_ACCESS_COPY_SOURCE, D3D12_BARRIER_SYNC_COPY};
+        case ResourceState::copy_dst:
+            return {D3D12_BARRIER_LAYOUT_COPY_DEST, D3D12_BARRIER_ACCESS_COPY_DEST, D3D12_BARRIER_SYNC_COPY};
+        case ResourceState::accel_build:
+            return {D3D12_BARRIER_LAYOUT_UNDEFINED, D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE,
+                    D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE};
+        case ResourceState::accel_read:
+            return {D3D12_BARRIER_LAYOUT_UNDEFINED, D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_READ,
+                    D3D12_BARRIER_SYNC_ALL_SHADING};
+        case ResourceState::present:
+            return {D3D12_BARRIER_LAYOUT_PRESENT, D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_SYNC_NONE};
+    }
+    return {D3D12_BARRIER_LAYOUT_UNDEFINED, D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_SYNC_NONE};
+}
 
 struct Dx12Texture {
     ComPtr<ID3D12Resource> resource;
@@ -254,8 +305,8 @@ public:
     Dx12CommandList(Dx12CommandList&&) = delete;
     Dx12CommandList& operator=(Dx12CommandList&&) = delete;
 
-    void begin_render_pass(const RenderPassDesc&) override { not_implemented("begin_render_pass"); }
-    void end_render_pass() override {}
+    void begin_render_pass(const RenderPassDesc& desc) override;
+    void end_render_pass() override { pop_debug_group(); }
     void begin_compute_pass(std::string_view) override { not_implemented("begin_compute_pass"); }
     void end_compute_pass() override {}
     void set_pipeline(PipelineHandle) override { not_implemented("set_pipeline"); }
@@ -266,13 +317,9 @@ public:
     void refit_blas(AccelHandle) override { not_implemented("refit_blas"); }
     void build_tlas(AccelHandle, std::span<const TlasInstance>) override { not_implemented("build_tlas"); }
     void refit_tlas(AccelHandle, std::span<const TlasInstance>) override { not_implemented("refit_tlas"); }
-    void copy_texture_to_buffer(TextureHandle, BufferHandle) override { not_implemented("copy_texture_to_buffer"); }
+    void copy_texture_to_buffer(TextureHandle src, BufferHandle dst) override;
     void use(ResourceRef, ResourceState) override {}  // committed resources are always resident
-    void barrier(std::span<const Barrier> barriers) override {
-        if (!barriers.empty()) {
-            not_implemented("barrier");
-        }
-    }
+    void barrier(std::span<const Barrier> barriers) override;
     void push_debug_group(std::string_view name) override {
         const std::string text(name);  // PIX_EVENT_ANSI_VERSION (1): a null-terminated ANSI string
         recorder_->list->BeginEvent(1, text.c_str(), static_cast<UINT>(text.size() + 1));
@@ -368,7 +415,9 @@ public:
         if (!resource) {
             return std::unexpected(resource.error());
         }
-        Dx12Buffer buffer{std::move(*resource), desc};
+        Dx12Buffer buffer;
+        buffer.resource = std::move(*resource);
+        buffer.desc = desc;
         if (!gpu_memory) {
             const D3D12_RANGE nothing_read{0, 0};
             if (const HRESULT hr = buffer.resource->Map(0, desc.memory == MemoryType::upload ? &nothing_read : nullptr,
@@ -429,7 +478,9 @@ public:
         if (!resource) {
             return std::unexpected(resource.error());
         }
-        Dx12Texture texture{std::move(*resource), desc};
+        Dx12Texture texture;
+        texture.resource = std::move(*resource);
+        texture.desc = desc;
         const bool sampled = has(desc.usage, TextureUsage::sampled);
         const bool storage = has(desc.usage, TextureUsage::storage);
         const bool target = has(desc.usage, TextureUsage::color_target);
@@ -500,7 +551,19 @@ public:
 
     [[nodiscard]] void* map(BufferHandle h) override {
         Dx12Buffer* b = buffers_.get(h);
-        return b ? b->mapped : nullptr;
+        if (b == nullptr) {
+            return nullptr;
+        }
+        if (PitchedReadback* p = b->pitched.get(); p != nullptr && p->pending) {
+            // A texture copy landed with 256-byte rows; pack them the way copy_texture_to_buffer promises.
+            const auto* from = static_cast<const std::byte*>(p->mapped);
+            auto* to = static_cast<std::byte*>(b->mapped);
+            for (std::uint32_t row = 0; row < p->rows; ++row) {
+                std::memcpy(to + std::size_t{row} * p->row_bytes, from + std::size_t{row} * p->pitch, p->row_bytes);
+            }
+            p->pending = false;
+        }
+        return b->mapped;
     }
     [[nodiscard]] const TextureDesc* texture_desc(TextureHandle h) const override {
         const Dx12Texture* t = textures_.get(h);
@@ -536,6 +599,8 @@ public:
         if (!recorder) {
             return nullptr;
         }
+        std::array<ID3D12DescriptorHeap*, 2> heaps{view_heap_.get(), sampler_heap_.get()};
+        recorder->list->SetDescriptorHeaps(static_cast<UINT>(heaps.size()), heaps.data());
         auto list = std::make_unique<Dx12CommandList>(*this, std::move(recorder));
         list->push_debug_group(debug_name);
         return list;
@@ -578,6 +643,52 @@ public:
 
     /// A list that was never submitted (an error path): nothing of it reached the GPU.
     void give_back(std::unique_ptr<Recorder> recorder) { recorders_.push_back(std::move(recorder)); }
+
+    // Used by Dx12CommandList.
+    Dx12Buffer* buffer(BufferHandle h) { return buffers_.get(h); }
+    Dx12Texture* texture(TextureHandle h) { return textures_.get(h); }
+    [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE rtv(std::uint32_t index) const { return rtv_heap_.cpu(index); }
+    ID3D12Resource* resource(ResourceRef r) {
+        switch (r.kind) {
+            case ResourceKind::buffer:
+                if (Dx12Buffer* b = buffers_.get(BufferHandle{r.index, r.generation})) {
+                    return b->resource.Get();
+                }
+                break;
+            case ResourceKind::texture:
+                if (Dx12Texture* t = textures_.get(TextureHandle{r.index, r.generation})) {
+                    return t->resource.Get();
+                }
+                break;
+            default: break;
+        }
+        return nullptr;
+    }
+
+    /// The pitched copy target for a readback buffer, grown if needed. A replaced one may still be the target of
+    /// a copy in flight, so it is retired, not freed.
+    PitchedReadback* pitched_readback(Dx12Buffer& buffer, std::uint64_t size) {
+        if (!buffer.pitched || buffer.pitched->size < size) {
+            if (buffer.pitched) {
+                tracker_.retire([old = std::move(buffer.pitched)] {});
+            }
+            auto resource = create_resource(D3D12_HEAP_TYPE_READBACK, buffer_resource(size, D3D12_RESOURCE_FLAG_NONE),
+                                            D3D12_BARRIER_LAYOUT_UNDEFINED, buffer.desc.debug_name + " (pitched)");
+            if (!resource) {
+                log::error("rhi", resource.error());
+                return nullptr;
+            }
+            auto pitched = std::make_shared<PitchedReadback>();
+            pitched->resource = std::move(*resource);
+            pitched->size = size;
+            if (const HRESULT hr = pitched->resource->Map(0, nullptr, &pitched->mapped); FAILED(hr)) {
+                log::error("rhi", gpu_error("mapping a pitched readback buffer", hr).error());
+                return nullptr;
+            }
+            buffer.pitched = std::move(pitched);
+        }
+        return buffer.pitched.get();
+    }
 
 private:
     /// Executes a closed list and signals the fence with its new SubmissionId.
@@ -759,6 +870,122 @@ private:
     SlotMap<Dx12Sampler, SamplerHandle> samplers_;
     bool device_removed_reported_ = false;
 };
+
+// ---- Dx12CommandList ------------------------------------------------------------
+
+void Dx12CommandList::begin_render_pass(const RenderPassDesc& desc) {
+    push_debug_group(desc.debug_name);
+    ID3D12GraphicsCommandList7* list = recorder_->list.Get();
+    std::array<D3D12_CPU_DESCRIPTOR_HANDLE, 4> targets{};
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    for (std::uint32_t i = 0; i < desc.color_count; ++i) {
+        const ColorAttachment& c = desc.colors.at(i);
+        Dx12Texture* t = device_.texture(c.texture);
+        VEACH_ASSERT(t != nullptr && t->rtv != 0, "render pass '{}': color attachment {} is not a render target",
+                     desc.debug_name, i);
+        targets.at(i) = device_.rtv(t->rtv);
+        if (c.load == LoadOp::clear) {
+            list->ClearRenderTargetView(targets.at(i), c.clear_color.data(), 0, nullptr);
+        }
+        width = t->desc.width;
+        height = t->desc.height;
+    }
+    list->OMSetRenderTargets(desc.color_count, targets.data(), FALSE, nullptr);
+    // Metal sizes the viewport and scissor to the attachments implicitly; D3D12 needs them set.
+    const D3D12_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f};
+    const D3D12_RECT scissor{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
+    list->RSSetViewports(1, &viewport);
+    list->RSSetScissorRects(1, &scissor);
+    list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+}
+
+void Dx12CommandList::barrier(std::span<const Barrier> barriers) {
+    std::vector<D3D12_TEXTURE_BARRIER> textures;
+    std::vector<D3D12_BUFFER_BARRIER> buffers;
+    for (const Barrier& b : barriers) {
+        ID3D12Resource* resource = device_.resource(b.resource);
+        VEACH_ASSERT(resource != nullptr, "barrier on a dead resource {}:{}", b.resource.index, b.resource.generation);
+        const BarrierState before = barrier_state(b.before);
+        const BarrierState after = barrier_state(b.after);
+        // `discard` is an optimization (the old contents are not needed); a plain transition from the real
+        // `before` state is always correct, so v0 keeps the contents (ADR 0029, item 5).
+        if (b.resource.kind == ResourceKind::texture) {
+            D3D12_TEXTURE_BARRIER t{};
+            t.SyncBefore = before.sync;
+            t.SyncAfter = after.sync;
+            t.AccessBefore = before.access;
+            t.AccessAfter = after.access;
+            t.LayoutBefore = before.layout;
+            t.LayoutAfter = after.layout;
+            t.pResource = resource;
+            t.Subresources.IndexOrFirstMipLevel = 0xffffffff;  // all subresources
+            textures.push_back(t);
+        } else {
+            D3D12_BUFFER_BARRIER buf{};
+            buf.SyncBefore = before.sync;
+            buf.SyncAfter = after.sync;
+            buf.AccessBefore = before.access;
+            buf.AccessAfter = after.access;
+            buf.pResource = resource;
+            buf.Offset = 0;
+            buf.Size = UINT64_MAX;
+            buffers.push_back(buf);
+        }
+    }
+    std::array<D3D12_BARRIER_GROUP, 2> groups{};
+    UINT count = 0;
+    if (!textures.empty()) {
+        groups.at(count).Type = D3D12_BARRIER_TYPE_TEXTURE;
+        groups.at(count).NumBarriers = static_cast<UINT32>(textures.size());
+        groups.at(count).pTextureBarriers = textures.data();
+        ++count;
+    }
+    if (!buffers.empty()) {
+        groups.at(count).Type = D3D12_BARRIER_TYPE_BUFFER;
+        groups.at(count).NumBarriers = static_cast<UINT32>(buffers.size());
+        groups.at(count).pBufferBarriers = buffers.data();
+        ++count;
+    }
+    if (count != 0) {
+        recorder_->list->Barrier(count, groups.data());
+    }
+}
+
+void Dx12CommandList::copy_texture_to_buffer(TextureHandle src, BufferHandle dst) {
+    Dx12Texture* t = device_.texture(src);
+    Dx12Buffer* b = device_.buffer(dst);
+    VEACH_ASSERT(t != nullptr && b != nullptr, "copy_texture_to_buffer: invalid handles");
+    const std::uint32_t row = t->desc.width * bytes_per_pixel(t->desc.format);
+    VEACH_ASSERT(b->desc.size >= std::uint64_t{row} * t->desc.height, "copy_texture_to_buffer: buffer too small");
+    // D3D12 copies rows with a 256-byte pitch. Unaligned rows go through a pitched buffer that map() packs.
+    const auto pitch = static_cast<std::uint32_t>(align_up(row, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT));
+    ID3D12Resource* target = b->resource.Get();
+    if (pitch != row) {
+        PitchedReadback* p = device_.pitched_readback(*b, std::uint64_t{pitch} * t->desc.height);
+        if (p == nullptr) {
+            return;
+        }
+        p->row_bytes = row;
+        p->pitch = pitch;
+        p->rows = t->desc.height;
+        p->pending = true;
+        target = p->resource.Get();
+    }
+    D3D12_TEXTURE_COPY_LOCATION from{};
+    from.pResource = t->resource.Get();
+    from.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    from.SubresourceIndex = 0;
+    D3D12_TEXTURE_COPY_LOCATION to{};
+    to.pResource = target;
+    to.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    to.PlacedFootprint.Footprint.Format = to_dxgi(t->desc.format);
+    to.PlacedFootprint.Footprint.Width = t->desc.width;
+    to.PlacedFootprint.Footprint.Height = t->desc.height;
+    to.PlacedFootprint.Footprint.Depth = 1;
+    to.PlacedFootprint.Footprint.RowPitch = pitch;
+    recorder_->list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+}
 
 Dx12CommandList::~Dx12CommandList() {
     if (recorder_) {

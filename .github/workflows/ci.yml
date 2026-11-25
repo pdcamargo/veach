@@ -94,11 +94,13 @@ jobs:
           - name: macOS (Debug, leak checks)
             os: macos-15
             preset: leaks
-          - name: Windows (Debug, MSVC, DX12 stub + null RHI)
+          - name: Windows (Debug, MSVC, DX12 on WARP)
             os: windows-2025
             preset: debug
+            require_gpu: "1"  # DX12 goldens run on WARP (ADR 0031): a skip is a failure
     env:
       CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache
+      VEACH_REQUIRE_GPU: ${{ matrix.require_gpu || '0' }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -120,7 +122,7 @@ jobs:
         run: cmake --preset ${{ matrix.preset }}
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}
-      # GPU golden tests report SKIPPED here: hosted runners have a paravirtual GPU without Metal 3 /
-      # ray tracing (docs/specs/first-light/spec.md, VCH-044). Windows compiles every shader to DXIL.
+      # Metal goldens report SKIPPED on hosted macOS (a paravirtual GPU without Metal 3 / ray tracing; the
+      # self-hosted gpu job runs them). Windows runs the DX12 goldens on WARP and requires them to pass.
       - name: Test (unit, hello world, luau-analyze, generated files, goldens, hygiene)
         run: ctest --preset ${{ matrix.preset }}

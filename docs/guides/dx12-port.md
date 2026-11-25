@@ -57,8 +57,10 @@ judge: watch the Windows job.
    sets both signatures once.
 5. **Barriers.** `rhi::Barrier` maps to `D3D12_TEXTURE_BARRIER`/`D3D12_BUFFER_BARRIER` with ADR 0025's table:
    - `before == after == shader_write` is a UAV barrier.
-   - `discard` gives `LayoutBefore = UNDEFINED` plus the discard flag, but keeps the real `before` sync and access,
-     because the previous frame may still use the transient (ADR 0029).
+   - `discard` is honored as a plain transition from the real `before` state, which keeps the contents. That is
+     always correct; discarding is an optimization for later. The real `before` matters because the previous
+     frame may still use the transient (ADR 0029).
+   - `present` is layout `PRESENT` with no access and sync `NONE`.
    - Buffers have no layouts.
    - New textures start in `COMMON`. The first barrier says `before = undefined`, which is legal from any layout.
 6. **BLAS → TLAS in one pass.** The lab builds both in one graph pass, so the graph emits no barrier between

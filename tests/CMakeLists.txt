@@ -76,24 +76,32 @@ if(Python3_FOUND)
     endif()
 endif()
 
-# Golden images (first light). Metal only; skipped on GPUs without Metal 3 / ray tracing.
+# Golden images: one shared set, run on this platform's GPU backend (ADR 0028), DX12 on WARP in hosted CI
+# (ADR 0031). Skipped on GPUs that can't run them, unless VEACH_REQUIRE_GPU=1.
+set(_golden_dir "${PROJECT_SOURCE_DIR}/tests/golden")
+function(veach_golden_test name script golden rhi)
+    add_test(NAME "${name}"
+        COMMAND "${CMAKE_COMMAND}" -DLAB=$<TARGET_FILE:veach-lab> -DIMGDIFF=$<TARGET_FILE:veach-cli> -DRHI=${rhi}
+                -DSCRIPT=scripts/${script}.luau -DGOLDEN=${_golden_dir}/${golden}.png
+                -DOUT=${CMAKE_CURRENT_BINARY_DIR}/golden/${golden}.${rhi}.png -DMAX_MEAN=0.01
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/golden_test.cmake")
+    set_tests_properties("${name}" PROPERTIES SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE")
+endfunction()
 if(APPLE)
-    set(_golden_dir "${PROJECT_SOURCE_DIR}/tests/golden")
-    foreach(_mode raster raytraced)
-        add_test(NAME "golden: triangle (${_mode})"
-            COMMAND "${CMAKE_COMMAND}" -DLAB=$<TARGET_FILE:veach-lab> -DIMGDIFF=$<TARGET_FILE:veach-cli> -DRHI=metal
-                    -DSCRIPT=scripts/triangle_${_mode}.luau -DGOLDEN=${_golden_dir}/triangle_${_mode}.png
-                    -DOUT=${CMAKE_CURRENT_BINARY_DIR}/golden/triangle_${_mode}.png -DMAX_MEAN=0.01
-                    -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/golden_test.cmake")
-        set_tests_properties("golden: triangle (${_mode})" PROPERTIES SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE")
-    endforeach()
+    veach_golden_test("golden: background" hello background metal)
+    veach_golden_test("golden: triangle (raster)" triangle_raster triangle_raster metal)
+    veach_golden_test("golden: triangle (raytraced)" triangle_raytraced triangle_raytraced metal)
     add_custom_target(update-goldens
+        COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/hello.luau
+                --screenshot "${_golden_dir}/background.png"
         COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/triangle_raster.luau
                 --screenshot "${_golden_dir}/triangle_raster.png"
         COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/triangle_raytraced.luau
                 --screenshot "${_golden_dir}/triangle_raytraced.png"
         COMMENT "Regenerating golden images in tests/golden/ (review the diff before committing)"
         VERBATIM)
+elseif(WIN32)
+    veach_golden_test("golden: background (dx12)" hello background dx12)
 endif()
 # Same triangle, two renderers: the committed goldens must agree with each other (no GPU needed).
 add_test(NAME "golden: raster and ray-traced goldens agree"

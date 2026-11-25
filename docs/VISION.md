@@ -44,7 +44,10 @@ Changing anything in this file is a product decision: the product owner signs of
   Mac. M1/M2 may run but are not optimized for.
 - Initial target: **60 fps at 1440p output** (with upscaling) on current mid/high-end RT GPUs. Refined with
   real measurements.
-- **Tessera**: virtualized geometry (our Nanite). Cluster hierarchies, a visibility buffer, streaming.
+- **The real-time renderer**: a visibility buffer over meshlets, lit with the same Slang materials and lights as
+  the reference path tracer.
+- **Tessera**: virtualized geometry (our Nanite): cluster hierarchies, GPU culling and streaming, taking over the
+  renderer's meshlets. The name means only this system.
 - **Candela**: real-time global illumination (our Lumen). Raytraced and denoised.
 - Plus RT reflections with SSR fallback, physical sky and atmosphere, volumetric fog, area-light soft shadows,
   a shared denoiser and a temporal upscaler.
@@ -61,7 +64,7 @@ In rough order (details and ids in [backlog/BACKLOG.md](backlog/BACKLOG.md)):
    `gpu_timings`, `load_scene`, sandboxed transactional `eval`), hot reload, record/replay.
 4. Content (glTF import, KTX2/BC7 and extendable materials done): glTF (fastgltf, meshoptimizer), KTX2/BC7
    textures, Flecs Script scenes and prefabs, extendable materials.
-5. The renderer: a reference path tracer as ground truth (done), then Tessera, Candela, RT reflections, sky and
+5. The renderer: a reference path tracer as ground truth (done), the real-time renderer, then Tessera, Candela, RT reflections, sky and
    atmosphere, volumetric fog, area lights, denoiser, upscaler. DX12 backend alongside Metal (done early,
    verified on WARP in CI).
 6. The rest of a game engine: physics with Box3D (deterministic, MIT), audio, UI, an editor built on the same

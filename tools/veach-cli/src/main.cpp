@@ -3,6 +3,8 @@
 //   veach schemas [--out DIR  | --check DIR]    JSON Schemas for data files
 // Both generate from reflection. --check exits 1 if the file on disk is stale.
 
+#include "imgdiff.hpp"
+
 #include <veach/veach.hpp>
 
 #include <veach/platform/fs.hpp>
@@ -23,6 +25,8 @@ constexpr std::string_view usage_text = R"(Usage: veach <command> [options]
 Commands:
   types   [--out FILE | --check FILE]  Generate veach.d.luau from reflection (default: print to stdout).
   schemas [--out DIR  | --check DIR]   Generate JSON Schemas for veach.project.json and .meta files.
+  imgdiff <reference.png> <test.png> [--max-mean 0.01] [--diff out.png]
+                                       Perceptual (NVIDIA FLIP) image comparison for golden tests.
   help                                 Show this text.
 
 --check compares against the file(s) on disk and exits 1 if they are out of date.
@@ -149,6 +153,9 @@ int main(int argc, char** argv) {
     }
     if (args[0] == "schemas") {
         return command_schemas(rest);
+    }
+    if (args[0] == "imgdiff") {
+        return command_imgdiff(rest);
     }
     std::fprintf(stderr, "veach: unknown command '%.*s'\n%.*s", static_cast<int>(args[0].size()), args[0].data(),
                  static_cast<int>(usage_text.size()), usage_text.data());

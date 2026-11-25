@@ -59,7 +59,9 @@ claude mcp add veach-lab -- build/debug/apps/lab/veach-lab --mcp --headless --rh
 
 Headless sessions are deterministic: nothing moves until you call `step_frames`. Press keys with `send_input`
 (they drive the actions bound in `veach.project.json`). After editing a script or asset, call `reload` (headless
-runs never reload by themselves; windowed runs do, every 250 ms), then `list_assets` to see errors. Drop `--headless` to poke at a
+runs never reload by themselves; windowed runs do, every 250 ms), then `list_assets` to see errors. For ground
+truth, `path_trace { samples }` renders the camera's view with the reference path tracer (it needs a
+`PathTracer` on the camera; see `apps/lab/scripts/cornell_box.luau`). Drop `--headless` to poke at a
 running window. Look at screenshots you take; a successful call is not a correct image.
 
 ## Rules that are easy to get wrong

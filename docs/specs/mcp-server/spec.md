@@ -53,8 +53,9 @@ veach-lab --mcp --rhi metal                      # windowed: the app keeps runni
 | `list_assets` | | `{assets: [{path, id, loader, state, reloads, error?, reload_error?}]}` |
 | `send_input` | `key` (a `veach::Key` name), `down` | `{key, down, delivered}`; the event drives input actions on the next frame ([input](../input/spec.md)) |
 | `screenshot` | `path?` (also write the PNG there) | image content (PNG) and a text note |
+| `path_trace` | `samples`, `path?` | restarts the reference path tracer and renders exactly `samples` per pixel, without advancing simulation; image content (PNG) ([first-real-scene](../first-real-scene/spec.md)) |
 | `render_graph_plan` | | the last compiled plan as text (`RenderGraph::describe`) |
-| `gpu_timings` | | `{backend, device, frames_in_flight, last_frame_gpu_ms}` |
+| `gpu_timings` | | `{backend, device, frames_in_flight, last_frame_gpu_ms, path_tracer_samples}` |
 | `eval` | `source` (Luau) | `{ok, returns: [string], log: [string]}` |
 
 ```cpp

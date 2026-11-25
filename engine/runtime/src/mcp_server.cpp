@@ -8,6 +8,7 @@
 #include <veach/ecs/reflection.hpp>
 #include <veach/platform/input.hpp>
 #include <veach/platform/platform.hpp>
+#include <veach/render/path_tracer.hpp>
 #include <veach/render/png.hpp>
 #include <veach/render/renderer.hpp>
 #include <veach/rhi/rhi.hpp>
@@ -259,6 +260,16 @@ json McpServer::tools() const {
                         "Render the current state (without advancing simulation) and return it as a PNG. Needs a "
                         "GPU backend (--rhi metal). Optionally also write it to 'path'.",
                         {{"type", "object"}, {"properties", {{"path", {{"type", "string"}}}}}}));
+    list.push_back(tool(
+        "path_trace",
+        "Restart the reference path tracer's accumulation and render exactly `samples` samples per "
+        "pixel of the current state (simulation does not advance), then return the image as a PNG. "
+        "Needs an active camera with a PathTracer component and a GPU backend. Optionally also "
+        "write it to 'path'.",
+        {{"type", "object"},
+         {"properties",
+          {{"samples", {{"type", "integer"}, {"minimum", 1}, {"maximum", 1000000}}}, {"path", {{"type", "string"}}}}},
+         {"required", {"samples"}}}));
     list.push_back(tool("render_graph_plan",
                         "The last compiled render graph as text: pass order, culled passes and barriers.",
                         {{"type", "object"}, {"properties", json::object()}}));
@@ -274,6 +285,10 @@ json McpServer::tools() const {
 }
 
 json McpServer::call_tool(std::string_view name, const json& arguments) {
+    const auto path_tracer_samples = [&]() -> std::uint64_t {
+        auto* tracer = engine_.services().get<render::Renderer>().feature<render::PathTracerFeature>();
+        return tracer ? tracer->samples() : 0;
+    };
     World& world = engine_.world();
 
     if (name == "query_entities") {
@@ -496,6 +511,65 @@ json McpServer::call_tool(std::string_view name, const json& arguments) {
                                          {{"type", "text"}, {"text", note}}})}};
     }
 
+    if (name == "path_trace") {
+        if (!arguments.contains("samples") || !arguments["samples"].is_number_unsigned() ||
+            arguments["samples"].get<std::uint64_t>() < 1) {
+            fail(ErrorCode::mcp_invalid_arguments, "'samples' must be a positive integer");
+        }
+        const auto samples = arguments["samples"].get<std::uint64_t>();
+        auto& renderer = engine_.services().get<render::Renderer>();
+        auto* tracer = renderer.feature<render::PathTracerFeature>();
+        // The primary view's camera: the first active one by entity id, as extraction picks it.
+        Entity camera;
+        world.each([&](Entity e, const Camera& c) {
+            if (c.active && (!camera.is_valid() || e.id() < camera.id())) {
+                camera = e;
+            }
+        });
+        if (tracer == nullptr || !camera.is_valid() || !camera.has<PathTracer>()) {
+            fail(ErrorCode::mcp_invalid_arguments, "nothing is path traced: no active camera with a PathTracer",
+                 "Add PathTracer to the camera: set_component(camera, \"PathTracer\", {samples_per_frame: 16}).");
+        }
+        const PathTracer original = camera.get<PathTracer>();
+        const std::uint64_t per_frame = std::max<std::uint32_t>(1, original.samples_per_frame);
+        tracer->reset();
+        std::optional<Result<render::Image>> captured;
+        for (std::uint64_t done = 0; done < samples;) {
+            const std::uint64_t now = std::min(per_frame, samples - done);
+            if (now != camera.get<PathTracer>().samples_per_frame) {
+                PathTracer settings = original;
+                settings.samples_per_frame = static_cast<std::uint32_t>(now);
+                camera.set(settings);
+            }
+            done += now;
+            if (done == samples) {
+                renderer.request_capture([&](Result<render::Image> image) { captured = std::move(image); });
+            }
+            engine_.render_frame();
+        }
+        camera.set(original);
+        if (!captured) {
+            renderer.request_capture({});
+            fail(ErrorCode::render_screenshot_failed, "the frame did not render",
+                 "Check the log (stderr) for render errors.");
+        }
+        if (!*captured) {
+            throw ToolError{captured->error()};
+        }
+        const render::Image& image = **captured;
+        std::string note = std::format("{} samples per pixel, {}x{}", tracer->samples(), image.width, image.height);
+        if (arguments.contains("path")) {
+            const std::string path = require_string(arguments, "path");
+            if (auto written = render::write_png(path, image.width, image.height, image.rgba); !written) {
+                throw ToolError{written.error()};
+            }
+            note += std::format(", written to {}", path);
+        }
+        const std::vector<std::uint8_t> png = render::encode_png(image);
+        return {{"content", json::array({{{"type", "image"}, {"data", base64(png)}, {"mimeType", "image/png"}},
+                                         {{"type", "text"}, {"text", note}}})}};
+    }
+
     if (name == "render_graph_plan") {
         auto& renderer = engine_.services().get<render::Renderer>();
         if (renderer.last_graph().empty()) {
@@ -510,7 +584,8 @@ json McpServer::call_tool(std::string_view name, const json& arguments) {
                             {"device", device.capabilities().device_name},
                             {"gpu", device.capabilities().gpu},
                             {"frames_in_flight", device.frames_in_flight()},
-                            {"last_frame_gpu_ms", device.last_frame_gpu_ms()}});
+                            {"last_frame_gpu_ms", device.last_frame_gpu_ms()},
+                            {"path_tracer_samples", path_tracer_samples()}});
     }
 
     if (name == "eval") {

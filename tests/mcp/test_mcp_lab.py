@@ -5,6 +5,7 @@
   python3 tests/mcp/test_mcp_lab.py --lab <veach-lab> --imgdiff <veach> --golden <png> --out <png> golden
   python3 tests/mcp/test_mcp_lab.py --lab <veach-lab> fly
   python3 tests/mcp/test_mcp_lab.py --lab <veach-lab> reload
+  python3 tests/mcp/test_mcp_lab.py --lab <veach-lab> --imgdiff <veach> --golden <png> --out <dir> --rhi metal path_trace
 
 `protocol`, `fly` (the input spec's fly camera, input.AC5) and `reload` (hot reload, reload.AC5) run on the
 null RHI anywhere. `golden` needs Metal 3 + ray tracing; on other GPUs it prints
@@ -200,6 +201,47 @@ def reload(lab: str) -> None:
         client.close()
 
 
+def flip(imgdiff: str, a: str, b: str) -> float:
+    out = subprocess.run([imgdiff, "imgdiff", a, b, "--max-mean", "1"], capture_output=True, text=True).stdout
+    return float(out.split("mean FLIP ")[1].split()[0])
+
+
+def path_trace(lab: str, imgdiff: str, golden_path: str, out_dir: str, rhi: str) -> None:
+    client = McpClient([lab, "--mcp", "--headless", "--rhi", rhi, "--script", "scripts/cornell_box.luau"])
+    try:
+        client.initialize()
+    except RuntimeError as error:
+        if "rhi.backend_unavailable" in str(error) and os.environ.get("VEACH_REQUIRE_GPU") != "1":
+            print(f"VEACH_GPU_UNAVAILABLE: skipped (the {rhi} device can't ray trace)")
+            return
+        raise
+    os.makedirs(out_dir, exist_ok=True)
+
+    def shot(samples: int, name: str) -> str:
+        path = os.path.join(out_dir, name)
+        result = client.call("path_trace", samples=samples, path=path)
+        check(not result.get("isError"), f"path_trace {samples} succeeds: {result['content'][-1]['text']}")
+        return path
+
+    same = shot(64, "cornell_64.png")
+    check(flip(imgdiff, golden_path, same) <= 0.01, "[scene.AC7] path_trace 64 matches the golden run")
+
+    client.call_json("step_frames", count=2)
+    check(client.call_json("gpu_timings")["path_tracer_samples"] == 64 + 32,
+          "[scene.AC8] accumulation continues while nothing changes")
+    client.call_json("set_component", entity="camera", component="Transform",
+                     value={"translation": [0.0, 1.0, 3.8]})
+    client.call_json("step_frames", count=1)
+    check(client.call_json("gpu_timings")["path_tracer_samples"] == 16,
+          "[scene.AC8] moving the camera restarts the accumulation")
+
+    reference = shot(256, "cornell_256.png")
+    few = flip(imgdiff, reference, shot(8, "cornell_8.png"))
+    more = flip(imgdiff, reference, shot(32, "cornell_32.png"))
+    check(more < few, f"[scene.AC8] 4x the samples converges towards the reference (FLIP {few:.4f} -> {more:.4f})")
+    check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
+
+
 def golden(lab: str, imgdiff: str, golden_path: str, out: str, rhi: str) -> None:
     client = McpClient([lab, "--mcp", "--headless", "--rhi", rhi])
     try:
@@ -234,7 +276,7 @@ def main() -> int:
     parser.add_argument("--golden")
     parser.add_argument("--out")
     parser.add_argument("--rhi", default="metal")
-    parser.add_argument("mode", choices=["protocol", "golden", "fly", "reload"])
+    parser.add_argument("mode", choices=["protocol", "golden", "fly", "reload", "path_trace"])
     args = parser.parse_args()
     if args.mode == "protocol":
         protocol(args.lab)
@@ -242,6 +284,8 @@ def main() -> int:
         fly(args.lab)
     elif args.mode == "reload":
         reload(args.lab)
+    elif args.mode == "path_trace":
+        path_trace(args.lab, args.imgdiff, args.golden, args.out, args.rhi)
     else:
         golden(args.lab, args.imgdiff, args.golden, args.out, args.rhi)
     return 0

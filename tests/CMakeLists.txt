@@ -88,7 +88,24 @@ if(Python3_FOUND)
                     --out "${CMAKE_CURRENT_BINARY_DIR}/mcp/triangle.png" golden
             WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
         set_tests_properties("mcp: golden through MCP (GPU)" PROPERTIES SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE")
-    elseif(WIN32)
+    endif()
+    # scene.AC7/AC8: path_trace over MCP matches the golden run; accumulation restarts and converges.
+    if(APPLE OR WIN32)
+        if(APPLE)
+            set(_pt_rhi metal)
+        else()
+            set(_pt_rhi dx12)
+        endif()
+        add_test(NAME "mcp: path_trace (${_pt_rhi})"
+            COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
+                    --lab $<TARGET_FILE:veach-lab> --imgdiff $<TARGET_FILE:veach-cli> --rhi ${_pt_rhi}
+                    --golden "${PROJECT_SOURCE_DIR}/tests/golden/cornell_box.png"
+                    --out "${CMAKE_CURRENT_BINARY_DIR}/mcp/path_trace" path_trace
+            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
+        set_tests_properties("mcp: path_trace (${_pt_rhi})" PROPERTIES SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE"
+            TIMEOUT 1200)
+    endif()
+    if(WIN32)
         add_test(NAME "mcp: golden through MCP (dx12)"
             COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
                     --lab $<TARGET_FILE:veach-lab> --imgdiff $<TARGET_FILE:veach-cli> --rhi dx12

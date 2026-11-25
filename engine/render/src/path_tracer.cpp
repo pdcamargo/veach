@@ -535,7 +535,9 @@ void PathTracerFeature::record(RenderGraph& graph, const FrameContext& frame) {
     }
     Fnv64 hash;
     hash.add(&view->view_projection, sizeof(math::mat4));
-    hash.add(&settings, sizeof(settings));
+    // Not samples_per_frame: it sets the pace, not the image (MCP path_trace changes it mid-accumulation).
+    hash.add(&settings.max_bounces, sizeof(settings.max_bounces));
+    hash.add(&settings.sky, sizeof(settings.sky));
     hash.add(&view->exposure, sizeof(float));
     hash.add_all(materials);
     hash.add_all(lights);

@@ -7,9 +7,6 @@
 
 #include <veach/render/scene_renderer.hpp>
 
-#include <algorithm>
-#include <cmath>
-
 namespace lab {
 
 LabModule::LabModule(veach::World& world) {
@@ -29,39 +26,6 @@ LabModule::LabModule(veach::World& world) {
     // N steps it is exactly N * (1/60) * radians_per_second.
     world.system<Spinner>("Spin").kind<veach::phase::Simulation>().each(
         [](veach::Iter& it, std::size_t, Spinner& s) { s.angle += s.radians_per_second * it.delta_time(); });
-
-    world.component<FreeCamera>()
-        .member(&FreeCamera::speed, "speed")
-        .member(&FreeCamera::turn_speed, "turn_speed")
-        .add<veach::Scriptable>();
-
-    world.system<const FreeCamera, veach::Transform>("FlyFreeCamera")
-        .kind<veach::phase::Simulation>()
-        .each([](veach::Iter& it, std::size_t, const FreeCamera& fly, veach::Transform& t) {
-            const veach::World world = it.world();
-            const auto axis = [&](std::string_view negative, std::string_view positive) {
-                return (veach::action_down(world, positive) ? 1.0f : 0.0f) -
-                       (veach::action_down(world, negative) ? 1.0f : 0.0f);
-            };
-            const float turn = axis("turn_left", "turn_right");
-            const float look = axis("look_down", "look_up");
-            // In camera space: +X right, +Y up, -Z forward.
-            const veach::math::vec3 move{axis("move_left", "move_right"), axis("move_down", "move_up"),
-                                         -axis("move_back", "move_forward")};
-            if (turn == 0.0f && look == 0.0f && move == veach::math::vec3(0.0f)) {
-                return;
-            }
-            // Yaw and pitch from where the camera looks now (any roll is dropped once it moves).
-            const float dt = it.delta_time();
-            const veach::math::vec3 forward = t.rotation * veach::math::world_forward;
-            const float yaw = std::atan2(-forward.x, -forward.z) - turn * fly.turn_speed * dt;
-            const float pitch =
-                std::clamp(std::asin(std::clamp(forward.y, -1.0f, 1.0f)) + look * fly.turn_speed * dt, -1.5f, 1.5f);
-            t.rotation = veach::math::angleAxis(yaw, veach::math::world_up) *
-                         veach::math::angleAxis(pitch, veach::math::world_right);
-            const float speed = fly.speed * (veach::action_down(world, "sprint") ? 4.0f : 1.0f);
-            t.translation += t.rotation * move * (speed * dt);
-        });
 
     register_triangle_demo(world);
 

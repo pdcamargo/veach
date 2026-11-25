@@ -7,6 +7,14 @@
     "$schema": {
       "type": "string"
     },
+    "dev_scripts": {
+      "default": [],
+      "description": "Scripts run after the startup script, in order, in every run: development tools that work on any scene, such as a fly camera.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
     "frames": {
       "default": 0,
       "type": "integer"

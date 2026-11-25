@@ -114,3 +114,30 @@ TEST_CASE("[input.AC4] an untranslated key never trips actions") {
     run.engine->shutdown();
     CHECK(run.logs.contains("frame 1: down=false pressed=false released=false axis=0"));
 }
+
+TEST_CASE("[input.AC6] dev scripts run after the startup script, in order") {
+    test::TempProject project("dev-scripts");
+    project.write("veach.project.json", R"({"name": "t", "dev_scripts": ["dev/a.luau", "dev/b.luau"]})");
+    project.write("main.luau", "require(\"@veach\").log.info(\"ran main\")\n");
+    project.write("dev/a.luau", "require(\"@veach\").log.info(\"ran a\")\n");
+    project.write("dev/b.luau", "require(\"@veach\").log.info(\"ran b\")\n");
+    auto config = resolve_config(
+        {.name = "t", .default_project = {}},
+        std::vector<std::string_view>{"--project", project.path().string(), "--headless", "--script", "main.luau"});
+    REQUIRE(config.has_value());
+    CHECK(config->project.dev_scripts == std::vector<std::string>{"dev/a.luau", "dev/b.luau"});
+    config->log_to_console = false;
+    test::LogCapture logs;
+    Engine engine(std::move(*config));
+    REQUIRE(engine.init().has_value());
+    REQUIRE(engine.start().has_value());
+    engine.shutdown();
+    CHECK(logs.messages("script") == std::vector<std::string>{"ran main", "ran a", "ran b"});
+
+    test::TempProject bad("dev-scripts-bad");
+    bad.write("veach.project.json", R"({"name": "t", "dev_scripts": "dev/a.luau"})");
+    ProjectConfig loaded;
+    auto result = load_project_file(bad.path() / "veach.project.json", loaded);
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().code == ErrorCode::data_type_mismatch);
+}

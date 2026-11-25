@@ -132,7 +132,7 @@ def protocol(lab: str) -> None:
 
 
 def fly(lab: str) -> None:
-    client = McpClient([lab, "--mcp", "--headless", "--script", "scripts/fly_camera.luau"])
+    client = McpClient([lab, "--mcp", "--headless", "--script", "scripts/triangle_fly.luau"])
     client.initialize()
 
     def translation() -> list[float]:
@@ -148,8 +148,10 @@ def fly(lab: str) -> None:
 
     client.call_json("send_input", key="left", down=True)
     client.call_json("step_frames", count=30)
-    yaw = client.call_json("get_component", entity="camera", component="FlyCamera")["yaw"]
-    check(abs(yaw - 0.75) < 1e-3, f"[input.AC5] holding left for 30 frames turns 0.75 rad (yaw {yaw})")
+    rotation = client.call_json("get_component", entity="camera", component="Transform")["rotation"]
+    yaw = 2 * math.atan2(rotation["y"], rotation["w"])
+    check(abs(yaw - 0.75) < 1e-3 and abs(rotation["x"]) < 1e-6 and abs(rotation["z"]) < 1e-6,
+          f"[input.AC5] holding left for 30 frames turns 0.75 rad (rotation {rotation})")
 
     bad = client.call("send_input", key="spcae", down=True)
     text = bad["content"][0]["text"]
@@ -157,27 +159,31 @@ def fly(lab: str) -> None:
           "[input.AC5] send_input rejects an unknown key with a suggestion")
     check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
 
-    # The lab's C++ FreeCamera on a real-time scene: still without input (the golden's view), flies with it.
-    client = McpClient([lab, "--mcp", "--headless", "--script", "scripts/cornell_box_realtime.luau"])
+    # input.AC6: the dev fly camera flies any scene's active camera, and writes nothing without input. Here a
+    # turned camera (30 degrees about +Y), so forward is not -Z.
+    client = McpClient([lab, "--mcp", "--headless", "--script", "scripts/triangle_camera_raster.luau"])
     client.initialize()
     start = client.call_json("get_component", entity="camera", component="Transform")
     client.call_json("step_frames", count=30)
     check(client.call_json("get_component", entity="camera", component="Transform") == start,
-          "FreeCamera leaves the camera exactly where the scene put it until a key is held")
+          "[input.AC6] without input the dev fly camera leaves the scene's camera exactly where it was")
     client.call_json("send_input", key="w", down=True)
     client.call_json("step_frames", count=30)
     client.call_json("send_input", key="w", down=False)
-    moved = client.call_json("get_component", entity="camera", component="Transform")["translation"]
-    check(abs(moved[2] - (start["translation"][2] - 0.5)) < 1e-3,
-          f"FreeCamera: holding w for 30 frames at 1 m/s flies 0.5 m forward ({start['translation']} -> {moved})")
-    client.close()  # exits 1: the null RHI has no ray tracing for the scene renderer, which it logs as an error
+    moved = client.call_json("get_component", entity="camera", component="Transform")
+    s, m = start["translation"], moved["translation"]
+    step = [m[i] - s[i] for i in range(3)]
+    expected = [-math.sin(math.radians(30)), 0.0, -math.cos(math.radians(30))]  # 1 m along the camera's forward
+    check(all(abs(step[i] - expected[i]) < 1e-3 for i in range(3)),
+          f"[input.AC6] holding w for 30 frames flies 1 m along the camera's own forward ({s} -> {m})")
+    check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
 
 
 def replay(lab: str) -> None:
     """Record and replay (docs/specs/record-replay/spec.md)."""
     with tempfile.TemporaryDirectory() as tmp:
         recording = os.path.join(tmp, "fly.vreplay")
-        client = McpClient([lab, "--mcp", "--headless", "--script", "scripts/fly_camera.luau", "--record", recording])
+        client = McpClient([lab, "--mcp", "--headless", "--script", "scripts/triangle_fly.luau", "--record", recording])
         client.initialize()
         client.call_json("send_input", key="w", down=True)
         client.call_json("step_frames", count=20)
@@ -190,7 +196,7 @@ def replay(lab: str) -> None:
         check(client.close() == 0, "[replay.AC1] the recording run exits 0")
         with open(recording, encoding="utf-8") as f:
             lines = f.read().splitlines()
-        check(len(lines) == 41 and json.loads(lines[0])["script"] == "scripts/fly_camera.luau",
+        check(len(lines) == 41 and json.loads(lines[0])["script"] == "scripts/triangle_fly.luau",
               f"[replay.AC1] a header and one line per frame ({len(lines)} lines)")
 
         client = McpClient([lab, "--mcp", "--headless", "--replay", recording])

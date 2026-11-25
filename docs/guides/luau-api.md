@@ -126,7 +126,7 @@ Actions, never keys. Bind them in `veach.project.json` (one or two keys or mouse
 | `pressed(action) -> boolean` / `released(action)` | Went down / up this frame (true for the whole frame: read them in `"Input"` to act once). |
 | `axis(negative, positive) -> number` | −1, 0 or 1 from two held actions. |
 
-An unknown action raises `input.unknown_action` with a suggestion. The lab's `scripts/fly_camera.luau` is a
+An unknown action raises `input.unknown_action` with a suggestion. The lab's `scripts/dev/fly_camera.luau` is a
 complete example. Agents press keys with the MCP tool `send_input`. Spec: [input](../specs/input/spec.md).
 
 ### `veach.quat`

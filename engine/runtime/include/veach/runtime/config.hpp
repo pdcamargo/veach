@@ -48,6 +48,10 @@ struct ProjectConfig {
     /// "input": action -> one or two keys. Not a reflected member (reflection has no maps yet): parsed and
     /// schema-described by hand, see input_schema().
     std::vector<ActionBinding> input;
+    /// "dev_scripts": scripts run after the startup script, in order, in every run: development tools that work
+    /// on any scene, such as a fly camera. Not a reflected member (reflection has no arrays yet): parsed and
+    /// schema-described by hand, see dev_scripts_schema().
+    std::vector<std::string> dev_scripts;
 };
 
 struct AppInfo {
@@ -73,6 +77,8 @@ struct EngineConfig {
 void register_config_types(World& world);
 /// The JSON Schema of the "input" object, for the generated veach.project.schema.json.
 [[nodiscard]] nlohmann::json input_schema(const World& world);
+/// The JSON Schema of the "dev_scripts" array.
+[[nodiscard]] nlohmann::json dev_scripts_schema();
 
 /// argv (without the program name) -> project file -> CLI overrides.
 [[nodiscard]] Result<EngineConfig> resolve_config(const AppInfo& app, std::span<const std::string_view> args);

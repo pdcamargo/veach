@@ -2,6 +2,9 @@
   "$schema": "../../schemas/veach.project.schema.json",
   "name": "veach-lab",
   "script": "scripts/hello.luau",
+  "dev_scripts": [
+    "scripts/dev/fly_camera.luau"
+  ],
   "window": {
     "title": "Veach Lab",
     "width": 1280,

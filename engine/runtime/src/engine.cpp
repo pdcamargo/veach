@@ -325,8 +325,14 @@ Result<> Engine::init() {
 
 Result<> Engine::start() {
     VEACH_ZONE("Engine::start");
+    // The startup script, then the project's dev scripts (tools that work on any scene), in order.
+    std::vector<std::string> startup;
     if (!config_.project.script.empty()) {
-        const auto handle = assets_->load<ScriptAsset>(config_.project.script);
+        startup.push_back(config_.project.script);
+    }
+    startup.insert(startup.end(), config_.project.dev_scripts.begin(), config_.project.dev_scripts.end());
+    for (const std::string& path : startup) {
+        const auto handle = assets_->load<ScriptAsset>(path);
         auto script = assets_->wait(handle);
         if (!script) {
             return std::unexpected(script.error());
@@ -334,7 +340,7 @@ Result<> Engine::start() {
         if (auto executed = scripts_->execute(**script); !executed) {
             return executed;
         }
-        log::info("engine", "startup script '{}' loaded", config_.project.script);
+        log::info("engine", "{} '{}' loaded", path == config_.project.script ? "startup script" : "dev script", path);
     }
     run_phase(PhaseId::startup, 0.0);
     if (!config_.record.empty()) {

@@ -38,8 +38,13 @@ rebindable and lets tools list every action. Backlog: VCH-006.
   `axis` combines two actions.
 - **input.AC3**: `veach.input.down("jmp")` raises `input.unknown_action` with `Did you mean 'jump'?`.
 - **input.AC4**: An event with `Key::unknown` does not make actions whose second key is unbound read as held.
-- **input.AC5**: Over MCP only, the lab's fly camera (`scripts/fly_camera.luau`) moves forward 1 m after holding
-  `w` for 30 frames (2 m/s), and turns 0.75 rad after holding `left` for 30 frames.
+- **input.AC5**: Over MCP only, the lab's dev fly camera (`scripts/dev/fly_camera.luau`, run after the scene
+  `scripts/triangle_fly.luau`) moves forward 1 m after holding `w` for 30 frames (2 m/s), and turns 0.75 rad
+  after holding `left` for 30 frames.
+- **input.AC6**: A project's `"dev_scripts"` run after the startup script in every run. The lab's dev fly camera
+  flies the active camera of any scene along that camera's own forward, and writes nothing without input: a
+  scene's camera is exactly where the scene put it after 30 frames, so goldens, benchmarks and replays keep their
+  view. `"dev_scripts"` that is not an array of paths fails with `data.type_mismatch`.
 
 ## Out of scope
 

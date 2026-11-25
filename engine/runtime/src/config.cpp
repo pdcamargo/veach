@@ -207,7 +207,38 @@ Result<> parse_input(const World& world, const nlohmann::json& input, const std:
     return {};
 }
 
+/// "dev_scripts": ["scripts/dev/x.luau", ...].
+Result<> parse_dev_scripts(const nlohmann::json& scripts, const std::string& context, std::vector<std::string>& out) {
+    if (!scripts.is_array()) {
+        return make_error(
+            ErrorCode::data_type_mismatch, std::format("{}: 'dev_scripts' must be an array", context),
+            R"(List script paths relative to the project: "dev_scripts": ["scripts/dev/fly_camera.luau"].)");
+    }
+    out.clear();
+    for (const nlohmann::json& script : scripts) {
+        if (!script.is_string() || script.get<std::string>().empty()) {
+            return make_error(
+                ErrorCode::data_type_mismatch,
+                std::format("{}: dev_scripts: {} is not a script path", context, script.dump()),
+                R"(Each entry is a path relative to the project, such as "scripts/dev/fly_camera.luau".)");
+        }
+        out.push_back(script.get<std::string>());
+    }
+    return {};
+}
+
 }  // namespace
+
+nlohmann::json dev_scripts_schema() {
+    return {
+        {"type", "array"},
+        {"description",
+         "Scripts run after the startup script, in order, in every run: development tools that work "
+         "on any scene, such as a fly camera."},
+        {"items", {{"type", "string"}}},
+        {"default", nlohmann::json::array()},
+    };
+}
 
 nlohmann::json input_schema(const World& world) {
     std::vector<std::string> keys = enum_constants(world, world.id<Key>());
@@ -262,6 +293,12 @@ Result<> load_project_file(const std::filesystem::path& file, ProjectConfig& con
             return parsed;
         }
         json.erase("input");
+    }
+    if (json.is_object() && json.contains("dev_scripts")) {
+        if (auto parsed = parse_dev_scripts(json["dev_scripts"], context, config.dev_scripts); !parsed) {
+            return parsed;
+        }
+        json.erase("dev_scripts");
     }
     return from_json(world, config, json, context);
 }

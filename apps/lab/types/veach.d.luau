@@ -86,10 +86,6 @@ export type DirectionalLight = {
 	color: vector,
 	illuminance: number,
 }
-export type FreeCamera = {
-	speed: number,
-	turn_speed: number,
-}
 export type PathTracer = {
 	samples_per_frame: number,
 	max_bounces: number,
@@ -173,7 +169,6 @@ export type Veach = {
 	read components: {
 		read Camera: Component<Camera>,
 		read DirectionalLight: Component<DirectionalLight>,
-		read FreeCamera: Component<FreeCamera>,
 		read PathTracer: Component<PathTracer>,
 		read PointLight: Component<PointLight>,
 		read RealtimeLighting: Component<RealtimeLighting>,

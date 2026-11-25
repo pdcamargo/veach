@@ -19,19 +19,20 @@ shipped apps yet.
 
 - Slang is a pinned prebuilt release (v2026.22; macOS arm64 and Windows x64 packages, SHA256-pinned in
   `cmake/VeachDependencies.cmake`). `slangc` runs in the build; `libslang` is not linked yet.
-- `veach_add_shaders(<target> SHADERS <file.slang> ENTRIES <entry>:<stage> ...)` (in `cmake/VeachShaders.cmake`)
-  generates, per shader file:
+- `veach_add_shader(<target> <file.slang> ENTRIES <entry>:<stage> ...)` (in `cmake/VeachShaders.cmake`) builds,
+  per shader file:
   - **macOS:** `slangc -target metal` → MSL → `xcrun metal -std=metal3.1` → AIR → `xcrun metallib` → `.metallib`.
     Compiling the MSL at build time validates it and gives the runtime a ready library (`newLibraryWithData`).
   - **Windows:** `slangc -target dxil -profile sm_6_6`, one DXIL blob per entry point, using DXC from a pinned
-    DirectXShaderCompiler release (`-dxc-path`). There is no DX12 backend yet. The blobs are still built, so
-    every shader is proven portable on every Windows CI run.
-  - A generated `<target>_shaders.hpp/.cpp` that embeds the bytes and exposes, for each file,
-    `const veach::rhi::ShaderLibrary& <target>_shaders::<file>()`. Code passes the library to the pipeline it
+    DirectXShaderCompiler release (put first on `PATH` for the `slangc` call; `slangc` loads `dxcompiler.dll`
+    by name). There is no DX12 backend yet. The blobs are still built, so every shader is proven portable on
+    every Windows CI run.
+- `veach_shader_library(<target> NAMESPACE <ns>)`, once per target, generates `<ns>.hpp/.cpp`. They embed the
+  bytes and expose, for each file, `const veach::rhi::ShaderLibrary& <ns>::<file stem>()`. Code passes the library to the pipeline it
     creates. Lookups are explicit: no global registry, nothing for a static library to drop.
 - `slangc -depfile` feeds Ninja, so editing an imported `.slang` file rebuilds its users.
-- Common flags: `-matrix-layout-column-major` (matches `veach::math`, [ADR 0010](0010-conventions-and-math.md)),
-  `-warnings-as-errors all`, plus `-g` in debug builds.
+- Common flags: `-matrix-layout-column-major` (matches `veach::math`, [ADR 0010](0010-conventions-and-math.md))
+  and `-warnings-as-errors all`. Shader debug info is not emitted yet.
 - **Known Slang issue (2026.22):** the Metal target uses `RayDesc` as a plain struct but does not emit its
   definition. `cmake/patch_msl.cmake` adds the definition when the MSL uses `RayDesc` and does not define it. If a
   future Slang emits it, the patch stops applying by itself. Remove the patch once upstream fixes it (VCH-043).

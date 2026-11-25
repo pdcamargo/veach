@@ -12,9 +12,9 @@ execute_process(
     OUTPUT_VARIABLE render_output
     ERROR_VARIABLE render_output)
 
-if(render_output MATCHES "\\[rhi\\.backend_unavailable\\]")
-    string(REGEX MATCH "[^\n]*\\[rhi\\.backend_unavailable\\][^\n]*" reason "${render_output}")
-    string(REPLACE "[rhi.backend_unavailable]" "" reason "${reason}")
+if(render_output MATCHES "rhi\\.backend_unavailable")
+    string(REGEX MATCH "[^\n]*rhi\\.backend_unavailable[^\n]*" reason "${render_output}")
+    string(REPLACE "rhi.backend_unavailable" "unsupported GPU" reason "${reason}")
     if(DEFINED ENV{VEACH_REQUIRE_GPU})
         message(FATAL_ERROR "VEACH_REQUIRE_GPU is set, but this GPU cannot run the test:\n${reason}")
     endif()

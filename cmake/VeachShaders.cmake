@@ -18,7 +18,7 @@ if(APPLE)
     endif()
 elseif(WIN32)
     set(VEACH_SLANGC "${slang_SOURCE_DIR}/bin/slangc.exe")
-    set(VEACH_DXCOMPILER "${dxc_SOURCE_DIR}/bin/x64/dxcompiler.dll")
+    file(TO_NATIVE_PATH "${dxc_SOURCE_DIR}/bin/x64" VEACH_DXC_DIR)
 endif()
 
 function(veach_add_shader target file)
@@ -66,8 +66,10 @@ function(veach_add_shader target file)
             set(dxil "${out_dir}/${stem}.${entry}.dxil")
             add_custom_command(
                 OUTPUT "${dxil}"
-                COMMAND "${VEACH_SLANGC}" "${source}" -target dxil -profile sm_6_6 -entry ${entry} -stage ${stage}
-                        ${VEACH_SHADER_FLAGS} -dxc-path "${VEACH_DXCOMPILER}" -depfile "${dxil}.d" -o "${dxil}"
+                # slangc loads dxcompiler.dll (and dxil.dll, for signing) by name, so put the pinned DXC first on PATH.
+                COMMAND "${CMAKE_COMMAND}" -E env --modify "PATH=path_list_prepend:${VEACH_DXC_DIR}"
+                        "${VEACH_SLANGC}" "${source}" -target dxil -profile sm_6_6 -entry ${entry} -stage ${stage}
+                        ${VEACH_SHADER_FLAGS} -depfile "${dxil}.d" -o "${dxil}"
                 DEPENDS "${source}"
                 DEPFILE "${dxil}.d"
                 COMMENT "Slang -> DXIL: ${file} (${entry})"

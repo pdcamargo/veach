@@ -9,10 +9,12 @@
 #include "veach_render_shaders.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <format>
 #include <set>
+#include <span>
 #include <unordered_map>
 
 namespace veach::render {
@@ -154,6 +156,7 @@ struct PathTracerFeature::Impl {
     rhi::Device* device = nullptr;
     rhi::PipelineHandle pipeline;
     rhi::SamplerHandle sampler;
+    rhi::TextureHandle blank;  ///< 1x1 white: every texture slot of a material record names a real texture
     std::unordered_map<AssetId, GpuMesh> meshes;
     std::unordered_map<AssetId, GpuTexture> textures;
     rhi::AccelHandle tlas;
@@ -190,6 +193,7 @@ struct PathTracerFeature::Impl {
         destroy_if(accumulation);
         destroy_if(pipeline);
         destroy_if(sampler);
+        destroy_if(blank);
     }
     Impl(const Impl&) = delete;
     Impl& operator=(const Impl&) = delete;
@@ -271,14 +275,16 @@ struct PathTracerFeature::Impl {
         return &gpu;
     }
 
+    /// The texture's handle, or the blank texture's when there is none: a handle in a record is never left
+    /// unwritten, since a compiler may load the descriptor before the shader tests the material's flags.
     rhi::DescriptorHandle texture(const std::optional<AssetId>& id, bool& present) {
         present = false;
         if (!id) {
-            return {};
+            return device->descriptor(blank);
         }
         const TextureAsset* source = assets.get(Handle<TextureAsset>{*id});
         if (source == nullptr) {
-            return {};
+            return device->descriptor(blank);
         }
         GpuTexture& gpu = textures[*id];
         if (gpu.source != source) {
@@ -296,7 +302,7 @@ struct PathTracerFeature::Impl {
             if (!created) {
                 report("texture " + id->to_string(), created.error());
                 gpu = {};
-                return {};
+                return device->descriptor(blank);
             }
             gpu.source = source;
             gpu.texture = *created;
@@ -324,6 +330,8 @@ struct PathTracerFeature::Impl {
     MaterialRecord record_of(AssetId id) {
         MaterialRecord r;
         r.sampler = device->descriptor(sampler);
+        r.base_color_texture = r.metallic_roughness_texture = r.normal_texture = r.emissive_texture =
+            device->descriptor(blank);
         const MaterialAsset* m = assets.get(Handle<MaterialAsset>{id});
         if (m == nullptr) {
             return r;
@@ -404,6 +412,14 @@ Result<> PathTracerFeature::prepare(rhi::Device& device) {
         return std::unexpected(sampler.error());
     }
     s.sampler = *sampler;
+    const std::array<std::byte, 4> white{std::byte{255}, std::byte{255}, std::byte{255}, std::byte{255}};
+    const std::array<std::span<const std::byte>, 1> mips{white};
+    auto blank =
+        device.create_texture({1, 1, rhi::Format::rgba8_unorm, rhi::TextureUsage::sampled, "blank texture"}, mips);
+    if (!blank) {
+        return std::unexpected(blank.error());
+    }
+    s.blank = *blank;
     return {};
 }
 
@@ -441,7 +457,8 @@ void PathTracerFeature::record(RenderGraph& graph, const FrameContext& frame) {
         inst.slots = s.device->descriptor(mesh->slots);
         inst.material_base = static_cast<std::uint32_t>(materials.size());
         for (std::uint32_t slot = 0; slot < mesh->source->slot_count; ++slot) {
-            materials.push_back(slot < draw.materials.size() ? s.record_of(draw.materials[slot]) : MaterialRecord{});
+            materials.push_back(slot < draw.materials.size() ? s.record_of(draw.materials[slot])
+                                                             : s.record_of(AssetId{}));
         }
         inst.object_to_world = rows_of(draw.world);
         inst.normal_to_world = rows_of(math::mat4(math::transpose(math::inverse(math::mat3(draw.world)))));
@@ -609,7 +626,7 @@ void PathTracerFeature::record(RenderGraph& graph, const FrameContext& frame) {
         },
         [tlas_handle = s.tlas, tlas_instances](PassContext& ctx) { ctx.cmd.build_tlas(tlas_handle, tlas_instances); });
 
-    std::vector<GraphResource> textures;
+    std::vector<GraphResource> textures{graph.import(s.blank, "blank texture", rhi::ResourceState::shader_read)};
     for (const auto& [id, texture] : s.textures) {
         if (texture.texture.is_valid()) {
             textures.push_back(graph.import(texture.texture, "scene texture", rhi::ResourceState::shader_read));

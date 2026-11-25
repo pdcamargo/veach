@@ -93,8 +93,11 @@ Rules:
    `my_shaders::layout::<stem>` is generated from Slang's reflection of the shader. Different field names, order,
    offsets or sizes are a compile error, and the hygiene check fails if a shader with a parameter block has no
    such check. The shader build itself fails on `float3`/`uint3` members and 3-row or 3-column matrices, whose
-   layout differs between Metal and HLSL (ADR 0024). Use 8-byte `rhi::DescriptorHandle`s for handles. Keep
-   raster and compute entry points that need different parameters in separate `.slang` files.
+   layout differs between Metal and HLSL (ADR 0024). Use 8-byte `rhi::DescriptorHandle`s for handles, and never
+   leave one unwritten (handle 0) where a shader might read it, even behind a flag: the compiler may load the
+   descriptor before the branch, and WARP removes the device on an unwritten one. Point absent textures at a
+   default (the path tracer's 1x1 white). Keep raster and compute entry points that need different parameters
+   in separate `.slang` files.
 
 macOS builds compile to `.metallib`. Windows builds compile every entry point to DXIL, and the Windows CI job
 renders the goldens with it on WARP, so non-portable Slang fails CI either way.

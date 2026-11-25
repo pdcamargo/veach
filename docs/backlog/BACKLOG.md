@@ -49,7 +49,7 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 
 ## Blocked
 
-- **VCH-050** DX12 on real hardware — *rhi* — Run the DX12 goldens and a long frames-in-flight soak on a physical DXR 1.1 GPU (vendor drivers, real timings), and present to a real display: on the hosted runner some `Present` calls fail with `E_INVALIDARG` that no debug layer explains, and the windowed test tolerates them. Blocked: no Windows GPU machine or runner ([ADR 0030](../adr/0030-windows-verified-in-hosted-ci.md)). Unblocked by a paid GPU runner or a Windows machine registered as a runner.
+- **VCH-050** DX12 on real hardware — *rhi* — Run the DX12 goldens and a long frames-in-flight soak on a physical DXR 1.1 GPU (vendor drivers, real timings), and present to a real display: on the hosted runner about one `Present` in 60 fails with `E_INVALIDARG`, with or without a resize, and no debug layer explains it; the windowed test tolerates exactly that, only under `VEACH_CI_HOSTED_WINDOWS=1`. Blocked: no Windows GPU machine or runner ([ADR 0030](../adr/0030-windows-verified-in-hosted-ci.md)). Unblocked by a paid GPU runner or a Windows machine registered as a runner.
 
 ## Done
 

@@ -98,9 +98,11 @@ jobs:
             os: windows-2025
             preset: debug
             require_gpu: "1"  # DX12 goldens run on WARP (ADR 0031): a skip is a failure
+            hosted_windows: "1"  # tests/cmake/windowed_test.cmake: the runner's Present quirk (VCH-050)
     env:
       CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache
       VEACH_REQUIRE_GPU: ${{ matrix.require_gpu || '0' }}
+      VEACH_CI_HOSTED_WINDOWS: ${{ matrix.hosted_windows || '0' }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -126,15 +128,3 @@ jobs:
       # self-hosted gpu job runs them). Windows runs the DX12 goldens on WARP and requires them to pass.
       - name: Test (unit, hello world, luau-analyze, generated files, goldens, hygiene)
         run: ctest --preset ${{ matrix.preset }}
-      # TEMPORARY (diagnosis for the windowed DX12 test): Present failures with and without the resize.
-      - name: Diagnose windowed present
-        if: runner.os == 'Windows' && always()
-        shell: bash
-        run: |
-          for script in triangle_raster window_resize; do
-            for run in 1 2 3; do
-              out=$(build/debug/apps/lab/veach-lab.exe --window --rhi dx12 --frames 60 --script scripts/$script.luau 2>&1 || true)
-              echo "$script run $run: $(echo "$out" | grep -c 'Present failed' || true) of 60 presents failed"
-              echo "$out" | grep -E 'Present failed|resizing' | cut -c1-140 || true
-            done
-          done

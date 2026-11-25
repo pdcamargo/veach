@@ -49,7 +49,9 @@ Each is one step of [dx12-port](../../guides/dx12-port.md), proven in the Window
 - **dx12.AC8**: `lab: windowed DX12 run`: a swapchain is created from the HWND and presents, the window is resized
   on frame 10, and the run shuts down cleanly with no errors. One exception: on the hosted runner some `Present`
   calls fail with `E_INVALIDARG`, with the window visible and sized like the swapchain, and neither debug layer
-  explains it. The test tolerates that HRESULT while most presents succeed
+  explains it. Measured without the resize too (three 60-frame runs, one failure each at about 0.5 s), so it is
+  not a resize vs frames-in-flight race. The test tolerates exactly that HRESULT, and only where
+  `VEACH_CI_HOSTED_WINDOWS=1` (the hosted job sets it); elsewhere any error fails it
   (`tests/cmake/windowed_test.cmake`). Presenting on a real display is VCH-050 (blocked).
 
 ## Out of scope

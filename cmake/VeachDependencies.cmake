@@ -86,3 +86,47 @@ if(VEACH_BUILD_TESTS)
         EXCLUDE_FROM_ALL YES
         OPTIONS "DOCTEST_WITH_TESTS OFF" "DOCTEST_NO_INSTALL ON")
 endif()
+
+# Slang: shader compiler, prebuilt (docs/adr/0026-shader-compilation.md). Build-time only (slangc).
+if(APPLE)
+    CPMAddPackage(
+        NAME slang
+        VERSION 2026.22
+        URL https://github.com/shader-slang/slang/releases/download/v2026.22/slang-2026.22-macos-aarch64.tar.gz
+        URL_HASH SHA256=885b5bd9a79a1ae81fdb92212f5f7c785001f870d45c39f9bb5df01339db3fea
+        DOWNLOAD_ONLY YES)
+elseif(WIN32)
+    CPMAddPackage(
+        NAME slang
+        VERSION 2026.22
+        URL https://github.com/shader-slang/slang/releases/download/v2026.22/slang-2026.22-windows-x86_64.tar.gz
+        URL_HASH SHA256=1273f2ad5ba35f21f77053faa1ef6eb0e1b668d52ccf1b9449014f3acdec2fba
+        DOWNLOAD_ONLY YES)
+    # DXC: Slang's downstream compiler for DXIL (dxcompiler.dll + dxil.dll for signing).
+    CPMAddPackage(
+        NAME dxc
+        VERSION 1.9.2609
+        URL https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/dxc_2026_09_29.zip
+        URL_HASH SHA256=ad31b1fc8443175d204f77a611fdb3ef2ec42759bdc2f1167368de24a4a7e7f1
+        DOWNLOAD_ONLY YES)
+endif()
+
+# stb: PNG read/write for screenshots and golden images. Single-header, public domain / MIT.
+CPMAddPackage(
+    NAME stb
+    VERSION 0.0.0-c16853e
+    URL https://github.com/nothings/stb/archive/c16853e213f8452670d8ca2cc96c76e80d5144db.tar.gz
+    URL_HASH SHA256=d8c83c763e74f1d96debedeeb6f610ee970e690ff7a5faa12498d4afedf84bdb
+    DOWNLOAD_ONLY YES)
+add_library(veach_stb INTERFACE)
+target_include_directories(veach_stb SYSTEM INTERFACE "${stb_SOURCE_DIR}")
+
+# NVIDIA FLIP: perceptual image comparison for golden-image tests (tools only). BSD-3-Clause.
+CPMAddPackage(
+    NAME flip
+    VERSION 0.0.0-d3ab02a
+    URL https://github.com/NVlabs/flip/archive/d3ab02a4425eb167d8a4021b382a2bafc6e6c838.tar.gz
+    URL_HASH SHA256=991abec79184de1f983f303c34d97cd64ca463c24f74c42f6285d5bfc68af42e
+    DOWNLOAD_ONLY YES)
+add_library(veach_flip INTERFACE)
+target_include_directories(veach_flip SYSTEM INTERFACE "${flip_SOURCE_DIR}/src/cpp")

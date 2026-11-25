@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.28)
+cmake_minimum_required(VERSION 3.29)
 
 project(veach
     VERSION 0.1.0
@@ -15,6 +15,7 @@ include(VeachOptions)
 include(VeachCompiler)
 include(VeachDependencies)
 include(VeachTargets)
+include(VeachShaders)
 
 if(VEACH_BUILD_TESTS)
     enable_testing()

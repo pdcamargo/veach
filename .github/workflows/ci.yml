@@ -52,6 +52,8 @@ jobs:
       CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache
     steps:
       - uses: actions/checkout@v5
+        with:
+          lfs: true  # golden images (tests/golden/) live in Git LFS
       - uses: lukka/get-cmake@latest
       - name: MSVC developer environment
         if: runner.os == 'Windows'
@@ -69,5 +71,7 @@ jobs:
         run: cmake --preset ${{ matrix.preset }}
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}
-      - name: Test (unit, hello world, luau-analyze, generated files, hygiene)
+      # GPU golden tests report SKIPPED here: hosted runners have a paravirtual GPU without Metal 3 /
+      # ray tracing (docs/specs/first-light/spec.md, VCH-044). Windows compiles every shader to DXIL.
+      - name: Test (unit, hello world, luau-analyze, generated files, goldens, hygiene)
         run: ctest --preset ${{ matrix.preset }}

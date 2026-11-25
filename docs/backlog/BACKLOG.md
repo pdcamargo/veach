@@ -5,7 +5,7 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 ## Now
 
 - **VCH-002** Windows bring-up — *platform* — Build and run on real Windows hardware: SDL window, HWND handle reaching the RHI, MSVC warnings clean, DX12 stub selected with `--rhi dx12`. CI already builds and tests Windows headless. [ADR](../adr/0002-target-platforms-and-hardware.md)
-- **VCH-044** GPU runner for CI — *process* — GitHub's hosted macOS runners have a paravirtual GPU (no Metal 3, no ray tracing), so the golden-image tests skip there. Add a runner with a real Apple GPU (self-hosted on an M-series Mac, restricted to `main`, or a paid GPU-capable hosted runner) and set `VEACH_REQUIRE_GPU=1` on it. Needs the product owner's decision. [spec](../specs/first-light/spec.md)
+- **VCH-044** GPU runner for CI — *process* — Self-hosted Mac runner (decided 2026-11-25): separate non-admin user, no secrets, push to main and manual dispatch only, `VEACH_REQUIRE_GPU=1`. Script and guide in [ci-runners](../guides/ci-runners.md). Done once the `macOS GPU` job passes on `main`.
 
 ## Next
 
@@ -50,6 +50,7 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 - **VCH-041** Validate parameter-block layouts — *render* — Compare each C++ parameter struct with Slang's `-reflection-json` offsets in a test, instead of hand-written `static_assert`s. [ADR](../adr/0024-resource-binding-model.md)
 - **VCH-042** Deferred resource destruction — *rhi* — A fence-tagged free list instead of waiting for GPU idle when destroying resources (and, on DX12, descriptor slots). [ADR](../adr/0025-sync-and-barrier-model.md)
 - **VCH-043** Drop the MSL `RayDesc` patch — *render* — Remove `cmake/patch_msl.cmake` once Slang's Metal target emits `RayDesc` (reported against 2026.22). [ADR](../adr/0026-shader-compilation.md)
+- **VCH-047** Windows GPU runner script — *process* — Turn the manual Windows steps in [ci-runners](../guides/ci-runners.md) into a PowerShell setup/teardown pair, once the DX12 goldens exist.
 - **VCH-039** Windows ASan in CI — *process* — MSVC `/fsanitize=address` job (MSVC has no UBSan).
 
 ## Done

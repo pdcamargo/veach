@@ -77,7 +77,10 @@ Building details: [docs/guides/building.md](docs/guides/building.md).
 3. Implement. Name tests after the criteria: `TEST_CASE("[script.AC4] ...")`.
 4. Update the spec status, the backlog ([docs/backlog/BACKLOG.md](docs/backlog/BACKLOG.md), `/backlog`) and any
    affected docs **in the same commit**.
-5. Before pushing: build, `ctest`, the hygiene check, and clang-format. Then push and check CI (`gh run list`).
+5. Before pushing: `tools/scripts/pre-push.sh`. It runs the build, every test with GPU goldens required on macOS,
+   the hygiene check and clang-format, and is installed as a hook with `git config core.hooksPath tools/githooks`.
+   Then push and check CI (`gh run list`). The `macOS GPU` job runs on a self-hosted Mac
+   ([docs/guides/ci-runners.md](docs/guides/ci-runners.md)); it may stay queued while that Mac sleeps.
 
 How to add a module, component, system, Luau binding, loader, error code or engine subsystem:
 [docs/guides/extending.md](docs/guides/extending.md).

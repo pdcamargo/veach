@@ -62,7 +62,7 @@ if(APPLE)
     set(_golden_dir "${PROJECT_SOURCE_DIR}/tests/golden")
     foreach(_mode raster raytraced)
         add_test(NAME "golden: triangle (${_mode})"
-            COMMAND "${CMAKE_COMMAND}" -DLAB=$<TARGET_FILE:veach-lab> -DIMGDIFF=$<TARGET_FILE:veach-cli>
+            COMMAND "${CMAKE_COMMAND}" -DLAB=$<TARGET_FILE:veach-lab> -DIMGDIFF=$<TARGET_FILE:veach-cli> -DRHI=metal
                     -DSCRIPT=scripts/triangle_${_mode}.luau -DGOLDEN=${_golden_dir}/triangle_${_mode}.png
                     -DOUT=${CMAKE_CURRENT_BINARY_DIR}/golden/triangle_${_mode}.png -DMAX_MEAN=0.01
                     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/golden_test.cmake")

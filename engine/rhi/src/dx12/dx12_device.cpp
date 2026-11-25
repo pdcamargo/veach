@@ -15,6 +15,7 @@
 #include <d3d12.h>
 #include <d3d12sdklayers.h>
 #include <dxgi1_6.h>
+#include <dxgidebug.h>
 #include <wrl/client.h>
 
 #include <algorithm>
@@ -313,9 +314,38 @@ struct Dx12Accel {
 /// A flip-model swapchain; its buffers are ordinary textures (state: present) for the render graph.
 struct Dx12Surface {
     ComPtr<IDXGISwapChain3> swapchain;
+    HWND hwnd = nullptr;
     std::vector<TextureHandle> images;
     bool vsync = true;
 };
+
+/// Why a Present failed: the window's state and, where the DXGI debug layer is installed, its messages.
+std::string present_diagnostics(const Dx12Surface& s) {
+    DXGI_SWAP_CHAIN_DESC1 d{};
+    s.swapchain->GetDesc1(&d);
+    RECT client{};
+    GetClientRect(s.hwnd, &client);
+    std::string out =
+        std::format("swapchain {}x{}, window client {}x{}, visible {}, minimized {}, back buffer {}", d.Width, d.Height,
+                    client.right - client.left, client.bottom - client.top, IsWindowVisible(s.hwnd) != 0,
+                    IsIconic(s.hwnd) != 0, s.swapchain->GetCurrentBackBufferIndex());
+    ComPtr<IDXGIInfoQueue> queue;
+    if (FAILED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&queue)))) {
+        return out + "; the DXGI debug layer is not installed";
+    }
+    const UINT64 count = queue->GetNumStoredMessages(DXGI_DEBUG_ALL);
+    for (UINT64 i = 0; i < count; ++i) {
+        SIZE_T size = 0;
+        queue->GetMessage(DXGI_DEBUG_ALL, i, nullptr, &size);
+        std::vector<std::byte> storage(size);
+        auto* message = reinterpret_cast<DXGI_INFO_QUEUE_MESSAGE*>(storage.data());
+        if (SUCCEEDED(queue->GetMessage(DXGI_DEBUG_ALL, i, message, &size))) {
+            out += std::format("; DXGI: {}", message->pDescription);
+        }
+    }
+    queue->ClearStoredMessages(DXGI_DEBUG_ALL);
+    return out;
+}
 
 class Dx12Device;
 
@@ -775,6 +805,7 @@ public:
         factory_->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER);  // fullscreen is the Window component's job
         Dx12Surface surface;
         swapchain.As(&surface.swapchain);
+        surface.hwnd = hwnd;
         surface.vsync = desc.vsync;
         if (auto images = wrap_images(surface); !images) {
             return std::unexpected(images.error());
@@ -939,7 +970,8 @@ private:
                     report_device_removed();
                 } else {
                     log::error("rhi", Error{ErrorCode::rhi_invalid_surface,
-                                            std::format("DXGI: Present failed ({})", hresult(hr)),
+                                            std::format("DXGI: Present failed ({}): {}", hresult(hr),
+                                                        present_diagnostics(*present)),
                                             {}});
                 }
             }
@@ -1512,8 +1544,11 @@ Result<std::unique_ptr<Device>> create_dx12_device(const DeviceDesc& desc) {
             log::warn("rhi", "the D3D12 debug layer is unavailable (D3D12\\d3d12SDKLayers.dll missing?)");
         }
     }
+    // The DXGI debug layer (dxgidebug.dll) comes with the Graphics Tools feature, which may be missing.
     ComPtr<IDXGIFactory6> factory;
-    if (const HRESULT hr = CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)); FAILED(hr)) {
+    if (desc.validation && SUCCEEDED(CreateDXGIFactory2(DXGI_CREATE_FACTORY_DEBUG, IID_PPV_ARGS(&factory)))) {
+        log::debug("rhi", "DXGI debug layer enabled");
+    } else if (const HRESULT hr = CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)); FAILED(hr)) {
         return make_error(ErrorCode::rhi_backend_unavailable, std::format("DXGI is unavailable ({})", hresult(hr)));
     }
 

@@ -22,5 +22,5 @@ elseif(WIN32)
     # Agility SDK headers first, so they win over the Windows SDK's older d3d12.h (ADR 0031).
     target_include_directories(veach_rhi SYSTEM BEFORE PRIVATE "${d3d12_agility_SOURCE_DIR}/build/native/include")
     target_compile_definitions(veach_rhi PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
-    target_link_libraries(veach_rhi PRIVATE d3d12 dxgi)
+    target_link_libraries(veach_rhi PRIVATE d3d12 dxgi dxguid)
 endif()

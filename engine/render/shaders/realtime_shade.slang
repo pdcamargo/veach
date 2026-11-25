@@ -1,7 +1,9 @@
-// The real-time renderer v0 (docs/adr/0037-realtime-renderer-visibility-buffer.md): a visibility buffer of
-// meshlet triangles, then one compute pass that rebuilds each pixel's surface and lights it with the same
-// materials, BRDF and light sampling as the path tracer. Compiled into each app's shader library with its
-// materials (veach_add_scene_shaders). This file: the shading pass. Its parameter layout matches render::ShadeParams.
+// The real-time renderer (ADR 0037, ADR 0040): the passes that need the app's materials, compiled into each app's
+// shader library (veach_add_scene_shaders). Every entry reads the frame record (veach/realtime.slang); its
+// parameter block carries only that and a per-pass argument. Mirrors render::RealtimeParams.
+//
+//   surface: resolves the visibility buffer into the surfaces, with motion and disocclusion (ADR 0040).
+//   shade:   direct light from the surfaces, the ambient stopgap and emission, into exposed radiance.
 
 import veach.bindless;
 import veach.brdf;
@@ -9,43 +11,23 @@ import veach.lights;
 import veach.material;
 import veach.materials_generated;  // evaluateSurface(kind, c), evaluateAlpha(kind, c)
 import veach.random;
+import veach.realtime;
 import veach.scene;
+import veach.temporal;
 
 static const uint no_geometry = 0xFFFFFFFFu;  ///< the visibility buffer's clear value
 
-// ---- shading ---------------------------------------------------------------------------------------------
-
-struct ShadeParams {
-    float4x4 inverse_view_projection;
-    float4 camera_position;  ///< xyz
-    float4 sky_ambient;      ///< xyz sky radiance (nits); w = 1 when the ambient stopgap is on
-    DescriptorHandle<Texture2D<uint2>> visibility;
-    DescriptorHandle<RWTexture2D<float4>> output;  ///< linear radiance, nits (rgba16f)
-    DescriptorHandle<RaytracingAccelerationStructure> scene;
-    DescriptorHandle<StructuredBuffer<InstanceRecord>> instances;
-    DescriptorHandle<StructuredBuffer<MaterialRecord>> materials;
-    DescriptorHandle<StructuredBuffer<LightRecord>> lights;
-    DescriptorHandle<StructuredBuffer<EmissiveTriangle>> emissive;
-    uint2 size;
-    uint light_count;
-    uint emissive_count;
-    float emissive_total_weight;
-    uint emissive_samples;  ///< light samples per pixel from emissive triangles
-    uint ao_rays;           ///< stopgap AO: cosine rays per pixel
-    float ao_radius;        ///< stopgap AO: how far an occluder counts, meters
-    uint frame;             ///< seeds the random numbers
-    uint debug_skip;        ///< debug_skip_* (veach/scene.slang): parts left out to measure what they cost
-    uint scene_flags;       ///< SceneData::flags
-    uint pad0;
-    uint2 pad1;
+struct RealtimeParams {
+    DescriptorHandle<StructuredBuffer<RealtimeFrame>> frame;
+    uint argument;  ///< per pass
+    uint pad;
 };
-[[vk::push_constant]] ConstantBuffer<ShadeParams> shade_params;
+[[vk::push_constant]] ConstantBuffer<RealtimeParams> realtime_params;
 
-float3 camera_ray(float2 pixel) {
-    const float2 ndc = float2(pixel.x / float(shade_params.size.x) * 2.0 - 1.0,
-                              1.0 - pixel.y / float(shade_params.size.y) * 2.0);
-    const float4 near = mul(shade_params.inverse_view_projection, float4(ndc, 1.0, 1.0));  // reverse-Z
-    const float4 mid = mul(shade_params.inverse_view_projection, float4(ndc, 0.5, 1.0));
+float3 camera_ray(RealtimeFrame f, float2 pixel) {
+    const float2 ndc = float2(pixel.x / float(f.render_size.x) * 2.0 - 1.0, 1.0 - pixel.y / float(f.render_size.y) * 2.0);
+    const float4 near = mul(f.inverse_view_projection, float4(ndc, 1.0, 1.0));  // reverse-Z
+    const float4 mid = mul(f.inverse_view_projection, float4(ndc, 0.5, 1.0));
     return normalize(mid.xyz / mid.w - near.xyz / near.w);
 }
 
@@ -62,46 +44,43 @@ float2 plane_barycentrics(float3 origin, float3 direction, float3 p0, float3 p1,
     return float2(dot(tv, pv) * inv, dot(direction, qv) * inv);
 }
 
+// ---- surface -----------------------------------------------------------------------------------------------
+
 [shader("compute")]
 [numthreads(8, 8, 1)]
-void shade(uint3 id: SV_DispatchThreadID) {
-    if (any(id.xy >= shade_params.size)) {
+void surface(uint3 id: SV_DispatchThreadID) {
+    const RealtimeFrame f = realtime_params.frame[0];
+    if (any(id.xy >= f.render_size)) {
         return;
     }
-    veach_scene.tlas = shade_params.scene;
-    veach_scene.instances = shade_params.instances;
-    veach_scene.materials = shade_params.materials;
-    veach_scene.lights = shade_params.lights;
-    veach_scene.emissive = shade_params.emissive;
-    veach_scene.light_count = shade_params.light_count;
-    veach_scene.emissive_count = shade_params.emissive_count;
-    veach_scene.emissive_total_weight = shade_params.emissive_total_weight;
-    veach_scene.debug_skip = shade_params.debug_skip;
-    veach_scene.flags = shade_params.scene_flags;
-
-    const uint2 visible_id = shade_params.visibility.Load(int3(id.xy, 0));
-    const bool ambient = shade_params.sky_ambient.w > 0.0;
+    use_scene(f);
+    const uint2 visible_id = f.visibility.Load(int3(id.xy, 0));
     if (visible_id.x == no_geometry) {
-        shade_params.output[id.xy] = float4(ambient ? shade_params.sky_ambient.xyz : float3(0.0, 0.0, 0.0), 1.0);
+        f.position_out[id.xy] = float4(0.0, 0.0, 0.0, 0.0);
+        f.normal_out[id.xy] = float4(0.0, 0.0, 1.0, 1.0);
+        f.geometric_out[id.xy] = float4(0.0, 0.0, 1.0, 0.0);
+        f.diffuse_out[id.xy] = float4(0.0, 0.0, 0.0, 0.0);
+        f.specular_out[id.xy] = float4(0.0, 0.0, 0.0, 0.0);
+        f.emission_out[id.xy] = float4(0.0, 0.0, 0.0, 0.0);
+        f.motion_out[id.xy] = float4(0.0, 0.0, 0.0, 0.0);
         return;
     }
-    Rng rng = { pcg(id.x + pcg(id.y + pcg(shade_params.frame))) };
-    const InstanceRecord inst = shade_params.instances[visible_id.x];
+    const InstanceRecord inst = f.instances[visible_id.x];
     const TriangleRef tri = meshlet_triangle(inst, visible_id.y >> 7, visible_id.y & 127u);
     const float3x3 corners = triangle_positions(inst, tri);
     const float3 p0 = to_world(inst.object_to_world, corners[0], 1.0);
     const float3 p1 = to_world(inst.object_to_world, corners[1], 1.0);
     const float3 p2 = to_world(inst.object_to_world, corners[2], 1.0);
-    const float3 origin = shade_params.camera_position.xyz;
-    const float2 pixel = float2(id.xy) + 0.5;
-    const float2 bary = plane_barycentrics(origin, camera_ray(pixel), p0, p1, p2);
+    const float3 origin = f.camera_position.xyz;
+    const float2 pixel = float2(id.xy) + 0.5 + f.jitter.xy;  // the sample the visibility pass rasterized
+    const float2 bary = plane_barycentrics(origin, camera_ray(f, pixel), p0, p1, p2);
     TriangleHit hit = surface_of(inst, tri, bary, origin);
     // UV gradients from the neighboring pixels' rays on the same plane (no quad derivatives in compute).
     const float2 uv0 = fetch(inst, tri.vertices.x).uv;
     const float2 uv1 = fetch(inst, tri.vertices.y).uv;
     const float2 uv2 = fetch(inst, tri.vertices.z).uv;
-    const float2 bx = plane_barycentrics(origin, camera_ray(pixel + float2(1.0, 0.0)), p0, p1, p2);
-    const float2 by = plane_barycentrics(origin, camera_ray(pixel + float2(0.0, 1.0)), p0, p1, p2);
+    const float2 bx = plane_barycentrics(origin, camera_ray(f, pixel + float2(1.0, 0.0)), p0, p1, p2);
+    const float2 by = plane_barycentrics(origin, camera_ray(f, pixel + float2(0.0, 1.0)), p0, p1, p2);
     const float2 uvx = uv0 * (1.0 - bx.x - bx.y) + uv1 * bx.x + uv2 * bx.y;
     const float2 uvy = uv0 * (1.0 - by.x - by.y) + uv1 * by.x + uv2 * by.y;
     hit.surface.uv_dx = uvx - hit.surface.uv;
@@ -109,38 +88,113 @@ void shade(uint3 id: SV_DispatchThreadID) {
 
     MaterialContext ctx = { hit.surface, hit.material };
     const SurfaceSample s = evaluateSurface(hit.material.kind, ctx);
-    float3 radiance = float3(0.0, 0.0, 0.0);
-    if (hit.front || (hit.material.flags & material_double_sided) != 0) {
-        radiance += s.emission;
+    const bool double_sided = (hit.material.flags & material_double_sided) != 0;
+    const float3 emission = hit.front || double_sided ? s.emission : float3(0.0, 0.0, 0.0);
+    const float3 p = hit.surface.position;
+    const float3 current = to_pixel(f.unjittered_view_projection, p, f.render_size);  // z: linear view depth
+
+    // Motion: this point moved by last frame's transforms, projected with last frame's camera (both unjittered).
+    const float3 w = float3(1.0 - bary.x - bary.y, bary.x, bary.y);
+    const float3 q0 = to_world(inst.previous_object_to_world, corners[0], 1.0);
+    const float3 q1 = to_world(inst.previous_object_to_world, corners[1], 1.0);
+    const float3 q2 = to_world(inst.previous_object_to_world, corners[2], 1.0);
+    const float3 previous_point = q0 * w.x + q1 * w.y + q2 * w.z;
+    float3 previous_geometric = normalize(cross(q1 - q0, q2 - q0));
+    if (dot(previous_geometric, f.previous_camera_position.xyz - previous_point) < 0.0) {
+        previous_geometric = -previous_geometric;  // faces last frame's camera, as the stored normals do
     }
+    const float2 previous = to_pixel(f.previous_view_projection, previous_point, f.render_size).xy;
+    const float2 motion = previous - current.xy;
+
+    // Disocclusion, decided once here (veach/temporal.slang): which bilinear taps hold this surface last frame.
+    uint valid_taps = 0;
+    uint valid_neighbors = 0;
+    if ((f.flags & frame_history_valid) != 0) {
+        const int2 base = int2(floor(float2(id.xy) + motion));
+        const int2 center = previous_pixel(id.xy, motion);
+        // The 3x3 around the previous pixel contains the 2x2 bilinear footprint: test each pixel once.
+        for (uint k = 0; k < 9; ++k) {
+            const int2 q = center + int2(int(k % 3) - 1, int(k / 3) - 1);
+            if (all(q >= 0) && all(q < int2(f.render_size))) {
+                const float4 stored = f.previous_position.Load(int3(q, 0));
+                const float3 stored_geometric = f.previous_geometric.Load(int3(q, 0)).xyz;
+                if (same_surface(stored, stored_geometric, previous_point, previous_geometric, current.z)) {
+                    valid_neighbors |= 1u << k;
+                    const int2 tap = q - base;
+                    if (all(tap >= 0) && all(tap <= 1)) {
+                        valid_taps |= 1u << uint(tap.x + 2 * tap.y);
+                    }
+                }
+            }
+        }
+    }
+
+    const Brdf b = brdf_of(s, 1.0);
+    f.position_out[id.xy] = float4(p, current.z);
+    f.normal_out[id.xy] = float4(s.normal, s.roughness);
+    f.geometric_out[id.xy] = float4(hit.surface.geometric_normal, s.metallic);
+    f.diffuse_out[id.xy] = float4(b.diffuse, double_sided ? 1.0 : 0.0);
+    f.specular_out[id.xy] = float4(b.f0, 0.0);
+    f.emission_out[id.xy] = float4(emission, 0.0);
+    f.motion_out[id.xy] = float4(motion, float(valid_neighbors), float(valid_taps));
+}
+
+// ---- shade -------------------------------------------------------------------------------------------------
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void shade(uint3 id: SV_DispatchThreadID) {
+    const RealtimeFrame f = realtime_params.frame[0];
+    if (any(id.xy >= f.render_size)) {
+        return;
+    }
+    use_scene(f);
+    const float exposure = f.camera_position.w;
+    const bool ambient = f.sky_ambient.w > 0.0;
+    const GSurface s = load_surface(f, int2(id.xy));
+    if (f.view == view_motion) {
+        const float2 m = f.motion.Load(int3(id.xy, 0)).xy;
+        f.radiance_out[id.xy] = float4(saturate(abs(m) * 0.25), s.valid ? 0.0 : 0.25, 1.0);
+        return;
+    }
+    if (f.view == view_history) {
+        const bool valid = history_of(id.xy, f.motion.Load(int3(id.xy, 0))).valid;
+        f.radiance_out[id.xy] = float4(valid ? 0.0 : 1.0, valid ? 1.0 : 0.0, s.valid ? 0.0 : 1.0, 1.0);
+        return;
+    }
+    if (!s.valid) {
+        f.radiance_out[id.xy] = float4((ambient ? f.sky_ambient.xyz : float3(0.0, 0.0, 0.0)) * exposure, 1.0);
+        return;
+    }
+    Rng rng = { pcg(id.x + pcg(id.y + pcg(f.frame))) };
+    float3 radiance = s.emission;
+    const float3 view = normalize(f.camera_position.xyz - s.position);
     const Frame frame = frame_of(s.normal);
-    const float3 v = frame.to_local(hit.surface.view);
+    const float3 v = frame.to_local(view);
     if (v.z > 0.0) {
-        const Brdf b = brdf_of(s, v.z);
-        const float3 p = hit.surface.position;
-        const float3 g = hit.surface.geometric_normal;
+        const Brdf b = brdf_of_surface(s, v.z);
+        const float3 p = s.position;
+        const float3 g = s.geometric;
         radiance += direct_punctual(p, g, frame, b, v, rng);
-        if (shade_params.emissive_samples > 0) {
+        if (f.emissive_samples > 0) {
             float3 emitted = float3(0.0, 0.0, 0.0);
-            for (uint i = 0; i < shade_params.emissive_samples; ++i) {
+            for (uint i = 0; i < f.emissive_samples; ++i) {
                 emitted += direct_emissive_sample(p, g, frame, b, v, rng);
             }
-            radiance += emitted / float(shade_params.emissive_samples);
+            radiance += emitted / float(f.emissive_samples);
         }
         // STOPGAP until Candela (VCH-017): constant sky light on the diffuse lobe, darkened by short-range
-        // ray-traced AO. Candela replaces it; at most a short-range AO stays.
-        // A black sky contributes nothing, so its AO rays are skipped.
-        if (ambient && shade_params.ao_rays > 0 && any(shade_params.sky_ambient.xyz > 0.0)) {
+        // ray-traced AO. A black sky contributes nothing, so its AO rays are skipped.
+        if (ambient && f.ao_rays > 0 && any(f.sky_ambient.xyz > 0.0)) {
             uint open = 0;
-            for (uint i = 0; i < shade_params.ao_rays; ++i) {
+            for (uint i = 0; i < f.ao_rays; ++i) {
                 const float2 u = float2(rng.next(), rng.next());
                 const float r = sqrt(u.x);
-                const float3 l =
-                    frame.to_world(float3(r * cos(2.0 * pi * u.y), r * sin(2.0 * pi * u.y), sqrt(1.0 - u.x)));
-                open += visible(offset_origin(p, g, l), l, shade_params.ao_radius, rng) ? 1 : 0;
+                const float3 l = frame.to_world(float3(r * cos(2.0 * pi * u.y), r * sin(2.0 * pi * u.y), sqrt(1.0 - u.x)));
+                open += visible(offset_origin(p, g, l), l, f.ao_radius, rng) ? 1 : 0;
             }
-            radiance += shade_params.sky_ambient.xyz * b.diffuse * (float(open) / float(shade_params.ao_rays));
+            radiance += f.sky_ambient.xyz * b.diffuse * (float(open) / float(f.ao_rays));
         }
     }
-    shade_params.output[id.xy] = float4(radiance, 1.0);
+    f.radiance_out[id.xy] = float4(radiance * exposure, 1.0);
 }

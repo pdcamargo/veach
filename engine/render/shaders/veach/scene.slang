@@ -8,7 +8,7 @@ import veach.material;
 import veach.materials_generated;  // evaluateSurface(kind, c), evaluateAlpha(kind, c)
 import veach.random;
 
-/// Mirrors render::InstanceRecord: 160 bytes per instance.
+/// Mirrors render::InstanceRecord: 208 bytes per instance.
 struct InstanceRecord {
     DescriptorHandle<StructuredBuffer<float>> vertices;  ///< 12 floats per vertex: position, normal, tangent, uv
     DescriptorHandle<StructuredBuffer<uint>> indices;
@@ -24,6 +24,7 @@ struct InstanceRecord {
     DescriptorHandle<StructuredBuffer<uint>> meshlet_triangles;
     uint meshlet_count;
     uint pad;
+    float4 previous_object_to_world[3];  ///< last frame's object_to_world: motion vectors (ADR 0040)
 };
 
 static const uint instance_has_alpha = 1;  ///< some slot is alpha-masked or blended

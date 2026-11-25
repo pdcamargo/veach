@@ -9,6 +9,8 @@ struct Params {
     uint2 size;
     float exposure;  ///< 1 / (1.2 * 2^ev100)
     uint tonemap;    ///< 1 = AgX; 0 = clamp (debug views that are already display values)
+    uint2 input_size;  ///< radiance's size; a smaller one (a debug view at render resolution) is scaled, nearest
+    uint2 pad;
 };
 [[vk::push_constant]] ConstantBuffer<Params> params;
 
@@ -54,7 +56,8 @@ void display(uint3 id : SV_DispatchThreadID) {
     if (any(id.xy >= params.size)) {
         return;
     }
-    const float3 radiance = params.radiance.Load(int3(id.xy, 0)).rgb;
+    const uint2 source = min(id.xy * params.input_size / params.size, params.input_size - 1);
+    const float3 radiance = params.radiance.Load(int3(source, 0)).rgb;
     float3 c = radiance * params.exposure;
     if (params.tonemap == 1) {
         c = agx(c);

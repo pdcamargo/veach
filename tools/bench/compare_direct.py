@@ -7,7 +7,8 @@ rt.AC8): the start of the Candela groundwork.
 
 For each lab scene script (which must name its camera entity `camera`), two temporary variants are written next
 to it and rendered headless at --size:
-  - real time: the camera's PathTracer removed, RealtimeLighting with the ambient stopgap off (direct light only);
+  - real time: the camera's PathTracer removed, RealtimeLighting with the ambient stopgap off (direct light only),
+    no upscaler (Upscaling.mode = none: one frame at full resolution, no jitter);
   - reference: the path tracer in direct mode (PathTracer.mode = 1: first-bounce light, no sky), --frames x --spf
     samples per pixel, through pixel centers (jitter off) like the real-time renderer, so edges compare equal
     and the difference is lighting.
@@ -80,7 +81,9 @@ def main() -> int:
                            "camera:remove(veach.components.PathTracer)\n"
                            "camera:set(veach.components.RealtimeLighting, { emissive_samples = "
                            f"{args.emissive_samples}, ambient = false, sky = vector.zero, ao_rays = 0, "
-                           "ao_radius = 1 })")
+                           "ao_radius = 1 })\n"
+                           # v0's single-frame estimate at full resolution: no jitter, no upscaler, no history.
+                           "camera:set(veach.components.Upscaling, { mode = \"none\", render_scale = 1 })")
         reference = variant(scene, f"{args.label}reference", size, args.extra + "\n"
                             "camera:set(veach.components.PathTracer, { samples_per_frame = "
                             f"{args.spf}, max_bounces = 1, sky = vector.zero, mode = 1, jitter = false }})")

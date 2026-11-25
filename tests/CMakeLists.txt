@@ -203,7 +203,8 @@ function(veach_realtime_tests rhi)
     if(NOT rhi STREQUAL "metal")
         set(suffix ", ${rhi}")
     endif()
-    veach_golden_test("golden: cornell box (realtime${suffix})" cornell_box_realtime cornell_box_realtime ${rhi})
+    # temporal.AC9: the temporal path (TAAU, history), still camera, after 32 frames of warm-up.
+    veach_golden_test("golden: cornell box (realtime${suffix})" cornell_box_realtime cornell_box_realtime ${rhi} FRAMES 32)
     set(helmet_limits "")
     if(rhi STREQUAL "dx12")
         # ADR 0028: WARP filters the helmet's minified BC7 textures (explicit gradients) a little differently from
@@ -212,7 +213,7 @@ function(veach_realtime_tests rhi)
         set(helmet_limits MAX_MEAN 0.02 MAX_P999 0.4 MAX_OUTLIERS 8)
     endif()
     veach_golden_test("golden: flight helmet (realtime${suffix})" flight_helmet_realtime flight_helmet_realtime ${rhi}
-        ${helmet_limits})
+        FRAMES 32 ${helmet_limits})
     veach_golden_test("golden: cornell box AO view (path traced${suffix})" cornell_box_ao cornell_box_ao ${rhi} FRAMES 4)
     veach_compare_test("rt.AC3: GlowMaterial renders the same in both renderers (${rhi})" glow_closeup ${rhi} 0.01
         SIZE 160x160 FRAMES 32 EMISSIVE 64)
@@ -249,9 +250,9 @@ if(APPLE)
                 --screenshot "${_golden_dir}/cornell_box.png"
         COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 4 --script scripts/flight_helmet.luau
                 --screenshot "${_golden_dir}/flight_helmet.png"
-        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 3 --script scripts/cornell_box_realtime.luau
+        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 32 --script scripts/cornell_box_realtime.luau
                 --screenshot "${_golden_dir}/cornell_box_realtime.png"
-        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 3 --script scripts/flight_helmet_realtime.luau
+        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 32 --script scripts/flight_helmet_realtime.luau
                 --screenshot "${_golden_dir}/flight_helmet_realtime.png"
         COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 4 --script scripts/cornell_box_ao.luau
                 --screenshot "${_golden_dir}/cornell_box_ao.png"

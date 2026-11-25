@@ -14,6 +14,9 @@ camera:set(veach.components.Transform, {
 })
 camera:set(veach.components.Camera, { fov_y = math.rad(40), near_plane = 0.1, active = true, ev100 = 0 })
 
+-- The temporal path with Veach's own upscaler, on every backend: one golden for Metal and DX12 (ADR 0043).
+camera:set(veach.components.Upscaling, { mode = "temporal" })
+
 -- Square, small: the golden runs on WARP too.
 veach.system("CornellBoxSize", "Startup", veach.query(veach.components.Window), function(e, w)
 	e:set(veach.components.Window, { title = w.title, width = 256, height = 256, mode = w.mode, vsync = w.vsync })

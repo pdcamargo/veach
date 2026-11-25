@@ -31,6 +31,9 @@ spot:set(c.Transform, {
 })
 spot:set(c.SpotLight, { color = vector.create(1, 0.8, 0.6), intensity = 1.5, inner_angle = 0.3, outer_angle = 0.5 })
 
+-- The temporal path with Veach's own upscaler, on every backend: one golden for Metal and DX12 (ADR 0043).
+camera:set(c.Upscaling, { mode = "temporal" })
+
 veach.system("FlightHelmetSize", "Startup", veach.query(c.Window), function(e, w)
 	e:set(c.Window, { title = w.title, width = 256, height = 256, mode = w.mode, vsync = w.vsync })
 end)

@@ -166,10 +166,16 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   with the renderer its camera asks for. Both share the surface reconstruction, BRDF and light sampling
   (`veach/scene.slang`, `veach/brdf.slang`, `veach/lights.slang`), so a material renders the same in both
   ([ADR 0037](../adr/0037-realtime-renderer-visibility-buffer.md)).
-- **The real-time renderer** draws a camera without a `PathTracer`: a visibility buffer of meshlet triangles,
-  then one compute pass that lights each pixel with every punctual light (ray-traced hard shadows),
-  `RealtimeLighting.emissive_samples` light samples of the emissive triangles, and the ambient stopgap (sky
-  radiance x diffuse x short-range ray-traced AO; Candela replaces it). Example: `scripts/cornell_box_realtime.luau`.
+- **The real-time renderer** draws a camera without a `PathTracer` ([temporal spec](../specs/temporal-direct-lighting/spec.md)):
+  a visibility buffer of meshlet triangles at the render resolution (`Upscaling.render_scale`, default 0.75) with
+  sub-pixel jitter; a `surface` pass that resolves it into a G-buffer once per pixel, with analytic motion vectors
+  and the disocclusion decision every temporal pass shares (`veach/temporal.slang`, ADR 0040); lighting (`shade`:
+  every punctual light with a ray-traced hard shadow, `emissive_samples` emissive light samples, the ambient
+  stopgap); then the upscaler (`taau`, ADR 0043) and the display transform. `Upscaling { mode = "none" }` renders one
+  frame at full resolution with no jitter or history (what `compare_direct.py` uses). History is per camera and
+  resets on a resize, a mode change or a cut (more than 2 m or 45 degrees in a frame). `RealtimeLighting.view`
+  shows `motion` or `history` (green: last frame's surface found; red: disoccluded) at render resolution.
+  Example: `scripts/cornell_box_realtime.luau`.
 - **The reference path tracer** renders a camera that has a `PathTracer { samples_per_frame, max_bounces, sky,
   mode, jitter }`. It accumulates while nothing changes and restarts on any change. `mode` 1 computes direct light
   only, which is what the real-time renderer estimates; `tools/bench/compare_direct.py` measures one against the

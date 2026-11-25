@@ -55,6 +55,14 @@ inline constexpr std::uint32_t ao = 2;  ///< debug view: ambient occlusion (1 m)
 
 /// The real-time renderer's settings, on a camera without a PathTracer (docs/specs/realtime-renderer-v0/spec.md).
 /// Without the component, the defaults apply.
+/// What the real-time renderer shows (docs/specs/temporal-direct-lighting/spec.md).
+enum class RealtimeView : std::uint8_t {
+    final,    ///< the image
+    noisy,    ///< lighting before the denoiser
+    motion,   ///< motion vectors: |x|, |y| in red and green (4 render pixels = full)
+    history,  ///< green where last frame's surface was found, red where it was disoccluded, blue for no geometry
+};
+
 struct RealtimeLighting {
     std::uint32_t emissive_samples = 4;  ///< light samples per pixel from emissive triangles
     // STOPGAP until Candela (VCH-017): sky light on diffuse surfaces, darkened by short-range ray-traced AO.
@@ -66,6 +74,17 @@ struct RealtimeLighting {
     /// Measurement only: parts of shading left out to time what they cost (tools/bench/frame_times.py
     /// --breakdown). 1: no shadow rays (light samples are never shadowed); 2: rays ignore alpha coverage.
     std::uint32_t debug_skip = 0;
+    RealtimeView view = RealtimeView::final;
+};
+
+/// How the real-time renderer upscales (ADR 0043). `automatic` is MetalFX's temporal scaler where the device
+/// supports it, otherwise Veach's own (`temporal`); `none` renders at the output resolution without jitter.
+enum class UpscalerMode : std::uint8_t { automatic, metalfx, temporal, none };
+
+/// On the camera: render resolution and upscaler (ADR 0040, ADR 0043). Absent: the defaults.
+struct Upscaling {
+    UpscalerMode mode = UpscalerMode::automatic;
+    float render_scale = 0.75f;  ///< render resolution / output resolution, 0.5..1
 };
 
 struct PathTracer {

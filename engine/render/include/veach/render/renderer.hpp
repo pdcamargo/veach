@@ -49,6 +49,8 @@ struct RenderView {
     float exposure = 1.0f / 1.2f;           ///< 1 / (1.2 * 2^ev100)
     std::optional<PathTracer> path_tracer;  ///< the camera's PathTracer component, if it has one
     RealtimeLighting realtime;              ///< the camera's RealtimeLighting component, or the defaults
+    Upscaling upscaling;                    ///< the camera's Upscaling component, or the defaults
+    std::uint64_t camera = 0;               ///< the camera entity: per-view history is kept by it (ADR 0040)
 };
 
 /// A mesh to draw this frame: an imported mesh, the material of each of its slots, and where it is.
@@ -56,6 +58,7 @@ struct MeshDraw {
     AssetId mesh;
     std::vector<AssetId> materials;
     math::mat4 world{1.0f};
+    std::uint64_t entity = 0;  ///< identifies the draw across frames: last frame's transform gives motion
 };
 
 /// A punctual light this frame (ADR 0034). `radiance` is color x intensity (lux or candela).

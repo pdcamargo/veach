@@ -97,6 +97,7 @@ export type PointLight = {
 	color: vector,
 	intensity: number,
 }
+export type RealtimeView = "final" | "noisy" | "motion" | "history"
 export type RealtimeLighting = {
 	emissive_samples: number,
 	ambient: boolean,
@@ -104,6 +105,7 @@ export type RealtimeLighting = {
 	ao_rays: number,
 	ao_radius: number,
 	debug_skip: number,
+	view: RealtimeView,
 }
 export type SceneInstance = {
 	path: string,
@@ -124,6 +126,11 @@ export type Transform = {
 	translation: vector,
 	rotation: quat,
 	scale: vector,
+}
+export type UpscalerMode = "automatic" | "metalfx" | "temporal" | "none"
+export type Upscaling = {
+	mode: UpscalerMode,
+	render_scale: number,
 }
 export type WindowMode = "windowed" | "fullscreen"
 export type Window = {
@@ -168,6 +175,7 @@ export type Veach = {
 		read SceneInstance: Component<SceneInstance>,
 		read SpotLight: Component<SpotLight>,
 		read Transform: Component<Transform>,
+		read Upscaling: Component<Upscaling>,
 		read Window: Component<Window>,
 	},
 }

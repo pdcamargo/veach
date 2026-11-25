@@ -1,5 +1,6 @@
 veach_add_engine_library(render
     SOURCES
+        src/realtime_renderer.cpp
         src/scene_renderer.cpp
         src/png.cpp
         src/render_graph.cpp
@@ -16,8 +17,9 @@ veach_add_shader(veach_render shaders/path_tracer.slang ENTRIES trace_pixels:com
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
 veach_add_shader(veach_render shaders/realtime_visibility.slang ENTRIES vis_vs:vertex vis_fs:fragment
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
-veach_add_shader(veach_render shaders/realtime_shade.slang ENTRIES shade:compute
+veach_add_shader(veach_render shaders/realtime_shade.slang ENTRIES surface:compute shade:compute
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
+veach_add_shader(veach_render shaders/taau.slang ENTRIES taau:compute)
 veach_shader_library(veach_render NAMESPACE veach_render_shaders)
 # png.cpp compiles stb's implementation; its warnings are not ours.
 set_source_files_properties(src/png.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)

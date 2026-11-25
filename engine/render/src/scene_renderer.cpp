@@ -6,6 +6,8 @@
 #include <veach/core/profile.hpp>
 #include <veach/core/suggest.hpp>
 
+#include "realtime_renderer.hpp"
+#include "scene_records.hpp"
 #include "veach_render_shaders.hpp"
 
 #include <algorithm>
@@ -20,60 +22,6 @@
 namespace veach::render {
 
 namespace {
-
-// Flag bits, as in shaders/veach/material.slang.
-constexpr std::uint32_t instance_has_alpha = 1u << 0;  ///< InstanceRecord::flags, as in shaders/path_tracer.slang
-// TLAS instance masks, as in shaders/veach/scene.slang: visibility rays stop at any opaque hit and test coverage
-// only on the alpha-tested instances.
-constexpr std::uint8_t instance_mask_opaque = 1;
-constexpr std::uint8_t instance_mask_alpha = 2;
-constexpr std::uint32_t scene_has_alpha = 1u << 0;  ///< SceneData::flags: some instance is alpha-tested
-constexpr std::uint32_t has_base_color_texture = 1u << 0;
-constexpr std::uint32_t has_metallic_roughness_texture = 1u << 1;
-constexpr std::uint32_t has_normal_texture = 1u << 2;
-constexpr std::uint32_t has_emissive_texture = 1u << 3;
-constexpr std::uint32_t alpha_mask = 1u << 4;
-constexpr std::uint32_t alpha_blend = 1u << 5;
-constexpr std::uint32_t double_sided = 1u << 6;
-constexpr std::uint32_t emissive = 1u << 7;
-
-/// Mirrors InstanceRecord in shaders/path_tracer.slang.
-struct InstanceRecord {
-    rhi::DescriptorHandle vertices;
-    rhi::DescriptorHandle indices;
-    rhi::DescriptorHandle slots;
-    std::uint32_t material_base = 0;
-    std::uint32_t flags = 0;
-    std::array<math::vec4, 3> object_to_world{};
-    std::array<math::vec4, 3> normal_to_world{};
-    rhi::DescriptorHandle meshlets;
-    rhi::DescriptorHandle meshlet_vertices;
-    rhi::DescriptorHandle meshlet_triangles;
-    std::uint32_t meshlet_count = 0;
-    std::uint32_t pad = 0;
-};
-static_assert(sizeof(InstanceRecord) == 160);
-
-/// Mirrors LightRecord.
-struct LightRecord {
-    math::vec4 position{0.0f};
-    math::vec4 direction{0.0f};
-    math::vec4 radiance{0.0f};
-    float cos_inner = 1.0f;
-    float cos_outer = 0.0f;
-    std::uint32_t kind = 0;
-    std::uint32_t pad = 0;
-};
-static_assert(sizeof(LightRecord) == 64);
-
-/// Mirrors EmissiveTriangle.
-struct EmissiveTriangle {
-    std::uint32_t instance = 0;
-    std::uint32_t primitive = 0;
-    float cdf = 0.0f;
-    float pad = 0.0f;
-};
-static_assert(sizeof(EmissiveTriangle) == 16);
 
 /// Mirrors `Params` in shaders/path_tracer.slang. Metal rounds it to 16 bytes (a float4x4 inside).
 struct alignas(16) PathTraceParams {
@@ -120,83 +68,6 @@ static_assert(rhi::parameters_match<PathTraceParams>(veach_render_shaders::layou
                                                       VEACH_PARAM(PathTraceParams, scene_flags),
                                                       VEACH_PARAM(PathTraceParams, pad1)}));
 
-/// Mirrors Params in shaders/display.slang.
-struct alignas(16) DisplayParams {
-    rhi::DescriptorHandle radiance;
-    rhi::DescriptorHandle output;
-    std::array<std::uint32_t, 2> size{};
-    float exposure = 1.0f;
-    std::uint32_t tonemap = 1;
-};
-static_assert(rhi::parameters_match<DisplayParams>(
-    veach_render_shaders::layout::display,
-    {VEACH_PARAM(DisplayParams, radiance), VEACH_PARAM(DisplayParams, output), VEACH_PARAM(DisplayParams, size),
-     VEACH_PARAM(DisplayParams, exposure), VEACH_PARAM(DisplayParams, tonemap)}));
-
-/// Mirrors VisibilityParams in shaders/realtime_visibility.slang.
-struct alignas(16) VisibilityParams {
-    math::mat4 view_projection{1.0f};
-    rhi::DescriptorHandle instances;
-    rhi::DescriptorHandle materials;
-    std::uint32_t instance = 0;
-    std::uint32_t pad0 = 0;
-    std::array<std::uint32_t, 2> pad1{};
-};
-static_assert(rhi::parameters_match<VisibilityParams>(
-    veach_render_shaders::layout::realtime_visibility,
-    {VEACH_PARAM(VisibilityParams, view_projection), VEACH_PARAM(VisibilityParams, instances),
-     VEACH_PARAM(VisibilityParams, materials), VEACH_PARAM(VisibilityParams, instance),
-     VEACH_PARAM(VisibilityParams, pad0), VEACH_PARAM(VisibilityParams, pad1)}));
-
-/// Mirrors ShadeParams in shaders/realtime_shade.slang.
-struct alignas(16) ShadeParams {
-    math::mat4 inverse_view_projection{1.0f};
-    math::vec4 camera_position{0.0f};
-    math::vec4 sky_ambient{0.0f};
-    rhi::DescriptorHandle visibility;
-    rhi::DescriptorHandle output;
-    rhi::DescriptorHandle scene;
-    rhi::DescriptorHandle instances;
-    rhi::DescriptorHandle materials;
-    rhi::DescriptorHandle lights;
-    rhi::DescriptorHandle emissive;
-    std::array<std::uint32_t, 2> size{};
-    std::uint32_t light_count = 0;
-    std::uint32_t emissive_count = 0;
-    float emissive_total_weight = 0.0f;
-    std::uint32_t emissive_samples = 0;
-    std::uint32_t ao_rays = 0;
-    float ao_radius = 1.0f;
-    std::uint32_t frame = 0;
-    std::uint32_t debug_skip = 0;
-    std::uint32_t scene_flags = 0;
-    std::uint32_t pad0 = 0;
-    std::array<std::uint32_t, 2> pad1{};
-};
-static_assert(rhi::parameters_match<ShadeParams>(veach_render_shaders::layout::realtime_shade,
-                                                 {VEACH_PARAM(ShadeParams, inverse_view_projection),
-                                                  VEACH_PARAM(ShadeParams, camera_position),
-                                                  VEACH_PARAM(ShadeParams, sky_ambient),
-                                                  VEACH_PARAM(ShadeParams, visibility),
-                                                  VEACH_PARAM(ShadeParams, output),
-                                                  VEACH_PARAM(ShadeParams, scene),
-                                                  VEACH_PARAM(ShadeParams, instances),
-                                                  VEACH_PARAM(ShadeParams, materials),
-                                                  VEACH_PARAM(ShadeParams, lights),
-                                                  VEACH_PARAM(ShadeParams, emissive),
-                                                  VEACH_PARAM(ShadeParams, size),
-                                                  VEACH_PARAM(ShadeParams, light_count),
-                                                  VEACH_PARAM(ShadeParams, emissive_count),
-                                                  VEACH_PARAM(ShadeParams, emissive_total_weight),
-                                                  VEACH_PARAM(ShadeParams, emissive_samples),
-                                                  VEACH_PARAM(ShadeParams, ao_rays),
-                                                  VEACH_PARAM(ShadeParams, ao_radius),
-                                                  VEACH_PARAM(ShadeParams, frame),
-                                                  VEACH_PARAM(ShadeParams, debug_skip),
-                                                  VEACH_PARAM(ShadeParams, scene_flags),
-                                                  VEACH_PARAM(ShadeParams, pad0),
-                                                  VEACH_PARAM(ShadeParams, pad1)}));
-
 float luminance(math::vec3 c) {
     return 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z;  // GLM_FORCE_XYZW_ONLY
 }
@@ -209,12 +80,6 @@ rhi::Format to_rhi(TextureFormat format) {
         case TextureFormat::bc7_srgb: return rhi::Format::bc7_srgb;
     }
     return rhi::Format::rgba8_unorm;
-}
-
-/// The rows of the upper 3x4 of a column-major matrix.
-std::array<math::vec4, 3> rows_of(const math::mat4& m) {
-    return {math::vec4(m[0][0], m[1][0], m[2][0], m[3][0]), math::vec4(m[0][1], m[1][1], m[2][1], m[3][1]),
-            math::vec4(m[0][2], m[1][2], m[2][2], m[3][2])};
 }
 
 struct Fnv64 {
@@ -262,9 +127,8 @@ struct SceneRenderer::Impl {
     rhi::Device* device = nullptr;
     rhi::PipelineHandle pipeline;
     rhi::PipelineHandle display_pipeline;
-    rhi::PipelineHandle visibility_pipeline;  ///< the real-time renderer (ADR 0037)
-    rhi::PipelineHandle shade_pipeline;
-    std::uint32_t realtime_frame = 0;  ///< seeds the real-time renderer's random numbers
+    RealtimeRenderer realtime;                                     ///< ADR 0037, ADR 0040
+    std::unordered_map<std::uint64_t, math::mat4> previous_world;  ///< last frame's transform per draw entity
     rhi::SamplerHandle sampler;
     std::unordered_map<AssetId, GpuMesh> meshes;
     std::unordered_map<AssetId, GpuTexture> textures;
@@ -325,8 +189,6 @@ struct SceneRenderer::Impl {
         destroy_if(accumulation);
         destroy_if(pipeline);
         destroy_if(display_pipeline);
-        destroy_if(visibility_pipeline);
-        destroy_if(shade_pipeline);
         destroy_if(sampler);
     }
     Impl(const Impl&) = delete;
@@ -595,27 +457,9 @@ Result<> SceneRenderer::prepare(rhi::Device& device) {
         return std::unexpected(display.error());
     }
     s.display_pipeline = *display;
-    rhi::GraphicsPipelineDesc visibility;
-    visibility.library = &s.shaders.visibility;
-    visibility.vertex_entry = "vis_vs";
-    visibility.fragment_entry = "vis_fs";
-    visibility.color_formats = {rhi::Format::rg32_uint};
-    visibility.depth_format = rhi::Format::depth32_float;
-    visibility.depth_test = true;
-    visibility.depth_write = true;
-    visibility.depth_compare = rhi::CompareOp::greater;  // reverse-Z: nearer is greater
-    visibility.cull = rhi::CullMode::none;               // every surface is two-sided, as in the path tracer
-    visibility.debug_name = "visibility";
-    auto visibility_pipeline = device.create_graphics_pipeline(visibility);
-    if (!visibility_pipeline) {
-        return std::unexpected(visibility_pipeline.error());
+    if (auto realtime = s.realtime.prepare(device, s.shaders); !realtime) {
+        return realtime;
     }
-    s.visibility_pipeline = *visibility_pipeline;
-    auto shade = device.create_compute_pipeline({&s.shaders.shade, "shade", {8, 8, 1}, "shade"});
-    if (!shade) {
-        return std::unexpected(shade.error());
-    }
-    s.shade_pipeline = *shade;
     auto sampler = device.create_sampler({rhi::Filter::linear, rhi::AddressMode::repeat});
     if (!sampler) {
         return std::unexpected(sampler.error());
@@ -692,6 +536,9 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
         }
         inst.object_to_world = rows_of(draw.world);
         inst.normal_to_world = rows_of(math::mat4(math::transpose(math::inverse(math::mat3(draw.world)))));
+        const auto previous = s.previous_world.find(draw.entity);
+        inst.previous_object_to_world =
+            previous != s.previous_world.end() ? rows_of(previous->second) : inst.object_to_world;
         instances.push_back(inst);
         draws.push_back(&draw);
         rhi::TlasInstance t;
@@ -701,6 +548,10 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
             t.transform.at(r) = {rows.at(r).x, rows.at(r).y, rows.at(r).z, rows.at(r).w};
         }
         tlas_instances.push_back(t);  // blas_index set below, once the BLAS list is final
+    }
+    s.previous_world.clear();
+    for (const MeshDraw* draw : draws) {
+        s.previous_world[draw->entity] = draw->world;
     }
     if (instances.empty()) {
         return;
@@ -896,6 +747,7 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
     const auto add_display = [&](GraphResource radiance, std::uint32_t tonemap) {
         DisplayParams display{};
         display.size = {width, height};
+        display.input_size = {width, height};
         display.exposure = view->exposure;
         display.tonemap = tonemap;
         graph.add_compute_pass(
@@ -914,87 +766,36 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
     };
 
     if (!path_traced) {
-        // ---- the real-time renderer (ADR 0037): visibility buffer, one shading pass, display.
-        const RealtimeLighting& lighting = view->realtime;
-        const GraphResource visibility =
-            graph.create_texture({width, height, rhi::Format::rg32_uint,
-                                  rhi::TextureUsage::color_target | rhi::TextureUsage::sampled, "visibility"});
-        const GraphResource depth = graph.create_texture(
-            {width, height, rhi::Format::depth32_float, rhi::TextureUsage::depth_target, "visibility depth"});
-        const GraphResource radiance =
-            graph.create_texture({width, height, rhi::Format::rgba16_float,
-                                  rhi::TextureUsage::storage | rhi::TextureUsage::sampled, "radiance"});
+        // ---- the real-time renderer (ADR 0037, ADR 0040).
         std::vector<std::uint32_t> meshlet_counts;
         for (const InstanceRecord& inst : instances) {
             meshlet_counts.push_back(inst.meshlet_count);
         }
-        VisibilityParams vis{};
-        vis.view_projection = view->view_projection;
-        graph.add_graphics_pass(
-            "visibility",
-            [&](PassBuilder& b) {
-                b.color_target_uint(visibility, rhi::LoadOp::clear, {0xFFFFFFFFu, 0xFFFFFFFFu, 0u, 0u});
-                b.depth_target(depth, rhi::LoadOp::clear, 0.0f);  // reverse-Z: far is 0
-                for (const GraphResource& r : buffers) {
-                    b.read(r);
-                }
-                for (const GraphResource& r : textures) {
-                    b.read(r);
-                }
-                for (const GraphResource& r : frame_data) {
-                    b.read(r);
-                }
-            },
-            [vis, meshlet_counts, pipeline = s.visibility_pipeline, instance_buffer,
-             material_buffer](PassContext& ctx) mutable {
-                vis.instances = ctx.device.descriptor(instance_buffer);
-                vis.materials = ctx.device.descriptor(material_buffer);
-                ctx.cmd.set_pipeline(pipeline);
-                for (std::size_t i = 0; i < meshlet_counts.size(); ++i) {
-                    if (meshlet_counts[i] == 0) {
-                        continue;
-                    }
-                    vis.instance = static_cast<std::uint32_t>(i);
-                    ctx.cmd.set_parameters(vis);
-                    // One draw instance per meshlet, every triangle slot of it (vertex pulling, ADR 0037).
-                    ctx.cmd.draw(meshlet_max_triangles * 3, meshlet_counts[i]);
-                }
-            });
-        ShadeParams shade{};
-        shade.inverse_view_projection = view->inverse_view_projection;
-        shade.camera_position = math::vec4(view->position, 1.0f);
-        shade.sky_ambient = math::vec4(lighting.sky, lighting.ambient ? 1.0f : 0.0f);
-        shade.size = {width, height};
-        shade.light_count = static_cast<std::uint32_t>(lights.size());
-        shade.emissive_count = static_cast<std::uint32_t>(emitters.size());
-        shade.emissive_total_weight = total;
-        shade.emissive_samples = lighting.emissive_samples;
-        shade.ao_rays = lighting.ao_rays;
-        shade.ao_radius = lighting.ao_radius;
-        shade.debug_skip = lighting.debug_skip;
-        shade.scene_flags = scene_flags;
-        shade.frame = s.realtime_frame++;
-        graph.add_compute_pass(
-            "shade",
-            [&](PassBuilder& b) {
-                read_scene(b);
-                b.read(visibility);
-                b.write(radiance, rhi::ResourceState::shader_write);
-            },
-            [shade, pipeline = s.shade_pipeline, visibility, radiance, tlas, instance_buffer, material_buffer,
-             light_buffer, emissive_buffer](PassContext& ctx) mutable {
-                shade.visibility = ctx.device.descriptor(ctx.texture(visibility));
-                shade.output = ctx.device.descriptor(ctx.texture(radiance), rhi::View::storage);
-                shade.scene = ctx.device.descriptor(ctx.accel(tlas));
-                shade.instances = ctx.device.descriptor(instance_buffer);
-                shade.materials = ctx.device.descriptor(material_buffer);
-                shade.lights = ctx.device.descriptor(light_buffer);
-                shade.emissive = ctx.device.descriptor(emissive_buffer);
-                ctx.cmd.set_pipeline(pipeline);
-                ctx.cmd.set_parameters(shade);
-                ctx.cmd.dispatch((shade.size[0] + 7) / 8, (shade.size[1] + 7) / 8);
-            });
-        add_display(radiance, 1);
+        RealtimeScene realtime{.tlas = tlas,
+                               .tlas_handle = s.tlas,
+                               .read_scene = read_scene,
+                               .read_geometry =
+                                   [&](PassBuilder& b) {
+                                       for (const GraphResource& r : buffers) {
+                                           b.read(r);
+                                       }
+                                       for (const GraphResource& r : textures) {
+                                           b.read(r);
+                                       }
+                                       for (const GraphResource& r : frame_data) {
+                                           b.read(r);
+                                       }
+                                   },
+                               .meshlet_counts = meshlet_counts,
+                               .instances = instance_buffer,
+                               .materials = material_buffer,
+                               .lights = light_buffer,
+                               .emissive = emissive_buffer,
+                               .light_count = static_cast<std::uint32_t>(lights.size()),
+                               .emissive_count = static_cast<std::uint32_t>(emitters.size()),
+                               .emissive_total_weight = total,
+                               .scene_flags = scene_flags};
+        s.realtime.record(graph, frame, *view, realtime);
         return;
     }
 

@@ -138,6 +138,10 @@ Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device) {
             if (const RealtimeLighting* lighting = e.try_get<RealtimeLighting>()) {
                 view.realtime = *lighting;
             }
+            if (const Upscaling* upscaling = e.try_get<Upscaling>()) {
+                view.upscaling = *upscaling;
+            }
+            view.camera = e.id();
             views.emplace_back(e.id(), view);
         });
         std::ranges::sort(views, {}, &std::pair<std::uint64_t, RenderView>::first);
@@ -155,7 +159,7 @@ Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device) {
                 return;
             }
             const SceneNode& node = scene->nodes[instance.node];
-            MeshDraw draw{.mesh = scene->meshes.at(*node.mesh), .world = global.matrix};
+            MeshDraw draw{.mesh = scene->meshes.at(*node.mesh), .world = global.matrix, .entity = e.id()};
             for (const std::uint32_t material : node.materials) {
                 draw.materials.push_back(scene->materials.at(material));
             }
@@ -456,6 +460,7 @@ RenderModule::RenderModule(World& world) {
         .member(&SpotLight::inner_angle, "inner_angle")
         .member(&SpotLight::outer_angle, "outer_angle")
         .add<Scriptable>();
+    world.component<RealtimeView>();
     world.component<RealtimeLighting>()
         .member(&RealtimeLighting::emissive_samples, "emissive_samples")
         .member(&RealtimeLighting::ambient, "ambient")
@@ -463,6 +468,12 @@ RenderModule::RenderModule(World& world) {
         .member(&RealtimeLighting::ao_rays, "ao_rays")
         .member(&RealtimeLighting::ao_radius, "ao_radius")
         .member(&RealtimeLighting::debug_skip, "debug_skip")
+        .member(&RealtimeLighting::view, "view")
+        .add<Scriptable>();
+    world.component<UpscalerMode>();
+    world.component<Upscaling>()
+        .member(&Upscaling::mode, "mode")
+        .member(&Upscaling::render_scale, "render_scale")
         .add<Scriptable>();
     world.component<PathTracer>()
         .member(&PathTracer::samples_per_frame, "samples_per_frame")

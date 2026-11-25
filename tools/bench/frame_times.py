@@ -98,6 +98,8 @@ def main() -> int:
     parser.add_argument("--frames", type=int, default=120)
     parser.add_argument("--size", default="2560x1440", help="the primary window's size, set over MCP before measuring")
     parser.add_argument("--breakdown", action="store_true", help="also time the shade pass with each part left out")
+    parser.add_argument("--upscaler", default="automatic", choices=["automatic", "metalfx", "temporal", "none"],
+                        help="the camera's Upscaling.mode, set over MCP (scenes may pin one for their goldens)")
     args = parser.parse_args()
     lab = ROOT / "build" / args.preset / "apps" / "lab" / "veach-lab"
     project = ROOT / "apps" / "lab"
@@ -118,6 +120,7 @@ def main() -> int:
         window = mcp.call("get_component", entity="primary_window", component="Window")
         window.update(width=width, height=height)
         mcp.call("set_component", entity="primary_window", component="Window", value=window)
+        mcp.call("set_component", entity="camera", component="Upscaling", value={"mode": args.upscaler})
         if args.breakdown:
             # A scene without RealtimeLighting renders with its defaults: add them so each variant starts from them.
             mcp.call("set_component", entity="camera", component="RealtimeLighting", value={})

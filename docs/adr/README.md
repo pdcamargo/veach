@@ -46,6 +46,10 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0034 | [Lights in physical units, and a reference path tracer](0034-lights-and-reference-path-tracer.md) | Accepted (alpha part superseded by 0035) |
 | 0035 | [Alpha testing by continuing opaque rays](0035-alpha-by-continuing-opaque-rays.md) | Accepted |
 | 0036 | [No self-hosted GPU runner; real-GPU tests are gated before push](0036-no-self-hosted-gpu-runner.md) | Accepted |
-| 0037 | [The real-time renderer: a visibility buffer over cook-time meshlets](0037-realtime-renderer-visibility-buffer.md) | Accepted |
-| 0038 | [Physical camera exposure and the AgX tonemapper](0038-exposure-and-tonemapping.md) | Accepted |
+| 0037 | [The real-time renderer: a visibility buffer over cook-time meshlets](0037-realtime-renderer-visibility-buffer.md) | Accepted (one shading pass superseded by 0040, direct lighting by 0041) |
+| 0038 | [Physical camera exposure and the AgX tonemapper](0038-exposure-and-tonemapping.md) | Accepted (where exposure applies superseded by 0043) |
 | 0039 | [Null descriptors per kind, and validated bindless handles in debug builds](0039-null-descriptors-and-bindless-validation.md) | Accepted |
+| 0040 | [Temporal foundation: render resolution, jitter, surfaces, motion, history](0040-temporal-foundation.md) | Accepted |
+| 0041 | [Direct lighting with ReSTIR DI](0041-restir-di.md)                      | Accepted |
+| 0042 | [The denoiser: our own, SVGF/ReLAX-style](0042-denoiser.md)              | Accepted |
+| 0043 | [Upscaling: MetalFX on Apple GPUs, our own TAAU everywhere](0043-upscaling.md) | Accepted |

@@ -4,7 +4,8 @@ Date: 2026-11-25
 
 ## Status
 
-Accepted.
+Accepted. "Shading in one compute pass" superseded by [0040](0040-temporal-foundation.md), "Direct lighting" by
+[0041](0041-restir-di.md).
 
 ## Context
 

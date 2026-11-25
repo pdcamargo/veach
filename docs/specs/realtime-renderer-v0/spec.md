@@ -164,7 +164,7 @@ The images and the direct-lighting comparison are unchanged (same FLIP to four d
 
 What is left in Bistro's shade pass is the 4 emissive light samples and their shadow rays (17.5 ms) and the
 coverage tests on foliage (11.4 ms, overlapping): ReSTIR's one shadow ray per pixel and a lower internal
-resolution address both (temporal-and-direct-lighting spec).
+resolution address both ([temporal spec](../temporal-direct-lighting/spec.md)).
 
 ## Links
 

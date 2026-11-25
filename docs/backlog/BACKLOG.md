@@ -4,9 +4,13 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 
 ## Now
 
+- **VCH-059** Temporal foundation and direct lighting at speed — *render* — Render resolution and jitter, a surface pass with analytic motion, per-view history and disocclusion; ReSTIR DI with one shadow ray per pixel; the denoiser (VCH-022) and upscaling (VCH-023). Target: Bistro under 16.6 ms at 1440p output on the M5 Max, no FLIP regression against the direct-light reference. [spec](../specs/temporal-direct-lighting/spec.md)
+- **VCH-022** Denoiser — *render* — Shared denoising for GI, reflections and shadows: our own SVGF/ReLAX-style filter on demodulated signals. [ADR](../adr/0042-denoiser.md)
+- **VCH-023** Upscaler — *render* — Temporal upscaling to hit 60 fps at 1440p output; MetalFX's temporal scaler on Apple GPUs and our own TAAU everywhere, behind one interface; DLSS/FSR later, after a license decision. [ADR](../adr/0043-upscaling.md)
 - **VCH-057** Lost accumulation history on Metal — *render* — Path-traced pixels in aligned 4x4 tiles sometimes read back something other than what the previous frame wrote (dark tiles that fade slowly). `render.history_lost` now detects it and fails the run, with the count and frame. **Seen:** 4 windowed/headless runs 12:35-12:38 and ~7 of ~150 runs 12:50-12:57 on 2026-11-25, every time while another process was busy on the machine (an owner's lab session; a Blender conversion and Cycles render of Bistro); also with one frame in flight, so not a cross-frame overlap. **Not reproduced (stress harness, same build):** 11,615 runs under GPU contention (4 concurrent labs + golden loops), ~5,000 under 26 GB of RAM pressure, 360 with 24 of 28 GB of the Metal working set held by another process, 1,875 with `MTL_SHADER_VALIDATION=1` (no validation errors either). **Checked in code:** (a) no heaps or untracked resources: every resource is created tracked and each graph pass is its own encoder, so Metal orders them; (b) every pass declares what it touches and the backend makes it resident with `useResource` (null descriptors included); (c) the render graph pools textures but never aliases memory, and the accumulation is persistent. **Lead (2026-11-25):** with `MTL_SHADER_VALIDATION=1` (every debug build), Metal returns ray-query results that vary run to run for shaders that read instance data after a hit or trace twice, even in release builds and with one frame in flight; without it the same shaders are exact. Check whether the lost history happens only in validated (debug) runs. Next time the detector fires: Xcode GPU capture of that frame, and note what else was running.
 ## Next
 
+- **VCH-021** Soft shadows from area lights — *render* — Raytraced, with many-light sampling: area, spot and point lights with a radius, sampled through ReSTIR's light samples (after VCH-059).
 - **VCH-005** `Behavior` component — *script* — `veach.behavior(Component, { on_update = function(self, dt) ... end })` sugar for per-entity scripts, run internally as an ordinary Simulation system with batched dispatch. No separate update path.
 - **VCH-009** Runtime shader compilation — *render* — Build-time Slang → metallib/DXIL exists ([ADR 0026](../adr/0026-shader-compilation.md)). Add libslang at run time for shader hot reload, and a pipeline cache.
 
@@ -21,9 +25,6 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 - **VCH-018** Raytraced reflections — *render* — With screen-space reflections as hybrid and fallback.
 - **VCH-019** Physical sky and atmosphere — *render* — Sky, aerial perspective, sun and sky lighting feeding Candela.
 - **VCH-020** Volumetric fog — *render* — Froxel-based, lit by the same light structures.
-- **VCH-021** Soft shadows from area lights — *render* — Raytraced, with many-light sampling.
-- **VCH-022** Denoiser — *render* — Shared denoising for GI, reflections and shadows.
-- **VCH-023** Upscaler — *render* — Temporal upscaling to hit 60 fps at 1440p output; evaluate MetalFX and DLSS/FSR integration behind one interface.
 - **VCH-024** Extendable materials — *render* — Materials as Slang modules implementing interfaces with default implementations, so users override only `evalAlbedo`, `evalEmission`, `displaceVertex`, and so on (like Bevy's `ExtendedMaterial`).
 - **VCH-025** glTF import — *asset* — fastgltf loader, meshoptimizer processing, meshes and materials as assets with `.meta` import settings.
 - **VCH-026** Texture pipeline — *asset* — KTX2 with BC7 (and ASTC where useful), mip generation, import settings in `.meta`.

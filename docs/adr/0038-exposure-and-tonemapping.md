@@ -4,7 +4,8 @@ Date: 2026-11-25
 
 ## Status
 
-Accepted.
+Accepted. Where exposure is applied (before upscaling, not in the display pass) superseded by
+[0043](0043-upscaling.md).
 
 ## Context
 

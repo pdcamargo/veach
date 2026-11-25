@@ -23,39 +23,48 @@ uint veach_slot_kind<T : IOpaqueDescriptor>() {
     }
     return 0;
 }
+
+/// The handle to use: `h` if the table says it names a live descriptor of `kind`, else the kind's null descriptor
+/// (after counting and recording the bad one). Plain values only: DXIL cannot keep a resource in a mutable local.
+uint2 veach_checked_handle(uint2 h, uint kind) {
+    if (kind == 0) {
+        return h;
+    }
+    const uint view_capacity = veach_descriptor_table.Load(0);
+    const uint capacity = kind == 5 ? veach_descriptor_table.Load(4) : view_capacity;
+    const uint base = 16 + (kind == 5 ? view_capacity : 0);
+    const bool in_range = h.x != 0 && h.x < capacity;
+    const uint entry = in_range ? veach_descriptor_table.Load((base + h.x) * 4) : 0;
+    // The entry is (kind << 24) | generation, and the handle carries the entry it was made with: a freed slot
+    // reads 0, a reused one a newer generation, a wrong-kind use a different kind.
+    if (entry != 0 && entry == h.y && (entry >> 24) == kind) {
+        return h;
+    }
+    veach_descriptor_errors.InterlockedAdd(0, 1);
+    uint previous;
+    veach_descriptor_errors.InterlockedCompareExchange(4, 0, 1, previous);
+    if (previous == 0) {
+        veach_descriptor_errors.Store3(8, uint3(h.x, h.y, kind));
+    }
+    if (kind > 5) {
+        return h;  // no null acceleration structure: counted, used as is
+    }
+    const uint null_slot = kind == 5 ? 1 : kind;  // the RHI's fixed null descriptors
+    return uint2(null_slot, veach_descriptor_table.Load((base + null_slot) * 4));
+}
 #endif
 
 public export T getDescriptorFromHandle<T>(DescriptorHandle<T> handle) where T : IOpaqueDescriptor {
 #ifdef VEACH_VALIDATE_BINDLESS
     __target_switch {
     case hlsl:
-        const uint kind = veach_slot_kind<T>();
-        const uint2 h = (uint2)handle;
-        if (kind != 0) {
-            const uint view_capacity = veach_descriptor_table.Load(0);
-            const uint capacity = kind == 5 ? veach_descriptor_table.Load(4) : view_capacity;
-            const uint base = 16 + (kind == 5 ? view_capacity : 0);
-            const bool in_range = h.x != 0 && h.x < capacity;
-            const uint entry = in_range ? veach_descriptor_table.Load((base + h.x) * 4) : 0;
-            // The entry is (kind << 24) | generation, and the handle carries the entry it was made with: a freed
-            // slot reads 0, a reused one a newer generation, a wrong-kind use a different kind.
-            if (entry == 0 || entry != h.y || (entry >> 24) != kind) {
-                veach_descriptor_errors.InterlockedAdd(0, 1);
-                uint previous;
-                veach_descriptor_errors.InterlockedCompareExchange(4, 0, 1, previous);
-                if (previous == 0) {
-                    veach_descriptor_errors.Store3(8, uint3(h.x, h.y, kind));
-                }
-                if (kind <= 5) {
-                    const uint null_slot = kind == 5 ? 1 : kind;  // the RHI's fixed null descriptors
-                    const uint2 null_handle = uint2(null_slot, veach_descriptor_table.Load((base + null_slot) * 4));
-                    return defaultGetDescriptorFromHandle(nonuniform(DescriptorHandle<T>(null_handle)));
-                }
-            }
-        }
+        // Every checked handle is marked nonuniform: the check may replace it per lane (debug builds only).
+        return defaultGetDescriptorFromHandle(
+            nonuniform(DescriptorHandle<T>(veach_checked_handle((uint2)handle, veach_slot_kind<T>()))));
     default:
-        break;
+        return defaultGetDescriptorFromHandle(handle);
     }
-#endif
+#else
     return defaultGetDescriptorFromHandle(handle);
+#endif
 }

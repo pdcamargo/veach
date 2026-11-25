@@ -16,10 +16,12 @@ if [ "$event" = workflow_dispatch ]; then
 fi
 
 if [ "$event" != pull_request ]; then
-    for run in $(gh run list --workflow ci.yml --branch main --event push --status completed --limit 30 \
+    # A run counts by its hosted jobs alone: its queued GPU job keeps the run itself "in progress" for hours.
+    for run in $(gh run list --workflow ci.yml --branch main --event push --limit 30 \
         --json databaseId -q '.[].databaseId'); do
         green=$(gh run view "$run" --json jobs -q \
-            '[.jobs[] | select(.name | test("GPU|Detect") | not) | .conclusion] | length > 0 and all(. == "success" or . == "skipped")')
+            '[.jobs[] | select(.name | test("GPU|Detect") | not)] | length > 0 and
+             all(.status == "completed" and (.conclusion == "success" or .conclusion == "skipped"))')
         if [ "$green" = true ]; then
             base=$(gh run view "$run" --json headSha -q .headSha)
             break

@@ -167,7 +167,7 @@ endfunction()
 
 # The real-time renderer against the path tracer's direct light (tools/bench/compare_direct.py, rt.AC3/rt.AC4).
 function(veach_compare_test name script rhi max_mean)
-    cmake_parse_arguments(ARG "" "LABEL;EXTRA;SIZE;FRAMES;EMISSIVE" "" ${ARGN})
+    cmake_parse_arguments(ARG "NO_REUSE" "LABEL;EXTRA;SIZE;FRAMES;REALTIME_FRAMES;CANDIDATES" "" ${ARGN})
     if(NOT Python3_FOUND)
         return()
     endif()
@@ -178,17 +178,26 @@ function(veach_compare_test name script rhi max_mean)
     if(ARG_EXTRA)
         list(APPEND extra_args --extra "${ARG_EXTRA}")
     endif()
+    if(ARG_NO_REUSE)
+        list(APPEND extra_args --no-reuse)
+    endif()
+    if(ARG_CANDIDATES)
+        list(APPEND extra_args --candidates ${ARG_CANDIDATES})
+    endif()
     add_test(NAME "${name}"
         COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/bench/compare_direct.py" --rhi ${rhi}
                 --lab $<TARGET_FILE:veach-lab> --imgdiff $<TARGET_FILE:veach-cli>
                 --out "${CMAKE_CURRENT_BINARY_DIR}/compare/${rhi}" --size ${ARG_SIZE} --frames ${ARG_FRAMES} --spf 16
-                --emissive-samples ${ARG_EMISSIVE} --max-mean ${max_mean} ${extra_args}
+                --realtime-frames ${ARG_REALTIME_FRAMES} --max-mean ${max_mean} ${extra_args}
                 "${PROJECT_SOURCE_DIR}/apps/lab/scripts/${script}.luau")
     set_tests_properties("${name}" PROPERTIES SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable")
 endfunction()
 
 # One strong light of each type over the Cornell box (rt.AC4): a shadow in the wrong place costs far more FLIP than
-# the noise left at these sample counts.
+# the noise left at these sample counts. The real-time side averages 256 independent ReSTIR frames (no reuse: reused
+# frames are correlated and converge slower); it is unbiased, so the average approaches the reference. A strong sun
+# that most of the box cannot see is ReSTIR's hard case (its target ignores visibility): 0.077 at 64 reused frames,
+# 0.034 at 256 independent ones, 0.022 at 2048.
 set(_test_sun "local l = veach.spawn('test sun')
 l:set(veach.components.Transform, { translation = vector.zero, rotation = veach.quat.look_rotation(vector.create(0.4, -1, -0.3)), scale = vector.one })
 l:set(veach.components.DirectionalLight, { color = vector.one, illuminance = 40 })")
@@ -216,10 +225,11 @@ function(veach_realtime_tests rhi)
         FRAMES 32 ${helmet_limits})
     veach_golden_test("golden: cornell box AO view (path traced${suffix})" cornell_box_ao cornell_box_ao ${rhi} FRAMES 4)
     veach_compare_test("rt.AC3: GlowMaterial renders the same in both renderers (${rhi})" glow_closeup ${rhi} 0.01
-        SIZE 160x160 FRAMES 32 EMISSIVE 64)
+        SIZE 160x160 FRAMES 32 REALTIME_FRAMES 64)
     foreach(light sun point spot)
         veach_compare_test("rt.AC4: ${light} light and its hard shadow match the reference (${rhi})" cornell_box ${rhi}
-            0.04 LABEL ${light} EXTRA "${_test_${light}}" SIZE 320x180 FRAMES 32 EMISSIVE 64)
+            0.04 LABEL ${light} EXTRA "${_test_${light}}" SIZE 320x180 FRAMES 32 REALTIME_FRAMES 256 NO_REUSE
+            CANDIDATES 32)
     endforeach()
 endfunction()
 if(APPLE)

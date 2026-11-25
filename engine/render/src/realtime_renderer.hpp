@@ -26,6 +26,8 @@ struct RealtimeScene {
     rhi::BufferHandle materials;
     rhi::BufferHandle lights;
     rhi::BufferHandle emissive;
+    rhi::BufferHandle alias;        ///< ReSTIR's light table: light_count + emissive_count AliasEntry (ADR 0041)
+    std::uint64_t lights_hash = 0;  ///< changes when any light does: reservoirs are dropped
     std::uint32_t light_count = 0;
     std::uint32_t emissive_count = 0;
     float emissive_total_weight = 0.0f;

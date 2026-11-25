@@ -69,6 +69,15 @@ struct EmissiveTriangle {
 };
 static_assert(sizeof(EmissiveTriangle) == 16);
 
+/// Mirrors AliasEntry in shaders/veach/realtime.slang: ReSTIR's light table (ADR 0041).
+struct AliasEntry {
+    float threshold = 1.0f;
+    std::uint32_t alias = 0;
+    float pdf = 0.0f;
+    std::uint32_t pad = 0;
+};
+static_assert(sizeof(AliasEntry) == 16);
+
 /// The rows of the upper 3x4 of a column-major matrix.
 inline std::array<math::vec4, 3> rows_of(const math::mat4& m) {
     return {math::vec4(m[0][0], m[1][0], m[2][0], m[3][0]), math::vec4(m[0][1], m[1][1], m[2][1], m[3][1]),

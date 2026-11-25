@@ -8,13 +8,31 @@ import veach.brdf;
 import veach.material;
 import veach.scene;
 
-static const uint frame_history_valid = 1;  ///< RealtimeFrame::flags: last frame's targets belong to this view
+/// Mirrors render::AliasEntry: Vose's alias table, one entry per light.
+struct AliasEntry {
+    float threshold;  ///< pick this entry if the second number is below it, else its alias
+    uint alias;
+    float pdf;        ///< this light's selection probability
+    uint pad;
+};
+
+/// ReSTIR DI's reservoir as stored (veach/restir.slang unpacks it). float4 only, so Metal and HLSL lay it out
+/// alike. Mirrors render::PackedReservoir: 48 bytes.
+struct PackedReservoir {
+    float4 position_light;  ///< xyz: a triangle sample's point; w: the light index, bit for bit
+    float4 normal_w;        ///< xyz: a triangle sample's front normal; w: W
+    float4 radiance_m;      ///< xyz: a triangle sample's front emitted radiance; w: M
+};
+
+static const uint frame_history_valid = 1;    ///< RealtimeFrame::flags: last frame's targets belong to this view
+static const uint frame_reservoirs_valid = 2;  ///< RealtimeFrame::flags: last frame's reservoirs hold these lights' samples
 
 // RealtimeFrame::view: what the renderer shows (render::RealtimeView).
 static const uint view_final = 0;
 static const uint view_noisy = 1;
 static const uint view_motion = 2;
 static const uint view_history = 3;
+static const uint view_accumulated = 4;
 
 struct RealtimeFrame {
     float4x4 view_projection;             ///< jittered: what the visibility pass rasterizes with
@@ -55,6 +73,15 @@ struct RealtimeFrame {
     DescriptorHandle<Texture2D<float4>> previous_specular;
     DescriptorHandle<Texture2D<float4>> radiance;   ///< lit, exposed linear color (the upscaler's input)
     DescriptorHandle<RWTexture2D<float4>> radiance_out;
+    // ReSTIR DI (ADR 0041, veach/restir.slang): one reservoir per render pixel, row-major.
+    DescriptorHandle<StructuredBuffer<AliasEntry>> alias;                ///< light_count + emissive_count entries
+    DescriptorHandle<RWStructuredBuffer<PackedReservoir>> temporal_out;        ///< initial + temporal reuse
+    DescriptorHandle<StructuredBuffer<PackedReservoir>> temporal_reservoirs;   ///< the same, read by spatial reuse
+    DescriptorHandle<RWStructuredBuffer<PackedReservoir>> final_out;           ///< after spatial reuse
+    DescriptorHandle<StructuredBuffer<PackedReservoir>> final_reservoirs;      ///< the same, read by shading
+    DescriptorHandle<StructuredBuffer<PackedReservoir>> previous_reservoirs;   ///< last frame's final reservoirs
+    DescriptorHandle<Texture2D<float4>> accumulation;    ///< view_accumulated: the average so far
+    DescriptorHandle<RWTexture2D<float4>> accumulation_out;
     DescriptorHandle<Texture2D<float4>> unused0;
 
     uint2 render_size;
@@ -64,13 +91,17 @@ struct RealtimeFrame {
     uint emissive_count;
     float emissive_total_weight;
     uint scene_flags;
-    uint emissive_samples;
+    uint pad0;
     uint ao_rays;
     float ao_radius;
     uint debug_skip;
     uint view;  ///< view_*
-    uint pad0;
-    uint2 pad1;
+    uint light_candidates;
+    uint spatial_samples;
+    uint temporal_reuse;  ///< 1: reuse last frame's reservoirs
+    uint accumulated;     ///< view_accumulated: frames in the average before this one
+    uint pad1;
+    uint2 pad2;
 };
 
 /// Fills veach_scene (veach/scene.slang) from the frame record.
@@ -123,6 +154,44 @@ GSurface load_surface(RealtimeFrame f, int2 pixel) {
     s.diffuse = f.diffuse.Load(int3(pixel, 0)).xyz;
     s.f0 = f.specular.Load(int3(pixel, 0)).xyz;
     s.emission = f.emission.Load(int3(pixel, 0)).xyz;
+    return s;
+}
+
+/// A pixel's surface without its emission: what lighting another pixel's domain needs.
+GSurface load_lit_surface(RealtimeFrame f, int2 pixel) {
+    GSurface s;
+    const float4 p = f.position.Load(int3(pixel, 0));
+    s.valid = p.w > 0.0;
+    s.position = p.xyz;
+    s.depth = p.w;
+    const float4 n = f.normal.Load(int3(pixel, 0));
+    s.normal = n.xyz;
+    s.roughness = n.w;
+    const float4 g = f.geometric.Load(int3(pixel, 0));
+    s.geometric = g.xyz;
+    s.metallic = g.w;
+    s.diffuse = f.diffuse.Load(int3(pixel, 0)).xyz;
+    s.f0 = f.specular.Load(int3(pixel, 0)).xyz;
+    s.emission = float3(0.0, 0.0, 0.0);
+    return s;
+}
+
+/// Last frame's surface at a pixel (no emission: nothing reads it).
+GSurface load_previous_surface(RealtimeFrame f, int2 pixel) {
+    GSurface s;
+    const float4 p = f.previous_position.Load(int3(pixel, 0));
+    s.valid = p.w > 0.0;
+    s.position = p.xyz;
+    s.depth = p.w;
+    const float4 n = f.previous_normal.Load(int3(pixel, 0));
+    s.normal = n.xyz;
+    s.roughness = n.w;
+    const float4 g = f.previous_geometric.Load(int3(pixel, 0));
+    s.geometric = g.xyz;
+    s.metallic = g.w;
+    s.diffuse = f.previous_diffuse.Load(int3(pixel, 0)).xyz;
+    s.f0 = f.previous_specular.Load(int3(pixel, 0)).xyz;
+    s.emission = float3(0.0, 0.0, 0.0);
     return s;
 }
 

@@ -462,7 +462,10 @@ RenderModule::RenderModule(World& world) {
         .add<Scriptable>();
     world.component<RealtimeView>();
     world.component<RealtimeLighting>()
-        .member(&RealtimeLighting::emissive_samples, "emissive_samples")
+        .member(&RealtimeLighting::light_candidates, "light_candidates")
+        .member(&RealtimeLighting::temporal_reuse, "temporal_reuse")
+        .member(&RealtimeLighting::spatial_samples, "spatial_samples")
+        .member(&RealtimeLighting::denoise, "denoise")
         .member(&RealtimeLighting::ambient, "ambient")
         .member(&RealtimeLighting::sky, "sky")
         .member(&RealtimeLighting::ao_rays, "ao_rays")

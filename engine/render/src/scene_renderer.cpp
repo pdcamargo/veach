@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstring>
 #include <format>
+#include <limits>
 #include <set>
 #include <span>
 #include <unordered_map>
@@ -67,6 +68,51 @@ static_assert(rhi::parameters_match<PathTraceParams>(veach_render_shaders::layou
                                                       VEACH_PARAM(PathTraceParams, jitter),
                                                       VEACH_PARAM(PathTraceParams, scene_flags),
                                                       VEACH_PARAM(PathTraceParams, pad1)}));
+
+constexpr float pi = 3.14159265358979f;
+
+/// Vose's alias table over `weights`: O(1) sampling proportional to them (ADR 0041). All zero: every pdf is 0.
+std::vector<AliasEntry> build_alias_table(const std::vector<float>& weights) {
+    const std::size_t n = weights.size();
+    std::vector<AliasEntry> table(n);
+    double sum = 0.0;
+    for (const float w : weights) {
+        sum += std::max(w, 0.0f);
+    }
+    if (n == 0 || sum <= 0.0) {
+        for (std::size_t i = 0; i < n; ++i) {
+            table[i] = {1.0f, static_cast<std::uint32_t>(i), 0.0f, 0};
+        }
+        return table;
+    }
+    std::vector<double> scaled(n);
+    std::vector<std::uint32_t> small;
+    std::vector<std::uint32_t> large;
+    for (std::size_t i = 0; i < n; ++i) {
+        table[i].pdf = static_cast<float>(std::max(weights[i], 0.0f) / sum);
+        scaled[i] = std::max(weights[i], 0.0f) * static_cast<double>(n) / sum;
+        (scaled[i] < 1.0 ? small : large).push_back(static_cast<std::uint32_t>(i));
+    }
+    while (!small.empty() && !large.empty()) {
+        const std::uint32_t s = small.back();
+        small.pop_back();
+        const std::uint32_t l = large.back();
+        table[s].threshold = static_cast<float>(scaled[s]);
+        table[s].alias = l;
+        scaled[l] -= 1.0 - scaled[s];
+        if (scaled[l] < 1.0) {
+            large.pop_back();
+            small.push_back(l);
+        }
+    }
+    for (const std::uint32_t i : large) {
+        table[i] = {1.0f, i, table[i].pdf, 0};
+    }
+    for (const std::uint32_t i : small) {  // rounding leftovers
+        table[i] = {1.0f, i, table[i].pdf, 0};
+    }
+    return table;
+}
 
 float luminance(math::vec3 c) {
     return 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z;  // GLM_FORCE_XYZW_ONLY
@@ -595,6 +641,10 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
         lights.push_back(r);
     }
     std::vector<EmissiveTriangle> emitters;
+    std::vector<float> emitter_weights;  ///< area x the material's emissive weight
+    Fnv64 lights_hash;                   ///< what ReSTIR's reservoirs depend on (ADR 0041)
+    lights_hash.add_all(lights);
+    lights_hash.add_all(materials);
     float total = 0.0f;
     for (std::size_t i = 0; i < instances.size(); ++i) {
         const MeshAsset& mesh = *s.meshes.at(draws[i]->mesh).source;
@@ -607,7 +657,10 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
                 const auto& p = mesh.vertices[mesh.indices[t * 3 + corner]].position;
                 return math::vec3(draws[i]->world * math::vec4(p[0], p[1], p[2], 1.0f));
             };
-            const float area = 0.5f * math::length(math::cross(world(1) - world(0), world(2) - world(0)));
+            const std::array<math::vec3, 3> corners{world(0), world(1), world(2)};
+            lights_hash.add(corners.data(), sizeof(corners));
+            const float area = 0.5f * math::length(math::cross(corners[1] - corners[0], corners[2] - corners[0]));
+            emitter_weights.push_back(area * m.emissive_weight);
             total += area * m.emissive_weight;
             emitters.push_back({static_cast<std::uint32_t>(i), static_cast<std::uint32_t>(t), total, 0.0f});
         }
@@ -615,6 +668,35 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
     for (EmissiveTriangle& e : emitters) {
         e.cdf /= total;
     }
+    // ReSTIR's candidates (ADR 0041): every light, by the power it sends into the scene. A directional light's is its
+    // illuminance over the scene's cross-section.
+    math::vec3 scene_min(std::numeric_limits<float>::max());
+    math::vec3 scene_max(std::numeric_limits<float>::lowest());
+    for (const MeshDraw* draw : draws) {
+        const MeshAsset& mesh = *s.meshes.at(draw->mesh).source;
+        for (int corner = 0; corner < 8; ++corner) {
+            const math::vec3 p((corner & 1) != 0 ? mesh.bounds_max.x : mesh.bounds_min.x,
+                               (corner & 2) != 0 ? mesh.bounds_max.y : mesh.bounds_min.y,
+                               (corner & 4) != 0 ? mesh.bounds_max.z : mesh.bounds_min.z);
+            const math::vec3 w(draw->world * math::vec4(p, 1.0f));
+            scene_min = math::min(scene_min, w);
+            scene_max = math::max(scene_max, w);
+        }
+    }
+    const float scene_radius = 0.5f * math::length(scene_max - scene_min);
+    std::vector<float> light_power;
+    for (const RenderLight& l : frame.world.lights) {
+        const float lum = luminance(l.radiance);
+        switch (l.kind) {
+            case LightKind::directional: light_power.push_back(lum * pi * scene_radius * scene_radius); break;
+            case LightKind::point: light_power.push_back(lum * 4.0f * pi); break;
+            case LightKind::spot: light_power.push_back(lum * 2.0f * pi * (1.0f - l.cos_outer)); break;
+        }
+    }
+    for (const float w : emitter_weights) {
+        light_power.push_back(w * pi);
+    }
+    const std::vector<AliasEntry> alias_table = build_alias_table(light_power);
 
     const auto [width, height] = std::pair{frame.width, frame.height};
     if (path_traced) {
@@ -664,8 +746,9 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
     const rhi::BufferHandle material_buffer = s.upload(materials, sizeof(MaterialRecord), "scene materials");
     const rhi::BufferHandle light_buffer = s.upload(lights, sizeof(LightRecord), "scene lights");
     const rhi::BufferHandle emissive_buffer = s.upload(emitters, sizeof(EmissiveTriangle), "scene emitters");
+    const rhi::BufferHandle alias_buffer = s.upload(alias_table, sizeof(AliasEntry), "light alias table");
     if (!instance_buffer.is_valid() || !material_buffer.is_valid() || !light_buffer.is_valid() ||
-        !emissive_buffer.is_valid()) {
+        !emissive_buffer.is_valid() || !alias_buffer.is_valid()) {
         return;
     }
 
@@ -791,6 +874,8 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
                                .materials = material_buffer,
                                .lights = light_buffer,
                                .emissive = emissive_buffer,
+                               .alias = alias_buffer,
+                               .lights_hash = lights_hash.h,
                                .light_count = static_cast<std::uint32_t>(lights.size()),
                                .emissive_count = static_cast<std::uint32_t>(emitters.size()),
                                .emissive_total_weight = total,

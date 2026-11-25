@@ -87,6 +87,14 @@ struct alignas(16) RealtimeFrame {
     std::array<rhi::DescriptorHandle, 5> previous;      ///< last frame's position .. specular
     rhi::DescriptorHandle radiance;
     rhi::DescriptorHandle radiance_out;
+    rhi::DescriptorHandle alias;
+    rhi::DescriptorHandle temporal_out;
+    rhi::DescriptorHandle temporal_reservoirs;
+    rhi::DescriptorHandle final_out;
+    rhi::DescriptorHandle final_reservoirs;
+    rhi::DescriptorHandle previous_reservoirs;
+    rhi::DescriptorHandle accumulation;
+    rhi::DescriptorHandle accumulation_out;
     rhi::DescriptorHandle unused0;
     std::array<std::uint32_t, 2> render_size{};
     std::uint32_t frame = 0;
@@ -95,22 +103,36 @@ struct alignas(16) RealtimeFrame {
     std::uint32_t emissive_count = 0;
     float emissive_total_weight = 0.0f;
     std::uint32_t scene_flags = 0;
-    std::uint32_t emissive_samples = 0;
+    std::uint32_t pad0 = 0;
     std::uint32_t ao_rays = 0;
     float ao_radius = 1.0f;
     std::uint32_t debug_skip = 0;
     std::uint32_t view = 0;
-    std::uint32_t pad0 = 0;
-    std::array<std::uint32_t, 2> pad1{};
+    std::uint32_t light_candidates = 0;
+    std::uint32_t spatial_samples = 0;
+    std::uint32_t temporal_reuse = 0;
+    std::uint32_t accumulated = 0;
+    std::uint32_t pad1 = 0;
+    std::array<std::uint32_t, 2> pad2{};
 };
 static_assert(offsetof(RealtimeFrame, tlas) == 320);
 static_assert(offsetof(RealtimeFrame, surfaces) == 368);
 static_assert(offsetof(RealtimeFrame, previous) == 480);
-static_assert(offsetof(RealtimeFrame, render_size) == 544);
-static_assert(sizeof(RealtimeFrame) == 608);
+static_assert(offsetof(RealtimeFrame, alias) == 536);
+static_assert(offsetof(RealtimeFrame, render_size) == 608);
+static_assert(sizeof(RealtimeFrame) == 688);
+
+/// Mirrors PackedReservoir in shaders/veach/realtime.slang (ADR 0041).
+struct PackedReservoir {
+    math::vec4 position_light{0.0f};
+    math::vec4 normal_w{0.0f};
+    math::vec4 radiance_m{0.0f};
+};
+static_assert(sizeof(PackedReservoir) == 48);
 
 constexpr std::uint32_t frame_history_valid = 1;  ///< RealtimeFrame::flags, as in veach/realtime.slang
-constexpr std::uint32_t jitter_phases = 16;       ///< Halton(2,3) phases (ADR 0040)
+constexpr std::uint32_t frame_reservoirs_valid = 2;
+constexpr std::uint32_t jitter_phases = 16;  ///< Halton(2,3) phases (ADR 0040)
 
 /// The surface targets (ADR 0040), in RealtimeFrame's order.
 constexpr std::array<rhi::Format, 7> surface_formats{
@@ -137,6 +159,12 @@ struct Persistent {
     bool written = false;
 };
 
+/// The same for a buffer (ReSTIR's reservoirs).
+struct PersistentBuffer {
+    rhi::BufferHandle handle;
+    bool written = false;
+};
+
 }  // namespace
 
 struct RealtimeRenderer::Impl {
@@ -150,9 +178,14 @@ struct RealtimeRenderer::Impl {
         Persistent visibility;
         std::array<std::array<Persistent, 7>, 2> surfaces;  ///< ping-pong: this frame's and last frame's
         Persistent radiance;
-        std::array<Persistent, 2> upscaled;  ///< output resolution, ping-pong (TAAU history)
-        bool history = false;                ///< last frame's targets belong to this view
-        std::uint32_t frame = 0;             ///< frames since the targets were made; its parity picks the set
+        std::array<Persistent, 2> upscaled;                ///< output resolution, ping-pong (TAAU history)
+        Persistent accumulation;                           ///< RealtimeView::accumulated
+        std::uint32_t accumulated = 0;                     ///< frames in it
+        PersistentBuffer temporal_reservoirs;              ///< ReSTIR: initial + temporal, this frame
+        std::array<PersistentBuffer, 2> final_reservoirs;  ///< ReSTIR: after spatial reuse, ping-pong
+        std::uint64_t lights_hash = 0;                     ///< the lights last frame's reservoirs sampled
+        bool history = false;                              ///< last frame's targets belong to this view
+        std::uint32_t frame = 0;  ///< frames since the targets were made; its parity picks the set
         math::mat4 previous_view_projection{1.0f};
         math::mat4 previous_view{1.0f};
         math::vec3 previous_position{0.0f};
@@ -162,6 +195,9 @@ struct RealtimeRenderer::Impl {
     rhi::PipelineHandle visibility_pipeline;
     rhi::PipelineHandle surface_pipeline;
     rhi::PipelineHandle shade_pipeline;
+    rhi::PipelineHandle restir_temporal_pipeline;
+    rhi::PipelineHandle restir_spatial_pipeline;
+    rhi::PipelineHandle accumulate_pipeline;
     rhi::PipelineHandle taau_pipeline;
     rhi::PipelineHandle display_pipeline;
     rhi::SamplerHandle linear_clamp;
@@ -179,7 +215,8 @@ struct RealtimeRenderer::Impl {
             destroy(v);
         }
         for (rhi::PipelineHandle* p :
-             {&visibility_pipeline, &surface_pipeline, &shade_pipeline, &taau_pipeline, &display_pipeline}) {
+             {&visibility_pipeline, &surface_pipeline, &shade_pipeline, &restir_temporal_pipeline,
+              &restir_spatial_pipeline, &accumulate_pipeline, &taau_pipeline, &display_pipeline}) {
             if (p->is_valid()) {
                 device->destroy(*p);
             }
@@ -218,6 +255,31 @@ struct RealtimeRenderer::Impl {
         for (Persistent& p : v.upscaled) {
             destroy(p);
         }
+        destroy(v.accumulation);
+        destroy(v.temporal_reservoirs);
+        for (PersistentBuffer& b : v.final_reservoirs) {
+            destroy(b);
+        }
+    }
+    void destroy(PersistentBuffer& b) {
+        if (b.handle.is_valid()) {
+            device->destroy(b.handle);
+        }
+        b = {};
+    }
+    bool create(PersistentBuffer& b, std::uint64_t size, const char* name) {
+        auto buffer = device->create_buffer(
+            {.size = size, .usage = rhi::BufferUsage::storage, .debug_name = name, .stride = sizeof(PackedReservoir)});
+        if (!buffer) {
+            log::error("render", buffer.error());
+            return false;
+        }
+        b = {*buffer, false};
+        return true;
+    }
+    GraphResource import(RenderGraph& graph, PersistentBuffer& b, const char* name) {
+        return graph.import(b.handle, name, b.written ? rhi::ResourceState::shader_read : rhi::ResourceState::undefined,
+                            rhi::ResourceState::shader_read);
     }
 
     bool create(Persistent& p, const rhi::TextureDesc& desc) {
@@ -244,6 +306,12 @@ struct RealtimeRenderer::Impl {
             }
         }
         ok = ok && create(v.radiance, {rw, rh, rhi::Format::rgba16_float, rw_usage, "radiance"});
+        ok = ok && create(v.accumulation, {rw, rh, rhi::Format::rgba32_float, rw_usage, "accumulation"});
+        const std::uint64_t reservoirs = std::uint64_t{rw} * rh * sizeof(PackedReservoir);
+        ok = ok && create(v.temporal_reservoirs, reservoirs, "reservoirs (temporal)");
+        for (PersistentBuffer& b : v.final_reservoirs) {
+            ok = ok && create(b, reservoirs, "reservoirs");
+        }
         if (mode != UpscalerMode::none) {
             for (Persistent& p : v.upscaled) {
                 ok = ok && create(p, {ow, oh, rhi::Format::rgba16_float, rw_usage, "upscaled"});
@@ -292,7 +360,10 @@ Result<> RealtimeRenderer::prepare(rhi::Device& device, const SceneShaders& shad
     };
     for (const auto& [library, entry, out] :
          {std::tuple{&shaders.shade, "surface", &s.surface_pipeline},
+          std::tuple{&shaders.shade, "restir_temporal", &s.restir_temporal_pipeline},
+          std::tuple{&shaders.shade, "restir_spatial", &s.restir_spatial_pipeline},
           std::tuple{&shaders.shade, "shade", &s.shade_pipeline},
+          std::tuple{&shaders.shade, "accumulate", &s.accumulate_pipeline},
           std::tuple{&veach_render_shaders::taau(), "taau", &s.taau_pipeline},
           std::tuple{&veach_render_shaders::display(), "display", &s.display_pipeline}}) {
         if (auto made = compute(*library, entry, *out); !made) {
@@ -354,6 +425,14 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     const std::size_t previous = 1 - current;
     auto& surfaces = v.surfaces[current];
     auto& last = v.surfaces[previous];
+    // ReSTIR's reservoirs carry over only while the lights stay the same (ADR 0041).
+    const bool reservoirs_valid = v.history && v.lights_hash == scene.lights_hash;
+    v.lights_hash = scene.lights_hash;
+    // The accumulated view restarts whenever anything it shows could have changed.
+    const bool accumulating = lighting.view == RealtimeView::accumulated;
+    if (!accumulating || !reservoirs_valid || v.previous_view_projection != view.view_projection) {
+        v.accumulated = 0;
+    }
 
     RealtimeFrame f;
     f.view_projection = jittered;
@@ -380,19 +459,30 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     }
     f.radiance = device.descriptor(v.radiance.handle);
     f.radiance_out = device.descriptor(v.radiance.handle, rhi::View::storage);
+    f.alias = device.descriptor(scene.alias);
+    f.temporal_out = device.descriptor(v.temporal_reservoirs.handle, rhi::View::storage);
+    f.temporal_reservoirs = device.descriptor(v.temporal_reservoirs.handle);
+    f.final_out = device.descriptor(v.final_reservoirs[current].handle, rhi::View::storage);
+    f.final_reservoirs = device.descriptor(v.final_reservoirs[current].handle);
+    f.previous_reservoirs = device.descriptor(v.final_reservoirs[previous].handle);
+    f.accumulation = device.descriptor(v.accumulation.handle);
+    f.accumulation_out = device.descriptor(v.accumulation.handle, rhi::View::storage);
     f.unused0 = device.null_descriptor(rhi::DescriptorKind::texture);
     f.render_size = {rw, rh};
     f.frame = s.frame++;
-    f.flags = v.history ? frame_history_valid : 0u;
+    f.flags = (v.history ? frame_history_valid : 0u) | (reservoirs_valid ? frame_reservoirs_valid : 0u);
     f.light_count = scene.light_count;
     f.emissive_count = scene.emissive_count;
     f.emissive_total_weight = scene.emissive_total_weight;
     f.scene_flags = scene.scene_flags;
-    f.emissive_samples = lighting.emissive_samples;
     f.ao_rays = lighting.ao_rays;
     f.ao_radius = lighting.ao_radius;
     f.debug_skip = lighting.debug_skip;
     f.view = static_cast<std::uint32_t>(lighting.view);
+    f.light_candidates = lighting.light_candidates;
+    f.spatial_samples = lighting.spatial_samples;
+    f.temporal_reuse = lighting.temporal_reuse ? 1u : 0u;
+    f.accumulated = v.accumulated;
 
     const std::array<RealtimeFrame, 1> records{f};
     auto frame_buffer = device.create_buffer({.size = sizeof(RealtimeFrame),
@@ -426,8 +516,15 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
         previous_targets[i] = s.import(graph, last[i], surface_names[i]);
     }
     const GraphResource radiance = s.import(graph, v.radiance, "radiance");
+    const GraphResource alias = graph.import(scene.alias, "light alias table", rhi::ResourceState::shader_read);
+    const GraphResource temporal_reservoirs = s.import(graph, v.temporal_reservoirs, "reservoirs (temporal)");
+    const GraphResource final_reservoirs = s.import(graph, v.final_reservoirs[current], "reservoirs");
+    const GraphResource previous_reservoirs = s.import(graph, v.final_reservoirs[previous], "reservoirs (last frame)");
+    const GraphResource accumulation = s.import(graph, v.accumulation, "accumulation");
     v.visibility.written = true;
     v.radiance.written = true;
+    v.temporal_reservoirs.written = true;
+    v.final_reservoirs[current].written = true;
 
     // ---- visibility (ADR 0037), with this frame's jitter.
     VisibilityParams vis{.view_projection = jittered};
@@ -481,18 +578,47 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
         }
     });
 
-    // ---- lighting.
+    // ---- direct light: ReSTIR DI (ADR 0041), then one shadow ray per pixel.
+    dispatch("restir: candidates and temporal reuse", s.restir_temporal_pipeline, [&](PassBuilder& b) {
+        scene.read_scene(b);
+        b.read(alias);
+        for (const GraphResource& r : current_targets) {
+            b.read(r);
+        }
+        for (const GraphResource& r : previous_targets) {
+            b.read(r);
+        }
+        b.read(previous_reservoirs);
+        b.write(temporal_reservoirs, rhi::ResourceState::shader_write);
+    });
+    dispatch("restir: spatial reuse", s.restir_spatial_pipeline, [&](PassBuilder& b) {
+        scene.read_scene(b);
+        for (const GraphResource& r : current_targets) {
+            b.read(r);
+        }
+        b.read(temporal_reservoirs);
+        b.write(final_reservoirs, rhi::ResourceState::shader_write);
+    });
     dispatch("shade", s.shade_pipeline, [&](PassBuilder& b) {
         scene.read_scene(b);
         for (const GraphResource& r : current_targets) {
             b.read(r);
         }
+        b.read(final_reservoirs);
         b.write(radiance, rhi::ResourceState::shader_write);
     });
+    if (accumulating) {
+        dispatch("accumulate", s.accumulate_pipeline, [&](PassBuilder& b) {
+            b.read(radiance);
+            b.write(accumulation, rhi::ResourceState::shader_write);
+        });
+        v.accumulation.written = true;
+        ++v.accumulated;
+    }
 
     // ---- upscaling (ADR 0043), unless a debug view shows render pixels as they are.
     const bool image = lighting.view == RealtimeView::final || lighting.view == RealtimeView::noisy;
-    GraphResource shown = radiance;
+    GraphResource shown = accumulating ? accumulation : radiance;
     std::array<std::uint32_t, 2> shown_size{rw, rh};
     if (mode != UpscalerMode::none && image) {
         Persistent& out = v.upscaled[current];
@@ -534,7 +660,7 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     display.size = {ow, oh};
     display.input_size = shown_size;
     display.exposure = 1.0f;
-    display.tonemap = image ? 1u : 0u;
+    display.tonemap = image || accumulating ? 1u : 0u;
     graph.add_compute_pass(
         "display",
         [&](PassBuilder& b) {

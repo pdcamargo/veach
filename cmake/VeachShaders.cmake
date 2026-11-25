@@ -215,5 +215,6 @@ ${kinds}}};
     veach_add_shader(${target} "${PROJECT_SOURCE_DIR}/engine/render/shaders/realtime_visibility.slang"
         ENTRIES vis_vs:vertex vis_fs:fragment INCLUDES ${include_dirs})
     veach_add_shader(${target} "${PROJECT_SOURCE_DIR}/engine/render/shaders/realtime_shade.slang"
-        ENTRIES surface:compute shade:compute INCLUDES ${include_dirs})
+        ENTRIES surface:compute restir_temporal:compute restir_spatial:compute shade:compute
+        accumulate:compute INCLUDES ${include_dirs})
 endfunction()

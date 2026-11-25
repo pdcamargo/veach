@@ -57,14 +57,18 @@ inline constexpr std::uint32_t ao = 2;  ///< debug view: ambient occlusion (1 m)
 /// Without the component, the defaults apply.
 /// What the real-time renderer shows (docs/specs/temporal-direct-lighting/spec.md).
 enum class RealtimeView : std::uint8_t {
-    final,    ///< the image
-    noisy,    ///< lighting before the denoiser
-    motion,   ///< motion vectors: |x|, |y| in red and green (4 render pixels = full)
-    history,  ///< green where last frame's surface was found, red where it was disoccluded, blue for no geometry
+    final,        ///< the image
+    noisy,        ///< lighting before the denoiser
+    motion,       ///< motion vectors: |x|, |y| in red and green (4 render pixels = full)
+    history,      ///< green where last frame's surface was found, red where it was disoccluded, blue for no geometry
+    accumulated,  ///< lighting before the denoiser, averaged over frames while nothing changes (bias checks)
 };
 
 struct RealtimeLighting {
-    std::uint32_t emissive_samples = 4;  ///< light samples per pixel from emissive triangles
+    std::uint32_t light_candidates = 16;  ///< ReSTIR DI's initial candidates per pixel, from every light (ADR 0041)
+    bool temporal_reuse = true;           ///< reuse last frame's reservoirs
+    std::uint32_t spatial_samples = 4;    ///< neighbors' reservoirs reused per pixel, up to 8; 0 = none
+    bool denoise = true;                  ///< the denoiser (ADR 0042); off for the noisy view and bias checks
     // STOPGAP until Candela (VCH-017): sky light on diffuse surfaces, darkened by short-range ray-traced AO.
     // Candela replaces it; at most a short-range AO stays. Off for comparisons against direct light.
     bool ambient = true;

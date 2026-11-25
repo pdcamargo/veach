@@ -57,7 +57,11 @@ def main() -> int:
     parser.add_argument("--size", default="640x360")
     parser.add_argument("--frames", type=int, default=64, help="path tracer frames (samples = frames x spf)")
     parser.add_argument("--spf", type=int, default=16, help="path tracer samples per frame")
-    parser.add_argument("--emissive-samples", type=int, default=4, help="real-time emissive light samples")
+    parser.add_argument("--candidates", type=int, default=16, help="ReSTIR DI's initial candidates per pixel")
+    parser.add_argument("--no-reuse", action="store_true",
+                        help="no temporal or spatial reservoir reuse: independent frames converge faster when averaged")
+    parser.add_argument("--realtime-frames", type=int, default=1,
+                        help="frames of real-time lighting averaged (RealtimeLighting.view = accumulated) before comparing")
     parser.add_argument("--max-mean", type=float, default=None)
     parser.add_argument("--out", type=pathlib.Path, default=ROOT / "build" / "compare_direct")
     parser.add_argument("--lab", type=pathlib.Path, help="veach-lab (default: build/<preset>/apps/lab/veach-lab)")
@@ -72,17 +76,19 @@ def main() -> int:
 
     failed = False
     print(f"| Scene | Mean FLIP | 99.9th percentile | Pixels above 0.5 |  ({args.size}, reference "
-          f"{args.frames * args.spf} spp, real time {args.emissive_samples} emissive samples)")
+          f"{args.frames * args.spf} spp, real time {args.candidates} candidates, {args.realtime_frames} frames)")
     print("|---|---|---|---|")
     for scene in args.scenes:
         scene = scene.resolve()
         name = scene.stem + (f"_{args.label}" if args.label else "")
         realtime = variant(scene, f"{args.label}realtime", size, args.extra + "\n"
                            "camera:remove(veach.components.PathTracer)\n"
-                           "camera:set(veach.components.RealtimeLighting, { emissive_samples = "
-                           f"{args.emissive_samples}, ambient = false, sky = vector.zero, ao_rays = 0, "
-                           "ao_radius = 1 })\n"
-                           # v0's single-frame estimate at full resolution: no jitter, no upscaler, no history.
+                           "camera:set(veach.components.RealtimeLighting, { light_candidates = "
+                           f"{args.candidates}, ambient = false, sky = vector.zero, ao_rays = 0, ao_radius = 1, "
+                           f"denoise = false, view = \"{'accumulated' if args.realtime_frames > 1 else 'noisy'}\", "
+                           f"temporal_reuse = {'false' if args.no_reuse else 'true'}, "
+                           f"spatial_samples = {0 if args.no_reuse else 4} }})\n"
+                           # Full resolution through pixel centers like the reference: no jitter, no upscaler.
                            "camera:set(veach.components.Upscaling, { mode = \"none\", render_scale = 1 })")
         reference = variant(scene, f"{args.label}reference", size, args.extra + "\n"
                             "camera:set(veach.components.PathTracer, { samples_per_frame = "
@@ -90,7 +96,7 @@ def main() -> int:
         try:
             rt_png = args.out / f"{name}.realtime.png"
             pt_png = args.out / f"{name}.reference.png"
-            render(lab, args.rhi, realtime, 3, rt_png)
+            render(lab, args.rhi, realtime, max(3, args.realtime_frames), rt_png)
             render(lab, args.rhi, reference, args.frames, pt_png)
             diff = subprocess.run([str(imgdiff), "imgdiff", str(pt_png), str(rt_png), "--max-mean", "1",
                                    "--max-p999", "1", "--max-outliers", "1000000000",

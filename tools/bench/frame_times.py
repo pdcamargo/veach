@@ -68,7 +68,7 @@ def percentile(values: list[float], p: float) -> float:
 VARIANTS = [
     ("full", {}),
     ("no AO rays", {"ao_rays": 0}),
-    ("no emissive samples", {"emissive_samples": 0}),
+    ("no light samples", {"light_candidates": 0}),
     ("no shadow rays", {"debug_skip": 1}),
     ("no alpha tests", {"debug_skip": 2}),
 ]
@@ -98,6 +98,8 @@ def main() -> int:
     parser.add_argument("--frames", type=int, default=120)
     parser.add_argument("--size", default="2560x1440", help="the primary window's size, set over MCP before measuring")
     parser.add_argument("--breakdown", action="store_true", help="also time the shade pass with each part left out")
+    parser.add_argument("--lighting", action="append", default=[], metavar="FIELD=VALUE",
+                        help="a RealtimeLighting field to set over MCP (repeatable), e.g. spatial_samples=2")
     parser.add_argument("--upscaler", default="automatic", choices=["automatic", "metalfx", "temporal", "none"],
                         help="the camera's Upscaling.mode, set over MCP (scenes may pin one for their goldens)")
     args = parser.parse_args()
@@ -121,6 +123,9 @@ def main() -> int:
         window.update(width=width, height=height)
         mcp.call("set_component", entity="primary_window", component="Window", value=window)
         mcp.call("set_component", entity="camera", component="Upscaling", value={"mode": args.upscaler})
+        if args.lighting:
+            fields = {k: json.loads(v) for k, v in (item.split("=", 1) for item in args.lighting)}
+            mcp.call("set_component", entity="camera", component="RealtimeLighting", value=fields)
         if args.breakdown:
             # A scene without RealtimeLighting renders with its defaults: add them so each variant starts from them.
             mcp.call("set_component", entity="camera", component="RealtimeLighting", value={})

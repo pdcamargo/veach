@@ -97,9 +97,12 @@ export type PointLight = {
 	color: vector,
 	intensity: number,
 }
-export type RealtimeView = "final" | "noisy" | "motion" | "history"
+export type RealtimeView = "final" | "noisy" | "motion" | "history" | "accumulated"
 export type RealtimeLighting = {
-	emissive_samples: number,
+	light_candidates: number,
+	temporal_reuse: boolean,
+	spatial_samples: number,
+	denoise: boolean,
 	ambient: boolean,
 	sky: vector,
 	ao_rays: number,

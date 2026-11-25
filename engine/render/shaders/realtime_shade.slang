@@ -2,8 +2,12 @@
 // shader library (veach_add_scene_shaders). Every entry reads the frame record (veach/realtime.slang); its
 // parameter block carries only that and a per-pass argument. Mirrors render::RealtimeParams.
 //
-//   surface: resolves the visibility buffer into the surfaces, with motion and disocclusion (ADR 0040).
-//   shade:   direct light from the surfaces, the ambient stopgap and emission, into exposed radiance.
+//   surface:         resolves the visibility buffer into the surfaces, with motion and disocclusion (ADR 0040).
+//   restir_temporal: ReSTIR DI's initial candidates, combined with last frame's reservoir (ADR 0041).
+//   restir_spatial:  combined with neighbors' reservoirs.
+//   shade:           the selected light sample with one shadow ray, emission and the ambient stopgap, into
+//                    exposed radiance.
+//   accumulate:      view_accumulated: the average of that radiance over frames while nothing changes.
 
 import veach.bindless;
 import veach.brdf;
@@ -12,6 +16,7 @@ import veach.material;
 import veach.materials_generated;  // evaluateSurface(kind, c), evaluateAlpha(kind, c)
 import veach.random;
 import veach.realtime;
+import veach.restir;
 import veach.scene;
 import veach.temporal;
 
@@ -139,6 +144,95 @@ void surface(uint3 id: SV_DispatchThreadID) {
     f.motion_out[id.xy] = float4(motion, float(valid_neighbors), float(valid_taps));
 }
 
+// ---- ReSTIR DI (ADR 0041) ---------------------------------------------------------------------------------
+
+static const uint max_spatial_samples = 8;
+static const float spatial_radius = 24.0;  ///< render pixels
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void restir_temporal(uint3 id: SV_DispatchThreadID) {
+    const RealtimeFrame f = realtime_params.frame[0];
+    if (any(id.xy >= f.render_size)) {
+        return;
+    }
+    use_scene(f);
+    const uint index = id.y * f.render_size.x + id.x;
+    const Domain d = domain_of(load_surface(f, int2(id.xy)), f.camera_position.xyz);
+    if (!d.valid) {
+        f.temporal_out[index] = pack(empty_reservoir());
+        return;
+    }
+    Rng rng = { pcg(id.x + pcg(id.y + pcg(f.frame * 4u + 1u))) };
+    Reservoir r = initial_reservoir(f, d, f.light_candidates, rng);
+    const uint needed = frame_history_valid | frame_reservoirs_valid;
+    if (f.temporal_reuse != 0 && (f.flags & needed) == needed) {
+        const History h = history_of(id.xy, f.motion.Load(int3(id.xy, 0)));
+        if (h.valid) {
+            uint best = 0;  // the tap with the most weight
+            for (uint k = 1; k < 4; ++k) {
+                best = h.weights[k] > h.weights[best] ? k : best;
+            }
+            const int2 q = h.base + history_taps[best];
+            Reservoir t = unpack(f.previous_reservoirs[q.y * int(f.render_size.x) + q.x]);
+            if (t.M > 0.0) {
+                t.M = min(t.M, temporal_confidence_cap * r.M);
+                const Domain previous = domain_of(load_previous_surface(f, q), f.previous_camera_position.xyz);
+                Pairwise p = pairwise_begin(r, d, 1, t.M, f.light_count);
+                pairwise_add(p, t, previous, f.light_count, rng);
+                r = pairwise_end(p, 1e30, rng);
+            }
+        }
+    }
+    f.temporal_out[index] = pack(r);
+}
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void restir_spatial(uint3 id: SV_DispatchThreadID) {
+    const RealtimeFrame f = realtime_params.frame[0];
+    if (any(id.xy >= f.render_size)) {
+        return;
+    }
+    use_scene(f);
+    const uint index = id.y * f.render_size.x + id.x;
+    const GSurface s = load_surface(f, int2(id.xy));
+    const Domain d = domain_of(s, f.camera_position.xyz);
+    Reservoir r = unpack(f.temporal_reservoirs[index]);
+    if (!d.valid || f.spatial_samples == 0) {
+        f.final_out[index] = pack(d.valid ? r : empty_reservoir());
+        return;
+    }
+    Rng rng = { pcg(id.x + pcg(id.y + pcg(f.frame * 4u + 2u))) };
+    // Neighbors on a similar surface (a heuristic for efficiency only: the MIS weights keep any choice unbiased).
+    int2 picks[max_spatial_samples];
+    uint count = 0;
+    float confidence = 0.0;
+    for (uint i = 0; i < min(f.spatial_samples, max_spatial_samples); ++i) {
+        const float radius = spatial_radius * sqrt(rng.next());
+        const float angle = 2.0 * pi * rng.next();
+        const int2 q = int2(id.xy) + int2(round(float2(cos(angle), sin(angle)) * radius));
+        if (all(q == int2(id.xy)) || any(q < 0) || any(q >= int2(f.render_size))) {
+            continue;
+        }
+        const float4 n_position = f.position.Load(int3(q, 0));
+        const float3 n_normal = f.normal.Load(int3(q, 0)).xyz;
+        if (n_position.w <= 0.0 || dot(n_normal, s.normal) < 0.9 || abs(n_position.w - s.depth) > 0.1 * s.depth) {
+            continue;
+        }
+        picks[count] = q;
+        confidence += f.temporal_reservoirs[q.y * int(f.render_size.x) + q.x].radiance_m.w;
+        ++count;
+    }
+    Pairwise p = pairwise_begin(r, d, count, confidence, f.light_count);
+    for (uint j = 0; j < count; ++j) {
+        const int2 q = picks[j];
+        const Reservoir other = unpack(f.temporal_reservoirs[q.y * int(f.render_size.x) + q.x]);
+        pairwise_add(p, other, domain_of(load_lit_surface(f, q), f.camera_position.xyz), f.light_count, rng);
+    }
+    f.final_out[index] = pack(pairwise_end(p, 1e30, rng));
+}
+
 // ---- shade -------------------------------------------------------------------------------------------------
 
 [shader("compute")]
@@ -166,22 +260,17 @@ void shade(uint3 id: SV_DispatchThreadID) {
         f.radiance_out[id.xy] = float4((ambient ? f.sky_ambient.xyz : float3(0.0, 0.0, 0.0)) * exposure, 1.0);
         return;
     }
-    Rng rng = { pcg(id.x + pcg(id.y + pcg(f.frame))) };
+    Rng rng = { pcg(id.x + pcg(id.y + pcg(f.frame * 4u + 3u))) };
     float3 radiance = s.emission;
-    const float3 view = normalize(f.camera_position.xyz - s.position);
-    const Frame frame = frame_of(s.normal);
-    const float3 v = frame.to_local(view);
-    if (v.z > 0.0) {
-        const Brdf b = brdf_of_surface(s, v.z);
-        const float3 p = s.position;
-        const float3 g = s.geometric;
-        radiance += direct_punctual(p, g, frame, b, v, rng);
-        if (f.emissive_samples > 0) {
-            float3 emitted = float3(0.0, 0.0, 0.0);
-            for (uint i = 0; i < f.emissive_samples; ++i) {
-                emitted += direct_emissive_sample(p, g, frame, b, v, rng);
-            }
-            radiance += emitted / float(f.emissive_samples);
+    const Domain d = domain_of(s, f.camera_position.xyz);
+    if (d.valid) {
+        // Direct light: the reservoir's sample, with the pixel's one shadow ray (ADR 0041).
+        const Reservoir r = unpack(f.final_reservoirs[id.y * f.render_size.x + id.x]);
+        float3 l;
+        float distance;
+        const float3 c = contribution(r, d, f.light_count, l, distance);
+        if (r.W > 0.0 && any(c > 0.0) && light_visible(d.p, d.g, l, distance, rng)) {
+            radiance += c * r.W;
         }
         // STOPGAP until Candela (VCH-017): constant sky light on the diffuse lobe, darkened by short-range
         // ray-traced AO. A black sky contributes nothing, so its AO rays are skipped.
@@ -189,12 +278,27 @@ void shade(uint3 id: SV_DispatchThreadID) {
             uint open = 0;
             for (uint i = 0; i < f.ao_rays; ++i) {
                 const float2 u = float2(rng.next(), rng.next());
-                const float r = sqrt(u.x);
-                const float3 l = frame.to_world(float3(r * cos(2.0 * pi * u.y), r * sin(2.0 * pi * u.y), sqrt(1.0 - u.x)));
-                open += visible(offset_origin(p, g, l), l, f.ao_radius, rng) ? 1 : 0;
+                const float r2 = sqrt(u.x);
+                const float3 dir = d.frame.to_world(float3(r2 * cos(2.0 * pi * u.y), r2 * sin(2.0 * pi * u.y), sqrt(1.0 - u.x)));
+                open += visible(offset_origin(d.p, d.g, dir), dir, f.ao_radius, rng) ? 1 : 0;
             }
-            radiance += f.sky_ambient.xyz * b.diffuse * (float(open) / float(f.ao_rays));
+            radiance += f.sky_ambient.xyz * d.b.diffuse * (float(open) / float(f.ao_rays));
         }
     }
     f.radiance_out[id.xy] = float4(radiance * exposure, 1.0);
+}
+
+// ---- accumulate (view_accumulated) -----------------------------------------------------------------------
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void accumulate(uint3 id: SV_DispatchThreadID) {
+    const RealtimeFrame f = realtime_params.frame[0];
+    if (any(id.xy >= f.render_size)) {
+        return;
+    }
+    const float4 current = f.radiance.Load(int3(id.xy, 0));
+    const float n = float(f.accumulated);
+    const float4 average = f.accumulated == 0 ? current : (f.accumulation.Load(int3(id.xy, 0)) * n + current) / (n + 1.0);
+    f.accumulation_out[id.xy] = average;
 }

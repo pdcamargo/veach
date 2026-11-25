@@ -40,3 +40,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0028 | [One shared set of golden images across backends](0028-golden-images-across-backends.md) | Accepted (Windows runner part superseded by 0030) |
 | 0029 | [Frame and synchronization model](0029-frame-and-sync-model.md)          | Accepted |
 | 0030 | [Windows is verified only through GitHub-hosted CI](0030-windows-verified-in-hosted-ci.md) | Accepted |
+| 0031 | [DX12 is verified on WARP in hosted CI, on a pinned Agility SDK](0031-dx12-on-warp-in-ci.md) | Accepted |

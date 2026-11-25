@@ -1,101 +1,113 @@
-# DX12 porting brief (VCH-012)
+# DX12 port (VCH-012)
 
-The handoff for implementing `Dx12Device`. The design is final. This is the order to build it in, what DX12 will
-resist, and which test proves each step. Read [ADR 0024](../adr/0024-resource-binding-model.md) (binding),
+How `Dx12Device` is built. The design is final; this guide gives the order, what DX12 resists, and which CI job
+proves each step. Nobody has a Windows machine ([ADR 0030](../adr/0030-windows-verified-in-hosted-ci.md)): every
+step is one small commit, proven by the hosted Windows job on WARP ([ADR 0031](../adr/0031-dx12-on-warp-in-ci.md)),
+so a red job points at one change. Spec and criteria: [dx12-backend](../specs/dx12-backend/spec.md).
+
+Read first: [ADR 0024](../adr/0024-resource-binding-model.md) (binding),
 [ADR 0025](../adr/0025-sync-and-barrier-model.md) (barriers), [ADR 0029](../adr/0029-frame-and-sync-model.md)
-(frames and fences) and [ADR 0026](../adr/0026-shader-compilation.md) (shaders) first. Each is short.
+(frames and fences), [ADR 0026](../adr/0026-shader-compilation.md) (shaders).
 
 ## Where things are
 
 | What | Where |
 |---|---|
-| The interface to implement | `engine/rhi/include/veach/rhi/rhi.hpp` (`Device`), `command_list.hpp` (`CommandList`), `types.hpp` |
-| The stub (compiles today; `static_assert` proves it implements everything) | `engine/rhi/src/dx12/dx12_device.cpp` |
+| The interface | `engine/rhi/include/veach/rhi/rhi.hpp` (`Device`), `command_list.hpp`, `types.hpp` |
+| The backend (Windows only) | `engine/rhi/src/dx12/dx12_device.cpp` |
 | The reference implementation | `engine/rhi/src/metal/metal_device.mm` (same structure: slot maps, tracker, command list) |
 | Frames, fences, retirement (use as is) | `engine/rhi/include/veach/rhi/submission_tracker.hpp` |
-| Generational handles | `engine/rhi/src/slot_map.hpp` |
-| DXIL for every shader | `ShaderLibrary::find(entry)->dxil`, built for `sm_6_6` on every Windows build (`cmake/VeachShaders.cmake`) |
-| Backend selection | `engine/rhi/src/rhi.cpp` (`create_dx12_device`), `--rhi dx12` / `"rhi": "dx12"` |
+| DXIL for every shader | `ShaderLibrary::find(entry)->dxil`, `sm_6_6`, built on every Windows build (`cmake/VeachShaders.cmake`) |
+| Runtime DLLs | Agility SDK + WARP, pinned in `cmake/VeachDependencies.cmake`, deployed by `veach_deploy_d3d12()` |
+| DX12 tests | `tests/dx12_tests.cpp` (Windows only), the `golden: ... (dx12)` tests in `tests/CMakeLists.txt` |
 
-## Decisions already made for you
+## Checking a change before CI
 
-- **Feature floor:** D3D12 with **Shader Model 6.6** (`ResourceDescriptorHeap`), **DXR 1.1** (inline ray queries),
-  **enhanced barriers**. Use the Agility SDK, pinned like every other dependency: add it to
-  `cmake/VeachDependencies.cmake` (NuGet `Microsoft.Direct3D.D3D12`, URL + SHA256), plus the
-  `D3D12SDKVersion`/`D3D12SDKPath` exports. Record it in ADR 0013's successor.
-- **One queue** (direct), **one `ID3D12Fence`**, and `SubmissionId` values *are* the fence values (ADR 0029).
-- **Descriptor handles.** `rhi::DescriptorHandle::value` = heap index in the low 32 bits, 0 in the high 32 bits.
-  Slang reads it as `uint2` and indexes `ResourceDescriptorHeap[h.x]` or, for samplers,
-  `SamplerDescriptorHeap[h.x]`. Checked: `present.slang` compiles to exactly that.
-- **Parameter blocks** go in root constants at `b0`: `SetGraphicsRoot32BitConstants` or
-  `SetComputeRoot32BitConstants`, ≤ 64 DWORDs (`rhi::max_parameter_bytes == 256`). The C++ structs are already
-  checked against the HLSL layout at compile time (VCH-041), so they are byte-identical to the `cbuffer`.
+You can't run Windows code on a Mac, but you can type-check it. With `clang-cl` (Homebrew LLVM) and
+[xwin](https://github.com/Jake-Shadle/xwin) (`cargo install xwin`, then `xwin --accept-license splat --output ~/.xwin`),
+compile a file with `-fsyntax-only` against `~/.xwin/crt/include`, `~/.xwin/sdk/include/{ucrt,um,shared,winrt}`
+and the Agility SDK's `build/native/include`. This catches most compile errors before a push. MSVC is still the
+judge: watch the Windows job.
+
+## Decisions already made
+
+- **Feature floor:** Shader Model 6.6 (`ResourceDescriptorHeap`), resource binding tier 3, enhanced barriers.
+  DXR 1.1 sets `hardware_ray_tracing`. Adapter: the best hardware one that qualifies, else WARP.
+- **One direct queue, one `ID3D12Fence`.** `SubmissionId` values are the fence values (ADR 0029).
+  Command allocators come from a pool. Each one remembers its last submission, and is reset only after that
+  submission completes.
+- **Descriptor handles:** `DescriptorHandle::value` holds the heap index in its low 32 bits. Slang reads it as
+  `uint2` and indexes `ResourceDescriptorHeap[h.x]` or `SamplerDescriptorHeap[h.x]` (checked in the generated
+  HLSL). Index 0 of each heap is reserved, so a zero handle stays "none" as on Metal.
+- **Parameter blocks** are root constants at `b0` (Slang emits `cbuffer params : register(b0)`), at most 64
+  DWORDs (`rhi::max_parameter_bytes == 256`). The C++ structs are checked against the HLSL layout at compile time
+  (VCH-041).
 
 ## Things DX12 will resist (and the answer)
 
-1. **Separate SRV and UAV descriptors.** `descriptor(texture, View::read)` must return an SRV index and
-   `View::storage` a UAV index. Create both at resource creation when the usage has both (`sampled|storage`,
-   `storage` buffers). Metal ignores `View`; you can't.
-2. **Descriptor-slot lifetime.** A slot can only be reused once the GPU is done with it. Free slots inside the
-   `SubmissionTracker::retire()` callback together with the resource. Never free them directly in `destroy()`.
-3. **Root signature.** One global signature: 64 root-constant DWORDs at `b0`, with
-   `D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED | SAMPLER_HEAP_DIRECTLY_INDEXED`. Bind the two
-   shader-visible heaps once per command list (`SetDescriptorHeaps`) before any draw or dispatch.
-4. **Barriers.** Map `rhi::Barrier` to `D3D12_TEXTURE_BARRIER` / `D3D12_BUFFER_BARRIER` with the table in ADR 0025
-   (layout / access / sync per `ResourceState`):
-   - `before == after == shader_write`: a UAV barrier (sync `ALL_SHADING`, access `UNORDERED_ACCESS` on both sides).
-   - `Barrier::discard`: `LayoutBefore = UNDEFINED` and the discard flag, but keep `SyncBefore`/`AccessBefore`
-     from the real `before` state, because the previous frame may still be using the transient (ADR 0029, item 5).
-   - Buffers have no layouts: access and sync only.
-5. **Swapchain images** start and end in `present` (`D3D12_BARRIER_LAYOUT_PRESENT`). The graph already imports them
-   with `final_state = present`. Use a flip-model `IDXGISwapChain3`, `GetCurrentBackBufferIndex()` in
-   `acquire_image`, and RTVs from a small non-shader-visible RTV heap (attachments are not bindless).
-6. **Render passes.** `begin_render_pass` → `OMSetRenderTargets` + `ClearRenderTargetView` for `LoadOp::clear`, or
-   `ID3D12GraphicsCommandList4::BeginRenderPass`. `LoadOp::discard` maps to discard. There are no encoders: the
-   pass boundaries are just recording.
-7. **Residency.** `CommandList::use()` is a no-op on DX12, because committed resources are resident. Keep the
-   calls: Metal needs them.
-8. **Acceleration structures:**
-   - The buffers live in `D3D12_BARRIER_LAYOUT_UNDEFINED`, created with
-     `D3D12_RESOURCE_FLAG_RAYTRACING_ACCELERATION_STRUCTURE`, and never change layout.
-   - `accel_build → accel_read` is access/sync only.
-   - Sizes come from `GetRaytracingAccelerationStructurePrebuildInfo`.
-   - Refit is `ALLOW_UPDATE` at build and `PERFORM_UPDATE` on refit.
-   - `TlasInstance::transform` is already the row-major 3×4 of `D3D12_RAYTRACING_INSTANCE_DESC`. Copy it.
-   - Instance descriptors are CPU-written, so keep **one upload buffer per frame slot** (ADR 0029), as Metal does.
-   - The AS SRV goes in the heap: `descriptor(accel)` returns its index.
-9. **Readback.** `copy_texture_to_buffer` → `CopyTextureRegion` into a `D3D12_HEAP_TYPE_READBACK` buffer. Rows must
-   be 256-byte aligned (`D3D12_TEXTURE_DATA_PITCH_ALIGNMENT`). The renderer expects tight rows
-   (`width * 4`), so either repack on `map()` or teach `copy_texture_to_buffer` the pitch. Repacking is simpler.
-10. **Upload.** `create_buffer` with initial data and `MemoryType::gpu`: copy through an upload buffer and retire
-    the staging buffer. Metal used shared memory and didn't have to.
-11. **Validation.** `DeviceDesc::validation` → `ID3D12Debug::EnableDebugLayer` (+ GPU-based validation
-    optional). Route `ID3D12InfoQueue1` messages to `log::error("rhi", ...)` with `rhi.gpu_error` so the exit code
-    turns 1, exactly as Metal does. Device removal (`GetDeviceRemovedReason`) is also `rhi.gpu_error`.
+1. **Structured buffers need a stride.** A `StructuredBuffer<T>` SRV has to know `sizeof(T)`, so `BufferDesc` has
+   `stride`. With `stride == 0`, the views are raw (`ByteAddressBuffer`).
+2. **Separate SRV and UAV descriptors.** `descriptor(x, View::read)` returns an SRV index and `View::storage` a
+   UAV index. Create both at creation when the usage allows both. Upload and readback heaps can't have UAVs.
+3. **Descriptor-slot lifetime.** Free a slot in the `SubmissionTracker::retire()` callback, together with the
+   resource. Never free it directly in `destroy()`.
+4. **Root signature.** One global signature: 64 root-constant DWORDs at `b0`, flags
+   `CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED | SAMPLER_HEAP_DIRECTLY_INDEXED`. Each list calls `SetDescriptorHeaps`
+   *before* `SetGraphicsRootSignature`/`SetComputeRootSignature`, which directly indexed heaps require. Then it
+   sets both signatures once.
+5. **Barriers.** `rhi::Barrier` maps to `D3D12_TEXTURE_BARRIER`/`D3D12_BUFFER_BARRIER` with ADR 0025's table:
+   - `before == after == shader_write` is a UAV barrier.
+   - `discard` gives `LayoutBefore = UNDEFINED` plus the discard flag, but keeps the real `before` sync and access,
+     because the previous frame may still use the transient (ADR 0029).
+   - Buffers have no layouts.
+   - New textures start in `COMMON`. The first barrier says `before = undefined`, which is legal from any layout.
+6. **BLAS → TLAS in one pass.** The lab builds both in one graph pass, so the graph emits no barrier between
+   them. Metal orders them through tracked encoders. DX12 needs a global barrier (AS write → AS read, sync
+   `BUILD_RAYTRACING_ACCELERATION_STRUCTURE`) before every TLAS build or refit.
+7. **Render passes.** `OMSetRenderTargets`, then `ClearRenderTargetView` for `LoadOp::clear`. RTVs live in a small
+   CPU-only heap, because attachments are not bindless. Set the viewport and scissor to the attachment size, which
+   Metal does implicitly. Use `CULL_MODE_NONE`, because Metal doesn't cull by default and the triangle is
+   counter-clockwise.
+8. **Swapchain images** start and end in `present` (`D3D12_BARRIER_LAYOUT_PRESENT`). Use a flip-model
+   `IDXGISwapChain3`, `GetCurrentBackBufferIndex()` in `acquire_image`, and `wait_idle()` before `ResizeBuffers`.
+9. **Residency.** `use()` is a no-op: committed resources are resident.
+10. **Acceleration structures:**
+    - Buffers are created with `RAYTRACING_ACCELERATION_STRUCTURE | ALLOW_UNORDERED_ACCESS` in layout
+      `UNDEFINED`.
+    - Sizes come from `GetRaytracingAccelerationStructurePrebuildInfo`; scratch is `max(build, update)`.
+    - A refit is `PERFORM_UPDATE` in place.
+    - `TlasInstance::transform` is already `D3D12_RAYTRACING_INSTANCE_DESC::Transform`.
+    - Instance descriptors use one upload buffer per frame slot.
+    - `descriptor(tlas)` is an AS SRV with no resource, only its GPU address.
+11. **Readback.** `CopyTextureRegion` needs rows aligned to 256 bytes, and the renderer expects tight rows. When
+    the rows aren't already aligned, copy into a pitched staging buffer and repack it into the readback buffer
+    in `map()`.
+12. **Upload.** `MemoryType::gpu` buffers with initial data are copied from a staging upload buffer on their own
+    submission, and the staging buffer is retired.
+13. **Validation.** The debug layer comes from the Agility SDK. `ID3D12InfoQueue1::RegisterMessageCallback`
+    routes errors to `log::error(..., rhi.gpu_error)`, and device removal is reported the same way.
 
-## Order of work, and what proves each step
+## Steps, and the CI job that proves each
 
-| # | Step | Proof |
-|---|---|---|
-| 1 | Device, queue, fence, `SubmissionTracker`, debug layer; `create_dx12_device` returns a device | `veach-lab --headless --rhi dx12 --frames 3` exits 0 and logs `init rhi (dx12, device '<GPU>', hardware RT: yes)`. `[frames.AC*]` tests already pass (backend-independent) |
-| 2 | Descriptor heaps + slot allocator, freed via `retire()` | Unit test: create/destroy 10k textures across frames; heap usage returns to baseline after `wait_idle()` |
-| 3 | Buffers, textures, samplers, upload path | Same run with `--log-level debug` shows no debug-layer messages |
-| 4 | Barriers (the ADR 0025 table), command lists, submit | `render.AC*` tests (they validate the graph's barriers backend-independently); the debug layer stays quiet with a clear-only frame |
-| 5 | Graphics pipelines from DXIL, render passes, root constants | — |
-| 6 | Readback | `--screenshot out.png` of the lab with no script: a background-only image. Compare it visually or with `veach imgdiff` against a Metal capture |
-| 7 | **Raster triangle** | `golden: triangle (raster)` with `-DRHI=dx12` against the **shared** golden (ADR 0028): mean FLIP ≤ 0.01 |
-| 8 | Swapchain, present, resize | `veach-lab --window --rhi dx12 --script scripts/triangle_raster.luau`; close the window: exit 0 |
-| 9 | Compute pipelines, UAVs | — |
-| 10 | BLAS/TLAS build + refit | **`golden: triangle (raytraced)`** with `-DRHI=dx12` (frame 1 builds, frames 2 and 3 refit) |
-| 11 | Two frames in flight under load | `veach-lab --rhi dx12 --headless --frames 600 --script scripts/triangle_raytraced.luau`: no debug-layer errors, exit 0 |
-| 12 | (Optional) `last_frame_gpu_ms` via timestamp queries | The MCP `gpu_timings` tool reports a non-zero value |
+Each step is one commit (or a few, all small) and ends when the **Windows** job of `.github/workflows/ci.yml` is
+green with its proof. From step 3 on, the Windows job sets `VEACH_REQUIRE_GPU=1`, so a DX12 golden that skips
+counts as a failure.
 
-For steps 7 and 10, register the DX12 goldens next to the Metal ones in `tests/CMakeLists.txt` (`if(WIN32)`,
-`-DRHI=dx12`), and add the `gpu-dx12` CI job on the Windows runner ([ci-runners](ci-runners.md)). The tests skip
-(never pass) on machines that can't run them, and fail with `VEACH_REQUIRE_GPU=1`.
+| # | Step | Proof in the Windows job | Criterion |
+|---|---|---|---|
+| 1 | Agility SDK + WARP pinned and deployed; adapter choice; debug layer to logs; queue, fence, frames, command-list pool | `unit: [dx12.AC1] ...` | dx12.AC1 |
+| 2 | Descriptor heaps and slot allocator (freed via `retire()`); buffers (`stride`), textures, samplers; upload path | `unit: [dx12.AC2] ...` | dx12.AC2 |
+| 3 | Barriers (the ADR 0025 table); render passes with clear; RTVs; readback with repack | `golden: background (dx12)` | dx12.AC3 |
+| 4 | Root signature, root constants, graphics pipelines from DXIL, viewport and scissor | `golden: triangle (raster, dx12)` | dx12.AC4 |
+| 5 | Compute pipelines and UAVs; BLAS and TLAS build and refit; the BLAS → TLAS barrier | `golden: triangle (raytraced, dx12)` | dx12.AC5 |
+| 6 | Two frames in flight under load | `dx12: ray-traced soak` (300 frames) | dx12.AC6 |
+| 7 | MCP on DX12 | `mcp: golden through MCP (dx12)` | dx12.AC7 |
+| 8 | Swapchain, present, resize (VCH-002) | `lab: windowed DX12 run`, or the criterion moves to VCH-050 with the reason | dx12.AC8 |
 
-## Definition of done for the port
+GPU timestamps (`last_frame_gpu_ms`) are not a step: VCH-049.
 
-Both shared goldens pass on DX12 with the default tolerance and no per-backend overrides. The `gpu-dx12` CI job
-runs them on every push to `main`. The debug layer reports nothing in the golden runs. ADRs 0024, 0025 and 0029
-need no change; if they do, write the superseding ADR first.
+## Definition of done
+
+Both shared goldens pass on DX12 (WARP) with the default tolerance and no per-backend override, and the debug
+layer reports nothing in any DX12 test. ADRs 0024, 0025 and 0029 need no change; if one does, write the
+superseding ADR first.

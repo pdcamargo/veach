@@ -1,18 +1,20 @@
 #pragma once
 
 // The render hardware interface (ADR 0009). Thin and modern-only: bindless
-// resources, hardware ray tracing, no legacy paths. Two real backends are
-// planned from day one — Metal (first) and DX12 — plus a null backend that
-// needs no GPU, used by headless runs, CI and agents.
-//
-// v0 is the seam only: device creation, capabilities and surfaces. Resources,
-// command recording and pipelines arrive with the render graph (VCH-010).
+// resources (ADR 0024), explicit barriers derived by the render graph
+// (ADR 0025), hardware ray tracing, no legacy paths. Backends:
+//   null  — no GPU; every call succeeds and does nothing (headless, CI, agents)
+//   metal — macOS, Metal 3
+//   dx12  — Windows; a stub whose interface compiles on every Windows build (VCH-012)
 
 #include <veach/core/error.hpp>
 #include <veach/platform/native_window.hpp>
+#include <veach/rhi/command_list.hpp>
+#include <veach/rhi/types.hpp>
 
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -22,21 +24,25 @@ enum class Backend : std::uint8_t { null, metal, dx12 };
 
 struct Capabilities {
     std::string device_name;
+    bool gpu = false;  ///< false for the null backend: nothing is ever drawn
     bool hardware_ray_tracing = false;
-    bool bindless = false;
+    bool bindless = false;  ///< Metal 3 resource IDs / SM 6.6 descriptor heaps
     bool mesh_shaders = false;
 };
 
 struct DeviceDesc {
     Backend backend = Backend::null;
-    bool validation = false;  ///< Enable API validation layers where available.
+    bool validation = false;  ///< API validation (Metal debug layer / D3D12 debug layer); errors become error logs.
 };
 
-/// A presentable surface created from a NativeWindowHandle.
-struct SurfaceId {
-    std::uint32_t value = 0;
-    [[nodiscard]] constexpr bool is_valid() const { return value != 0; }
+struct SurfaceDesc {
+    std::uint32_t width = 0;  ///< pixels
+    std::uint32_t height = 0;
+    bool vsync = true;
 };
+
+/// The format swapchain images have; render into another target and copy/draw into it.
+inline constexpr Format surface_format = Format::bgra8_unorm;
 
 class Device {
 public:
@@ -45,8 +51,47 @@ public:
     [[nodiscard]] virtual Backend backend() const = 0;
     [[nodiscard]] virtual const Capabilities& capabilities() const = 0;
 
-    [[nodiscard]] virtual Result<SurfaceId> create_surface(const NativeWindowHandle& window) = 0;
+    // ---- resources
+    [[nodiscard]] virtual Result<BufferHandle> create_buffer(const BufferDesc& desc,
+                                                             std::span<const std::byte> initial_data = {}) = 0;
+    [[nodiscard]] virtual Result<TextureHandle> create_texture(const TextureDesc& desc) = 0;
+    [[nodiscard]] virtual Result<SamplerHandle> create_sampler(const SamplerDesc& desc) = 0;
+    [[nodiscard]] virtual Result<PipelineHandle> create_graphics_pipeline(const GraphicsPipelineDesc& desc) = 0;
+    [[nodiscard]] virtual Result<PipelineHandle> create_compute_pipeline(const ComputePipelineDesc& desc) = 0;
+    [[nodiscard]] virtual Result<AccelHandle> create_blas(const BlasDesc& desc) = 0;
+    [[nodiscard]] virtual Result<AccelHandle> create_tlas(const TlasDesc& desc) = 0;
+
+    /// Destruction waits for the GPU to finish with the resource (v0: waits for idle, VCH-042).
+    virtual void destroy(BufferHandle buffer) = 0;
+    virtual void destroy(TextureHandle texture) = 0;
+    virtual void destroy(SamplerHandle sampler) = 0;
+    virtual void destroy(PipelineHandle pipeline) = 0;
+    virtual void destroy(AccelHandle accel) = 0;
+
+    /// Host pointer for upload/readback buffers (persistently mapped), nullptr otherwise.
+    [[nodiscard]] virtual void* map(BufferHandle buffer) = 0;
+    [[nodiscard]] virtual const TextureDesc* texture_desc(TextureHandle texture) const = 0;
+
+    // ---- bindless descriptors (ADR 0024)
+    [[nodiscard]] virtual DescriptorHandle descriptor(BufferHandle buffer, View view = View::read) = 0;
+    [[nodiscard]] virtual DescriptorHandle descriptor(TextureHandle texture, View view = View::read) = 0;
+    [[nodiscard]] virtual DescriptorHandle descriptor(SamplerHandle sampler) = 0;
+    [[nodiscard]] virtual DescriptorHandle descriptor(AccelHandle accel) = 0;
+
+    // ---- surfaces (swapchains)
+    [[nodiscard]] virtual Result<SurfaceId> create_surface(const NativeWindowHandle& window,
+                                                           const SurfaceDesc& desc) = 0;
+    virtual void resize_surface(SurfaceId surface, std::uint32_t width, std::uint32_t height) = 0;
+    /// The next swapchain image (state: present). Valid until the submission that presents it.
+    [[nodiscard]] virtual Result<TextureHandle> acquire_image(SurfaceId surface) = 0;
     virtual void destroy_surface(SurfaceId surface) = 0;
+
+    // ---- work
+    [[nodiscard]] virtual std::unique_ptr<CommandList> begin_commands(std::string_view debug_name) = 0;
+    /// Submits the work; if `present` is valid, its acquired image is presented afterwards.
+    virtual SubmissionId submit(std::unique_ptr<CommandList> commands, SurfaceId present = {}) = 0;
+    virtual void wait(SubmissionId submission) = 0;
+    virtual void wait_idle() = 0;
 };
 
 [[nodiscard]] Result<std::unique_ptr<Device>> create_device(const DeviceDesc& desc);

@@ -183,3 +183,25 @@ The backend is a stub. See the backlog item named in the hint.
 **The native window handle given to the RHI is invalid.**
 
 Surfaces need a window from the SDL platform backend. Headless runs have no native window, so the engine does not create a surface for them.
+
+## rhi.gpu_error
+
+**The GPU reported an error while executing commands.**
+
+Logged when a submission completes with an error, for example a page fault, a timeout or a validation failure in
+an encoder. The message names the submission. Run a debug build, where Metal API validation is on, to get the
+API call that caused it. The run exits with code 1.
+
+## render.screenshot_failed
+
+**A screenshot could not be captured or written.**
+
+`--screenshot` needs a GPU backend (`--rhi metal`; the null backend draws nothing) and `--frames N`, because it
+captures the last frame. The message says which of these was missing, or why the PNG could not be written.
+
+## render.graph_invalid
+
+**A render graph pass declared an impossible resource access.**
+
+For example, a pass reads a transient texture that no earlier pass writes. The message names the pass and the
+resource. `RenderGraph::describe()` (logged at debug level) shows the compiled order and barriers.

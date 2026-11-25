@@ -1,12 +1,13 @@
 set(_rhi_sources
     src/rhi.cpp
-    src/null/null_device.cpp)
+    src/types.cpp
+    src/null/null_device.cpp
+    # The DX12 stub has no Windows dependencies yet, so it compiles everywhere: its
+    # static_assert keeps the whole rhi::Device interface implementable (VCH-012).
+    src/dx12/dx12_device.cpp)
 
 if(APPLE)
     list(APPEND _rhi_sources src/metal/metal_device.mm)
-endif()
-if(WIN32)
-    list(APPEND _rhi_sources src/dx12/dx12_device.cpp)
 endif()
 
 veach_add_engine_library(rhi

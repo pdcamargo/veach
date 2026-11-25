@@ -45,4 +45,7 @@ VEACH_ERROR(script_unsupported_field, "script.unsupported_field",
 VEACH_ERROR(rhi_backend_unavailable, "rhi.backend_unavailable",
             "The requested RHI backend is not available on this platform")
 VEACH_ERROR(rhi_not_implemented, "rhi.not_implemented", "The requested RHI feature is a stub")
+VEACH_ERROR(rhi_gpu_error, "rhi.gpu_error", "The GPU reported an error while executing commands")
+VEACH_ERROR(render_screenshot_failed, "render.screenshot_failed", "A screenshot could not be captured or written")
+VEACH_ERROR(render_graph_invalid, "render.graph_invalid", "A render graph pass declared an impossible resource access")
 VEACH_ERROR(rhi_invalid_surface, "rhi.invalid_surface", "The native window handle given to the RHI is invalid")

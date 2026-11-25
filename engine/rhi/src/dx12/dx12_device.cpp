@@ -112,11 +112,6 @@ std::unexpected<Error> gpu_error(std::string_view what, HRESULT hr) {
     return make_error(ErrorCode::rhi_gpu_error, std::format("D3D12: {} failed ({})", what, hresult(hr)));
 }
 
-void not_implemented(std::string_view what) {
-    log::error("rhi", Error{ErrorCode::rhi_not_implemented, std::format("DX12: {} is not implemented yet", what),
-                            "The DX12 backend is being built step by step (docs/guides/dx12-port.md, VCH-012)."});
-}
-
 /// Debug-layer messages become log records: errors and corruption at error level, so the exit code turns 1.
 void __stdcall on_debug_message(D3D12_MESSAGE_CATEGORY /*category*/, D3D12_MESSAGE_SEVERITY severity,
                                 D3D12_MESSAGE_ID id, LPCSTR description, void* /*context*/) {
@@ -299,6 +294,21 @@ struct Dx12Pipeline {
     bool compute = false;
 };
 
+struct Dx12Accel {
+    ComPtr<ID3D12Resource> buffer;  ///< RAYTRACING_ACCELERATION_STRUCTURE, layout UNDEFINED forever
+    ComPtr<ID3D12Resource> scratch;
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs{};
+    D3D12_RAYTRACING_GEOMETRY_DESC geometry{};  ///< BLAS; inputs.pGeometryDescs is set at build time
+    /// TLAS only: D3D12_RAYTRACING_INSTANCE_DESC[max], one upload buffer per frame slot because the CPU writes
+    /// them while earlier frames may still be building from theirs (ADR 0029).
+    std::vector<ComPtr<ID3D12Resource>> instances;
+    std::vector<void*> instances_mapped;
+    std::vector<AccelHandle> blases;
+    std::uint32_t max_instances = 0;
+    std::uint32_t srv = 0;  ///< TLAS: the acceleration-structure SRV shaders trace against
+    bool tlas = false;
+};
+
 class Dx12Device;
 
 class Dx12CommandList final : public CommandList {
@@ -313,18 +323,25 @@ public:
 
     void begin_render_pass(const RenderPassDesc& desc) override;
     void end_render_pass() override { pop_debug_group(); }
-    void begin_compute_pass(std::string_view) override { not_implemented("begin_compute_pass"); }
-    void end_compute_pass() override {}
+    void begin_compute_pass(std::string_view name) override {
+        push_debug_group(name);
+        compute_pass_ = true;
+    }
+    void end_compute_pass() override { pop_debug_group(); }
     void set_pipeline(PipelineHandle pipeline) override;
     void set_parameters(const void* data, std::size_t size) override;
     void draw(std::uint32_t vertex_count, std::uint32_t instance_count, std::uint32_t first_vertex) override {
         recorder_->list->DrawInstanced(vertex_count, instance_count, first_vertex, 0);
     }
-    void dispatch(std::uint32_t, std::uint32_t, std::uint32_t) override { not_implemented("dispatch"); }
-    void build_blas(AccelHandle) override { not_implemented("build_blas"); }
-    void refit_blas(AccelHandle) override { not_implemented("refit_blas"); }
-    void build_tlas(AccelHandle, std::span<const TlasInstance>) override { not_implemented("build_tlas"); }
-    void refit_tlas(AccelHandle, std::span<const TlasInstance>) override { not_implemented("refit_tlas"); }
+    void dispatch(std::uint32_t x, std::uint32_t y, std::uint32_t z) override { recorder_->list->Dispatch(x, y, z); }
+    void build_blas(AccelHandle blas) override { encode_accel(blas, false, {}); }
+    void refit_blas(AccelHandle blas) override { encode_accel(blas, true, {}); }
+    void build_tlas(AccelHandle tlas, std::span<const TlasInstance> instances) override {
+        encode_accel(tlas, false, instances);
+    }
+    void refit_tlas(AccelHandle tlas, std::span<const TlasInstance> instances) override {
+        encode_accel(tlas, true, instances);
+    }
     void copy_texture_to_buffer(TextureHandle src, BufferHandle dst) override;
     void use(ResourceRef, ResourceState) override {}  // committed resources are always resident
     void barrier(std::span<const Barrier> barriers) override;
@@ -341,6 +358,8 @@ public:
     }
 
 private:
+    void encode_accel(AccelHandle handle, bool refit, std::span<const TlasInstance> instances);
+
     Dx12Device& device_;
     std::unique_ptr<Recorder> recorder_;
     bool compute_pass_ = false;  ///< root constants go to the graphics or the compute slot
@@ -595,17 +614,89 @@ public:
         return pipelines_.insert(std::move(pipeline));
     }
 
-    // TODO(VCH-012): compute pipelines, acceleration structures and surfaces (steps 5 and 8).
-    [[nodiscard]] Result<PipelineHandle> create_compute_pipeline(const ComputePipelineDesc&) override {
-        return stub("create_compute_pipeline");
+    [[nodiscard]] Result<PipelineHandle> create_compute_pipeline(const ComputePipelineDesc& desc) override {
+        auto cs = dxil(desc.library, desc.entry);
+        if (!cs) {
+            return std::unexpected(cs.error());
+        }
+        // threads_per_group is Metal's; D3D12 takes [numthreads] from the shader.
+        D3D12_COMPUTE_PIPELINE_STATE_DESC d{};
+        d.pRootSignature = root_signature_.Get();
+        d.CS = {cs->data(), cs->size()};
+        Dx12Pipeline pipeline;
+        pipeline.compute = true;
+        if (const HRESULT hr = device_->CreateComputePipelineState(&d, IID_PPV_ARGS(&pipeline.state)); FAILED(hr)) {
+            return gpu_error(std::format("compute pipeline '{}'", desc.debug_name), hr);
+        }
+        set_name(pipeline.state.Get(), desc.debug_name);
+        return pipelines_.insert(std::move(pipeline));
     }
-    [[nodiscard]] Result<AccelHandle> create_blas(const BlasDesc&) override { return stub("create_blas"); }
-    [[nodiscard]] Result<AccelHandle> create_tlas(const TlasDesc&) override { return stub("create_tlas"); }
+
+    // ---- acceleration structures (DXR 1.1)
+
+    [[nodiscard]] Result<AccelHandle> create_blas(const BlasDesc& desc) override {
+        const Dx12Buffer* vertices = buffers_.get(desc.vertices);
+        if (vertices == nullptr) {
+            return make_error(ErrorCode::internal, "create_blas: invalid vertex buffer");
+        }
+        Dx12Accel accel;
+        D3D12_RAYTRACING_GEOMETRY_TRIANGLES_DESC& triangles = accel.geometry.Triangles;
+        accel.geometry.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+        accel.geometry.Flags =
+            desc.opaque ? D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE : D3D12_RAYTRACING_GEOMETRY_FLAG_NONE;
+        triangles.VertexBuffer.StartAddress = vertices->resource->GetGPUVirtualAddress();
+        triangles.VertexBuffer.StrideInBytes = desc.vertex_stride;
+        triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
+        triangles.VertexCount = desc.vertex_count;
+        if (const Dx12Buffer* indices = buffers_.get(desc.indices)) {
+            triangles.IndexBuffer = indices->resource->GetGPUVirtualAddress();
+            triangles.IndexFormat = DXGI_FORMAT_R32_UINT;
+            triangles.IndexCount = desc.index_count;
+        }
+        accel.inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+        accel.inputs.NumDescs = 1;
+        accel.inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+        accel.inputs.pGeometryDescs = &accel.geometry;
+        return make_accel(std::move(accel), desc.allow_refit, desc.debug_name);
+    }
+
+    [[nodiscard]] Result<AccelHandle> create_tlas(const TlasDesc& desc) override {
+        Dx12Accel accel;
+        for (const AccelHandle h : desc.blases) {
+            const Dx12Accel* blas = accels_.get(h);
+            if (blas == nullptr || blas->tlas) {
+                return make_error(ErrorCode::internal, "create_tlas: invalid BLAS handle");
+            }
+            accel.blases.push_back(h);
+        }
+        accel.tlas = true;
+        accel.max_instances = std::max(1u, desc.max_instances);
+        const std::uint64_t instance_bytes = sizeof(D3D12_RAYTRACING_INSTANCE_DESC) * accel.max_instances;
+        for (std::uint32_t slot = 0; slot < tracker_.frames_in_flight(); ++slot) {
+            auto buffer =
+                create_resource(D3D12_HEAP_TYPE_UPLOAD, buffer_resource(instance_bytes, D3D12_RESOURCE_FLAG_NONE),
+                                D3D12_BARRIER_LAYOUT_UNDEFINED, desc.debug_name + " instances");
+            if (!buffer) {
+                return std::unexpected(buffer.error());
+            }
+            void* mapped = nullptr;
+            const D3D12_RANGE nothing_read{0, 0};
+            if (const HRESULT hr = (*buffer)->Map(0, &nothing_read, &mapped); FAILED(hr)) {
+                return gpu_error("mapping TLAS instances", hr);
+            }
+            accel.instances.push_back(std::move(*buffer));
+            accel.instances_mapped.push_back(mapped);
+        }
+        accel.inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
+        accel.inputs.NumDescs = accel.max_instances;
+        accel.inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+        return make_accel(std::move(accel), desc.allow_refit, desc.debug_name);
+    }
     void destroy(BufferHandle h) override { retire(buffers_, h); }
     void destroy(TextureHandle h) override { retire(textures_, h); }
     void destroy(SamplerHandle h) override { retire(samplers_, h); }
     void destroy(PipelineHandle h) override { retire(pipelines_, h); }
-    void destroy(AccelHandle) override {}
+    void destroy(AccelHandle h) override { retire(accels_, h); }
 
     [[nodiscard]] void* map(BufferHandle h) override {
         Dx12Buffer* b = buffers_.get(h);
@@ -642,7 +733,10 @@ public:
         const Dx12Sampler* s = samplers_.get(h);
         return {s ? s->index : 0u};
     }
-    [[nodiscard]] DescriptorHandle descriptor(AccelHandle) override { return {}; }
+    [[nodiscard]] DescriptorHandle descriptor(AccelHandle h) override {
+        const Dx12Accel* a = accels_.get(h);
+        return {a ? a->srv : 0u};
+    }
     [[nodiscard]] Result<SurfaceId> create_surface(const NativeWindowHandle&, const SurfaceDesc&) override {
         return stub("create_surface");
     }
@@ -709,6 +803,8 @@ public:
     Dx12Buffer* buffer(BufferHandle h) { return buffers_.get(h); }
     Dx12Texture* texture(TextureHandle h) { return textures_.get(h); }
     Dx12Pipeline* pipeline(PipelineHandle h) { return pipelines_.get(h); }
+    Dx12Accel* accel(AccelHandle h) { return accels_.get(h); }
+    [[nodiscard]] std::uint32_t frame_slot() const { return tracker_.current_frame().slot; }
     [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE rtv(std::uint32_t index) const { return rtv_heap_.cpu(index); }
     ID3D12Resource* resource(ResourceRef r) {
         switch (r.kind) {
@@ -720,6 +816,11 @@ public:
             case ResourceKind::texture:
                 if (Dx12Texture* t = textures_.get(TextureHandle{r.index, r.generation})) {
                     return t->resource.Get();
+                }
+                break;
+            case ResourceKind::acceleration_structure:
+                if (Dx12Accel* a = accels_.get(AccelHandle{r.index, r.generation})) {
+                    return a->buffer.Get();
                 }
                 break;
             default: break;
@@ -849,6 +950,56 @@ private:
     }
     void free_descriptors(const Dx12Sampler& s) { sampler_heap_.release(s.index); }
     void free_descriptors(const Dx12Pipeline& /*pipeline*/) const {}
+    void free_descriptors(const Dx12Accel& a) { view_heap_.release(a.srv); }
+
+    Result<AccelHandle> make_accel(Dx12Accel accel, bool allow_refit, std::string_view name) {
+        if (!caps_.hardware_ray_tracing) {
+            return make_error(ErrorCode::rhi_backend_unavailable,
+                              std::format("'{}' does not support DXR 1.1", caps_.device_name),
+                              "Acceleration structures need DXR 1.1 (ray tracing tier 1.1); WARP from the Agility "
+                              "SDK has it (ADR 0031).");
+        }
+        accel.inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+        if (allow_refit) {
+            accel.inputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE;
+        }
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO sizes{};
+        device_->GetRaytracingAccelerationStructurePrebuildInfo(&accel.inputs, &sizes);
+        auto buffer =
+            create_resource(D3D12_HEAP_TYPE_DEFAULT,
+                            buffer_resource(align_up(std::max<std::uint64_t>(sizes.ResultDataMaxSizeInBytes, 256),
+                                                     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT),
+                                            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS |
+                                                D3D12_RESOURCE_FLAG_RAYTRACING_ACCELERATION_STRUCTURE),
+                            D3D12_BARRIER_LAYOUT_UNDEFINED, name);
+        if (!buffer) {
+            return std::unexpected(buffer.error());
+        }
+        auto scratch = create_resource(
+            D3D12_HEAP_TYPE_DEFAULT,
+            buffer_resource(
+                std::max<std::uint64_t>({sizes.ScratchDataSizeInBytes, sizes.UpdateScratchDataSizeInBytes, 256}),
+                D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
+            D3D12_BARRIER_LAYOUT_UNDEFINED, std::string(name) + " scratch");
+        if (!scratch) {
+            return std::unexpected(scratch.error());
+        }
+        accel.buffer = std::move(*buffer);
+        accel.scratch = std::move(*scratch);
+        accel.inputs.pGeometryDescs = nullptr;  // points into `accel`, which moves; set again at build time
+        if (accel.tlas) {
+            accel.srv = view_heap_.allocate();
+            if (accel.srv == 0) {
+                return heap_full("CBV/SRV/UAV", view_heap_.capacity());
+            }
+            D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+            srv.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
+            srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            srv.RaytracingAccelerationStructure.Location = accel.buffer->GetGPUVirtualAddress();
+            device_->CreateShaderResourceView(nullptr, &srv, view_heap_.cpu(accel.srv));
+        }
+        return accels_.insert(std::move(accel));
+    }
 
     /// 64 root-constant DWORDs at b0 (the Slang parameter block) and both heaps directly indexed (ADR 0024).
     Result<> create_root_signature() {
@@ -978,6 +1129,7 @@ private:
     SlotMap<Dx12Texture, TextureHandle> textures_;
     SlotMap<Dx12Sampler, SamplerHandle> samplers_;
     SlotMap<Dx12Pipeline, PipelineHandle> pipelines_;
+    SlotMap<Dx12Accel, AccelHandle> accels_;
     ComPtr<ID3D12RootSignature> root_signature_;
     bool device_removed_reported_ = false;
 };
@@ -1029,6 +1181,57 @@ void Dx12CommandList::set_parameters(const void* data, std::size_t size) {
     } else {
         recorder_->list->SetGraphicsRoot32BitConstants(0, count, constants.data(), 0);
     }
+}
+
+void Dx12CommandList::encode_accel(AccelHandle handle, bool refit, std::span<const TlasInstance> instances) {
+    Dx12Accel* a = device_.accel(handle);
+    VEACH_ASSERT(a != nullptr, "invalid acceleration structure");
+    ID3D12GraphicsCommandList7* list = recorder_->list.Get();
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC build{};
+    build.Inputs = a->inputs;
+    if (a->tlas) {
+        VEACH_ASSERT(instances.size() <= a->max_instances, "{} instances exceed the TLAS capacity of {}",
+                     instances.size(), a->max_instances);
+        const std::size_t slot = device_.frame_slot() % a->instances.size();
+        auto* out = static_cast<D3D12_RAYTRACING_INSTANCE_DESC*>(a->instances_mapped.at(slot));
+        for (std::size_t i = 0; i < instances.size(); ++i) {
+            const TlasInstance& in = instances[i];
+            D3D12_RAYTRACING_INSTANCE_DESC d{};
+            static_assert(sizeof(d.Transform) == sizeof(in.transform), "TlasInstance::transform is D3D12's layout");
+            std::memcpy(d.Transform, in.transform.data(), sizeof(d.Transform));
+            d.InstanceID = in.instance_id & 0xFFFFFFu;
+            d.InstanceMask = in.mask;
+            d.InstanceContributionToHitGroupIndex = 0;
+            d.Flags = D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_OPAQUE;
+            const Dx12Accel* blas = device_.accel(a->blases.at(in.blas_index));
+            VEACH_ASSERT(blas != nullptr, "TLAS instance {} references a destroyed BLAS", i);
+            d.AccelerationStructure = blas->buffer->GetGPUVirtualAddress();
+            out[i] = d;
+        }
+        build.Inputs.NumDescs = static_cast<UINT>(instances.size());
+        build.Inputs.InstanceDescs = a->instances.at(slot)->GetGPUVirtualAddress();
+        // The graph orders passes, not the builds inside one: the BLASes this TLAS references may have been
+        // built just before it in the same pass. Metal orders them through its encoders; DX12 needs a barrier.
+        D3D12_GLOBAL_BARRIER blas_built{};
+        blas_built.SyncBefore = D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE;
+        blas_built.SyncAfter = D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE;
+        blas_built.AccessBefore = D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE;
+        blas_built.AccessAfter = D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_READ;
+        D3D12_BARRIER_GROUP group{};
+        group.Type = D3D12_BARRIER_TYPE_GLOBAL;
+        group.NumBarriers = 1;
+        group.pGlobalBarriers = &blas_built;
+        list->Barrier(1, &group);
+    } else {
+        build.Inputs.pGeometryDescs = &a->geometry;
+    }
+    if (refit) {
+        build.Inputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
+        build.SourceAccelerationStructureData = a->buffer->GetGPUVirtualAddress();
+    }
+    build.DestAccelerationStructureData = a->buffer->GetGPUVirtualAddress();
+    build.ScratchAccelerationStructureData = a->scratch->GetGPUVirtualAddress();
+    list->BuildRaytracingAccelerationStructure(&build, 0, nullptr);
 }
 
 void Dx12CommandList::barrier(std::span<const Barrier> barriers) {

@@ -1,6 +1,6 @@
 # DX12 backend
 
-**Status:** Approved (in progress: AC1–AC4)
+**Status:** Approved (in progress: AC1–AC5)
 **Area:** rhi
 **Owner:** dev lead
 

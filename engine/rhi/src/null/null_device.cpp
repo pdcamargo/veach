@@ -1,5 +1,6 @@
 #include "null_device.hpp"
 
+#include "../pipeline_validation.hpp"
 #include "../surface_validation.hpp"
 #include "../texture_validation.hpp"
 
@@ -35,6 +36,8 @@ public:
     void barrier(std::span<const Barrier>) override {}
     void push_debug_group(std::string_view) override {}
     void pop_debug_group() override {}
+    void begin_timing(std::string_view) override {}
+    void end_timing() override {}
 };
 
 }  // namespace
@@ -65,7 +68,10 @@ Result<SamplerHandle> NullDevice::create_sampler(const SamplerDesc& desc) {
     return samplers_.insert(desc);
 }
 
-Result<PipelineHandle> NullDevice::create_graphics_pipeline(const GraphicsPipelineDesc&) {
+Result<PipelineHandle> NullDevice::create_graphics_pipeline(const GraphicsPipelineDesc& desc) {
+    if (auto valid = validate_graphics_pipeline_desc(desc); !valid) {
+        return std::unexpected(valid.error());
+    }
     return pipelines_.insert(0);
 }
 

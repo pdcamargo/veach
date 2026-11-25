@@ -4,6 +4,8 @@
 
 #include "dx12_device.hpp"
 
+#include "../frame_timings.hpp"
+#include "../pipeline_validation.hpp"
 #include "../slot_map.hpp"
 #include "../surface_validation.hpp"
 #include "../texture_validation.hpp"
@@ -147,9 +149,56 @@ DXGI_FORMAT to_dxgi(Format format) {
         case Format::rgba8_srgb: return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
         case Format::bc7_unorm: return DXGI_FORMAT_BC7_UNORM;
         case Format::bc7_srgb: return DXGI_FORMAT_BC7_UNORM_SRGB;
+        case Format::r32_uint: return DXGI_FORMAT_R32_UINT;
+        case Format::rg32_uint: return DXGI_FORMAT_R32G32_UINT;
         case Format::undefined: return DXGI_FORMAT_UNKNOWN;
     }
     return DXGI_FORMAT_UNKNOWN;
+}
+
+/// Depth textures are typeless resources so that they can have both a depth view (D32_FLOAT) and a shader view
+/// (R32_FLOAT); copies of them name the typeless format, as GetCopyableFootprints does.
+DXGI_FORMAT resource_format(Format format) {
+    return format == Format::depth32_float ? DXGI_FORMAT_R32_TYPELESS : to_dxgi(format);
+}
+
+D3D12_COMPARISON_FUNC to_d3d12(CompareOp op) {
+    switch (op) {
+        case CompareOp::never: return D3D12_COMPARISON_FUNC_NEVER;
+        case CompareOp::less: return D3D12_COMPARISON_FUNC_LESS;
+        case CompareOp::less_equal: return D3D12_COMPARISON_FUNC_LESS_EQUAL;
+        case CompareOp::greater: return D3D12_COMPARISON_FUNC_GREATER;
+        case CompareOp::greater_equal: return D3D12_COMPARISON_FUNC_GREATER_EQUAL;
+        case CompareOp::equal: return D3D12_COMPARISON_FUNC_EQUAL;
+        case CompareOp::always: return D3D12_COMPARISON_FUNC_ALWAYS;
+    }
+    return D3D12_COMPARISON_FUNC_ALWAYS;
+}
+
+D3D12_CULL_MODE to_d3d12(CullMode mode) {
+    switch (mode) {
+        case CullMode::none: return D3D12_CULL_MODE_NONE;
+        case CullMode::back: return D3D12_CULL_MODE_BACK;
+        case CullMode::front: return D3D12_CULL_MODE_FRONT;
+    }
+    return D3D12_CULL_MODE_NONE;
+}
+
+/// ClearRenderTargetView takes floats, which D3D12 converts to the target's integers (saturating). 0xFFFFFFFF
+/// is sent as 2^32, which saturates to it; values up to 2^24 are exact. Others round, and say so.
+std::array<float, 4> integer_clear(const std::array<std::uint32_t, 4>& value, std::string_view pass) {
+    std::array<float, 4> out{};
+    for (std::size_t i = 0; i < out.size(); ++i) {
+        const std::uint32_t v = value.at(i);
+        out.at(i) = v == UINT32_MAX ? 4294967296.0f : static_cast<float>(v);
+        if (v != UINT32_MAX && v > (1u << 24)) {
+            log::error("rhi", Error{ErrorCode::rhi_not_implemented,
+                                    std::format("render pass '{}': DX12 cannot clear an integer target to {} exactly",
+                                                pass, v),
+                                    "Integer clears go through floats on DX12: use values up to 2^24 or 0xFFFFFFFF."});
+        }
+    }
+    return out;
 }
 
 D3D12_HEAP_TYPE heap_type(MemoryType memory) {
@@ -326,6 +375,9 @@ constexpr std::uint32_t view_heap_capacity = 65'536;
 constexpr std::uint32_t sampler_heap_capacity = 2'048;
 constexpr std::uint32_t null_sampler_slot = 1;  ///< view-heap null descriptors are slots 1..4 (create_null_descriptors)
 constexpr std::uint32_t rtv_heap_capacity = 1'024;
+constexpr std::uint32_t dsv_heap_capacity = 256;
+/// Timestamp queries per frame slot: a start and an end per timed region (VCH-049).
+constexpr std::uint32_t timing_queries_per_frame = 4096;
 
 /// Rows a texture copy wrote with D3D12's 256-byte pitch, to be packed tightly on map().
 struct PitchedReadback {
@@ -392,6 +444,7 @@ struct Dx12Texture {
     std::uint32_t srv = 0;
     std::uint32_t uav = 0;
     std::uint32_t rtv = 0;  ///< in the CPU-only RTV heap
+    std::uint32_t dsv = 0;  ///< in the CPU-only DSV heap
 };
 
 struct Dx12Sampler {
@@ -496,9 +549,12 @@ public:
         recorder_->list->BeginEvent(1, text.c_str(), static_cast<UINT>(text.size() + 1));
     }
     void pop_debug_group() override { recorder_->list->EndEvent(); }
+    void begin_timing(std::string_view name) override;
+    void end_timing() override;
 
     /// Closes the list and hands its recorder back; called once, by Dx12Device::submit.
     std::unique_ptr<Recorder> finish() {
+        resolve_timings();
         if (const HRESULT hr = recorder_->list->Close(); FAILED(hr)) {
             log::error("rhi", gpu_error("closing a command list (an invalid command was recorded)", hr).error());
         }
@@ -507,10 +563,17 @@ public:
 
 private:
     void encode_accel(AccelHandle handle, bool refit, std::span<const TlasInstance> instances);
+    void resolve_timings();
 
     Dx12Device& device_;
     std::unique_ptr<Recorder> recorder_;
     bool compute_pass_ = false;  ///< root constants go to the graphics or the compute slot
+    // Timestamp queries this list wrote (VCH-049): [first, end) of its frame slot's heap, resolved by finish().
+    std::uint32_t timing_slot_ = 0;
+    std::uint32_t timing_first_ = UINT32_MAX;
+    std::uint32_t timing_end_ = 0;
+    std::optional<std::uint32_t> timing_end_query_;  ///< the open region's end query
+    bool timing_ = false;
 };
 
 class Dx12Device final : public Device {
@@ -572,6 +635,11 @@ public:
             FAILED(hr)) {
             return gpu_error("creating the RTV heap", hr);
         }
+        if (const HRESULT hr = dsv_heap_.init(device_.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_DSV, dsv_heap_capacity, false);
+            FAILED(hr)) {
+            return gpu_error("creating the DSV heap", hr);
+        }
+        create_timing_queries();
         if (auto created = create_validation_buffers(); !created) {
             return created;
         }
@@ -657,7 +725,7 @@ public:
         d.Height = desc.height;
         d.DepthOrArraySize = 1;
         d.MipLevels = static_cast<UINT16>(levels);
-        d.Format = format;
+        d.Format = resource_format(desc.format);
         d.SampleDesc.Count = 1;
         d.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
         if (has(desc.usage, TextureUsage::color_target)) {
@@ -680,13 +748,22 @@ public:
         const bool sampled = has(desc.usage, TextureUsage::sampled);
         const bool storage = has(desc.usage, TextureUsage::storage);
         const bool target = has(desc.usage, TextureUsage::color_target);
+        const bool depth_target = has(desc.usage, TextureUsage::depth_target);
         texture.srv = sampled ? view_heap_.allocate(SlotKind::texture) : 0;
         texture.uav = storage ? view_heap_.allocate(SlotKind::storage_texture) : 0;
         texture.rtv = target ? rtv_heap_.allocate(SlotKind::none) : 0;
-        if ((sampled && texture.srv == 0) || (storage && texture.uav == 0) || (target && texture.rtv == 0)) {
+        texture.dsv = depth_target ? dsv_heap_.allocate(SlotKind::none) : 0;
+        if (target && texture.rtv == 0) {
             free_descriptors(texture);
-            return heap_full(target && texture.rtv == 0 ? "RTV" : "CBV/SRV/UAV",
-                             target && texture.rtv == 0 ? rtv_heap_.capacity() : view_heap_.capacity());
+            return heap_full("RTV", rtv_heap_.capacity());
+        }
+        if (depth_target && texture.dsv == 0) {
+            free_descriptors(texture);
+            return heap_full("DSV", dsv_heap_.capacity());
+        }
+        if ((sampled && texture.srv == 0) || (storage && texture.uav == 0)) {
+            free_descriptors(texture);
+            return heap_full("CBV/SRV/UAV", view_heap_.capacity());
         }
         if (sampled) {
             D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
@@ -707,6 +784,12 @@ public:
             rtv.Format = format;
             rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
             device_->CreateRenderTargetView(texture.resource.Get(), &rtv, rtv_heap_.cpu(texture.rtv));
+        }
+        if (depth_target) {
+            D3D12_DEPTH_STENCIL_VIEW_DESC dsv{};
+            dsv.Format = format;
+            dsv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+            device_->CreateDepthStencilView(texture.resource.Get(), &dsv, dsv_heap_.cpu(texture.dsv));
         }
         if (!mips.empty()) {
             if (auto uploaded = upload_texture(texture.resource.Get(), d, desc, mips); !uploaded) {
@@ -739,6 +822,9 @@ public:
     // ---- pipelines: DXIL from the embedded ShaderLibrary, one global root signature (ADR 0024)
 
     [[nodiscard]] Result<PipelineHandle> create_graphics_pipeline(const GraphicsPipelineDesc& desc) override {
+        if (auto valid = validate_graphics_pipeline_desc(desc); !valid) {
+            return std::unexpected(valid.error());
+        }
         auto vs = dxil(desc.library, desc.vertex_entry);
         if (!vs) {
             return std::unexpected(vs.error());
@@ -766,14 +852,17 @@ public:
         }
         d.SampleMask = UINT_MAX;
         d.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
-        d.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;  // Metal's default: nothing is culled
+        d.RasterizerState.CullMode = to_d3d12(desc.cull);
+        d.RasterizerState.FrontCounterClockwise = TRUE;  // glTF
         d.RasterizerState.DepthClipEnable = TRUE;
         if (desc.depth_format != Format::undefined) {
             d.DSVFormat = to_dxgi(desc.depth_format);
-            d.DepthStencilState.DepthEnable = TRUE;
-            d.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-            d.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_GREATER_EQUAL;  // reverse-Z (conventions.md)
         }
+        // DepthEnable covers the test and the write; writing without testing is a test that always passes.
+        d.DepthStencilState.DepthEnable = desc.depth_test || desc.depth_write ? TRUE : FALSE;
+        d.DepthStencilState.DepthWriteMask =
+            desc.depth_write ? D3D12_DEPTH_WRITE_MASK_ALL : D3D12_DEPTH_WRITE_MASK_ZERO;
+        d.DepthStencilState.DepthFunc = desc.depth_test ? to_d3d12(desc.depth_compare) : D3D12_COMPARISON_FUNC_ALWAYS;
         const D3D12_DEPTH_STENCILOP_DESC keep{D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP,
                                               D3D12_COMPARISON_FUNC_ALWAYS};
         d.DepthStencilState.FrontFace = keep;
@@ -1035,14 +1124,35 @@ public:
         } else {
             poll();
         }
+        collect_timings();  // this slot's previous frame has completed: resolve it before reuse
+        timings_.begin_frame(frame.slot, frame.index);
         return frame;
     }
 
-    void end_frame() override { tracker_.end_frame(); }
+    void end_frame() override {
+        tracker_.end_frame();
+        timings_.end_frame(tracker_.current_frame().slot, tracker_.last_submitted().value);
+    }
     [[nodiscard]] FrameInfo current_frame() const override { return tracker_.current_frame(); }
     [[nodiscard]] std::uint32_t frames_in_flight() const override { return tracker_.frames_in_flight(); }
-    // TODO(VCH-049): timestamp queries.
-    [[nodiscard]] double last_frame_gpu_ms() const override { return 0.0; }
+    /// The timed part of the frame: the first render-graph pass's start to the last one's end.
+    [[nodiscard]] double last_frame_gpu_ms() const override { return timings_.published_span_ms(); }
+
+    [[nodiscard]] FrameTimings last_frame_timings() override {
+        collect_timings();
+        FrameTimings out = timings_.published();
+        out.unavailable = timing_unavailable_;
+        return out;
+    }
+
+    // Used by Dx12CommandList's timing regions.
+    [[nodiscard]] FrameTimingSlots& timing_slots() { return timings_; }
+    [[nodiscard]] ID3D12QueryHeap* timing_heap(std::uint32_t slot) const {
+        return timing_heaps_.empty() ? nullptr : timing_heaps_.at(slot % timing_heaps_.size()).Get();
+    }
+    [[nodiscard]] ID3D12Resource* timing_readback(std::uint32_t slot) const {
+        return timing_readbacks_.empty() ? nullptr : timing_readbacks_.at(slot % timing_readbacks_.size()).Get();
+    }
 
     /// A list that was never submitted (an error path): nothing of it reached the GPU.
     void give_back(std::unique_ptr<Recorder> recorder) { recorders_.push_back(std::move(recorder)); }
@@ -1054,6 +1164,7 @@ public:
     Dx12Accel* accel(AccelHandle h) { return accels_.get(h); }
     [[nodiscard]] std::uint32_t frame_slot() const { return tracker_.current_frame().slot; }
     [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE rtv(std::uint32_t index) const { return rtv_heap_.cpu(index); }
+    [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE dsv(std::uint32_t index) const { return dsv_heap_.cpu(index); }
     ID3D12Resource* resource(ResourceRef r) {
         switch (r.kind) {
             case ResourceKind::buffer:
@@ -1289,6 +1400,7 @@ private:
         view_heap_.release(t.srv);
         view_heap_.release(t.uav);
         rtv_heap_.release(t.rtv);
+        dsv_heap_.release(t.dsv);
     }
     void free_descriptors(const Dx12Sampler& s) { sampler_heap_.release(s.index); }
     void free_descriptors(const Dx12Pipeline& /*pipeline*/) const {}
@@ -1573,6 +1685,59 @@ private:
         return {};
     }
 
+    /// Without them, timings are unavailable (and say why); nothing else depends on them.
+    void create_timing_queries() {
+        if (const HRESULT hr = queue_->GetTimestampFrequency(&timestamp_frequency_);
+            FAILED(hr) || timestamp_frequency_ == 0) {
+            timing_unavailable_ = std::format("the direct queue has no timestamp frequency ({})", hresult(hr));
+            return;
+        }
+        for (std::uint32_t slot = 0; slot < tracker_.frames_in_flight(); ++slot) {
+            D3D12_QUERY_HEAP_DESC d{};
+            d.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+            d.Count = timing_queries_per_frame;
+            ComPtr<ID3D12QueryHeap> heap;
+            if (const HRESULT hr = device_->CreateQueryHeap(&d, IID_PPV_ARGS(&heap)); FAILED(hr)) {
+                timing_unavailable_ = std::format("CreateQueryHeap failed ({})", hresult(hr));
+                break;
+            }
+            set_name(heap.Get(), "pass timings");
+            auto readback =
+                create_resource(D3D12_HEAP_TYPE_READBACK,
+                                buffer_resource(std::uint64_t{timing_queries_per_frame} * sizeof(std::uint64_t),
+                                                D3D12_RESOURCE_FLAG_NONE),
+                                D3D12_BARRIER_LAYOUT_UNDEFINED, "pass timings readback");
+            void* mapped = nullptr;
+            if (!readback || FAILED((*readback)->Map(0, nullptr, &mapped))) {
+                timing_unavailable_ = "cannot create the timestamp readback buffer";
+                break;
+            }
+            timing_heaps_.push_back(std::move(heap));
+            timing_readbacks_.push_back(std::move(*readback));
+            timing_mapped_.push_back(static_cast<const std::uint64_t*>(mapped));
+        }
+        if (!timing_unavailable_.empty()) {
+            timing_heaps_.clear();
+            timing_readbacks_.clear();
+            timing_mapped_.clear();
+        }
+    }
+
+    /// Resolves the timings of frames that have completed (never waits).
+    void collect_timings() {
+        if (timing_mapped_.empty()) {
+            return;
+        }
+        const double ms_per_tick = 1000.0 / static_cast<double>(timestamp_frequency_);
+        timings_.collect(
+            tracker_.completed().value,
+            [this](std::uint32_t slot, std::uint32_t count) {
+                const std::uint64_t* stamps = timing_mapped_.at(slot);
+                return std::vector<std::uint64_t>(stamps, stamps + count);
+            },
+            [ms_per_tick](std::uint64_t ticks) { return static_cast<double>(ticks) * ms_per_tick; });
+    }
+
     void report_device_removed() {
         if (device_removed_reported_) {
             return;
@@ -1627,6 +1792,7 @@ private:
     DescriptorHeap view_heap_;
     DescriptorHeap sampler_heap_;
     DescriptorHeap rtv_heap_;
+    DescriptorHeap dsv_heap_;
     SlotMap<Dx12Buffer, BufferHandle> buffers_;
     SlotMap<Dx12Texture, TextureHandle> textures_;
     SlotMap<Dx12Sampler, SamplerHandle> samplers_;
@@ -1642,6 +1808,13 @@ private:
     volatile std::uint32_t* validation_errors_data_ = nullptr;
     std::uint32_t validation_errors_seen_ = 0;
     bool device_removed_reported_ = false;
+    // VCH-049: a timestamp query heap and a readback buffer (persistently mapped) per frame slot.
+    std::vector<ComPtr<ID3D12QueryHeap>> timing_heaps_;
+    std::vector<ComPtr<ID3D12Resource>> timing_readbacks_;
+    std::vector<const std::uint64_t*> timing_mapped_;
+    UINT64 timestamp_frequency_ = 0;
+    FrameTimingSlots timings_{tracker_.frames_in_flight(), timing_queries_per_frame};
+    std::string timing_unavailable_;
 };
 
 // ---- Dx12CommandList ------------------------------------------------------------
@@ -1660,12 +1833,26 @@ void Dx12CommandList::begin_render_pass(const RenderPassDesc& desc) {
                      desc.debug_name, i);
         targets.at(i) = device_.rtv(t->rtv);
         if (c.load == LoadOp::clear) {
-            list->ClearRenderTargetView(targets.at(i), c.clear_color.data(), 0, nullptr);
+            const std::array<float, 4> color =
+                is_integer(t->desc.format) ? integer_clear(c.clear_uint, desc.debug_name) : c.clear_color;
+            list->ClearRenderTargetView(targets.at(i), color.data(), 0, nullptr);
         }
         width = t->desc.width;
         height = t->desc.height;
     }
-    list->OMSetRenderTargets(desc.color_count, targets.data(), FALSE, nullptr);
+    std::optional<D3D12_CPU_DESCRIPTOR_HANDLE> depth;
+    if (desc.depth.texture.is_valid()) {
+        Dx12Texture* t = device_.texture(desc.depth.texture);
+        VEACH_ASSERT(t != nullptr && t->dsv != 0, "render pass '{}': the depth attachment is not a depth target",
+                     desc.debug_name);
+        depth = device_.dsv(t->dsv);
+        if (desc.depth.load == LoadOp::clear) {
+            list->ClearDepthStencilView(*depth, D3D12_CLEAR_FLAG_DEPTH, desc.depth.clear_depth, 0, 0, nullptr);
+        }
+        width = t->desc.width;
+        height = t->desc.height;
+    }
+    list->OMSetRenderTargets(desc.color_count, targets.data(), FALSE, depth ? &*depth : nullptr);
     // Metal sizes the viewport and scissor to the attachments implicitly; D3D12 needs them set.
     const D3D12_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f};
     const D3D12_RECT scissor{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
@@ -1832,7 +2019,7 @@ void Dx12CommandList::copy_texture_to_buffer(TextureHandle src, BufferHandle dst
     D3D12_TEXTURE_COPY_LOCATION to{};
     to.pResource = target;
     to.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-    to.PlacedFootprint.Footprint.Format = to_dxgi(t->desc.format);
+    to.PlacedFootprint.Footprint.Format = resource_format(t->desc.format);
     // Block-compressed footprints are whole blocks.
     const std::uint32_t block = is_block_compressed(t->desc.format) ? 4 : 1;
     to.PlacedFootprint.Footprint.Width = (t->desc.width + block - 1) / block * block;
@@ -1840,6 +2027,46 @@ void Dx12CommandList::copy_texture_to_buffer(TextureHandle src, BufferHandle dst
     to.PlacedFootprint.Footprint.Depth = 1;
     to.PlacedFootprint.Footprint.RowPitch = pitch;
     recorder_->list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+}
+
+void Dx12CommandList::begin_timing(std::string_view name) {
+    VEACH_ASSERT(!timing_, "begin_timing('{}') inside another timing region", name);
+    timing_ = true;
+    timing_slot_ = device_.frame_slot();
+    FrameTimingSlots& slots = device_.timing_slots();
+    slots.begin_region(timing_slot_, name);
+    ID3D12QueryHeap* heap = device_.timing_heap(timing_slot_);
+    if (heap == nullptr) {
+        return;
+    }
+    if (const std::optional<std::uint32_t> first = slots.allocate_pair(timing_slot_)) {
+        recorder_->list->EndQuery(heap, D3D12_QUERY_TYPE_TIMESTAMP, *first);
+        timing_end_query_ = *first + 1;
+        timing_first_ = std::min(timing_first_, *first);
+        timing_end_ = std::max(timing_end_, *first + 2);
+    }
+}
+
+void Dx12CommandList::end_timing() {
+    VEACH_ASSERT(timing_, "end_timing() without begin_timing()");
+    if (timing_end_query_) {
+        recorder_->list->EndQuery(device_.timing_heap(timing_slot_), D3D12_QUERY_TYPE_TIMESTAMP, *timing_end_query_);
+        timing_end_query_.reset();
+    }
+    device_.timing_slots().end_region(timing_slot_);
+    timing_ = false;
+}
+
+/// Copies this list's timestamps to its frame slot's readback buffer, at their query indices.
+void Dx12CommandList::resolve_timings() {
+    if (timing_) {
+        end_timing();  // a region left open: close it so every query in the range was written
+    }
+    if (timing_first_ < timing_end_) {
+        recorder_->list->ResolveQueryData(device_.timing_heap(timing_slot_), D3D12_QUERY_TYPE_TIMESTAMP, timing_first_,
+                                          timing_end_ - timing_first_, device_.timing_readback(timing_slot_),
+                                          std::uint64_t{timing_first_} * sizeof(std::uint64_t));
+    }
 }
 
 Dx12CommandList::~Dx12CommandList() {

@@ -8,8 +8,10 @@ std::uint32_t bytes_per_pixel(Format format) {
         case Format::rgba8_srgb:
         case Format::bgra8_unorm:
         case Format::r32_float:
+        case Format::r32_uint:
         case Format::depth32_float: return 4;
-        case Format::rgba16_float: return 8;
+        case Format::rgba16_float:
+        case Format::rg32_uint: return 8;
         case Format::rgb32_float: return 12;
         case Format::rgba32_float: return 16;
         case Format::bc7_unorm:
@@ -25,6 +27,10 @@ bool is_block_compressed(Format format) {
 
 bool is_srgb(Format format) {
     return format == Format::rgba8_srgb || format == Format::bc7_srgb;
+}
+
+bool is_integer(Format format) {
+    return format == Format::r32_uint || format == Format::rg32_uint;
 }
 
 std::uint64_t row_bytes(Format format, std::uint32_t width) {
@@ -51,6 +57,8 @@ std::string_view to_string(Format format) {
         case Format::rgba8_srgb: return "rgba8_srgb";
         case Format::bc7_unorm: return "bc7_unorm";
         case Format::bc7_srgb: return "bc7_srgb";
+        case Format::r32_uint: return "r32_uint";
+        case Format::rg32_uint: return "rg32_uint";
     }
     return "?";
 }

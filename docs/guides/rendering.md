@@ -72,6 +72,43 @@ Rules:
 - See what the graph decided: `--log-level debug` prints `RenderGraph::describe()` (order, culled passes,
   barriers) whenever it changes.
 
+## Depth, culling and integer targets
+
+A graphics pass declares its attachments; the pipeline states how it uses them:
+
+```cpp
+auto ids = graph.create_texture({w, h, rhi::Format::rg32_uint, rhi::TextureUsage::color_target, "ids"});
+auto depth = graph.create_texture({w, h, rhi::Format::depth32_float, rhi::TextureUsage::depth_target, "depth"});
+graph.add_graphics_pass("visibility",
+    [&](PassBuilder& b) {
+        b.color_target_uint(ids, rhi::LoadOp::clear, {0xFFFFFFFF, 0xFFFFFFFF, 0, 0});  // integers, exact
+        b.depth_target(depth, rhi::LoadOp::clear, 0.0f);  // reverse-Z: 0 is the far plane
+    }, ...);
+
+rhi::GraphicsPipelineDesc desc;  // ...entries, as before
+desc.color_formats = {rhi::Format::rg32_uint};
+desc.depth_format = rhi::Format::depth32_float;  // must match the pass's depth attachment
+desc.depth_test = true;
+desc.depth_write = true;
+desc.depth_compare = rhi::CompareOp::greater_equal;  // nearer is greater (reverse-Z)
+desc.cull = rhi::CullMode::back;                    // front faces wind counter-clockwise (glTF)
+```
+
+- The defaults are no depth test, no depth write and no culling. A pipeline that tests or writes depth without a
+  `depth_format` is rejected (`rhi.invalid_pipeline`).
+- The depth target is in `depth_write` for the pass; the graph emits its barriers like any other access.
+- Integer formats (`rg32_uint`, `r32_uint`) are read with `Load` (never filtered) and cleared with
+  `color_target_uint`. Metal clears them exactly; DX12 clears through floats, so integer clear values must be at
+  most 2^24 or exactly `0xFFFFFFFF` (anything else is logged as an error).
+
+## GPU timings
+
+The graph times every pass it executes with GPU timestamps (`CommandList::begin_timing`/`end_timing`; Metal
+samples at encoder boundaries, DX12 writes timestamp queries). `device.last_frame_timings()` returns the last
+completed frame's passes by name, in execution order; MCP `gpu_timings` returns the same after waiting for the
+GPU. A device that cannot time passes says why in `FrameTimings::unavailable`. On Metal a pass's time spans its
+encoders, so a transfer pass with many builds is first start to last end.
+
 ## Shaders
 
 1. Write Slang in `<module>/shaders/<name>.slang`. Reach resources only through `DescriptorHandle<T>` fields in a

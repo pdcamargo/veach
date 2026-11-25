@@ -114,7 +114,8 @@ step 5. Learned the hard way: plan a unit test for any step that comes before th
 | 7 | MCP on DX12 | `mcp: golden through MCP (dx12)` | dx12.AC7 |
 | 8 | Swapchain, present, resize (VCH-002) | `lab: windowed DX12 run`, or the criterion moves to VCH-050 with the reason | dx12.AC8 |
 
-GPU timestamps (`last_frame_gpu_ms`) are not a step: VCH-049.
+GPU timestamps are not a step: per-pass timings (VCH-049) use a timestamp query heap per frame slot, and
+`last_frame_gpu_ms` is the span of the frame's timed passes. `mcp: per-pass gpu_timings (dx12)` checks them.
 
 ## Definition of done
 

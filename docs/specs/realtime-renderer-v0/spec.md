@@ -87,6 +87,11 @@ Candela replaces its ambient stopgap. Roadmap: VISION item 5.
 - **rt.AC8**: The comparison harness reports per-scene mean and 99.9th-percentile FLIP between the real-time
   direct lighting and the converged direct-only path tracer.
 - **rt.AC9**: Frame times at 1440p on the M5 Max for the four scenes are reported below.
+- **rt.AC10**: With reverse-Z depth (test `greater`, write on, the depth target cleared to 0) the nearer of two
+  overlapping triangles wins in any draw order, a back face (clockwise) is culled with `CullMode::back`, and a
+  pipeline that tests depth without a depth format is rejected (`rhi.invalid_pipeline`), on Metal and DX12.
+- **rt.AC11**: An `rg32_uint` target clears to `0xFFFFFFFF` in both channels and stores exactly the integers a
+  fragment shader writes, on Metal and DX12.
 
 ## Results
 

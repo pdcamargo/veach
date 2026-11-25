@@ -31,7 +31,7 @@ struct GraphResource {
 };
 
 enum class PassKind : std::uint8_t {
-    graphics,  ///< draws inside a render pass (color targets declared with color_target)
+    graphics,  ///< draws inside a render pass (targets declared with color_target and depth_target)
     compute,   ///< dispatches inside a compute pass
     transfer,  ///< copies and acceleration-structure builds/refits
 };
@@ -43,6 +43,11 @@ public:
     /// Graphics passes only.
     void color_target(GraphResource resource, rhi::LoadOp load = rhi::LoadOp::load,
                       std::array<float, 4> clear_color = {0, 0, 0, 1});
+    /// An integer color target (rhi::is_integer: rg32_uint, r32_uint), cleared to `clear_value` exactly.
+    void color_target_uint(GraphResource resource, rhi::LoadOp load = rhi::LoadOp::load,
+                           std::array<std::uint32_t, 4> clear_value = {});
+    /// The depth attachment (one per pass), written in depth_write. Reverse-Z: the far plane clears to 0.
+    void depth_target(GraphResource resource, rhi::LoadOp load = rhi::LoadOp::load, float clear_depth = 0.0f);
     /// Keep this pass even if nothing reads what it writes (e.g. debug output).
     void side_effect();
 
@@ -152,12 +157,15 @@ private:
         std::array<rhi::ColorAttachment, 4> colors{};
         std::array<GraphResource, 4> color_resources{};
         std::uint32_t color_count = 0;
+        rhi::DepthAttachment depth{};
+        GraphResource depth_resource{};
         bool side_effect = false;
         Execute execute;
         std::vector<rhi::Barrier> barriers;  ///< computed by compile()
     };
 
     void add_pass(std::string name, PassKind kind, const Setup& setup, Execute execute);
+    void add_color_target(std::uint32_t pass, GraphResource resource, rhi::ColorAttachment attachment);
     std::unexpected<Error> invalid(const Pass& pass, std::string message) const;
 
     rhi::Device& device_;

@@ -62,6 +62,9 @@ public:
     [[nodiscard]] FrameInfo current_frame() const override { return tracker_.current_frame(); }
     [[nodiscard]] std::uint32_t frames_in_flight() const override { return tracker_.frames_in_flight(); }
     [[nodiscard]] double last_frame_gpu_ms() const override { return 0.0; }
+    [[nodiscard]] FrameTimings last_frame_timings() override {
+        return {.frame = 0, .passes = {}, .unavailable = "the null RHI has no GPU"};
+    }
 
 private:
     struct Buffer {

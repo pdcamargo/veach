@@ -62,3 +62,4 @@ VEACH_ERROR(rhi_invalid_surface, "rhi.invalid_surface", "The native window handl
 VEACH_ERROR(rhi_invalid_descriptor, "rhi.invalid_descriptor",
             "A shader used a descriptor handle that names no live resource of its kind")
 VEACH_ERROR(rhi_invalid_texture, "rhi.invalid_texture", "A texture description cannot be created on every backend")
+VEACH_ERROR(rhi_invalid_pipeline, "rhi.invalid_pipeline", "A pipeline description is inconsistent")

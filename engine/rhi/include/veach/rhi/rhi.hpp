@@ -18,6 +18,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace veach::rhi {
 
@@ -29,6 +30,20 @@ struct Capabilities {
     bool hardware_ray_tracing = false;
     bool bindless = false;  ///< Metal 3 resource IDs / SM 6.6 descriptor heaps
     bool mesh_shaders = false;
+};
+
+/// GPU time of one timed region of a frame (a render-graph pass): CommandList::begin_timing/end_timing.
+struct PassTiming {
+    std::string name;
+    double gpu_ms = 0.0;  ///< first timestamp to last; 0 for a region that recorded no GPU work
+};
+
+/// Per-pass GPU timings of the most recently completed frame (VCH-049).
+struct FrameTimings {
+    std::uint64_t frame = 0;         ///< FrameInfo::index they belong to; 0 before any timed frame has completed
+    std::vector<PassTiming> passes;  ///< in recording order
+    /// Why `passes` is empty on this device (e.g. no timestamp sampling at encoder boundaries); empty when timed.
+    std::string unavailable;
 };
 
 struct DeviceDesc {
@@ -104,6 +119,9 @@ public:
     [[nodiscard]] virtual std::uint32_t frames_in_flight() const = 0;
     /// GPU time of the most recently completed frame, in milliseconds (0 when unknown).
     [[nodiscard]] virtual double last_frame_gpu_ms() const = 0;
+    /// Per-pass GPU times of the most recently completed frame. Never waits: frames still on the GPU are not
+    /// included (call wait_idle() first for the latest one).
+    [[nodiscard]] virtual FrameTimings last_frame_timings() = 0;
 
     // ---- work
     [[nodiscard]] virtual std::unique_ptr<CommandList> begin_commands(std::string_view debug_name) = 0;

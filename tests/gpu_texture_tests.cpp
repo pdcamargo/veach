@@ -2,6 +2,7 @@
 // macOS, DX12 on Windows (WARP in hosted CI). Without a capable GPU the test is skipped, unless
 // VEACH_REQUIRE_GPU=1 makes that a failure.
 
+#include "support/gpu_device.hpp"
 #include "support/test_support.hpp"
 
 #include <veach/rhi/rhi.hpp>
@@ -15,23 +16,6 @@
 using namespace veach;
 
 namespace {
-
-std::unique_ptr<rhi::Device> gpu_device() {
-#if defined(__APPLE__)
-    constexpr auto backend = rhi::Backend::metal;
-#elif defined(_WIN32)
-    constexpr auto backend = rhi::Backend::dx12;
-#else
-    constexpr auto backend = rhi::Backend::null;
-#endif
-    auto device = rhi::create_device({.backend = backend, .validation = true});
-    if (!device || !(*device)->capabilities().gpu) {
-        REQUIRE_MESSAGE(!test::env_is_one("VEACH_REQUIRE_GPU"),
-                        "VEACH_REQUIRE_GPU=1 but no GPU device: ", (device ? "null" : device.error().message));
-        return nullptr;
-    }
-    return std::move(*device);
-}
 
 /// Uploads `format` with a full mip chain of recognizable bytes and checks mip 0 reads back unchanged.
 void round_trip(rhi::Device& device, rhi::Format format, std::uint32_t size) {
@@ -91,7 +75,7 @@ void round_trip(rhi::Device& device, rhi::Format format, std::uint32_t size) {
 TEST_CASE("[scene.AC9] RGBA8 and BC7 textures with mips upload and read back unchanged") {
     test::LogCapture logs;
     {
-        const std::unique_ptr<rhi::Device> device = gpu_device();
+        const std::unique_ptr<rhi::Device> device = test::gpu_device();
         if (!device) {
             MESSAGE("skipped: no GPU device");
             return;

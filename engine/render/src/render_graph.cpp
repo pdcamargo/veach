@@ -20,16 +20,24 @@ void PassBuilder::write(GraphResource resource, rhi::ResourceState state) {
 }
 
 void PassBuilder::color_target(GraphResource resource, rhi::LoadOp load, std::array<float, 4> clear_color) {
+    graph_.add_color_target(pass_, resource, {{}, load, clear_color, {}});
+}
+
+void PassBuilder::color_target_uint(GraphResource resource, rhi::LoadOp load,
+                                    std::array<std::uint32_t, 4> clear_value) {
+    graph_.add_color_target(pass_, resource, {{}, load, {}, clear_value});
+}
+
+void PassBuilder::depth_target(GraphResource resource, rhi::LoadOp load, float clear_depth) {
     auto& pass = graph_.passes_.at(pass_);
-    if (pass.kind != PassKind::graphics || pass.color_count == pass.colors.size()) {
+    if (pass.kind != PassKind::graphics || pass.depth_resource.is_valid()) {
         graph_.errors_.push_back(
-            std::format("pass '{}': color_target() needs a graphics pass with < 4 targets", pass.name));
+            std::format("pass '{}': depth_target() needs a graphics pass with no other depth target", pass.name));
         return;
     }
-    pass.colors.at(pass.color_count) = {{}, load, clear_color};
-    pass.color_resources.at(pass.color_count) = resource;
-    ++pass.color_count;
-    pass.accesses.push_back({resource, rhi::ResourceState::color_target});
+    pass.depth = {{}, load, clear_depth};
+    pass.depth_resource = resource;
+    pass.accesses.push_back({resource, rhi::ResourceState::depth_write});
 }
 
 void PassBuilder::side_effect() {
@@ -128,10 +136,22 @@ GraphResource RenderGraph::create_texture(const rhi::TextureDesc& desc) {
 }
 
 void RenderGraph::add_pass(std::string name, PassKind kind, const Setup& setup, Execute execute) {
-    passes_.push_back({std::move(name), kind, {}, {}, {}, 0, false, std::move(execute), {}});
+    passes_.push_back({std::move(name), kind, {}, {}, {}, 0, {}, {}, false, std::move(execute), {}});
     PassBuilder builder(*this, static_cast<std::uint32_t>(passes_.size() - 1));
     setup(builder);
     compiled_ = false;
+}
+
+void RenderGraph::add_color_target(std::uint32_t pass_index, GraphResource resource, rhi::ColorAttachment attachment) {
+    auto& pass = passes_.at(pass_index);
+    if (pass.kind != PassKind::graphics || pass.color_count == pass.colors.size()) {
+        errors_.push_back(std::format("pass '{}': color_target() needs a graphics pass with < 4 targets", pass.name));
+        return;
+    }
+    pass.colors.at(pass.color_count) = attachment;
+    pass.color_resources.at(pass.color_count) = resource;
+    ++pass.color_count;
+    pass.accesses.push_back({resource, rhi::ResourceState::color_target});
 }
 
 void RenderGraph::add_graphics_pass(std::string name, const Setup& setup, Execute execute) {
@@ -169,8 +189,9 @@ Result<> RenderGraph::compile() {
                 return invalid(pass, std::format("accesses '{}' twice; declare one state per resource per pass",
                                                  resources_[a.resource.id].name));
             }
-            if (a.state == rhi::ResourceState::color_target && pass.kind != PassKind::graphics) {
-                return invalid(pass, "color_target access outside a graphics pass");
+            if ((a.state == rhi::ResourceState::color_target || a.state == rhi::ResourceState::depth_write) &&
+                pass.kind != PassKind::graphics) {
+                return invalid(pass, std::format("{} access outside a graphics pass", rhi::to_string(a.state)));
             }
         }
     }
@@ -314,6 +335,10 @@ Result<> RenderGraph::compile() {
             pass.colors.at(c).texture = {resources_[pass.color_resources.at(c).id].ref.index,
                                          resources_[pass.color_resources.at(c).id].ref.generation};
         }
+        if (pass.depth_resource.is_valid()) {
+            const rhi::ResourceRef& ref = resources_[pass.depth_resource.id].ref;
+            pass.depth.texture = {ref.index, ref.generation};
+        }
     }
     final_barriers_.clear();
     for (std::size_t r = 0; r < resources_.size(); ++r) {
@@ -337,8 +362,11 @@ void RenderGraph::execute(rhi::CommandList& cmd) {
         if (!pass.barriers.empty()) {
             cmd.barrier(pass.barriers);
         }
+        cmd.begin_timing(pass.name);  // GPU time per pass (VCH-049): Device::last_frame_timings()
         switch (pass.kind) {
-            case PassKind::graphics: cmd.begin_render_pass({pass.colors, pass.color_count, pass.name}); break;
+            case PassKind::graphics:
+                cmd.begin_render_pass({pass.colors, pass.color_count, pass.depth, pass.name});
+                break;
             case PassKind::compute: cmd.begin_compute_pass(pass.name); break;
             case PassKind::transfer: break;
         }
@@ -354,6 +382,7 @@ void RenderGraph::execute(rhi::CommandList& cmd) {
             case PassKind::compute: cmd.end_compute_pass(); break;
             case PassKind::transfer: break;
         }
+        cmd.end_timing();
         cmd.pop_debug_group();
     }
     if (!final_barriers_.empty()) {

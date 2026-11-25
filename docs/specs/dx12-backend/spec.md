@@ -56,7 +56,6 @@ Each is one step of [dx12-port](../../guides/dx12-port.md), proven in the Window
 
 ## Out of scope
 
-- GPU timestamps (`last_frame_gpu_ms` stays 0 on DX12): VCH-049.
 - Real DXR hardware, vendor drivers, performance: VCH-050 (blocked, ADR 0030).
 - Async compute, copy queues, placed resources and aliasing: not modeled by the RHI yet (ADR 0025).
 

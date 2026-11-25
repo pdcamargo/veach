@@ -39,6 +39,8 @@ public:
     }
     void push_debug_group(std::string_view name) override { log("pass " + std::string(name)); }
     void pop_debug_group() override {}
+    void begin_timing(std::string_view name) override { log("begin_timing " + std::string(name)); }
+    void end_timing() override { log("end_timing"); }
 
     std::vector<std::string> calls;
 
@@ -135,8 +137,8 @@ TEST_CASE("[render.AC3] passes open the right encoder and declare residency") {
     RecordingCommandList cmd;
     graph.execute(cmd);
     CHECK(cmd.calls == std::vector<std::string>{"pass trace", "barrier shader_write->shader_write",
-                                                "begin_compute_pass trace", "use accel_read", "use shader_write",
-                                                "dispatch", "end_compute_pass"});
+                                                "begin_timing trace", "begin_compute_pass trace", "use accel_read",
+                                                "use shader_write", "dispatch", "end_compute_pass", "end_timing"});
 }
 
 TEST_CASE("[render.AC4] impossible accesses are rejected with render.graph_invalid") {

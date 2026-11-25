@@ -51,6 +51,13 @@ public:
     virtual void push_debug_group(std::string_view name) = 0;
     virtual void pop_debug_group() = 0;
 
+    /// GPU timing (VCH-049): the work recorded until end_timing() is timed with GPU timestamps and reported as
+    /// `name` by Device::last_frame_timings() once its frame has completed. Regions do not nest. On Metal a
+    /// region times whole encoders, so call begin_timing before begin_render_pass/begin_compute_pass. The
+    /// render graph times every pass this way.
+    virtual void begin_timing(std::string_view name) = 0;
+    virtual void end_timing() = 0;
+
     template <class T>
     void set_parameters(const T& params) {
         static_assert(std::is_trivially_copyable_v<T> && sizeof(T) <= max_parameter_bytes);

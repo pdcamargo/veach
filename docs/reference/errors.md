@@ -220,6 +220,14 @@ Block-compressed textures (BC7) need a width and height that are multiples of 4:
 unaligned top level. The texture cooker resizes images to meet this, so the error means a texture made in code.
 Round its size up to a multiple of 4.
 
+## rhi.invalid_pipeline
+
+**A pipeline description is inconsistent.**
+
+A graphics pipeline that tests or writes depth needs `depth_format` (the render pass's depth attachment format,
+`depth32_float`), and `depth_format` must be a depth format. Every backend checks this before creating the
+pipeline, so a pipeline that works on one works on all.
+
 ## rhi.gpu_error
 
 **The GPU reported an error while executing commands.**

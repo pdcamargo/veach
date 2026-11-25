@@ -83,12 +83,16 @@ enum class Format : std::uint8_t {
     rgba8_srgb,  ///< sRGB-encoded storage, linear when sampled
     bc7_unorm,   ///< 4x4 blocks of 16 bytes (ADR 0032): normal and metallic-roughness maps
     bc7_srgb,    ///< BC7, sRGB-encoded: base color and emissive
+    r32_uint,    ///< integer: color target, storage, loaded (not filtered) in shaders
+    rg32_uint,   ///< integer: the visibility buffer (ADR 0037)
 };
 
 /// Bytes per pixel; 0 for block-compressed formats (use row_bytes / row_count).
 [[nodiscard]] std::uint32_t bytes_per_pixel(Format format);
 [[nodiscard]] bool is_block_compressed(Format format);
 [[nodiscard]] bool is_srgb(Format format);
+/// Unsigned-integer formats: cleared with ColorAttachment::clear_uint, read with Load, never filtered.
+[[nodiscard]] bool is_integer(Format format);
 /// Bytes in one row of pixels, or of 4x4 blocks for block-compressed formats, tightly packed.
 [[nodiscard]] std::uint64_t row_bytes(Format format, std::uint32_t width);
 /// Rows of pixels, or of 4x4 blocks.
@@ -165,12 +169,23 @@ struct SamplerDesc {
     AddressMode address = AddressMode::clamp;
 };
 
+/// Depth comparison: the fragment passes when `fragment op stored`. Reverse-Z (conventions.md): nearer is greater.
+enum class CompareOp : std::uint8_t { never, less, less_equal, greater, greater_equal, equal, always };
+
+/// Which faces are not drawn. Front faces wind counter-clockwise, as in glTF.
+enum class CullMode : std::uint8_t { none, back, front };
+
 struct GraphicsPipelineDesc {
     const ShaderLibrary* library = nullptr;
     std::string_view vertex_entry;
     std::string_view fragment_entry;
     std::array<Format, 4> color_formats{};  ///< Format::undefined ends the list.
+    /// The render pass's depth attachment format (Format::undefined: the pass has none). Must match the pass.
     Format depth_format = Format::undefined;
+    bool depth_test = false;                             ///< compare against the depth attachment
+    bool depth_write = false;                            ///< store passing fragments' depth
+    CompareOp depth_compare = CompareOp::greater_equal;  ///< with depth_test; reverse-Z: nearer wins
+    CullMode cull = CullMode::none;
     std::string debug_name;
 };
 
@@ -222,12 +237,22 @@ enum class LoadOp : std::uint8_t { load, clear, discard };
 struct ColorAttachment {
     TextureHandle texture;
     LoadOp load = LoadOp::clear;
-    std::array<float, 4> clear_color{0, 0, 0, 1};
+    std::array<float, 4> clear_color{0, 0, 0, 1};  ///< float, normalized and sRGB formats
+    /// Integer formats (is_integer) clear to this instead, exactly on every backend. DX12 clears through floats:
+    /// values up to 2^24 and 0xFFFFFFFF (which saturates) are exact, others are rounded (and logged).
+    std::array<std::uint32_t, 4> clear_uint{};
+};
+
+struct DepthAttachment {
+    TextureHandle texture;  ///< invalid: the pass has no depth attachment
+    LoadOp load = LoadOp::clear;
+    float clear_depth = 0.0f;  ///< reverse-Z (conventions.md): 0 is the far plane
 };
 
 struct RenderPassDesc {
     std::array<ColorAttachment, 4> colors{};
     std::uint32_t color_count = 0;
+    DepthAttachment depth{};
     std::string_view debug_name;
 };
 

@@ -4,6 +4,8 @@
 
 #include "metal_device.hpp"
 
+#include "../frame_timings.hpp"
+#include "../pipeline_validation.hpp"
 #include "../slot_map.hpp"
 #include "../surface_validation.hpp"
 #include "../texture_validation.hpp"
@@ -39,6 +41,8 @@ MTLPixelFormat to_mtl(Format format) {
         case Format::rgba8_srgb: return MTLPixelFormatRGBA8Unorm_sRGB;
         case Format::bc7_unorm: return MTLPixelFormatBC7_RGBAUnorm;
         case Format::bc7_srgb: return MTLPixelFormatBC7_RGBAUnorm_sRGB;
+        case Format::r32_uint: return MTLPixelFormatR32Uint;
+        case Format::rg32_uint: return MTLPixelFormatRG32Uint;
         case Format::rgb32_float:
         case Format::undefined: return MTLPixelFormatInvalid;
     }
@@ -52,6 +56,43 @@ NSString* ns(std::string_view text) {
 std::string describe(NSError* error) {
     return error ? std::string(error.localizedDescription.UTF8String) : std::string("unknown error");
 }
+
+MTLCompareFunction to_mtl(CompareOp op) {
+    switch (op) {
+        case CompareOp::never: return MTLCompareFunctionNever;
+        case CompareOp::less: return MTLCompareFunctionLess;
+        case CompareOp::less_equal: return MTLCompareFunctionLessEqual;
+        case CompareOp::greater: return MTLCompareFunctionGreater;
+        case CompareOp::greater_equal: return MTLCompareFunctionGreaterEqual;
+        case CompareOp::equal: return MTLCompareFunctionEqual;
+        case CompareOp::always: return MTLCompareFunctionAlways;
+    }
+    return MTLCompareFunctionAlways;
+}
+
+MTLCullMode to_mtl(CullMode mode) {
+    switch (mode) {
+        case CullMode::none: return MTLCullModeNone;
+        case CullMode::back: return MTLCullModeBack;
+        case CullMode::front: return MTLCullModeFront;
+    }
+    return MTLCullModeNone;
+}
+
+MTLLoadAction to_mtl(LoadOp load) {
+    switch (load) {
+        case LoadOp::clear: return MTLLoadActionClear;
+        case LoadOp::load: return MTLLoadActionLoad;
+        case LoadOp::discard: return MTLLoadActionDontCare;
+    }
+    return MTLLoadActionDontCare;
+}
+
+/// Timestamps per frame slot: one start/end pair per timed encoder (VCH-049). A counter sample buffer holds at
+/// most 32 KB (4,096 timestamps), so a slot has several: the first frame builds one BLAS per mesh, an encoder each.
+constexpr std::uint32_t timing_samples_per_buffer = 4096;
+constexpr std::uint32_t timing_buffers_per_frame = 8;
+constexpr std::uint32_t timing_samples_per_frame = timing_samples_per_buffer * timing_buffers_per_frame;
 
 MTLResourceUsage usage_for(ResourceState state) {
     return is_write(state) ? (MTLResourceUsageRead | MTLResourceUsageWrite) : MTLResourceUsageRead;
@@ -72,6 +113,8 @@ struct MetalPipeline {
     id<MTLRenderPipelineState> render;
     id<MTLComputePipelineState> compute;
     MTLSize threads_per_group{1, 1, 1};
+    id<MTLDepthStencilState> depth;  ///< render only; set with the pipeline
+    MTLCullMode cull = MTLCullModeNone;
 };
 
 struct MetalAccel {
@@ -116,11 +159,22 @@ public:
     void barrier(std::span<const Barrier> barriers) override;
     void push_debug_group(std::string_view name) override { [buffer_ pushDebugGroup:ns(name)]; }
     void pop_debug_group() override { [buffer_ popDebugGroup]; }
+    void begin_timing(std::string_view name) override;
+    void end_timing() override;
 
     [[nodiscard]] id<MTLCommandBuffer> buffer() const { return buffer_; }
     void end_encoder();
 
 private:
+    /// The sample buffer and the (start, end) indices for the next encoder, when a timing region is open.
+    struct Samples {
+        id<MTLCounterSampleBuffer> buffer;
+        NSUInteger start = MTLCounterDontSample;
+        NSUInteger end = MTLCounterDontSample;
+    };
+    Samples next_samples();
+    id<MTLBlitCommandEncoder> blit_encoder();
+
     void write_instances(MetalAccel& tlas, std::span<const TlasInstance> instances);
     void encode_accel(AccelHandle handle, bool refit);
     void use_one(id<MTLResource> resource, ResourceState state);
@@ -130,6 +184,8 @@ private:
     id<MTLRenderCommandEncoder> render_;
     id<MTLComputeCommandEncoder> compute_;
     MTLSize threads_per_group_{1, 1, 1};
+    std::uint32_t timing_slot_ = 0;  ///< frame slot of the open timing region
+    bool timing_ = false;
     std::map<ResourceRef, ResourceState> states_;  ///< debug validation of barriers
 };
 
@@ -152,7 +208,95 @@ public:
             [device supportsFamily:MTLGPUFamilyMetal3] && device.argumentBuffersSupport == MTLArgumentBuffersTier2;
         caps_.mesh_shaders = [device supportsFamily:MTLGPUFamilyApple7] || [device supportsFamily:MTLGPUFamilyMac2];
         create_null_resources();
+        create_timing_buffers(frames_in_flight);
     }
+
+    /// VCH-049: one shared counter sample buffer per frame slot, sampled at encoder boundaries. GPU ticks become
+    /// nanoseconds through pairs of (CPU ns, GPU ticks) from sampleTimestamps.
+    void create_timing_buffers(std::uint32_t frames_in_flight) {
+        if (![device_ supportsCounterSampling:MTLCounterSamplingPointAtStageBoundary]) {
+            timing_unavailable_ =
+                std::format("'{}' cannot sample GPU timestamps at encoder boundaries", caps_.device_name);
+            return;
+        }
+        id<MTLCounterSet> timestamps = nil;
+        for (id<MTLCounterSet> set in device_.counterSets) {
+            if ([set.name isEqualToString:MTLCommonCounterSetTimestamp]) {
+                timestamps = set;
+            }
+        }
+        if (!timestamps) {
+            timing_unavailable_ = std::format("'{}' has no timestamp counter set", caps_.device_name);
+            return;
+        }
+        MTLCounterSampleBufferDescriptor* d = [MTLCounterSampleBufferDescriptor new];
+        d.counterSet = timestamps;
+        d.storageMode = MTLStorageModeShared;
+        d.sampleCount = timing_samples_per_buffer;
+        d.label = @"pass timings";
+        for (std::uint32_t slot = 0; slot < std::max(1u, frames_in_flight); ++slot) {
+            std::vector<id<MTLCounterSampleBuffer>> buffers;
+            for (std::uint32_t i = 0; i < timing_buffers_per_frame; ++i) {
+                NSError* error = nil;
+                id<MTLCounterSampleBuffer> buffer = [device_ newCounterSampleBufferWithDescriptor:d error:&error];
+                if (!buffer) {
+                    timing_buffers_.clear();
+                    timing_unavailable_ =
+                        std::format("Metal: cannot create a counter sample buffer: {}", describe(error));
+                    return;
+                }
+                buffers.push_back(buffer);
+            }
+            timing_buffers_.push_back(std::move(buffers));
+        }
+        [device_ sampleTimestamps:&calibration_cpu_ gpuTimestamp:&calibration_gpu_];
+    }
+
+    /// Resolves the timings of frames that have completed (never waits).
+    void collect_timings() {
+        if (timing_buffers_.empty()) {
+            return;
+        }
+        MTLTimestamp cpu = 0;
+        MTLTimestamp gpu = 0;
+        [device_ sampleTimestamps:&cpu gpuTimestamp:&gpu];
+        // Apple GPUs tick in nanoseconds; others need not. Calibrate against the CPU clock, which is in nanoseconds.
+        const double ns_per_tick =
+            gpu > calibration_gpu_ && cpu > calibration_cpu_
+                ? static_cast<double>(cpu - calibration_cpu_) / static_cast<double>(gpu - calibration_gpu_)
+                : 1.0;
+        timings_.collect(
+            tracker().completed().value,
+            [this](std::uint32_t slot, std::uint32_t count) {
+                std::vector<std::uint64_t> out(count, MTLCounterErrorValue);
+                for (std::uint32_t first = 0; first < count; first += timing_samples_per_buffer) {
+                    const std::uint32_t n = std::min(count - first, timing_samples_per_buffer);
+                    NSData* data = [timing_buffers_.at(slot).at(first / timing_samples_per_buffer)
+                        resolveCounterRange:NSMakeRange(0, n)];
+                    if (data) {
+                        std::memcpy(out.data() + first, data.bytes,
+                                    std::min<std::size_t>(data.length, std::size_t{n} * sizeof(std::uint64_t)));
+                    }
+                }
+                return out;
+            },
+            [ns_per_tick](std::uint64_t ticks) { return static_cast<double>(ticks) * ns_per_tick / 1e6; },
+            MTLCounterErrorValue);
+    }
+
+    [[nodiscard]] FrameTimings last_frame_timings() override {
+        collect_timings();
+        FrameTimings out = timings_.published();
+        out.unavailable = timing_unavailable_;
+        return out;
+    }
+
+    // Used by MetalCommandList's timing regions: the buffer holding sample `index` of a slot (pairs never span two).
+    [[nodiscard]] bool timing_supported() const { return !timing_buffers_.empty(); }
+    [[nodiscard]] id<MTLCounterSampleBuffer> timing_buffer(std::uint32_t slot, std::uint32_t index) const {
+        return timing_buffers_.at(slot % timing_buffers_.size()).at(index / timing_samples_per_buffer);
+    }
+    [[nodiscard]] FrameTimingSlots& timing_slots() { return timings_; }
 
     ~MetalDevice() override { wait_idle(); }
 
@@ -335,6 +479,9 @@ public:
     }
 
     [[nodiscard]] Result<PipelineHandle> create_graphics_pipeline(const GraphicsPipelineDesc& desc) override {
+        if (auto valid = validate_graphics_pipeline_desc(desc); !valid) {
+            return std::unexpected(valid.error());
+        }
         auto vs = function(desc.library, desc.vertex_entry);
         auto fs = function(desc.library, desc.fragment_entry);
         if (!vs) {
@@ -362,7 +509,12 @@ public:
                 ErrorCode::rhi_backend_unavailable,
                 std::format("Metal: graphics pipeline '{}' failed: {}", desc.debug_name, describe(error)));
         }
-        return pipelines_.insert({state, nil, MTLSizeMake(1, 1, 1)});
+        // Writing depth without testing it is a test that always passes (as on D3D12).
+        MTLDepthStencilDescriptor* depth = [MTLDepthStencilDescriptor new];
+        depth.depthCompareFunction = desc.depth_test ? to_mtl(desc.depth_compare) : MTLCompareFunctionAlways;
+        depth.depthWriteEnabled = desc.depth_write;
+        return pipelines_.insert(
+            {state, nil, MTLSizeMake(1, 1, 1), [device_ newDepthStencilStateWithDescriptor:depth], to_mtl(desc.cull)});
     }
 
     [[nodiscard]] Result<PipelineHandle> create_compute_pipeline(const ComputePipelineDesc& desc) override {
@@ -383,7 +535,7 @@ public:
                 std::format("compute pipeline '{}': {}x{}x{} threads per group exceeds the device limit {}",
                             desc.debug_name, g[0], g[1], g[2], state.maxTotalThreadsPerThreadgroup));
         }
-        return pipelines_.insert({nil, state, MTLSizeMake(g[0], g[1], g[2])});
+        return pipelines_.insert({nil, state, MTLSizeMake(g[0], g[1], g[2]), nil, MTLCullModeNone});
     }
 
     Result<AccelHandle> make_accel(MTLAccelerationStructureDescriptor* d, MetalAccel accel, std::string_view name) {
@@ -633,10 +785,15 @@ public:
             prune();
             tracker().collect();
         }
+        collect_timings();  // this slot's previous frame has completed: resolve it before reuse
+        timings_.begin_frame(frame.slot, frame.index);
         return frame;
     }
 
-    void end_frame() override { tracker().end_frame(); }
+    void end_frame() override {
+        tracker().end_frame();
+        timings_.end_frame(tracker().current_frame().slot, tracker().last_submitted().value);
+    }
     [[nodiscard]] FrameInfo current_frame() const override { return state_->tracker.current_frame(); }
     [[nodiscard]] std::uint32_t frames_in_flight() const override { return state_->tracker.frames_in_flight(); }
     [[nodiscard]] double last_frame_gpu_ms() const override { return state_->last_gpu_ms.load(); }
@@ -691,6 +848,11 @@ private:
     std::vector<MetalSurface> surfaces_;
     std::shared_ptr<CompletionState> state_;
     std::map<std::uint64_t, id<MTLCommandBuffer>> in_flight_;
+    std::vector<std::vector<id<MTLCounterSampleBuffer>>> timing_buffers_;  ///< [slot][i]; empty when unsupported
+    FrameTimingSlots timings_{state_->tracker.frames_in_flight(), timing_samples_per_frame};
+    std::string timing_unavailable_;
+    MTLTimestamp calibration_cpu_ = 0;
+    MTLTimestamp calibration_gpu_ = 0;
 };
 
 // ---- MetalCommandList -----------------------------------------------------------
@@ -714,12 +876,28 @@ void MetalCommandList::begin_render_pass(const RenderPassDesc& desc) {
         MetalTexture* t = device_.texture(c.texture);
         VEACH_ASSERT(t != nullptr, "render pass '{}': invalid color attachment {}", desc.debug_name, i);
         d.colorAttachments[i].texture = t->texture;
-        d.colorAttachments[i].loadAction = c.load == LoadOp::clear  ? MTLLoadActionClear
-                                           : c.load == LoadOp::load ? MTLLoadActionLoad
-                                                                    : MTLLoadActionDontCare;
+        d.colorAttachments[i].loadAction = to_mtl(c.load);
         d.colorAttachments[i].storeAction = MTLStoreActionStore;
+        // Integer targets take the clear value as integers; doubles hold every 32-bit value exactly.
         d.colorAttachments[i].clearColor =
-            MTLClearColorMake(c.clear_color[0], c.clear_color[1], c.clear_color[2], c.clear_color[3]);
+            is_integer(t->desc.format)
+                ? MTLClearColorMake(c.clear_uint[0], c.clear_uint[1], c.clear_uint[2], c.clear_uint[3])
+                : MTLClearColorMake(c.clear_color[0], c.clear_color[1], c.clear_color[2], c.clear_color[3]);
+    }
+    if (desc.depth.texture.is_valid()) {
+        MetalTexture* t = device_.texture(desc.depth.texture);
+        VEACH_ASSERT(t != nullptr, "render pass '{}': invalid depth attachment", desc.debug_name);
+        d.depthAttachment.texture = t->texture;
+        d.depthAttachment.loadAction = to_mtl(desc.depth.load);
+        d.depthAttachment.storeAction = MTLStoreActionStore;
+        d.depthAttachment.clearDepth = desc.depth.clear_depth;
+    }
+    if (const Samples samples = next_samples(); samples.buffer) {
+        d.sampleBufferAttachments[0].sampleBuffer = samples.buffer;
+        d.sampleBufferAttachments[0].startOfVertexSampleIndex = samples.start;
+        d.sampleBufferAttachments[0].endOfVertexSampleIndex = MTLCounterDontSample;
+        d.sampleBufferAttachments[0].startOfFragmentSampleIndex = MTLCounterDontSample;
+        d.sampleBufferAttachments[0].endOfFragmentSampleIndex = samples.end;
     }
     render_ = [buffer_ renderCommandEncoderWithDescriptor:d];
     render_.label = ns(desc.debug_name);
@@ -728,7 +906,13 @@ void MetalCommandList::begin_render_pass(const RenderPassDesc& desc) {
 
 void MetalCommandList::begin_compute_pass(std::string_view name) {
     end_encoder();
-    compute_ = [buffer_ computeCommandEncoder];
+    MTLComputePassDescriptor* d = [MTLComputePassDescriptor computePassDescriptor];
+    if (const Samples samples = next_samples(); samples.buffer) {
+        d.sampleBufferAttachments[0].sampleBuffer = samples.buffer;
+        d.sampleBufferAttachments[0].startOfEncoderSampleIndex = samples.start;
+        d.sampleBufferAttachments[0].endOfEncoderSampleIndex = samples.end;
+    }
+    compute_ = [buffer_ computeCommandEncoderWithDescriptor:d];
     compute_.label = ns(name);
     device_.use_null_resources(compute_);
 }
@@ -738,6 +922,9 @@ void MetalCommandList::set_pipeline(PipelineHandle handle) {
     VEACH_ASSERT(p != nullptr, "set_pipeline: invalid pipeline");
     if (render_ && p->render) {
         [render_ setRenderPipelineState:p->render];
+        [render_ setDepthStencilState:p->depth];
+        [render_ setCullMode:p->cull];
+        [render_ setFrontFacingWinding:MTLWindingCounterClockwise];  // glTF
     } else if (compute_ && p->compute) {
         [compute_ setComputePipelineState:p->compute];
         threads_per_group_ = p->threads_per_group;
@@ -773,7 +960,14 @@ void MetalCommandList::encode_accel(AccelHandle handle, bool refit) {
     end_encoder();
     MetalAccel* a = device_.accel(handle);
     VEACH_ASSERT(a != nullptr, "invalid acceleration structure");
-    id<MTLAccelerationStructureCommandEncoder> encoder = [buffer_ accelerationStructureCommandEncoder];
+    MTLAccelerationStructurePassDescriptor* d =
+        [MTLAccelerationStructurePassDescriptor accelerationStructurePassDescriptor];
+    if (const Samples samples = next_samples(); samples.buffer) {
+        d.sampleBufferAttachments[0].sampleBuffer = samples.buffer;
+        d.sampleBufferAttachments[0].startOfEncoderSampleIndex = samples.start;
+        d.sampleBufferAttachments[0].endOfEncoderSampleIndex = samples.end;
+    }
+    id<MTLAccelerationStructureCommandEncoder> encoder = [buffer_ accelerationStructureCommandEncoderWithDescriptor:d];
     if (refit) {
         [encoder refitAccelerationStructure:a->accel
                                  descriptor:a->descriptor
@@ -835,13 +1029,52 @@ void MetalCommandList::refit_tlas(AccelHandle tlas, std::span<const TlasInstance
     encode_accel(tlas, true);
 }
 
+MetalCommandList::Samples MetalCommandList::next_samples() {
+    if (!timing_) {
+        return {};
+    }
+    if (!device_.timing_supported()) {
+        return {};
+    }
+    const std::optional<std::uint32_t> first = device_.timing_slots().allocate_pair(timing_slot_);
+    if (!first) {
+        return {};
+    }
+    const NSUInteger local = *first % timing_samples_per_buffer;
+    return {device_.timing_buffer(timing_slot_, *first), local, local + 1};
+}
+
+id<MTLBlitCommandEncoder> MetalCommandList::blit_encoder() {
+    MTLBlitPassDescriptor* d = [MTLBlitPassDescriptor blitPassDescriptor];
+    if (const Samples samples = next_samples(); samples.buffer) {
+        d.sampleBufferAttachments[0].sampleBuffer = samples.buffer;
+        d.sampleBufferAttachments[0].startOfEncoderSampleIndex = samples.start;
+        d.sampleBufferAttachments[0].endOfEncoderSampleIndex = samples.end;
+    }
+    return [buffer_ blitCommandEncoderWithDescriptor:d];
+}
+
+void MetalCommandList::begin_timing(std::string_view name) {
+    VEACH_ASSERT(!timing_, "begin_timing('{}') inside another timing region", name);
+    timing_slot_ = device_.tracker().current_frame().slot;
+    device_.timing_slots().begin_region(timing_slot_, name);
+    timing_ = true;
+}
+
+void MetalCommandList::end_timing() {
+    VEACH_ASSERT(timing_, "end_timing() without begin_timing()");
+    end_encoder();  // the region's last encoder samples its end when it ends
+    device_.timing_slots().end_region(timing_slot_);
+    timing_ = false;
+}
+
 void MetalCommandList::copy_buffer(BufferHandle src, BufferHandle dst, std::uint64_t size) {
     end_encoder();
     MetalBuffer* from = device_.buffer(src);
     MetalBuffer* to = device_.buffer(dst);
     VEACH_ASSERT(from != nullptr && to != nullptr, "copy_buffer: invalid handles");
     VEACH_ASSERT(size <= from->desc.size && size <= to->desc.size, "copy_buffer: {} bytes do not fit", size);
-    id<MTLBlitCommandEncoder> blit = [buffer_ blitCommandEncoder];
+    id<MTLBlitCommandEncoder> blit = blit_encoder();
     [blit copyFromBuffer:from->buffer sourceOffset:0 toBuffer:to->buffer destinationOffset:0 size:size];
     [blit endEncoding];
 }
@@ -854,7 +1087,7 @@ void MetalCommandList::copy_texture_to_buffer(TextureHandle src, BufferHandle ds
     const auto row = static_cast<std::uint32_t>(row_bytes(t->desc.format, t->desc.width));
     const std::uint32_t rows = row_count(t->desc.format, t->desc.height);
     VEACH_ASSERT(b->desc.size >= std::uint64_t{row} * rows, "copy_texture_to_buffer: buffer too small");
-    id<MTLBlitCommandEncoder> blit = [buffer_ blitCommandEncoder];
+    id<MTLBlitCommandEncoder> blit = blit_encoder();
     [blit copyFromTexture:t->texture
                      sourceSlice:0
                      sourceLevel:0

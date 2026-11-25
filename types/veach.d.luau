@@ -42,6 +42,22 @@ export type TimeApi = {
 }
 
 -- Reflected components and their types (C++ components tagged veach::Scriptable).
+export type Camera = {
+	fov_y: number,
+	near_plane: number,
+	active: boolean,
+}
+export type quat = {
+	x: number,
+	y: number,
+	z: number,
+	w: number,
+}
+export type Transform = {
+	translation: vector,
+	rotation: quat,
+	scale: vector,
+}
 export type WindowMode = "windowed" | "fullscreen"
 export type Window = {
 	title: string,
@@ -74,6 +90,8 @@ export type Veach = {
 	read log: LogApi,
 	read time: TimeApi,
 	read components: {
+		read Camera: Component<Camera>,
+		read Transform: Component<Transform>,
 		read Window: Component<Window>,
 	},
 }

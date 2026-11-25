@@ -99,6 +99,8 @@ if(APPLE)
     veach_golden_test("golden: background" hello background metal)
     veach_golden_test("golden: triangle (raster)" triangle_raster triangle_raster metal)
     veach_golden_test("golden: triangle (raytraced)" triangle_raytraced triangle_raytraced metal)
+    veach_golden_test("golden: triangle (camera, raster)" triangle_camera_raster triangle_camera metal)
+    veach_golden_test("golden: triangle (camera, raytraced)" triangle_camera_raytraced triangle_camera metal)
     add_custom_target(update-goldens
         COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/hello.luau
                 --screenshot "${_golden_dir}/background.png"
@@ -106,12 +108,16 @@ if(APPLE)
                 --screenshot "${_golden_dir}/triangle_raster.png"
         COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/triangle_raytraced.luau
                 --screenshot "${_golden_dir}/triangle_raytraced.png"
+        COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/triangle_camera_raster.luau
+                --screenshot "${_golden_dir}/triangle_camera.png"
         COMMENT "Regenerating golden images in tests/golden/ (review the diff before committing)"
         VERBATIM)
 elseif(WIN32)
     veach_golden_test("golden: background (dx12)" hello background dx12)
     veach_golden_test("golden: triangle (raster, dx12)" triangle_raster triangle_raster dx12)
     veach_golden_test("golden: triangle (raytraced, dx12)" triangle_raytraced triangle_raytraced dx12)
+    veach_golden_test("golden: triangle (camera, raster, dx12)" triangle_camera_raster triangle_camera dx12)
+    veach_golden_test("golden: triangle (camera, raytraced, dx12)" triangle_camera_raytraced triangle_camera dx12)
     # Two frames in flight under load (dx12.AC6). A debug-layer error makes the exit code 1.
     add_test(NAME "dx12: ray-traced soak"
         COMMAND veach-lab --rhi dx12 --headless --frames 300 --script scripts/triangle_raytraced.luau)

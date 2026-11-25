@@ -42,9 +42,25 @@ export type TimeApi = {
 }
 
 -- Reflected components and their types (C++ components tagged veach::Scriptable).
+export type Camera = {
+	fov_y: number,
+	near_plane: number,
+	active: boolean,
+}
 export type Spinner = {
 	radians_per_second: number,
 	angle: number,
+}
+export type quat = {
+	x: number,
+	y: number,
+	z: number,
+	w: number,
+}
+export type Transform = {
+	translation: vector,
+	rotation: quat,
+	scale: vector,
 }
 export type TriangleMode = "raster" | "raytraced"
 export type TriangleDemo = {
@@ -82,7 +98,9 @@ export type Veach = {
 	read log: LogApi,
 	read time: TimeApi,
 	read components: {
+		read Camera: Component<Camera>,
 		read Spinner: Component<Spinner>,
+		read Transform: Component<Transform>,
 		read TriangleDemo: Component<TriangleDemo>,
 		read Window: Component<Window>,
 	},

@@ -1,7 +1,8 @@
 // First light, ray traced: the same triangle as triangle.slang, found with an
-// inline ray query against a TLAS. Orthographic rays through pixel centers, in
-// the NDC space the raster path draws in, so both images match. Layout must
-// match TraceParams in apps/lab/src/triangle_feature.cpp (ADR 0024).
+// inline ray query against a TLAS. Rays go through pixel centers, unprojected
+// with the primary camera's inverse view-projection, so both paths agree. With
+// no camera it is the identity, and rays are orthographic through NDC. Layout
+// must match TraceParams in apps/lab/src/triangle_feature.cpp (ADR 0024).
 
 struct Vertex {
     float4 position;
@@ -9,6 +10,7 @@ struct Vertex {
 };
 
 struct Params {
+    float4x4 inverse_view_projection;
     DescriptorHandle<RWTexture2D<float4>> output;
     DescriptorHandle<RaytracingAccelerationStructure> scene;
     DescriptorHandle<StructuredBuffer<Vertex>> vertices;
@@ -18,6 +20,11 @@ struct Params {
 
 static const float4 background = float4(0.05, 0.05, 0.08, 1.0);  // render::background_color
 
+float3 unproject(float2 ndc, float depth) {
+    const float4 p = mul(params.inverse_view_projection, float4(ndc, depth, 1.0));
+    return p.xyz / p.w;
+}
+
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void trace(uint3 id : SV_DispatchThreadID) {
@@ -26,11 +33,13 @@ void trace(uint3 id : SV_DispatchThreadID) {
     }
     const float2 ndc = float2((float(id.x) + 0.5) / float(params.size.x) * 2.0 - 1.0,
                               1.0 - (float(id.y) + 0.5) / float(params.size.y) * 2.0);
+    // Reverse-Z: the near plane is depth 1. A second point at depth 0.5 gives the ray's direction.
+    const float3 near_point = unproject(ndc, 1.0);
     RayDesc ray;
-    ray.Origin = float3(ndc, 1.0);
-    ray.Direction = float3(0.0, 0.0, -1.0);
+    ray.Origin = near_point;
+    ray.Direction = normalize(unproject(ndc, 0.5) - near_point);
     ray.TMin = 0.0;
-    ray.TMax = 4.0;
+    ray.TMax = 10000.0;
 
     RayQuery<RAY_FLAG_FORCE_OPAQUE> query;
     query.TraceRayInline(params.scene, RAY_FLAG_NONE, 0xFF, ray);

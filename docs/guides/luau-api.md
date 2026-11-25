@@ -123,8 +123,23 @@ There is no wall-clock time in the API, on purpose (determinism).
 
 ### `veach.components.<Name>`
 
-C++ components tagged `veach::Scriptable` (all fields Luau-representable). In v0 the engine
-exposes `Window` (`title`, `width`, `height`, `mode: "windowed" | "fullscreen"`, `vsync`):
+C++ components tagged `veach::Scriptable` (all fields Luau-representable). The engine exposes:
+
+- `Window` (`title`, `width`, `height`, `mode: "windowed" | "fullscreen"`, `vsync`)
+- `Transform` (`translation: vector`, `rotation: { x, y, z, w }` quaternion, `scale: vector`)
+- `Camera` (`fov_y` radians, `near_plane` meters, `active`); see [render-views](../specs/render-views/spec.md)
+
+```lua
+local camera = veach.spawn("camera")
+camera:set(veach.components.Transform, {
+	translation = vector.create(1.5, -0.05, 2.6),
+	rotation = { x = 0, y = 0.258819, z = 0, w = 0.965926 }, -- 30° about +Y
+	scale = vector.create(1, 1, 1),
+})
+camera:set(veach.components.Camera, { fov_y = math.rad(50), near_plane = 0.1, active = true })
+```
+
+Changing a window:
 
 ```lua
 local Window = veach.components.Window

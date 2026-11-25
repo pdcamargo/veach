@@ -8,8 +8,8 @@ text formats, reflection everywhere, strictly typed Luau scripting, actionable e
 headless runs that verify their own work.
 
 > **Status:** first light. The engine runs Luau gameplay scripts, renders through a render graph on Metal and
-> DX12, and draws its first image twice: rasterized, and ray traced with ray queries against a TLAS. Golden-image
-> tests keep both backends honest (DX12 runs on WARP in CI). Agents can drive any app over MCP (`--mcp`). See the [roadmap](docs/VISION.md#roadmap) and [backlog](docs/backlog/BACKLOG.md).
+> DX12, and draws its first image twice, rasterized and ray traced with ray queries against a TLAS, also through a
+> perspective camera. Golden-image tests keep both backends honest (DX12 runs on WARP in CI). Agents can drive any app over MCP (`--mcp`). See the [roadmap](docs/VISION.md#roadmap) and [backlog](docs/backlog/BACKLOG.md).
 
 ## Quick start
 

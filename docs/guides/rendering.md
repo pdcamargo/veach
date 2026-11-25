@@ -13,6 +13,11 @@ Render:   RenderGraph: "clear" -> every RenderFeature::record() -> "present" / "
           compile (order, culling, barriers) -> execute into one CommandList -> submit
 ```
 
+**Cameras.** A `veach::Camera` on an entity with a `veach::Transform` becomes a `render::RenderView` (view and
+projection matrices, reverse-Z, infinite far plane). `FrameContext::view` is the primary one, or null when no
+camera is active: a feature that draws in world space multiplies by `view->view_projection` (or unprojects with
+`inverse_view_projection` for rays) and falls back to identity. Spec: [render-views](../specs/render-views/spec.md).
+
 Gameplay never sees GPU handles. A module gets data across by registering an **extractor**, which copies
 components into a type stored in `RenderWorld`. It draws by adding a **feature**:
 

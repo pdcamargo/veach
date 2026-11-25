@@ -35,21 +35,25 @@ constexpr std::array<Vertex, 3> triangle{{
 }};
 
 /// Mirrors `Params` in shaders/triangle.slang (ADR 0024 layout rules).
-struct RasterParams {
+struct alignas(16) RasterParams {       // Metal rounds a struct with a float4x4 up to 16 bytes
+    veach::math::mat4 view_projection;  ///< identity without a camera: the vertices are already NDC
     rhi::DescriptorHandle vertices;
 };
 static_assert(rhi::parameters_match<RasterParams>(lab_shaders::layout::triangle,
-                                                  {VEACH_PARAM(RasterParams, vertices)}));
+                                                  {VEACH_PARAM(RasterParams, view_projection),
+                                                   VEACH_PARAM(RasterParams, vertices)}));
 
 /// Mirrors `Params` in shaders/triangle_rt.slang.
 struct TraceParams {
+    veach::math::mat4 inverse_view_projection;  ///< identity without a camera: orthographic rays through NDC
     rhi::DescriptorHandle output;
     rhi::DescriptorHandle scene;
     rhi::DescriptorHandle vertices;
     std::array<std::uint32_t, 2> size;
 };
 static_assert(rhi::parameters_match<TraceParams>(lab_shaders::layout::triangle_rt,
-                                                 {VEACH_PARAM(TraceParams, output), VEACH_PARAM(TraceParams, scene),
+                                                 {VEACH_PARAM(TraceParams, inverse_view_projection),
+                                                  VEACH_PARAM(TraceParams, output), VEACH_PARAM(TraceParams, scene),
                                                   VEACH_PARAM(TraceParams, vertices), VEACH_PARAM(TraceParams, size)}));
 
 class TriangleFeature final : public render::RenderFeature {
@@ -112,6 +116,10 @@ public:
         }
         const render::GraphResource vertices =
             graph.import(vertices_, "triangle vertices", rhi::ResourceState::shader_read);
+        // Through the primary camera if there is one (VCH-011); otherwise the vertices are NDC as they are.
+        const veach::math::mat4 view_projection = frame.view ? frame.view->view_projection : veach::math::mat4(1.0f);
+        const veach::math::mat4 inverse_view_projection =
+            frame.view ? frame.view->inverse_view_projection : veach::math::mat4(1.0f);
         if (state->mode == TriangleMode::raster) {
             graph.add_graphics_pass(
                 "triangle (raster)",
@@ -119,9 +127,9 @@ public:
                     b.read(vertices);
                     b.color_target(frame.scene_color, rhi::LoadOp::load);
                 },
-                [this, vertices](render::PassContext& ctx) {
+                [this, vertices, view_projection](render::PassContext& ctx) {
                     ctx.cmd.set_pipeline(raster_);
-                    ctx.cmd.set_parameters(RasterParams{ctx.device.descriptor(ctx.buffer(vertices))});
+                    ctx.cmd.set_parameters(RasterParams{view_projection, ctx.device.descriptor(ctx.buffer(vertices))});
                     ctx.cmd.draw(3);
                 });
             return;
@@ -169,9 +177,11 @@ public:
                 b.read(vertices);
                 b.write(frame.scene_color, rhi::ResourceState::shader_write);
             },
-            [this, vertices, tlas, color = frame.scene_color, width, height](render::PassContext& ctx) {
+            [this, vertices, tlas, color = frame.scene_color, width, height,
+             inverse_view_projection](render::PassContext& ctx) {
                 ctx.cmd.set_pipeline(trace_);
-                ctx.cmd.set_parameters(TraceParams{ctx.device.descriptor(ctx.texture(color), rhi::View::storage),
+                ctx.cmd.set_parameters(TraceParams{inverse_view_projection,
+                                                   ctx.device.descriptor(ctx.texture(color), rhi::View::storage),
                                                    ctx.device.descriptor(ctx.accel(tlas)),
                                                    ctx.device.descriptor(ctx.buffer(vertices)),
                                                    {width, height}});

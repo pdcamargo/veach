@@ -55,7 +55,7 @@ In rough order (details and ids in [backlog/BACKLOG.md](backlog/BACKLOG.md)):
 
 1. Foundation (done): lifecycle, ECS and phases, Luau API v0, assets with stable ids, platform layer, RHI seam,
    extraction boundary, CI on macOS and Windows.
-2. First light (done, except cameras): Metal RHI resources and swapchain, render graph, Slang pipeline,
+2. First light (done): Metal RHI resources and swapchain, render graph, Slang pipeline,
    golden-image tests, a ray-traced first image.
 3. Agents in the loop (MCP server v0 done): MCP server (`query_entities`, `get/set_component`, `step_frames`, `screenshot`,
    `gpu_timings`, `load_scene`, sandboxed transactional `eval`), hot reload, record/replay.

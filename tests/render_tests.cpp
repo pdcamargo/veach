@@ -1,6 +1,7 @@
 #include "support/test_support.hpp"
 
 #include <veach/render/render_graph.hpp>
+#include <veach/render/renderer.hpp>
 
 #include <doctest/doctest.h>
 
@@ -199,4 +200,95 @@ TEST_CASE("[frames.AC5] a pooled transient's first barrier in the next frame syn
     }
     CHECK(first_barriers[0] == "barrier undefined->color_target");
     CHECK(first_barriers[1] == "barrier shader_read->color_target");  // last frame left it in shader_read
+}
+
+namespace {
+
+/// A world with the camera components, and a renderer on the null device to extract into.
+struct ViewFixture {
+    std::unique_ptr<rhi::Device> device = std::move(*rhi::create_device({}));
+    render::Renderer renderer{*device};
+    World world;
+
+    ViewFixture() {
+        world.import<CoreModule>();
+        world.component<Camera>();
+    }
+    const render::RenderWorld& extract() {
+        renderer.extract(world);
+        return renderer.render_world();
+    }
+};
+
+/// Records whether features saw a primary view.
+class ViewProbe final : public render::RenderFeature {
+public:
+    explicit ViewProbe(bool& saw_view) : saw_view_(saw_view) {}
+    [[nodiscard]] std::string_view name() const override { return "test.view_probe"; }
+    [[nodiscard]] Result<> prepare(rhi::Device& /*device*/) override { return {}; }
+    void record(render::RenderGraph& /*graph*/, const render::FrameContext& frame) override {
+        saw_view_ = frame.view != nullptr;
+    }
+
+private:
+    bool& saw_view_;
+};
+
+math::vec3 to_ndc(const math::mat4& view_projection, math::vec3 world_point) {
+    const math::vec4 clip = view_projection * math::vec4(world_point, 1.0f);
+    return math::vec3(clip) / clip.w;
+}
+
+}  // namespace
+
+TEST_CASE("[views.AC1] an active camera with a Transform becomes a reverse-Z view") {
+    ViewFixture f;
+    const math::quat yaw = math::angleAxis(math::radians(30.0f), math::world_up);
+    f.world.entity("camera")
+        .set(Transform{{1.0f, 2.0f, 3.0f}, yaw, {5.0f, 5.0f, 5.0f}})  // scale must not affect the view
+        .set(Camera{math::radians(60.0f), 0.5f, true});
+    const render::RenderWorld& rw = f.extract();
+    REQUIRE(rw.views.size() == 1);
+    const render::RenderView& v = rw.views.front();
+    CHECK(v.width == 1280);
+    CHECK(v.height == 720);
+    CHECK(math::distance(v.position, math::vec3(1.0f, 2.0f, 3.0f)) < 1e-5f);
+
+    const math::vec3 forward = yaw * math::world_forward;
+    const math::vec3 right = yaw * math::world_right;
+    const math::vec3 at_near = to_ndc(v.view_projection, v.position + forward * 0.5f);
+    CHECK(at_near.x == doctest::Approx(0.0f).epsilon(1e-4));
+    CHECK(at_near.y == doctest::Approx(0.0f).epsilon(1e-4));
+    CHECK(at_near.z == doctest::Approx(1.0f).epsilon(1e-4));  // reverse-Z: the near plane is depth 1
+    const math::vec3 farther = to_ndc(v.view_projection, v.position + forward * 10.0f);
+    CHECK(farther.z > 0.0f);
+    CHECK(farther.z < 1.0f);
+    CHECK(to_ndc(v.view_projection, v.position + forward * 10.0f + right).x > 0.0f);  // +X is right
+
+    const math::mat4 identity = v.inverse_view_projection * v.view_projection;
+    for (int c = 0; c < 4; ++c) {
+        for (int r = 0; r < 4; ++r) {
+            CHECK(identity[c][r] == doctest::Approx(c == r ? 1.0f : 0.0f).epsilon(1e-4));
+        }
+    }
+}
+
+TEST_CASE("[views.AC2] inactive cameras are skipped and views come in entity-id order") {
+    ViewFixture f;
+    bool saw_view = true;
+    f.renderer.add_feature(std::make_unique<ViewProbe>(saw_view));
+    CHECK(f.extract().views.empty());
+    f.renderer.render();
+    CHECK_FALSE(saw_view);  // no camera: FrameContext::view is null
+
+    const Entity first = f.world.entity("first").set(Camera{math::radians(40.0f), 0.1f, true});
+    f.world.entity("off").set(Camera{math::radians(50.0f), 0.1f, false});
+    const Entity second = f.world.entity("second").set(Camera{math::radians(70.0f), 0.1f, true});
+    REQUIRE(first.id() < second.id());
+    const render::RenderWorld& rw = f.extract();
+    REQUIRE(rw.views.size() == 2);
+    // A narrower field of view has a larger y scale.
+    CHECK(rw.views[0].projection[1][1] > rw.views[1].projection[1][1]);
+    f.renderer.render();
+    CHECK(saw_view);
 }

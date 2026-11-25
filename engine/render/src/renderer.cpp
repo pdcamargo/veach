@@ -11,6 +11,7 @@
 
 #include "veach_render_shaders.hpp"
 
+#include <algorithm>
 #include <array>
 #include <format>
 #include <utility>
@@ -30,6 +31,10 @@ static_assert(rhi::parameters_match<PresentParams>(veach_render_shaders::layout:
 
 }  // namespace
 
+std::pair<std::uint32_t, std::uint32_t> target_size(const RenderWorld& world) {
+    return {world.target_width != 0 ? world.target_width : 1280, world.target_height != 0 ? world.target_height : 720};
+}
+
 Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device) {
     add_extractor("frame", [](const World& world, RenderWorld& out) {
         if (const Time* time = world.try_get<Time>()) {
@@ -46,6 +51,36 @@ Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device) {
             out.target_width = handle.width != 0 ? handle.width : window.width;
             out.target_height = handle.height != 0 ? handle.height : window.height;
         });
+    });
+    add_extractor("views", [](const World& world, RenderWorld& out) {
+        const auto [width, height] = target_size(out);
+        const float aspect = static_cast<float>(width) / static_cast<float>(height);
+        std::vector<std::pair<std::uint64_t, RenderView>> views;
+        world.each([&](Entity e, const Camera& camera) {
+            if (!camera.active) {
+                return;
+            }
+            // The camera's pose without scale: a scaled camera would skew its view.
+            math::mat4 world_from_camera(1.0f);
+            if (const Transform* transform = e.try_get<Transform>()) {
+                world_from_camera = math::mat4_cast(math::normalize(transform->rotation));
+                world_from_camera[3] = math::vec4(transform->translation, 1.0f);
+            }
+            RenderView view;
+            view.view = math::inverse(world_from_camera);
+            view.projection = math::perspective_reverse_z(camera.fov_y, aspect, camera.near_plane);
+            view.view_projection = view.projection * view.view;
+            view.inverse_view_projection = math::inverse(view.view_projection);
+            view.position = math::vec3(world_from_camera[3]);
+            view.near_plane = camera.near_plane;
+            view.width = width;
+            view.height = height;
+            views.emplace_back(e.id(), view);
+        });
+        std::ranges::sort(views, {}, &std::pair<std::uint64_t, RenderView>::first);
+        for (auto& [id, view] : views) {
+            out.views.push_back(view);
+        }
     });
 }
 
@@ -155,8 +190,7 @@ Result<> Renderer::ensure_present_pipeline() {
 
 void Renderer::render() {
     VEACH_ZONE("Renderer::render");
-    const std::uint32_t width = render_world_.target_width != 0 ? render_world_.target_width : 1280;
-    const std::uint32_t height = render_world_.target_height != 0 ? render_world_.target_height : 720;
+    const auto [width, height] = target_size(render_world_);
 
     if (!features_prepared_) {
         prepared_.assign(features_.size(), false);
@@ -186,7 +220,9 @@ void Renderer::render() {
         "clear", [&](PassBuilder& b) { b.color_target(color, rhi::LoadOp::clear, background_color); },
         [](PassContext&) {});
 
-    const FrameContext frame{device_, render_world_, color, width, height};
+    const FrameContext frame{device_, render_world_,
+                             color,   width,
+                             height,  render_world_.views.empty() ? nullptr : &render_world_.views.front()};
     for (std::size_t i = 0; i < features_.size(); ++i) {
         if (prepared_[i]) {
             features_[i]->record(graph, frame);
@@ -293,6 +329,11 @@ void Renderer::finish_capture(std::uint32_t width, std::uint32_t height) {
 
 RenderModule::RenderModule(World& world) {
     world.module<RenderModule>("veach::render");
+    world.component<Camera>()
+        .member(&Camera::fov_y, "fov_y")
+        .member(&Camera::near_plane, "near_plane")
+        .member(&Camera::active, "active")
+        .add<Scriptable>();
     world.system("Extract").kind<phase::Extract>().run([](Iter& it) {
         const World w = it.world();
         services(w).get<Renderer>().extract(w);

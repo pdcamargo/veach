@@ -25,6 +25,11 @@ CoreModule::CoreModule(World& world) {
         .add(flecs::Singleton);
 
     world.component<Rng>().member(&Rng::state, "state").member(&Rng::increment, "increment");
+    world.component<Transform>()
+        .member(&Transform::translation, "translation")
+        .member(&Transform::rotation, "rotation")
+        .member(&Transform::scale, "scale")
+        .add<Scriptable>();
     world.component<Random>().member(&Random::seed, "seed").member(&Random::rng, "rng").add(flecs::Singleton);
 }
 

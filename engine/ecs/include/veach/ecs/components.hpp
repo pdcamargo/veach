@@ -2,6 +2,7 @@
 
 // Core engine components every world has. All are reflected (see core_module.cpp).
 
+#include <veach/core/math.hpp>
 #include <veach/core/rng.hpp>
 #include <veach/ecs/flecs.hpp>
 
@@ -24,6 +25,24 @@ struct Time {
 struct Random {
     std::uint64_t seed = 0;
     Rng rng{0};
+};
+
+/// An entity's pose, glTF-style: scale, then rotation, then translation (meters, radians; ADR 0010). Until
+/// hierarchy lands (VCH-007) it is the entity's world pose.
+struct Transform {
+    math::vec3 translation{0.0f};
+    math::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};  ///< identity; glm's constructor takes (w, x, y, z)
+    math::vec3 scale{1.0f};
+
+    /// World from local: translation * rotation * scale.
+    [[nodiscard]] math::mat4 matrix() const {
+        math::mat4 m = math::mat4_cast(math::normalize(rotation));
+        m[0] *= scale.x;
+        m[1] *= scale.y;
+        m[2] *= scale.z;
+        m[3] = math::vec4(translation, 1.0f);
+        return m;
+    }
 };
 
 /// Tag on a component type: expose it to Luau as `veach.components.<Name>` and

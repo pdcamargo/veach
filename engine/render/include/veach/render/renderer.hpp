@@ -13,7 +13,9 @@
 //   renderer.add_feature(std::make_unique<MyFeature>());
 
 #include <veach/core/error.hpp>
+#include <veach/core/math.hpp>
 #include <veach/ecs/flecs.hpp>
+#include <veach/render/camera.hpp>
 #include <veach/render/png.hpp>
 #include <veach/render/render_graph.hpp>
 #include <veach/rhi/rhi.hpp>
@@ -26,9 +28,23 @@
 #include <string>
 #include <typeindex>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace veach::render {
+
+/// One camera's view of the frame, extracted from a Camera and its Transform (docs/specs/render-views/spec.md).
+/// Column-major matrices, reverse-Z, infinite far plane (ADR 0010).
+struct RenderView {
+    math::mat4 view{1.0f};        ///< view from world
+    math::mat4 projection{1.0f};  ///< clip from view
+    math::mat4 view_projection{1.0f};
+    math::mat4 inverse_view_projection{1.0f};
+    math::vec3 position{0.0f};  ///< world space
+    float near_plane = 0.1f;
+    std::uint32_t width = 0;  ///< the target it was built for, pixels
+    std::uint32_t height = 0;
+};
 
 /// Renderer-owned snapshot of what to draw this frame. Rebuilt by extraction every frame.
 class RenderWorld {
@@ -37,6 +53,7 @@ public:
     std::uint32_t target_width = 0;  ///< pixels: the primary window's drawable, or its Window size headless
     std::uint32_t target_height = 0;
     std::uint32_t window_count = 0;
+    std::vector<RenderView> views;  ///< active cameras, in entity-id order; the first is the primary view
 
     /// Per-frame data extracted by modules, one value per type.
     template <class T>
@@ -65,7 +82,11 @@ struct FrameContext {
     GraphResource scene_color;  ///< rgba8_unorm; cleared to the background color by the renderer first
     std::uint32_t width = 0;
     std::uint32_t height = 0;
+    const RenderView* view = nullptr;  ///< the primary view, or null when no camera is active
 };
+
+/// The frame's target size: the primary window's, or 1280x720 when nothing says otherwise.
+[[nodiscard]] std::pair<std::uint32_t, std::uint32_t> target_size(const RenderWorld& world);
 
 /// A unit of rendering contributed by a module: creates its GPU resources once
 /// and records passes into each frame's graph.

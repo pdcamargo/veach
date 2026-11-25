@@ -1,5 +1,6 @@
 // First light, rasterized: one triangle with per-vertex colors, vertices pulled
-// through a bindless handle. Layout must match RasterParams in
+// through a bindless handle, seen through the primary camera (identity without
+// one: the positions are already NDC). Layout must match RasterParams in
 // apps/lab/src/triangle_feature.cpp (ADR 0024).
 
 struct Vertex {
@@ -8,6 +9,7 @@ struct Vertex {
 };
 
 struct Params {
+    float4x4 view_projection;
     DescriptorHandle<StructuredBuffer<Vertex>> vertices;
 };
 [[vk::push_constant]] ConstantBuffer<Params> params;
@@ -21,7 +23,7 @@ struct VsOut {
 VsOut vs_main(uint vertex : SV_VertexID) {
     const Vertex v = params.vertices[vertex];
     VsOut o;
-    o.position = float4(v.position.xyz, 1.0);
+    o.position = mul(params.view_projection, float4(v.position.xyz, 1.0));
     o.color = v.color.rgb;
     return o;
 }

@@ -53,7 +53,8 @@ struct ParamLayout {
 void parameter_layout_mismatch(const char* reason);
 
 /// True if the C++ struct T (described field by field with VEACH_PARAM) matches the shader's layout:
-/// same fields in the same order, same offsets and sizes, and a size no smaller than the block.
+/// same fields in the same order, same offsets and sizes, and a size no smaller than the block. Metal rounds a
+/// struct with a 16-byte member (float4, float4x4) up to a multiple of 16, so T must be too (alignas(16)).
 ///   static_assert(veach::rhi::parameters_match<TraceParams>(lab_shaders::layout::triangle_rt,
 ///       {VEACH_PARAM(TraceParams, output), VEACH_PARAM(TraceParams, scene), ...}));
 template <class T>
@@ -76,6 +77,14 @@ consteval bool parameters_match(const ParamLayout& shader, std::initializer_list
     }
     if (sizeof(T) < shader.size) {
         parameter_layout_mismatch("the C++ struct is smaller than the shader's Params");
+    }
+    bool has_16_byte_member = false;
+    for (const ParamField& field : shader.fields) {
+        has_16_byte_member = has_16_byte_member || field.size >= 16;
+    }
+    if (has_16_byte_member && sizeof(T) % 16 != 0) {
+        parameter_layout_mismatch(
+            "Metal rounds this Params up to a multiple of 16 bytes: declare the C++ struct alignas(16)");
     }
     return true;
 }

@@ -104,6 +104,10 @@ elseif(WIN32)
     veach_golden_test("golden: background (dx12)" hello background dx12)
     veach_golden_test("golden: triangle (raster, dx12)" triangle_raster triangle_raster dx12)
     veach_golden_test("golden: triangle (raytraced, dx12)" triangle_raytraced triangle_raytraced dx12)
+    # Two frames in flight under load (dx12.AC6). A debug-layer error makes the exit code 1.
+    add_test(NAME "dx12: ray-traced soak"
+        COMMAND veach-lab --rhi dx12 --headless --frames 300 --script scripts/triangle_raytraced.luau)
+    set_tests_properties("dx12: ray-traced soak" PROPERTIES TIMEOUT 900)
 endif()
 # Same triangle, two renderers: the committed goldens must agree with each other (no GPU needed).
 add_test(NAME "golden: raster and ray-traced goldens agree"

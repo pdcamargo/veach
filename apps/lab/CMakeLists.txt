@@ -1,7 +1,12 @@
 veach_add_app(veach-lab
     SOURCES
         src/lab_module.cpp
-        src/main.cpp)
+        src/main.cpp
+        src/triangle_feature.cpp)
 
 # The lab finds its project (veach.project.json, scripts/) from any working directory.
 target_compile_definitions(veach-lab PRIVATE VEACH_LAB_PROJECT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+
+veach_add_shader(veach-lab shaders/triangle.slang ENTRIES vs_main:vertex fs_main:fragment)
+veach_add_shader(veach-lab shaders/triangle_rt.slang ENTRIES trace:compute)
+veach_shader_library(veach-lab NAMESPACE lab_shaders)

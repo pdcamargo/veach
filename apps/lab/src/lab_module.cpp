@@ -1,5 +1,7 @@
 #include "lab_module.hpp"
 
+#include "triangle_feature.hpp"
+
 namespace lab {
 
 LabModule::LabModule(veach::World& world) {
@@ -19,6 +21,8 @@ LabModule::LabModule(veach::World& world) {
     // N steps it is exactly N * (1/60) * radians_per_second.
     world.system<Spinner>("Spin").kind<veach::phase::Simulation>().each(
         [](veach::Iter& it, std::size_t, Spinner& s) { s.angle += s.radians_per_second * it.delta_time(); });
+
+    register_triangle_demo(world);
 
     world.system<const Spinner>("ReportSpinner").kind<veach::phase::Shutdown>().each([](const Spinner& s) {
         veach::log::info("lab", "spinner turned {:.4f} rad", s.angle);

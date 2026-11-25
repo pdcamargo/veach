@@ -50,8 +50,10 @@ local Window = veach.components.Window
 - **platform.AC2** — Closing the primary window quits; OS resizes update `Window` without an echo.
 - **platform.AC3** — Key events produce pressed, down and released for bound actions, for exactly the right frames.
 - **platform.AC4** — Manual check, macOS (no display in CI): `veach-lab --window --log-level debug` opens a
-  1280×720 "Veach Lab" window, logs `native window handle is valid: CAMetalLayer=...`, and closing it shuts down
-  cleanly with exit 0. Verified on 2026-11-24 (Apple M5 Max, also with `--rhi metal`).
+  1280×720 "Veach Lab" window and logs `native window handle is valid: CAMetalLayer=...`. Verified 2026-11-24
+  on an Apple M5 Max, also with `--rhi metal`. A 214 s windowed run stopped by SIGINT shut down cleanly with
+  exit 0, after 12,870 fixed steps (60.0 Hz). Still to confirm by hand: clicking the close button. The
+  close-request → quit logic itself is covered by platform.AC2.
 - **platform.AC5** — `--headless` runs use the headless backend (`init platform (headless)`) and never call SDL.
 
 ## Out of scope

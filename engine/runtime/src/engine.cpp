@@ -6,10 +6,12 @@
 #include <veach/ecs/components.hpp>
 #include <veach/ecs/reflection.hpp>
 #include <veach/platform/clock.hpp>
+#include <veach/platform/fs.hpp>
 #include <veach/platform/platform.hpp>
 #include <veach/platform/platform_module.hpp>
 #include <veach/render/renderer.hpp>
 #include <veach/rhi/rhi.hpp>
+#include <veach/script/luau_types.hpp>
 #include <veach/script/script_asset.hpp>
 #include <veach/script/script_runtime.hpp>
 
@@ -216,7 +218,12 @@ Result<> Engine::init() {
     step = run_step(
         "rhi",
         [&]() -> Result<std::string> {
-            auto device = rhi::create_device({.backend = project.rhi});
+#if defined(NDEBUG)
+            constexpr bool validation = false;
+#else
+            constexpr bool validation = true;  // API validation errors become error logs (exit code 1)
+#endif
+            auto device = rhi::create_device({.backend = project.rhi, .validation = validation});
             if (!device) {
                 return std::unexpected(device.error());
             }
@@ -225,10 +232,11 @@ Result<> Engine::init() {
             const Entity window = world_->lookup("primary_window");
             const NativeWindowHandle handle = native_window_handle(*world_, window);
             if (handle.kind != NativeWindowHandle::Kind::none) {
-                auto surface = device_->create_surface(handle);
+                auto surface = device_->create_surface(handle, {handle.width, handle.height, project.window.vsync});
                 if (!surface) {
                     return std::unexpected(surface.error());
                 }
+                surface_ = *surface;
                 log::debug("engine", "platform produced a valid native window handle; RHI surface {} created",
                            surface->value);
             }
@@ -238,6 +246,10 @@ Result<> Engine::init() {
         },
         [this] {
             services_.revoke<rhi::Device>();
+            if (surface_.is_valid()) {
+                device_->destroy_surface(surface_);
+                surface_ = {};
+            }
             device_.reset();
         });
     if (!step) {
@@ -248,9 +260,13 @@ Result<> Engine::init() {
         "render",
         [&]() -> Result<std::string> {
             renderer_ = std::make_unique<render::Renderer>(*device_);
+            if (surface_.is_valid()) {
+                const NativeWindowHandle handle = native_window_handle(*world_, world_->lookup("primary_window"));
+                renderer_->set_surface(surface_, handle.width, handle.height);
+            }
             services_.provide<render::Renderer>(*renderer_);
             world_->import<render::RenderModule>();
-            return std::string("placeholder, extraction only");
+            return std::string("render graph; extraction is the only ECS crossing");
         },
         [this] {
             services_.revoke<render::Renderer>();
@@ -322,6 +338,9 @@ bool Engine::frame() {
 
     ++frame_;
     world_->get_mut<Time>().frame = frame_;
+    if (!config_.screenshot.empty() && frame_ == project.frames) {
+        renderer_->request_screenshot(config_.screenshot);
+    }
     world_->frame_begin(static_cast<float>(frame_delta));
 
     run_phase(PhaseId::input, frame_delta);
@@ -393,6 +412,17 @@ int Engine::run() {
         shutdown();
         return 1;
     }
+    if (!config_.write_types.empty()) {
+        const std::string types = generate_luau_types(*world_);
+        auto written = fs::write_file(config_.write_types, types);
+        if (!written) {
+            log::error("engine", written.error());
+        } else {
+            log::info("engine", "wrote Luau types to {}", config_.write_types.generic_string());
+        }
+        shutdown();
+        return written ? 0 : 1;
+    }
     if (auto started = start(); !started) {
         log::error("engine", started.error());
         shutdown();
@@ -400,7 +430,7 @@ int Engine::run() {
     }
     while (frame()) {
     }
-    const std::uint64_t errors = errors_;
+    const std::uint64_t errors = errors_.load();
     shutdown();
     if (errors > 0) {
         std::fprintf(stdout, "%s: %llu error%s logged; exit code 1\n", config_.app.name.c_str(),

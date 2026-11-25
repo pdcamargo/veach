@@ -20,6 +20,9 @@
 #include <veach/ecs/services.hpp>
 #include <veach/runtime/config.hpp>
 
+#include <veach/rhi/types.hpp>
+
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -75,7 +78,7 @@ public:
     [[nodiscard]] Services& services() { return services_; }
     [[nodiscard]] const EngineConfig& config() const { return config_; }
     [[nodiscard]] std::uint64_t frame_count() const { return frame_; }
-    [[nodiscard]] std::uint64_t error_count() const { return errors_; }
+    [[nodiscard]] std::uint64_t error_count() const { return errors_.load(); }
 
 private:
     struct Step {
@@ -106,7 +109,8 @@ private:
     std::uint64_t frame_ = 0;
     std::uint64_t fixed_steps_ = 0;
     double last_frame_time_ = 0.0;
-    std::uint64_t errors_ = 0;
+    std::atomic<std::uint64_t> errors_{0};  ///< GPU errors are logged from Metal's completion thread
+    rhi::SurfaceId surface_;
     std::uint32_t error_sink_ = 0;
 };
 

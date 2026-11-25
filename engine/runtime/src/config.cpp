@@ -29,6 +29,8 @@ struct CliOverrides {
     bool rest = false;
     bool help = false;
     bool wait_for_profiler = false;
+    std::optional<std::string> screenshot;
+    std::optional<std::string> write_types;
 };
 
 const std::vector<std::string>& known_flags() {
@@ -140,6 +142,12 @@ Result<CliOverrides> parse_args(std::span<const std::string_view> args) {
             if (!found) {
                 return invalid(flag, *v, "null, metal or dx12");
             }
+        } else if (flag == "--screenshot" || flag == "--write-types") {
+            auto v = value();
+            if (!v) {
+                return std::unexpected(v.error());
+            }
+            (flag == "--screenshot" ? cli.screenshot : cli.write_types) = std::string(*v);
         } else if (flag == "--project" || flag == "--script") {
             auto v = value();
             if (!v) {
@@ -206,6 +214,12 @@ Result<EngineConfig> resolve_config(const AppInfo& app, std::span<const std::str
     config.app = app;
     config.show_help = cli->help;
     config.wait_for_profiler = cli->wait_for_profiler;
+    if (cli->screenshot) {
+        config.screenshot = std::filesystem::absolute(*cli->screenshot);
+    }
+    if (cli->write_types) {
+        config.write_types = std::filesystem::absolute(*cli->write_types);
+    }
 
     namespace stdfs = std::filesystem;
     if (cli->project) {
@@ -273,6 +287,8 @@ Core flags (every Veach app accepts these; they override veach.project.json):
   --rhi null|metal|dx12   GPU backend (default: null).
   --rest                  Serve the Flecs explorer API on http://localhost:27750.
   --wait-for-profiler     Profile builds: wait (up to 30 s) for a Tracy capture to connect before init.
+  --screenshot PATH       Write the last frame as a PNG (needs --frames N and --rhi metal). Works headless.
+  --write-types PATH      Write this app's veach.d.luau (engine + app modules) and exit.
   --help                  Show this text.
 
 Exit code: 0 when the run logged no errors, 1 otherwise.

@@ -102,6 +102,7 @@ if(APPLE)
         VERBATIM)
 elseif(WIN32)
     veach_golden_test("golden: background (dx12)" hello background dx12)
+    veach_golden_test("golden: triangle (raster, dx12)" triangle_raster triangle_raster dx12)
 endif()
 # Same triangle, two renderers: the committed goldens must agree with each other (no GPU needed).
 add_test(NAME "golden: raster and ray-traced goldens agree"

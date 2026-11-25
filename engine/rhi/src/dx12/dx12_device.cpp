@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <array>
+#include <climits>
 #include <cstring>
 #include <format>
 #include <memory>
@@ -293,6 +294,11 @@ struct Dx12Sampler {
     std::uint32_t index = 0;
 };
 
+struct Dx12Pipeline {
+    ComPtr<ID3D12PipelineState> state;
+    bool compute = false;
+};
+
 class Dx12Device;
 
 class Dx12CommandList final : public CommandList {
@@ -309,9 +315,11 @@ public:
     void end_render_pass() override { pop_debug_group(); }
     void begin_compute_pass(std::string_view) override { not_implemented("begin_compute_pass"); }
     void end_compute_pass() override {}
-    void set_pipeline(PipelineHandle) override { not_implemented("set_pipeline"); }
-    void set_parameters(const void*, std::size_t) override { not_implemented("set_parameters"); }
-    void draw(std::uint32_t, std::uint32_t, std::uint32_t) override { not_implemented("draw"); }
+    void set_pipeline(PipelineHandle pipeline) override;
+    void set_parameters(const void* data, std::size_t size) override;
+    void draw(std::uint32_t vertex_count, std::uint32_t instance_count, std::uint32_t first_vertex) override {
+        recorder_->list->DrawInstanced(vertex_count, instance_count, first_vertex, 0);
+    }
     void dispatch(std::uint32_t, std::uint32_t, std::uint32_t) override { not_implemented("dispatch"); }
     void build_blas(AccelHandle) override { not_implemented("build_blas"); }
     void refit_blas(AccelHandle) override { not_implemented("refit_blas"); }
@@ -335,6 +343,7 @@ public:
 private:
     Dx12Device& device_;
     std::unique_ptr<Recorder> recorder_;
+    bool compute_pass_ = false;  ///< root constants go to the graphics or the compute slot
 };
 
 class Dx12Device final : public Device {
@@ -394,7 +403,7 @@ public:
             FAILED(hr)) {
             return gpu_error("creating the RTV heap", hr);
         }
-        return {};
+        return create_root_signature();
     }
 
     [[nodiscard]] Backend backend() const override { return Backend::dx12; }
@@ -534,10 +543,59 @@ public:
         return samplers_.insert({index});
     }
 
-    // TODO(VCH-012): pipelines, acceleration structures and surfaces (steps 4, 5 and 8).
-    [[nodiscard]] Result<PipelineHandle> create_graphics_pipeline(const GraphicsPipelineDesc&) override {
-        return stub("create_graphics_pipeline");
+    // ---- pipelines: DXIL from the embedded ShaderLibrary, one global root signature (ADR 0024)
+
+    [[nodiscard]] Result<PipelineHandle> create_graphics_pipeline(const GraphicsPipelineDesc& desc) override {
+        auto vs = dxil(desc.library, desc.vertex_entry);
+        if (!vs) {
+            return std::unexpected(vs.error());
+        }
+        auto fs = dxil(desc.library, desc.fragment_entry);
+        if (!fs) {
+            return std::unexpected(fs.error());
+        }
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC d{};
+        d.pRootSignature = root_signature_.Get();
+        d.VS = {vs->data(), vs->size()};
+        d.PS = {fs->data(), fs->size()};
+        for (std::size_t i = 0; i < desc.color_formats.size() && desc.color_formats.at(i) != Format::undefined; ++i) {
+            d.RTVFormats[i] = to_dxgi(desc.color_formats.at(i));
+            D3D12_RENDER_TARGET_BLEND_DESC& blend = d.BlendState.RenderTarget[i];
+            blend.SrcBlend = D3D12_BLEND_ONE;
+            blend.DestBlend = D3D12_BLEND_ZERO;
+            blend.BlendOp = D3D12_BLEND_OP_ADD;
+            blend.SrcBlendAlpha = D3D12_BLEND_ONE;
+            blend.DestBlendAlpha = D3D12_BLEND_ZERO;
+            blend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+            blend.LogicOp = D3D12_LOGIC_OP_NOOP;
+            blend.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+            ++d.NumRenderTargets;
+        }
+        d.SampleMask = UINT_MAX;
+        d.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+        d.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;  // Metal's default: nothing is culled
+        d.RasterizerState.DepthClipEnable = TRUE;
+        if (desc.depth_format != Format::undefined) {
+            d.DSVFormat = to_dxgi(desc.depth_format);
+            d.DepthStencilState.DepthEnable = TRUE;
+            d.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+            d.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_GREATER_EQUAL;  // reverse-Z (conventions.md)
+        }
+        const D3D12_DEPTH_STENCILOP_DESC keep{D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP,
+                                              D3D12_COMPARISON_FUNC_ALWAYS};
+        d.DepthStencilState.FrontFace = keep;
+        d.DepthStencilState.BackFace = keep;
+        d.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        d.SampleDesc.Count = 1;
+        Dx12Pipeline pipeline;
+        if (const HRESULT hr = device_->CreateGraphicsPipelineState(&d, IID_PPV_ARGS(&pipeline.state)); FAILED(hr)) {
+            return gpu_error(std::format("graphics pipeline '{}'", desc.debug_name), hr);
+        }
+        set_name(pipeline.state.Get(), desc.debug_name);
+        return pipelines_.insert(std::move(pipeline));
     }
+
+    // TODO(VCH-012): compute pipelines, acceleration structures and surfaces (steps 5 and 8).
     [[nodiscard]] Result<PipelineHandle> create_compute_pipeline(const ComputePipelineDesc&) override {
         return stub("create_compute_pipeline");
     }
@@ -546,7 +604,7 @@ public:
     void destroy(BufferHandle h) override { retire(buffers_, h); }
     void destroy(TextureHandle h) override { retire(textures_, h); }
     void destroy(SamplerHandle h) override { retire(samplers_, h); }
-    void destroy(PipelineHandle) override {}
+    void destroy(PipelineHandle h) override { retire(pipelines_, h); }
     void destroy(AccelHandle) override {}
 
     [[nodiscard]] void* map(BufferHandle h) override {
@@ -601,6 +659,9 @@ public:
         }
         std::array<ID3D12DescriptorHeap*, 2> heaps{view_heap_.get(), sampler_heap_.get()};
         recorder->list->SetDescriptorHeaps(static_cast<UINT>(heaps.size()), heaps.data());
+        // After SetDescriptorHeaps: directly indexed heaps require that order.
+        recorder->list->SetGraphicsRootSignature(root_signature_.Get());
+        recorder->list->SetComputeRootSignature(root_signature_.Get());
         auto list = std::make_unique<Dx12CommandList>(*this, std::move(recorder));
         list->push_debug_group(debug_name);
         return list;
@@ -647,6 +708,7 @@ public:
     // Used by Dx12CommandList.
     Dx12Buffer* buffer(BufferHandle h) { return buffers_.get(h); }
     Dx12Texture* texture(TextureHandle h) { return textures_.get(h); }
+    Dx12Pipeline* pipeline(PipelineHandle h) { return pipelines_.get(h); }
     [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE rtv(std::uint32_t index) const { return rtv_heap_.cpu(index); }
     ID3D12Resource* resource(ResourceRef r) {
         switch (r.kind) {
@@ -786,6 +848,53 @@ private:
         rtv_heap_.release(t.rtv);
     }
     void free_descriptors(const Dx12Sampler& s) { sampler_heap_.release(s.index); }
+    void free_descriptors(const Dx12Pipeline& /*pipeline*/) const {}
+
+    /// 64 root-constant DWORDs at b0 (the Slang parameter block) and both heaps directly indexed (ADR 0024).
+    Result<> create_root_signature() {
+        D3D12_ROOT_PARAMETER1 constants{};
+        constants.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        constants.Constants.ShaderRegister = 0;
+        constants.Constants.RegisterSpace = 0;
+        constants.Constants.Num32BitValues = static_cast<UINT>(max_parameter_bytes / 4);
+        constants.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        D3D12_VERSIONED_ROOT_SIGNATURE_DESC desc{};
+        desc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
+        desc.Desc_1_1.NumParameters = 1;
+        desc.Desc_1_1.pParameters = &constants;
+        desc.Desc_1_1.Flags = D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED |
+                              D3D12_ROOT_SIGNATURE_FLAG_SAMPLER_HEAP_DIRECTLY_INDEXED;
+        ComPtr<ID3DBlob> blob;
+        ComPtr<ID3DBlob> errors;
+        if (const HRESULT hr = D3D12SerializeVersionedRootSignature(&desc, &blob, &errors); FAILED(hr)) {
+            return make_error(ErrorCode::rhi_gpu_error,
+                              std::format("D3D12: serializing the root signature failed ({}): {}", hresult(hr),
+                                          errors ? static_cast<const char*>(errors->GetBufferPointer()) : ""));
+        }
+        if (const HRESULT hr = device_->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(),
+                                                            IID_PPV_ARGS(&root_signature_));
+            FAILED(hr)) {
+            return gpu_error("CreateRootSignature", hr);
+        }
+        return {};
+    }
+
+    /// The DXIL of one entry point (cmake/VeachShaders.cmake compiles it on every Windows build).
+    static Result<std::span<const std::uint8_t>> dxil(const ShaderLibrary* library, std::string_view entry) {
+        const ShaderEntry* e = library ? library->find(entry) : nullptr;
+        if (e == nullptr) {
+            return make_error(
+                ErrorCode::rhi_backend_unavailable,
+                std::format("shader library '{}' has no entry point '{}'", library ? library->name : "(null)", entry),
+                "Check the ENTRIES list passed to veach_add_shader().");
+        }
+        if (e->dxil.empty()) {
+            return make_error(ErrorCode::rhi_not_implemented,
+                              std::format("shader '{}' entry '{}' has no DXIL", library->name, entry),
+                              "Compile it with veach_add_shader() on Windows (docs/adr/0026-shader-compilation.md).");
+        }
+        return e->dxil;
+    }
 
     /// The handle dies now; the D3D12 object and its descriptor slots once the GPU is done with them (ADR 0029).
     template <class Map, class H>
@@ -868,6 +977,8 @@ private:
     SlotMap<Dx12Buffer, BufferHandle> buffers_;
     SlotMap<Dx12Texture, TextureHandle> textures_;
     SlotMap<Dx12Sampler, SamplerHandle> samplers_;
+    SlotMap<Dx12Pipeline, PipelineHandle> pipelines_;
+    ComPtr<ID3D12RootSignature> root_signature_;
     bool device_removed_reported_ = false;
 };
 
@@ -875,6 +986,7 @@ private:
 
 void Dx12CommandList::begin_render_pass(const RenderPassDesc& desc) {
     push_debug_group(desc.debug_name);
+    compute_pass_ = false;
     ID3D12GraphicsCommandList7* list = recorder_->list.Get();
     std::array<D3D12_CPU_DESCRIPTOR_HANDLE, 4> targets{};
     std::uint32_t width = 0;
@@ -898,6 +1010,25 @@ void Dx12CommandList::begin_render_pass(const RenderPassDesc& desc) {
     list->RSSetViewports(1, &viewport);
     list->RSSetScissorRects(1, &scissor);
     list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+}
+
+void Dx12CommandList::set_pipeline(PipelineHandle handle) {
+    Dx12Pipeline* p = device_.pipeline(handle);
+    VEACH_ASSERT(p != nullptr, "set_pipeline: invalid pipeline");
+    VEACH_ASSERT(p->compute == compute_pass_, "set_pipeline: pipeline kind does not match the current pass");
+    recorder_->list->SetPipelineState(p->state.Get());
+}
+
+void Dx12CommandList::set_parameters(const void* data, std::size_t size) {
+    VEACH_ASSERT(size <= max_parameter_bytes, "parameter block of {} bytes exceeds {}", size, max_parameter_bytes);
+    std::array<std::uint32_t, max_parameter_bytes / 4> constants{};
+    std::memcpy(constants.data(), data, size);
+    const auto count = static_cast<UINT>((size + 3) / 4);
+    if (compute_pass_) {
+        recorder_->list->SetComputeRoot32BitConstants(0, count, constants.data(), 0);
+    } else {
+        recorder_->list->SetGraphicsRoot32BitConstants(0, count, constants.data(), 0);
+    }
 }
 
 void Dx12CommandList::barrier(std::span<const Barrier> barriers) {

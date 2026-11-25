@@ -1,6 +1,6 @@
 # Real-time renderer v0
 
-**Status:** Implemented (frame times pending)
+**Status:** Implemented
 **Area:** render, asset, rhi
 **Owner:** dev lead
 
@@ -112,7 +112,19 @@ which 4 light samples per pixel resolve poorly. With more samples the error fall
 shadow ray kept its unpushed direction, so its end moved into close, oblique emitters (fixed in 445eb92; the
 path tracer's goldens changed with it). The denoiser (VCH-022) is what lowers the default-sample error.
 
-**Frame times at 1440p (rt.AC9):** pending a quiet machine; filled in with `tools/bench/frame_times.py`.
+**Frame times at 1440p (rt.AC9),** `tools/bench/frame_times.py --preset release`, Metal on the M5 Max, on a quiet
+machine: GPU time per frame over 120 frames after 30 of warm-up. Passes under 0.05 ms are left out (the Cornell
+box's visibility pass).
+
+| Scene | Frame (median) | Frame (p95) | Passes (median ms) |
+|---|---|---|---|
+| Cornell box | 3.62 ms | 3.82 ms | build TLAS 0.06, shade 3.35, display 0.10 |
+| FlightHelmet | 1.16 ms | 1.48 ms | visibility 0.08, build TLAS 0.06, shade 0.93, display 0.06 |
+| Sponza (Intel) | 15.62 ms | 16.41 ms | visibility 1.22, build TLAS 0.11, shade 14.14, display 0.06 |
+| Bistro (exterior) | 38.92 ms | 39.40 ms | visibility 1.73, build TLAS 0.18, shade 36.79, display 0.07 |
+
+The shade pass is 90-95% of every frame: it traces the light samples' shadow rays and the AO rays. Visibility is
+cheap even on Bistro, so the next speed-up is in what shading traces, not in geometry.
 
 ## Links
 

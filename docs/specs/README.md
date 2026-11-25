@@ -21,5 +21,5 @@ acceptance criteria (`[area.ACn] ...`) → status Implemented.
 | [Input actions in Luau](input/spec.md) | script | Implemented |
 | [Hot reload](hot-reload/spec.md) | asset | Implemented |
 | [First real scene](first-real-scene/spec.md) | render, asset | Implemented |
-| [Real-time renderer v0](realtime-renderer-v0/spec.md) | render, asset, rhi | Draft |
+| [Real-time renderer v0](realtime-renderer-v0/spec.md) | render, asset, rhi | Implemented |
 | [Record and replay](record-replay/spec.md) | runtime | Implemented |

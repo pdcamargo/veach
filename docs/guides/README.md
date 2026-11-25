@@ -7,5 +7,6 @@
 - [flecs-v4/README.md](flecs-v4/README.md) — Flecs v4.2 idioms used in Veach and the v3 → v4 traps; vendored upstream docs in [flecs-v4/upstream/](flecs-v4/upstream/README.md).
 - [profiling.md](profiling.md) — Tracy zones, headless capture and reading traces as CSV.
 - [writing-specs.md](writing-specs.md) — when and how to write a spec, acceptance-criteria ids, status flow.
+- [rendering.md](rendering.md): render features, shaders (Slang), the render graph, screenshots and golden images.
 
 See also: [../reference/errors.md](../reference/errors.md) (every error code), [../ARCHITECTURE.md](../ARCHITECTURE.md), [../adr/](../adr/), [../specs/](../specs/).

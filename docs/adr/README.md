@@ -36,3 +36,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0024 | [Resource binding model (bindless)](0024-resource-binding-model.md)      | Accepted |
 | 0025 | [Synchronization and barrier model](0025-sync-and-barrier-model.md)      | Accepted |
 | 0026 | [Shader compilation](0026-shader-compilation.md)                         | Accepted |
+| 0027 | [Image I/O and perceptual comparison](0027-image-io-and-comparison.md)    | Accepted |

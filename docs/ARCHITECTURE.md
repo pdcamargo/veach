@@ -51,8 +51,8 @@ flowchart BT
     platform["platform: SDL3 / headless, Window, Input, fs, clock"]
     asset["asset: AssetServer, Handle, loaders, .meta"]
     script["script: Luau VM, @veach bindings, type generator"]
-    rhi["rhi: Device interface; null, metal, dx12"]
-    render["render: Renderer, RenderWorld, extraction"]
+    rhi["rhi: Device, CommandList, bindless handles; null, metal, dx12 stub"]
+    render["render: Renderer, RenderGraph, features, extraction"]
     runtime["runtime: Engine, config, main loop"]
     ecs --> core
     platform --> ecs
@@ -123,6 +123,18 @@ flowchart LR
 Extractors are registered by modules (`Renderer::add_extractor`) and are the only code that reads the ECS on
 the renderer's behalf. The renderer never reads the ECS outside Extract, and gameplay never sees `RenderWorld`.
 
+In the Render phase the renderer builds a **render graph** for the frame:
+
+1. a clear of the scene color;
+2. every registered `RenderFeature`'s passes;
+3. present to the swapchain, and a screenshot readback when requested.
+
+Passes declare every resource access. The graph derives execution order, culls unused passes, and emits
+barriers and residency ([ADR 0025](adr/0025-sync-and-barrier-model.md)). Shaders reach resources through
+bindless `DescriptorHandle`s in a small parameter block ([ADR 0024](adr/0024-resource-binding-model.md)), and
+are compiled from Slang at build time for every target ([ADR 0026](adr/0026-shader-compilation.md)). Guide:
+[rendering](guides/rendering.md).
+
 ## Scripting boundary
 
 Luau scripts see only `require("@veach")`. Every invocation (a script's top level, or one run of a script
@@ -136,7 +148,8 @@ Single-threaded today: the main thread runs the loop, all phases and all scripts
 Taskflow, decided by ADR in VCH-015) arrives later, and Flecs worker threads will be hooked into it rather than
 spawning their own. Asset loaders are written to be thread-safe from the start: they never touch the world.
 Until then, script systems are `immediate()` and apply their command buffers directly after collecting their
-batch.
+batch. The GPU runs one frame behind at most: the renderer waits for the previous submission before recording.
+GPU error callbacks arrive on Metal's thread, which is why the log and the engine's error counter are thread-safe.
 
 ## Where things live
 

@@ -7,18 +7,21 @@ hardware raytracing as the baseline, and for AI agents as first-class users. Age
 text formats, reflection everywhere, strictly typed Luau scripting, actionable errors, and deterministic
 headless runs that verify their own work.
 
-> **Status:** foundation. The engine boots, runs Luau gameplay scripts, opens windows and hands a native surface
-> to the RHI. There is no renderer yet. See the [roadmap](docs/VISION.md#roadmap) and [backlog](docs/backlog/BACKLOG.md).
+> **Status:** first light. The engine runs Luau gameplay scripts, renders through a Metal RHI and a render graph,
+> and draws its first image twice: rasterized, and ray traced with ray queries against a TLAS. Golden-image tests
+> keep both honest. See the [roadmap](docs/VISION.md#roadmap) and [backlog](docs/backlog/BACKLOG.md).
 
 ## Quick start
 
-Requirements: CMake ≥ 3.28, Ninja, Apple Clang (macOS, Apple Silicon) or Visual Studio 2022 (Windows, from a
+Requirements: CMake ≥ 3.29, Ninja, Xcode (macOS, Apple Silicon; it ships the Metal shader compiler), Git LFS, or
+Visual Studio 2022 (Windows, from a
 Developer prompt). Dependencies are fetched and pinned automatically.
 
 ```sh
 cmake --workflow --preset debug                 # configure, build, run all tests
 build/debug/apps/lab/veach-lab --script scripts/hello.luau --frames 3 --headless
-build/debug/apps/lab/veach-lab --window         # an empty window, driven by the Window component
+build/debug/apps/lab/veach-lab --window         # a window, driven by the Window component
+build/debug/apps/lab/veach-lab --window --rhi metal --script scripts/triangle_raytraced.luau   # first light (M1+)
 ```
 
 ```
@@ -83,7 +86,8 @@ int main(int argc, char** argv) {
 [Flecs](https://github.com/SanderMertens/flecs) (ECS), [Luau](https://luau.org) (scripting),
 [SDL3](https://libsdl.org) (windowing and input), [glm](https://github.com/g-truc/glm),
 [nlohmann/json](https://github.com/nlohmann/json), [Tracy](https://github.com/wolfpld/tracy) and
-[doctest](https://github.com/doctest/doctest). Planned: Slang, Box3D, fastgltf. Licenses:
+[doctest](https://github.com/doctest/doctest), [Slang](https://shader-slang.org) (shaders, build time),
+[stb](https://github.com/nothings/stb) and [NVIDIA FLIP](https://github.com/NVlabs/flip). Planned: Box3D, fastgltf. Licenses:
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## License

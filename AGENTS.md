@@ -30,11 +30,15 @@ build/debug/tools/veach-cli/veach types --out types/veach.d.luau    # after chan
 build/debug/tools/veach-cli/veach schemas --out schemas             # after changing ProjectConfig or AssetMeta
 build/debug/_deps/luau-build/luau-analyze apps/lab/scripts/*.luau   # strict type-check scripts
 python3 tools/scripts/check_repo.py                      # TODO ids, no flecs:: in apps/, CLAUDE.md
+build/debug/apps/lab/veach-lab --rhi metal --headless --frames 3 --script scripts/triangle_raytraced.luau --screenshot out.png
+build/debug/tools/veach-cli/veach imgdiff tests/golden/triangle_raytraced.png out.png   # perceptual (FLIP) compare
+cmake --build --preset debug --target update-goldens     # regenerate golden images ON PURPOSE, then inspect them
 clang-format -i <files>                                  # LLVM 23; a Claude hook formats edited files
 ```
 
 Every app takes `--headless --window --frames N --seed N --log-format human|json --log-level L --project P
---script S --rhi null|metal|dx12 --rest --wait-for-profiler --help`. **Exit code 0 means nothing was logged at error level.** Verify
+--script S --rhi null|metal|dx12 --rest --wait-for-profiler --screenshot PATH --write-types PATH --help`.
+**Exit code 0 means nothing was logged at error level**, GPU validation and GPU errors included. Verify
 your work headless with `--frames` and check the exit code and log. Profiling: [docs/guides/profiling.md](docs/guides/profiling.md).
 Building details: [docs/guides/building.md](docs/guides/building.md).
 
@@ -49,6 +53,10 @@ Building details: [docs/guides/building.md](docs/guides/building.md).
 - **Luau is `--!strict`, always.** Scripts see only `require("@veach")`. API: [docs/guides/luau-api.md](docs/guides/luau-api.md).
 - **Never touch renderer internals from gameplay.** Gameplay writes components; the renderer reads them only
   in the Extract phase. No GPU handles in components.
+- **Rendering goes through the render graph.** Declare every resource a pass touches; never issue barriers by
+  hand. Shaders are Slang only, and resources are reached through `DescriptorHandle`s
+  ([docs/guides/rendering.md](docs/guides/rendering.md)). Check visual changes with `--screenshot` and look at
+  the image. Golden tests skip on GPUs without Metal 3 or ray tracing, so a skip is not a pass.
 - **Never own the loop.** No `progress()`, no new worlds, pipelines or threads in user code. Attach systems to phases.
 - **Determinism.** Simulation uses `veach::Time` (fixed 1/60 s) and `veach::Random`. Never use wall-clock
   time or `rand()` in simulation.

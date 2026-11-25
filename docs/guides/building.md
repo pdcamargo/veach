@@ -6,12 +6,15 @@ Decisions behind this: [ADR 0001](../adr/0001-language-and-build-system.md) (C++
 
 | | macOS (Apple Silicon) | Windows |
 |---|---|---|
-| Compiler | Apple Clang from Xcode or the Command Line Tools | MSVC from Visual Studio 2022; build from a **Developer PowerShell / x64 Native Tools prompt** so `cl` and Ninja are on `PATH` |
-| CMake | ≥ 3.28 | ≥ 3.28 |
+| Compiler | Apple Clang from **Xcode** (the Metal shader compiler ships with Xcode, not with the Command Line Tools) | MSVC from Visual Studio 2022; build from a **Developer PowerShell / x64 Native Tools prompt** so `cl` and Ninja are on `PATH` |
+| CMake | ≥ 3.29 | ≥ 3.29 |
 | Generator | Ninja | Ninja |
+| Git | with **Git LFS** (`git lfs install`): golden images live in LFS | same |
+| GPU | Metal 3 with ray tracing (Apple M1 or newer) to run the GPU golden tests; they skip otherwise | DX12 is a stub; nothing GPU-side runs yet |
 | Optional | `ccache` (used automatically when found), Python 3 (repo hygiene test) | same |
 
-Dependencies are downloaded by CMake on first configure (see [CPM cache](#dependency-cache)); nothing else needs installing.
+Dependencies are downloaded by CMake on first configure (see [CPM cache](#dependency-cache)). That includes the Slang
+shader compiler (prebuilt, macOS and Windows) and, on Windows, DXC. Nothing else needs installing.
 
 ## Presets
 
@@ -96,6 +99,19 @@ build/debug/tools/veach-cli/veach schemas --out schemas
 ```
 
 `--check <path>` instead of `--out` exits 1 if the file on disk is stale (what CTest runs).
+
+## Golden images
+
+`ctest` runs `golden: ...` tests on macOS: the lab renders with `--screenshot`, and `veach imgdiff` (NVIDIA FLIP)
+compares the result with `tests/golden/*.png`. They report **SKIPPED** on GPUs without Metal 3 and ray tracing
+(for example GitHub's hosted runners). Set `VEACH_REQUIRE_GPU=1` to make that a failure. To regenerate goldens
+on purpose:
+
+```sh
+cmake --build --preset debug --target update-goldens   # then look at tests/golden/*.png before committing
+```
+
+Details: [rendering guide](rendering.md).
 
 ## Formatting
 

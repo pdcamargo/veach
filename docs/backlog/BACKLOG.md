@@ -5,7 +5,7 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 ## Now
 
 - **VCH-002** Windows bring-up — *platform* — Build and run on real Windows hardware: SDL window, HWND handle reaching the RHI, MSVC warnings clean, DX12 stub selected with `--rhi dx12`. CI already builds and tests Windows headless. [ADR](../adr/0002-target-platforms-and-hardware.md)
-- **VCH-010** Render graph and Metal RHI resources — *render* — Swapchain present on Metal, bindless resource model, command recording, a render graph with passes registered by modules. First milestone: clear plus one triangle, captured by a golden-image test (VCH-013). [ADR](../adr/0009-rhi-design.md)
+- **VCH-044** GPU runner for CI — *process* — GitHub's hosted macOS runners have a paravirtual GPU (no Metal 3, no ray tracing), so the golden-image tests skip there. Add a runner with a real Apple GPU (self-hosted on an M-series Mac, restricted to `main`, or a paid GPU-capable hosted runner) and set `VEACH_REQUIRE_GPU=1` on it. Needs the product owner's decision. [spec](../specs/first-light/spec.md)
 
 ## Next
 
@@ -15,9 +15,9 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 - **VCH-006** Input in Luau and data-driven bindings — *script* — `veach.input.pressed("jump")`, `down`, `released`; action bindings in `veach.project.json` (`"input": {"jump": ["space", "w"]}`), reflected and schema-validated.
 - **VCH-007** Transforms and hierarchy — *ecs* — `Transform`/`GlobalTransform` components (glTF conventions), TransformPropagation system, and parent/child exposed to Luau (`veach.spawn{ parent = e }`, `e:parent()`, `e:children()`). Other relationships stay hidden from scripts.
 - **VCH-011** Views and cameras — *render* — `Camera` component (reverse-Z perspective via `veach::math`), extracted into `RenderWorld` views. Gameplay never touches GPU handles.
-- **VCH-012** DX12 backend — *rhi* — `ID3D12Device` creation (DXR 1.1 required), DXGI swapchain from the HWND, capability reporting. Same `rhi::Device` interface as Metal. [ADR](../adr/0009-rhi-design.md)
-- **VCH-013** Golden-image tests — *tools* — Headless render to an image, compared against LFS-stored goldens in `tests/golden/` with a perceptual tolerance. Diff images written on failure.
-- **VCH-009** Slang shader pipeline — *render* — Compile Slang to MSL and DXIL at build time and at runtime (for hot reload). Shader reflection feeds the bindless layout. [ADR](../adr/0003-shaders-slang.md)
+- **VCH-012** DX12 backend — *rhi* — Implement the stub `Dx12Device` (it already compiles against the full interface): ID3D12Device with DXR 1.1 and SM 6.6, enhanced barriers mapped from `ResourceState`, a shader-visible CBV/SRV/UAV heap plus a sampler heap for bindless descriptors, root constants for parameter blocks, a DXGI swapchain from the HWND, and readback. Shaders already compile to DXIL. [ADR 0024](../adr/0024-resource-binding-model.md), [ADR 0025](../adr/0025-sync-and-barrier-model.md)
+- **VCH-009** Runtime shader compilation — *render* — Build-time Slang → metallib/DXIL exists ([ADR 0026](../adr/0026-shader-compilation.md)). Add libslang at run time for shader hot reload, and a pipeline cache.
+- **VCH-045** Multiple frames in flight — *render* — The renderer waits for the previous frame before recording the next. Allow two frames in flight, with per-frame upload, instance and parameter buffers.
 
 ## Later
 
@@ -53,5 +53,8 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 - **VCH-039** Windows ASan in CI — *process* — MSVC `/fsanitize=address` job (MSVC has no UBSan).
 
 ## Done
+
+- **VCH-010** First light: RHI v0 and render graph v0 — *render* — Metal backend with buffers, textures, samplers, graphics and compute pipelines, BLAS/TLAS build and refit, swapchain, offscreen targets, readback, Metal validation in debug, and GPU errors logged at error level. Bindless through `DescriptorHandle`. The render graph derives order, culling and barriers. A rasterized triangle and a ray-query triangle. [spec](../specs/first-light/spec.md)
+- **VCH-013** Golden-image tests — *tools* — `--screenshot`, `veach imgdiff` (NVIDIA FLIP), goldens in Git LFS, an `update-goldens` target, and a skip on unsupported GPUs (`VEACH_REQUIRE_GPU=1` makes it a failure). [spec](../specs/first-light/spec.md)
 
 - **VCH-001** Repository bootstrap — *process* — Skeleton engine: init/shutdown order, fixed phases, Flecs barrel, reflection everywhere, command buffer, Luau API v0 with generated types, asset system with `.meta` ids, SDL3 and headless platforms, null/Metal/DX12-stub RHI, extraction boundary, the lab hello world, CI, and the docs and process files. [specs](../specs/README.md)

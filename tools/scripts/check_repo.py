@@ -26,6 +26,12 @@ REFERENCE = re.compile(r"\b(?:TODO|FIXME|XXX|HACK)\(VCH-(\d{3,})\)")
 SELF = pathlib.Path(__file__).resolve()
 
 
+def hidden_or_build(path: pathlib.Path) -> bool:
+    """Dependencies, build trees and hidden directories (agent worktrees under .claude/) are not ours to check."""
+    parts = path.relative_to(ROOT).parts
+    return "build" in parts or any(p.startswith(".") for p in parts)
+
+
 def code_files():
     for top in CODE_DIRS:
         base = ROOT / top
@@ -58,7 +64,7 @@ def main() -> int:
     cpp_sources = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in code_files()
                              if p.suffix in {".cpp", ".mm", ".hpp"})
     for shader in sorted(ROOT.glob("**/shaders/*.slang")):
-        if ".cpm-cache" in shader.parts or "build" in shader.parts:
+        if hidden_or_build(shader):
             continue
         if "ConstantBuffer<" in shader.read_text(encoding="utf-8") and \
                 not re.search(r"layout::" + re.escape(shader.stem) + r"\b", cpp_sources):
@@ -66,7 +72,7 @@ def main() -> int:
                           f"static_assert(veach::rhi::parameters_match<T>(<namespace>::layout::{shader.stem}, {{...}}))")
 
     for shader in sorted(ROOT.glob("**/*.slang")):
-        if ".cpm-cache" in shader.parts or "build" in shader.parts or shader.name == "bindless.slang":
+        if hidden_or_build(shader) or shader.name == "bindless.slang":
             continue
         text = shader.read_text(encoding="utf-8")
         if "DescriptorHandle" in text and not re.search(r"^import veach\.bindless;", text, re.MULTILINE):

@@ -19,3 +19,6 @@ trace*.csv
 
 # Cooked asset cache (ADR 0032): rebuilt from sources, never committed
 .veach/
+
+# Agent worktrees (Claude Code isolation)
+.claude/worktrees/

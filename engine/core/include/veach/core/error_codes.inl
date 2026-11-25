@@ -56,3 +56,4 @@ VEACH_ERROR(rhi_gpu_error, "rhi.gpu_error", "The GPU reported an error while exe
 VEACH_ERROR(render_screenshot_failed, "render.screenshot_failed", "A screenshot could not be captured or written")
 VEACH_ERROR(render_graph_invalid, "render.graph_invalid", "A render graph pass declared an impossible resource access")
 VEACH_ERROR(rhi_invalid_surface, "rhi.invalid_surface", "The native window handle given to the RHI is invalid")
+VEACH_ERROR(rhi_invalid_texture, "rhi.invalid_texture", "A texture description cannot be created on every backend")

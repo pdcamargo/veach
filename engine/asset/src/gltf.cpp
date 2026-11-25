@@ -24,7 +24,7 @@ namespace veach {
 
 namespace {
 
-constexpr std::uint32_t cooker_version = 1;        ///< bump when cooked data changes, to invalidate every cache entry
+constexpr std::uint32_t cooker_version = 2;        ///< bump when cooked data changes, to invalidate every cache entry
 constexpr std::uint32_t vmesh_magic = 0x48534D56;  // "VMSH"
 constexpr std::uint32_t vmesh_version = 1;
 

@@ -87,7 +87,8 @@ struct GlowMaterial : IMaterial {
 - **scene.AC8**: The accumulation restarts when the camera moves, and converges: 4× the samples lowers the
   error against a high-sample reference.
 - **scene.AC9**: RGBA8 and BC7 textures with full mip chains upload, and mip 0 reads back byte for byte, on Metal
-  and DX12.
+  and DX12. BC7 sizes are multiples of 4 on every backend (D3D12 cannot upload an unaligned top level); the
+  cooker rounds them up and the RHI rejects others with `rhi.invalid_texture`.
 
 ## Out of scope
 

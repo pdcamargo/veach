@@ -201,6 +201,14 @@ the backend can't use for a texture. The message names what is missing and the h
 
 Surfaces need a window from the SDL platform backend. Headless runs have no native window, so the engine does not create a surface for them.
 
+## rhi.invalid_texture
+
+**A texture description cannot be created on every backend.**
+
+Block-compressed textures (BC7) need a width and height that are multiples of 4: D3D12 cannot copy into an
+unaligned top level. The texture cooker resizes images to meet this, so the error means a texture made in code.
+Round its size up to a multiple of 4.
+
 ## rhi.gpu_error
 
 **The GPU reported an error while executing commands.**

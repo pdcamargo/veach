@@ -6,6 +6,7 @@
 
 #include "../slot_map.hpp"
 #include "../surface_validation.hpp"
+#include "../texture_validation.hpp"
 
 #include <veach/core/assert.hpp>
 #include <veach/core/log.hpp>
@@ -582,6 +583,9 @@ public:
 
     [[nodiscard]] Result<TextureHandle> create_texture(const TextureDesc& desc,
                                                        std::span<const std::span<const std::byte>> mips) override {
+        if (auto valid = validate_texture_desc(desc); !valid) {
+            return std::unexpected(valid.error());
+        }
         const std::uint32_t levels = std::max(1u, desc.mip_levels);
         if (!mips.empty() && mips.size() != levels) {
             return make_error(ErrorCode::internal, std::format("create_texture '{}': {} mip levels, data for {}",
@@ -1202,18 +1206,9 @@ private:
             from.pResource = staging->Get();
             from.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
             from.PlacedFootprint = footprints[level];
-            // The footprint covers whole 4x4 blocks; the box must match the mip as D3D12 sizes it. Under a
-            // block-aligned top level, mips are whole blocks (a 2x2 mip copies as 4x4); under an unaligned one
-            // (OPTIONS8 UnalignedBlockTexturesSupported), every mip is its real size (6x6 copies as 6x6).
-            const std::uint32_t round =
-                is_block_compressed(desc.format) && desc.width % 4 == 0 && desc.height % 4 == 0 ? 4 : 1;
-            const D3D12_BOX box{0,
-                                0,
-                                0,
-                                (mip_size(desc.width, level) + round - 1) / round * round,
-                                (mip_size(desc.height, level) + round - 1) / round * round,
-                                1};
-            list->CopyTextureRegion(&to, 0, 0, 0, &from, &box);
+            // Block-compressed footprints are whole blocks, and so are the mips of a texture whose size is a
+            // multiple of 4 (validate_texture_desc): a 2x2 mip copies as 4x4.
+            list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
         }
         transition(D3D12_BARRIER_SYNC_COPY, D3D12_BARRIER_ACCESS_COPY_DEST, D3D12_BARRIER_LAYOUT_COPY_DEST,
                    D3D12_BARRIER_SYNC_NONE, D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_LAYOUT_SHADER_RESOURCE);

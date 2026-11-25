@@ -1,6 +1,7 @@
 #include "null_device.hpp"
 
 #include "../surface_validation.hpp"
+#include "../texture_validation.hpp"
 
 #include <veach/core/assert.hpp>
 
@@ -53,6 +54,9 @@ Result<BufferHandle> NullDevice::create_buffer(const BufferDesc& desc, std::span
 }
 
 Result<TextureHandle> NullDevice::create_texture(const TextureDesc& desc, std::span<const std::span<const std::byte>>) {
+    if (auto valid = validate_texture_desc(desc); !valid) {
+        return std::unexpected(valid.error());
+    }
     return textures_.insert(desc);
 }
 

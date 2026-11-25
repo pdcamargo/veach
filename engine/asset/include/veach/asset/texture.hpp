@@ -47,7 +47,8 @@ struct TextureCookSettings {
     std::uint32_t max_size = 0;  ///< halve until both sides fit; 0 = no limit
 };
 
-/// Downsizes, builds the mip chain and encodes. Deterministic: the same input gives the same bytes.
+/// Downsizes, rounds BC7 sizes up to multiples of 4, builds the mip chain and encodes. Deterministic: the same input
+/// gives the same bytes.
 [[nodiscard]] TextureAsset cook_texture(const ImageRgba8& image, const TextureCookSettings& settings);
 
 /// Decodes PNG or JPEG (stb_image).

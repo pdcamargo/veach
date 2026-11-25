@@ -99,7 +99,11 @@ TEST_CASE("[scene.AC9] RGBA8 and BC7 textures with mips upload and read back unc
         round_trip(*device, rhi::Format::rgba8_unorm, 64);
         round_trip(*device, rhi::Format::rgba8_srgb, 100);  // rows not 256-byte aligned on DX12
         round_trip(*device, rhi::Format::bc7_srgb, 64);
-        round_trip(*device, rhi::Format::bc7_unorm, 6);  // partial blocks at every level
+        round_trip(*device, rhi::Format::bc7_unorm, 12);  // mips of 6x6 and 3x3: partial blocks below the top
+        const auto unaligned =
+            device->create_texture({6, 6, rhi::Format::bc7_unorm, rhi::TextureUsage::sampled, "6x6"});
+        CHECK_FALSE(unaligned.has_value());
+        CHECK((unaligned ? ErrorCode::internal : unaligned.error().code) == ErrorCode::rhi_invalid_texture);
         device->wait_idle();
     }
     CHECK_MESSAGE(logs.errors().empty(), logs.errors());

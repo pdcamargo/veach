@@ -85,6 +85,10 @@ TEST_CASE("[scene.AC1] cooked textures round-trip through KTX2") {
     CHECK(plain_read->mips == plain.mips);
 
     CHECK(cook_texture(test_image(64, 48), {.compress = false, .max_size = 16}).width == 16);
+    // BC7 sizes round up to multiples of 4 (rhi.invalid_texture); RGBA8 keeps 5x3 above.
+    const TextureAsset rounded = cook_texture(test_image(5, 3), {.srgb = true, .compress = true});
+    CHECK(rounded.width == 8);
+    CHECK(rounded.height == 4);
     CHECK_FALSE(read_ktx2(file.substr(0, 40), "cut.ktx2").has_value());
     CHECK_FALSE(read_ktx2(std::string(80, 'x'), "junk.ktx2").has_value());
 }

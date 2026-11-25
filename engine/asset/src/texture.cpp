@@ -289,11 +289,53 @@ Result<TextureAsset> read_ktx2(std::string_view in, std::string_view context) {
     return texture;
 }
 
+namespace {
+
+/// Bilinear resampling to `width` x `height` (texel centers aligned), in linear light for sRGB color.
+ImageRgba8 resample(const ImageRgba8& in, std::uint32_t width, std::uint32_t height, bool srgb) {
+    ImageRgba8 out{width, height, std::vector<std::uint8_t>(std::size_t{width} * height * 4)};
+    const auto texel = [&](std::uint32_t x, std::uint32_t y, std::uint32_t c) {
+        const std::uint8_t v = in.pixels[(std::size_t{y} * in.width + x) * 4 + c];
+        return srgb && c < 3 ? srgb_to_linear(v) : static_cast<float>(v) / 255.0f;
+    };
+    for (std::uint32_t y = 0; y < height; ++y) {
+        const float sy = std::clamp(
+            (static_cast<float>(y) + 0.5f) * static_cast<float>(in.height) / static_cast<float>(height) - 0.5f, 0.0f,
+            static_cast<float>(in.height - 1));
+        const auto y0 = static_cast<std::uint32_t>(sy);
+        const std::uint32_t y1 = std::min(y0 + 1, in.height - 1);
+        const float fy = sy - static_cast<float>(y0);
+        for (std::uint32_t x = 0; x < width; ++x) {
+            const float sx = std::clamp(
+                (static_cast<float>(x) + 0.5f) * static_cast<float>(in.width) / static_cast<float>(width) - 0.5f, 0.0f,
+                static_cast<float>(in.width - 1));
+            const auto x0 = static_cast<std::uint32_t>(sx);
+            const std::uint32_t x1 = std::min(x0 + 1, in.width - 1);
+            const float fx = sx - static_cast<float>(x0);
+            for (std::uint32_t c = 0; c < 4; ++c) {
+                const float top = texel(x0, y0, c) * (1.0f - fx) + texel(x1, y0, c) * fx;
+                const float bottom = texel(x0, y1, c) * (1.0f - fx) + texel(x1, y1, c) * fx;
+                const float v = top * (1.0f - fy) + bottom * fy;
+                out.pixels[(std::size_t{y} * width + x) * 4 + c] =
+                    srgb && c < 3 ? linear_to_srgb(v)
+                                  : static_cast<std::uint8_t>(std::lround(std::clamp(v, 0.0f, 1.0f) * 255.0f));
+            }
+        }
+    }
+    return out;
+}
+
+}  // namespace
+
 TextureAsset cook_texture(const ImageRgba8& source, const TextureCookSettings& settings) {
     VEACH_ZONE("cook_texture");
     ImageRgba8 image = source;
     while (settings.max_size != 0 && (image.width > settings.max_size || image.height > settings.max_size)) {
         image = halve(image, settings.srgb);
+    }
+    if (settings.compress && (image.width % 4 != 0 || image.height % 4 != 0)) {
+        // Block-compressed sizes are multiples of 4 on every backend (rhi.invalid_texture).
+        image = resample(image, (image.width + 3) / 4 * 4, (image.height + 3) / 4 * 4, settings.srgb);
     }
     TextureAsset texture;
     texture.format = settings.compress ? (settings.srgb ? TextureFormat::bc7_srgb : TextureFormat::bc7_unorm)

@@ -6,6 +6,7 @@
 
 #include "../slot_map.hpp"
 #include "../surface_validation.hpp"
+#include "../texture_validation.hpp"
 
 #include <veach/core/assert.hpp>
 #include <veach/core/log.hpp>
@@ -182,6 +183,9 @@ public:
 
     [[nodiscard]] Result<TextureHandle> create_texture(const TextureDesc& desc,
                                                        std::span<const std::span<const std::byte>> mips) override {
+        if (auto valid = validate_texture_desc(desc); !valid) {
+            return std::unexpected(valid.error());
+        }
         if (is_block_compressed(desc.format) && !device_.supportsBCTextureCompression) {
             return make_error(ErrorCode::rhi_backend_unavailable,
                               std::format("'{}' does not support BC texture compression", caps_.device_name),

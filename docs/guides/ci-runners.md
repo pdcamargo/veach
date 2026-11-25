@@ -49,8 +49,8 @@ sudo launchctl print system/dev.veach.actions-runner | head -20   # daemon state
 tail -f /Users/veachci/actions-runner/_diag/launchd.out.log       # needs sudo
 ```
 
-In that job's log, `golden: background`, `golden: triangle (raster)` and `golden: triangle (raytraced)` must say
-**Passed**, not Skipped.
+In that job's log, every `golden: ...` test (`background`, `triangle (raster)`, `triangle (raytraced)` and the
+two `triangle (camera, ...)` ones) must say **Passed**, not Skipped.
 
 ### Teardown
 

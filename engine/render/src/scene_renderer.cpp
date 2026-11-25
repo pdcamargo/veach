@@ -23,6 +23,11 @@ namespace {
 
 // Flag bits, as in shaders/veach/material.slang.
 constexpr std::uint32_t instance_has_alpha = 1u << 0;  ///< InstanceRecord::flags, as in shaders/path_tracer.slang
+// TLAS instance masks, as in shaders/veach/scene.slang: visibility rays stop at any opaque hit and test coverage
+// only on the alpha-tested instances.
+constexpr std::uint8_t instance_mask_opaque = 1;
+constexpr std::uint8_t instance_mask_alpha = 2;
+constexpr std::uint32_t scene_has_alpha = 1u << 0;  ///< SceneData::flags: some instance is alpha-tested
 constexpr std::uint32_t has_base_color_texture = 1u << 0;
 constexpr std::uint32_t has_metallic_roughness_texture = 1u << 1;
 constexpr std::uint32_t has_normal_texture = 1u << 2;
@@ -90,7 +95,7 @@ struct alignas(16) PathTraceParams {
     std::uint32_t mode;
     rhi::DescriptorHandle diagnostics;
     std::uint32_t jitter = 1;
-    std::uint32_t pad0 = 0;
+    std::uint32_t scene_flags = 0;
     std::array<std::uint32_t, 2> pad1{};
 };
 static_assert(rhi::parameters_match<PathTraceParams>(veach_render_shaders::layout::path_tracer,
@@ -112,7 +117,7 @@ static_assert(rhi::parameters_match<PathTraceParams>(veach_render_shaders::layou
                                                       VEACH_PARAM(PathTraceParams, mode),
                                                       VEACH_PARAM(PathTraceParams, diagnostics),
                                                       VEACH_PARAM(PathTraceParams, jitter),
-                                                      VEACH_PARAM(PathTraceParams, pad0),
+                                                      VEACH_PARAM(PathTraceParams, scene_flags),
                                                       VEACH_PARAM(PathTraceParams, pad1)}));
 
 /// Mirrors Params in shaders/display.slang.
@@ -163,18 +168,34 @@ struct alignas(16) ShadeParams {
     std::uint32_t ao_rays = 0;
     float ao_radius = 1.0f;
     std::uint32_t frame = 0;
-    std::uint32_t pad = 0;
+    std::uint32_t debug_skip = 0;
+    std::uint32_t scene_flags = 0;
+    std::uint32_t pad0 = 0;
+    std::array<std::uint32_t, 2> pad1{};
 };
-static_assert(rhi::parameters_match<ShadeParams>(
-    veach_render_shaders::layout::realtime_shade,
-    {VEACH_PARAM(ShadeParams, inverse_view_projection), VEACH_PARAM(ShadeParams, camera_position),
-     VEACH_PARAM(ShadeParams, sky_ambient), VEACH_PARAM(ShadeParams, visibility), VEACH_PARAM(ShadeParams, output),
-     VEACH_PARAM(ShadeParams, scene), VEACH_PARAM(ShadeParams, instances), VEACH_PARAM(ShadeParams, materials),
-     VEACH_PARAM(ShadeParams, lights), VEACH_PARAM(ShadeParams, emissive), VEACH_PARAM(ShadeParams, size),
-     VEACH_PARAM(ShadeParams, light_count), VEACH_PARAM(ShadeParams, emissive_count),
-     VEACH_PARAM(ShadeParams, emissive_total_weight), VEACH_PARAM(ShadeParams, emissive_samples),
-     VEACH_PARAM(ShadeParams, ao_rays), VEACH_PARAM(ShadeParams, ao_radius), VEACH_PARAM(ShadeParams, frame),
-     VEACH_PARAM(ShadeParams, pad)}));
+static_assert(rhi::parameters_match<ShadeParams>(veach_render_shaders::layout::realtime_shade,
+                                                 {VEACH_PARAM(ShadeParams, inverse_view_projection),
+                                                  VEACH_PARAM(ShadeParams, camera_position),
+                                                  VEACH_PARAM(ShadeParams, sky_ambient),
+                                                  VEACH_PARAM(ShadeParams, visibility),
+                                                  VEACH_PARAM(ShadeParams, output),
+                                                  VEACH_PARAM(ShadeParams, scene),
+                                                  VEACH_PARAM(ShadeParams, instances),
+                                                  VEACH_PARAM(ShadeParams, materials),
+                                                  VEACH_PARAM(ShadeParams, lights),
+                                                  VEACH_PARAM(ShadeParams, emissive),
+                                                  VEACH_PARAM(ShadeParams, size),
+                                                  VEACH_PARAM(ShadeParams, light_count),
+                                                  VEACH_PARAM(ShadeParams, emissive_count),
+                                                  VEACH_PARAM(ShadeParams, emissive_total_weight),
+                                                  VEACH_PARAM(ShadeParams, emissive_samples),
+                                                  VEACH_PARAM(ShadeParams, ao_rays),
+                                                  VEACH_PARAM(ShadeParams, ao_radius),
+                                                  VEACH_PARAM(ShadeParams, frame),
+                                                  VEACH_PARAM(ShadeParams, debug_skip),
+                                                  VEACH_PARAM(ShadeParams, scene_flags),
+                                                  VEACH_PARAM(ShadeParams, pad0),
+                                                  VEACH_PARAM(ShadeParams, pad1)}));
 
 float luminance(math::vec3 c) {
     return 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z;  // GLM_FORCE_XYZW_ONLY
@@ -674,6 +695,7 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
         instances.push_back(inst);
         draws.push_back(&draw);
         rhi::TlasInstance t;
+        t.mask = (inst.flags & instance_has_alpha) != 0 ? instance_mask_alpha : instance_mask_opaque;
         const auto rows = inst.object_to_world;
         for (std::size_t r = 0; r < 3; ++r) {
             t.transform.at(r) = {rows.at(r).x, rows.at(r).y, rows.at(r).z, rows.at(r).w};
@@ -683,6 +705,10 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
     if (instances.empty()) {
         return;
     }
+    const std::uint32_t scene_flags =
+        std::ranges::any_of(instances, [](const InstanceRecord& i) { return (i.flags & instance_has_alpha) != 0; })
+            ? scene_has_alpha
+            : 0u;
     if (s.tlas_meshes != used_meshes || s.tlas_capacity < instances.size()) {
         s.destroy_if(s.tlas);
         std::vector<rhi::AccelHandle> blases;
@@ -945,6 +971,8 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
         shade.emissive_samples = lighting.emissive_samples;
         shade.ao_rays = lighting.ao_rays;
         shade.ao_radius = lighting.ao_radius;
+        shade.debug_skip = lighting.debug_skip;
+        shade.scene_flags = scene_flags;
         shade.frame = s.realtime_frame++;
         graph.add_compute_pass(
             "shade",
@@ -989,6 +1017,7 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
     params.sky_bounces = math::vec4(settings.sky, static_cast<float>(settings.max_bounces));
     params.mode = settings.mode;
     params.jitter = settings.jitter ? 1u : 0u;
+    params.scene_flags = scene_flags;
     params.size = {width, height};
     params.sample_index = static_cast<std::uint32_t>(s.samples);
     params.samples_per_frame = std::max(1u, settings.samples_per_frame);

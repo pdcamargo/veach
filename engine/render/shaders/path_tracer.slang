@@ -32,7 +32,7 @@ struct Params {
     uint mode;  ///< PathTracer.mode: 0 full, 1 direct (first-bounce lights only, no sky), 2 AO debug view
     DescriptorHandle<RWStructuredBuffer<uint>> diagnostics;  ///< [0] lost history, [1] non-finite samples; never reset
     uint jitter;  ///< 1: rays spread over the pixel (anti-aliased); 0: through its center, as the real-time renderer
-    uint pad0;
+    uint scene_flags;  ///< SceneData::flags (veach/scene.slang)
     uint2 pad1;
 };
 [[vk::push_constant]] ConstantBuffer<Params> params;
@@ -137,6 +137,8 @@ void trace_pixels(uint3 id : SV_DispatchThreadID) {
     veach_scene.light_count = params.light_count;
     veach_scene.emissive_count = params.emissive_count;
     veach_scene.emissive_total_weight = params.emissive_total_weight;
+    veach_scene.debug_skip = 0;
+    veach_scene.flags = params.scene_flags;
     float3 sum = float3(0.0, 0.0, 0.0);
     uint nonfinite = 0;
     for (uint k = 0; k < params.samples_per_frame; ++k) {

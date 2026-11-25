@@ -194,6 +194,9 @@ build/debug/tools/veach-cli/veach imgdiff tests/golden/triangle_raytraced.png ou
   means identical; up to about 0.01 is invisible.
 - Golden tests are CTest tests named `golden: ...` (macOS). They **skip**, never pass, on GPUs without Metal 3 or
   ray tracing. Set `VEACH_REQUIRE_GPU=1` on machines that must run them.
+- On Metal the golden image is rendered with `MTL_SHADER_VALIDATION=0`, and a second run with it on (the debug
+  default) must exit 0: under shader validation, ray queries that read instance data after a hit or trace twice
+  return shadows that vary from run to run. Take screenshots you compare the same way.
 - **Regenerating goldens is a deliberate act:** `cmake --build --preset debug --target update-goldens` writes
   `tests/golden/*.png` (stored in Git LFS). Look at the images before committing, and say why they changed in
   the commit message.

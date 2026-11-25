@@ -103,6 +103,7 @@ export type RealtimeLighting = {
 	sky: vector,
 	ao_rays: number,
 	ao_radius: number,
+	debug_skip: number,
 }
 export type SceneInstance = {
 	path: string,

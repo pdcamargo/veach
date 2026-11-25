@@ -237,24 +237,25 @@ if(APPLE)
         PASS_REGULAR_EXPRESSION "path-traced samples were NaN or infinite.*render\\.nonfinite_samples"
         SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable")
     add_custom_target(update-goldens
-        COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/hello.luau
+        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 3 --script scripts/hello.luau
                 --screenshot "${_golden_dir}/background.png"
-        COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/triangle_raster.luau
+        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 3 --script scripts/triangle_raster.luau
                 --screenshot "${_golden_dir}/triangle_raster.png"
-        COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/triangle_raytraced.luau
+        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 3 --script scripts/triangle_raytraced.luau
                 --screenshot "${_golden_dir}/triangle_raytraced.png"
-        COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/triangle_camera_raster.luau
+        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 3 --script scripts/triangle_camera_raster.luau
                 --screenshot "${_golden_dir}/triangle_camera.png"
-        COMMAND veach-lab --rhi metal --headless --frames 4 --script scripts/cornell_box.luau
+        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 4 --script scripts/cornell_box.luau
                 --screenshot "${_golden_dir}/cornell_box.png"
-        COMMAND veach-lab --rhi metal --headless --frames 4 --script scripts/flight_helmet.luau
+        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 4 --script scripts/flight_helmet.luau
                 --screenshot "${_golden_dir}/flight_helmet.png"
-        COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/cornell_box_realtime.luau
+        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 3 --script scripts/cornell_box_realtime.luau
                 --screenshot "${_golden_dir}/cornell_box_realtime.png"
-        COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/flight_helmet_realtime.luau
+        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 3 --script scripts/flight_helmet_realtime.luau
                 --screenshot "${_golden_dir}/flight_helmet_realtime.png"
-        COMMAND veach-lab --rhi metal --headless --frames 4 --script scripts/cornell_box_ao.luau
+        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 4 --script scripts/cornell_box_ao.luau
                 --screenshot "${_golden_dir}/cornell_box_ao.png"
+        # Shader validation off, as in golden_test.cmake: with it, Metal's ray-query results vary run to run.
         COMMENT "Regenerating golden images in tests/golden/ (review the diff before committing)"
         VERBATIM)
 elseif(WIN32)

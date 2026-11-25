@@ -4,6 +4,9 @@
 # If the GPU cannot run the test (no Metal 3 / no ray tracing, e.g. GitHub's
 # virtualized runners), print VEACH_GPU_UNAVAILABLE so CTest reports SKIPPED,
 # unless VEACH_REQUIRE_GPU=1, in which case that is a failure.
+# On Metal the image is rendered with Metal's shader validation off: with it on, ray queries that read instance data
+# after a hit, or trace twice, return slightly different shadows from run to run (seen on the M5 Max, macOS 26).
+# A second run with it on (debug builds' default) must still exit 0, so it keeps checking every resource access.
 # Goldens are shared across backends (ADR 0028): GOLDEN is tests/golden/<name>.png unless a justified
 # per-backend override tests/golden/<name>.<RHI>.png exists.
 #   cmake -DLAB=... -DIMGDIFF=... -DRHI=metal -DSCRIPT=... -DGOLDEN=... -DOUT=... -DMAX_MEAN=... [-DFRAMES=3]
@@ -25,7 +28,8 @@ if(EXISTS "${backend_golden}")
 endif()
 
 execute_process(
-    COMMAND "${LAB}" --rhi ${RHI} --headless --frames ${FRAMES} --script "${SCRIPT}" --screenshot "${OUT}"
+    COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0
+            "${LAB}" --rhi ${RHI} --headless --frames ${FRAMES} --script "${SCRIPT}" --screenshot "${OUT}"
     RESULT_VARIABLE render_result
     OUTPUT_VARIABLE render_output
     ERROR_VARIABLE render_output)
@@ -41,6 +45,17 @@ if(render_output MATCHES "rhi\\.backend_unavailable")
 endif()
 if(NOT render_result EQUAL 0)
     message(FATAL_ERROR "rendering failed (exit ${render_result}):\n${render_output}")
+endif()
+if(RHI STREQUAL "metal")
+    execute_process(
+        COMMAND "${LAB}" --rhi ${RHI} --headless --frames ${FRAMES} --script "${SCRIPT}"
+        RESULT_VARIABLE validated_result
+        OUTPUT_VARIABLE validated_output
+        ERROR_VARIABLE validated_output)
+    if(NOT validated_result EQUAL 0)
+        message(FATAL_ERROR "the run with Metal's shader validation failed (exit ${validated_result}):\n"
+                            "${validated_output}")
+    endif()
 endif()
 
 execute_process(

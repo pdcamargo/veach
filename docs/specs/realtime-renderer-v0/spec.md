@@ -126,6 +126,46 @@ box's visibility pass).
 The shade pass is 90-95% of every frame: it traces the light samples' shadow rays and the AO rays. Visibility is
 cheap even on Bistro, so the next speed-up is in what shading traces, not in geometry.
 
+**What the shade pass spends, and the first cheap wins.** `frame_times.py --breakdown` times the shade pass again
+with one part left out (`RealtimeLighting.debug_skip`, measurement only), same session, ms at 1440p:
+
+| Scene | Full | No AO rays | No emissive samples | No shadow rays | No alpha tests |
+|---|---|---|---|---|---|
+| Cornell box, before | 3.37 | 2.21 | 1.93 | 2.16 | 3.17 |
+| Cornell box, after | 2.65 | 2.64 | 0.84 | 0.79 | 2.08 |
+| FlightHelmet, before | 0.93 | 0.64 | 0.93 | 0.79 | 0.93 |
+| FlightHelmet, after | 0.89 | 0.63 | 0.88 | 0.76 | 0.89 |
+| Sponza, before | 14.22 | 9.99 | 6.76 | 6.86 | 9.61 |
+| Sponza, after | 6.64 | 6.64 | 2.70 | 3.42 | 6.43 |
+| Bistro, before | 36.86 | 28.01 | 12.03 | 11.70 | 15.70 |
+| Bistro, after | 21.74 | 21.72 | 4.23 | 4.19 | 10.38 |
+
+Before, every shadow and AO ray searched for the closest hit and tested alpha at it, layer by layer. In Bistro
+(one sun, 10 emissive materials, 188 of 1,296 meshes alpha-tested) shadow rays were two thirds of the pass and
+alpha tests over half of it; Bistro, Sponza and the Cornell box also traced AO rays for a black sky. The changes:
+
+- Visibility rays stop at the first hit: opaque instances (TLAS mask 1) are traced with
+  `RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH`, so any occluder ends the search. Slang's Metal target ignored that
+  flag; `cmake/patch_msl.cmake` maps it to `accept_any_intersection` (VCH-043).
+- Only alpha-tested instances (mask 2) take the closest-hit search with coverage tests, and only in scenes that have
+  any (`SceneData::flags`).
+- AO rays are skipped when the sky is black, since they would multiply zero. Under a sky (FlightHelmet) AO costs
+  0.26 ms at 1440p with first-hit rays, so neither fewer rays (more noise before the denoiser) nor a half-resolution
+  pass (a new pass for a stopgap Candela replaces) is worth it.
+
+The images and the direct-lighting comparison are unchanged (same FLIP to four digits). Frame times after:
+
+| Scene | Frame (median) | Frame (p95) | Passes (median ms) |
+|---|---|---|---|
+| Cornell box | 2.91 ms | 3.20 ms | build TLAS 0.06, shade 2.69, display 0.07 |
+| FlightHelmet | 1.10 ms | 1.47 ms | visibility 0.08, build TLAS 0.06, shade 0.88, display 0.06 |
+| Sponza (Intel) | 8.18 ms | 8.79 ms | visibility 1.22, build TLAS 0.11, shade 6.66, display 0.09 |
+| Bistro (exterior) | 23.72 ms | 24.21 ms | visibility 1.73, build TLAS 0.18, shade 21.64, display 0.08 |
+
+What is left in Bistro's shade pass is the 4 emissive light samples and their shadow rays (17.5 ms) and the
+coverage tests on foliage (11.4 ms, overlapping): ReSTIR's one shadow ray per pixel and a lower internal
+resolution address both (temporal-and-direct-lighting spec).
+
 ## Links
 
 - ADRs: [0037 visibility buffer](../../adr/0037-realtime-renderer-visibility-buffer.md),

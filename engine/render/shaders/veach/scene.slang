@@ -61,8 +61,19 @@ struct SceneData {
     uint light_count;
     uint emissive_count;
     float emissive_total_weight;  ///< sum of area x weight over every emissive triangle
+    uint debug_skip;              ///< debug_skip_*: parts left out to measure what they cost; 0 renders everything
+    uint flags;                   ///< scene_has_alpha
 };
 static SceneData veach_scene;  // filled by the entry point before any use
+
+static const uint debug_skip_shadows = 1;  ///< light samples are never shadowed (no shadow rays)
+static const uint debug_skip_alpha = 2;    ///< rays treat every surface as opaque (no coverage tests)
+
+// TLAS instance masks (render::SceneRenderer): visibility rays find opaque occluders with a query that stops at
+// any hit, and only the alpha-tested instances need the closest-hit search with coverage tests.
+static const uint instance_mask_opaque = 1;  ///< no masked or blended slot
+static const uint instance_mask_alpha = 2;   ///< some slot is masked or blended (instance_has_alpha)
+static const uint scene_has_alpha = 1;       ///< SceneData::flags: some instance is alpha-tested
 
 // ---- geometry ---------------------------------------------------------------------------------------------
 
@@ -214,7 +225,7 @@ struct Trace {
 /// masked or blended surface, the same ray continues just past it. That is deterministic on every backend,
 /// unlike committing non-opaque candidates, whose results varied run to run on Metal (and whose inlined
 /// candidate loop crashed Metal's shader compiler).
-Trace trace(float3 origin, float3 direction, float tmax, inout Rng rng) {
+Trace trace(float3 origin, float3 direction, float tmax, inout Rng rng, uint instance_mask = 0xFF) {
     Trace result;
     result.hit = false;
     result.instance = 0;
@@ -231,7 +242,7 @@ Trace trace(float3 origin, float3 direction, float tmax, inout Rng rng) {
         ray.Direction = direction;
         ray.TMin = tmin;
         ray.TMax = tmax;
-        query.TraceRayInline(veach_scene.tlas, RAY_FLAG_NONE, 0xFF, ray);
+        query.TraceRayInline(veach_scene.tlas, RAY_FLAG_NONE, instance_mask, ray);
         while (query.Proceed()) {
         }
         if (query.CommittedStatus() != COMMITTED_TRIANGLE_HIT) {
@@ -243,7 +254,8 @@ Trace trace(float3 origin, float3 direction, float tmax, inout Rng rng) {
         const float t = query.CommittedRayT();
         // Only instances with a masked or blended slot pay for the coverage test: an optimization. (WARP's
         // device removal blamed on this test came from handles used without `nonuniform`, ADR 0039.)
-        const bool opaque = (veach_scene.instances[instance].flags & instance_has_alpha) == 0;
+        const bool opaque = (veach_scene.instances[instance].flags & instance_has_alpha) == 0 ||
+                            (veach_scene.debug_skip & debug_skip_alpha) != 0;
         if (opaque || covered(instance, primitive, bary, rng)) {
             result.hit = true;
             result.instance = instance;
@@ -262,8 +274,40 @@ float3 offset_origin(float3 p, float3 geometric, float3 direction) {
     return p + geometric * (dot(geometric, direction) >= 0.0 ? 1e-3 : -1e-3);
 }
 
+/// Whether nothing covers the segment. Opaque instances first, with a trace that ends at the first hit it finds
+/// (any occluder will do); then the alpha-tested ones, closest hit first and continuing past transparent texels.
+/// One query object for both: with two, Metal's results varied from run to run.
 bool visible(float3 from, float3 to_direction, float distance, inout Rng rng) {
-    return !trace(from, to_direction, distance, rng).hit;
+    const bool skip_alpha = (veach_scene.debug_skip & debug_skip_alpha) != 0;
+    const bool any_alpha = !skip_alpha && (veach_scene.flags & scene_has_alpha) != 0;
+    RayDesc ray;
+    ray.Origin = from;
+    ray.Direction = to_direction;
+    ray.TMin = 0.0;
+    ray.TMax = distance;
+    RayQuery<RAY_FLAG_FORCE_OPAQUE> query;
+    query.TraceRayInline(veach_scene.tlas, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,
+                         skip_alpha ? 0xFF : instance_mask_opaque, ray);
+    while (query.Proceed()) {
+    }
+    if (query.CommittedStatus() == COMMITTED_TRIANGLE_HIT) {
+        return false;
+    }
+    for (uint layer = 0; any_alpha && layer < 16; ++layer) {
+        query.TraceRayInline(veach_scene.tlas, RAY_FLAG_NONE, instance_mask_alpha, ray);
+        while (query.Proceed()) {
+        }
+        if (query.CommittedStatus() != COMMITTED_TRIANGLE_HIT) {
+            return true;
+        }
+        const uint instance = query.CommittedInstanceIndex();
+        const float t = query.CommittedRayT();
+        if (covered(instance, query.CommittedPrimitiveIndex(), query.CommittedTriangleBarycentrics(), rng)) {
+            return false;
+        }
+        ray.TMin = t * (1.0 + 1e-5) + 1e-5;
+    }
+    return true;
 }
 
 /// Whether the light at `distance` along `l` reaches surface point p (geometric normal g); `distance` >= 1e29 means
@@ -271,6 +315,9 @@ bool visible(float3 from, float3 to_direction, float distance, inout Rng rng) {
 /// keeping the unpushed direction and length would move the segment's end by the push, into an emitter that is
 /// close and oblique, which hid the brightest light samples of an emitter beside the surface.
 bool light_visible(float3 p, float3 g, float3 l, float distance, inout Rng rng) {
+    if ((veach_scene.debug_skip & debug_skip_shadows) != 0) {
+        return true;
+    }
     const float3 from = offset_origin(p, g, l);
     if (distance >= 1e29) {
         return visible(from, l, distance, rng);

@@ -34,7 +34,10 @@ struct ShadeParams {
     uint ao_rays;           ///< stopgap AO: cosine rays per pixel
     float ao_radius;        ///< stopgap AO: how far an occluder counts, meters
     uint frame;             ///< seeds the random numbers
-    uint pad;
+    uint debug_skip;        ///< debug_skip_* (veach/scene.slang): parts left out to measure what they cost
+    uint scene_flags;       ///< SceneData::flags
+    uint pad0;
+    uint2 pad1;
 };
 [[vk::push_constant]] ConstantBuffer<ShadeParams> shade_params;
 
@@ -73,6 +76,8 @@ void shade(uint3 id: SV_DispatchThreadID) {
     veach_scene.light_count = shade_params.light_count;
     veach_scene.emissive_count = shade_params.emissive_count;
     veach_scene.emissive_total_weight = shade_params.emissive_total_weight;
+    veach_scene.debug_skip = shade_params.debug_skip;
+    veach_scene.flags = shade_params.scene_flags;
 
     const uint2 visible_id = shade_params.visibility.Load(int3(id.xy, 0));
     const bool ambient = shade_params.sky_ambient.w > 0.0;
@@ -124,7 +129,8 @@ void shade(uint3 id: SV_DispatchThreadID) {
         }
         // STOPGAP until Candela (VCH-017): constant sky light on the diffuse lobe, darkened by short-range
         // ray-traced AO. Candela replaces it; at most a short-range AO stays.
-        if (ambient && shade_params.ao_rays > 0) {
+        // A black sky contributes nothing, so its AO rays are skipped.
+        if (ambient && shade_params.ao_rays > 0 && any(shade_params.sky_ambient.xyz > 0.0)) {
             uint open = 0;
             for (uint i = 0; i < shade_params.ao_rays; ++i) {
                 const float2 u = float2(rng.next(), rng.next());

@@ -462,6 +462,7 @@ RenderModule::RenderModule(World& world) {
         .member(&RealtimeLighting::sky, "sky")
         .member(&RealtimeLighting::ao_rays, "ao_rays")
         .member(&RealtimeLighting::ao_radius, "ao_radius")
+        .member(&RealtimeLighting::debug_skip, "debug_skip")
         .add<Scriptable>();
     world.component<PathTracer>()
         .member(&PathTracer::samples_per_frame, "samples_per_frame")

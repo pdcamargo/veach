@@ -22,6 +22,7 @@ namespace veach::render {
 namespace {
 
 // Flag bits, as in shaders/veach/material.slang.
+constexpr std::uint32_t instance_has_alpha = 1u << 0;  ///< InstanceRecord::flags, as in shaders/path_tracer.slang
 constexpr std::uint32_t has_base_color_texture = 1u << 0;
 constexpr std::uint32_t has_metallic_roughness_texture = 1u << 1;
 constexpr std::uint32_t has_normal_texture = 1u << 2;
@@ -459,6 +460,9 @@ void PathTracerFeature::record(RenderGraph& graph, const FrameContext& frame) {
         for (std::uint32_t slot = 0; slot < mesh->source->slot_count; ++slot) {
             materials.push_back(slot < draw.materials.size() ? s.record_of(draw.materials[slot])
                                                              : s.record_of(AssetId{}));
+        }
+        for (std::size_t m = inst.material_base; m < materials.size(); ++m) {
+            inst.flags |= (materials[m].flags & (alpha_mask | alpha_blend)) != 0 ? instance_has_alpha : 0u;
         }
         inst.object_to_world = rows_of(draw.world);
         inst.normal_to_world = rows_of(math::mat4(math::transpose(math::inverse(math::mat3(draw.world)))));

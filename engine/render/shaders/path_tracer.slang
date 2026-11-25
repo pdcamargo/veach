@@ -16,10 +16,12 @@ struct InstanceRecord {
     DescriptorHandle<StructuredBuffer<uint>> indices;
     DescriptorHandle<StructuredBuffer<uint>> slots;  ///< material slot per triangle
     uint material_base;                                 ///< slot 0's index in the material buffer
-    uint flags;
+    uint flags;                                         ///< instance_has_alpha
     float4 object_to_world[3];  ///< rows of a 3x4 matrix
     float4 normal_to_world[3];  ///< rows of the inverse transpose
 };
+
+static const uint instance_has_alpha = 1;  ///< some slot is alpha-masked or blended
 
 static const uint light_directional = 0;
 static const uint light_point = 1;
@@ -207,7 +209,10 @@ Trace trace(float3 origin, float3 direction, float tmax, inout Rng rng) {
         const uint primitive = query.CommittedPrimitiveIndex();
         const float2 bary = query.CommittedTriangleBarycentrics();
         const float t = query.CommittedRayT();
-        if (covered(instance, primitive, bary, rng)) {
+        // Only instances with a masked or blended slot pay for the coverage test. Calling it after every hit
+        // also removed the device on WARP (a bisect in CI; the cause inside WARP is unknown).
+        const bool opaque = (params.instances[instance].flags & instance_has_alpha) == 0;
+        if (opaque || covered(instance, primitive, bary, rng)) {
             result.hit = true;
             result.instance = instance;
             result.primitive = primitive;

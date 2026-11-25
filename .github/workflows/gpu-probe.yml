@@ -1,0 +1,19 @@
+name: GPU probe (temporary)
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: macos-15
+    steps:
+      - run: |
+          cat > probe.swift <<'SWIFT'
+          import Metal
+          guard let d = MTLCreateSystemDefaultDevice() else { print("NO METAL DEVICE"); exit(0) }
+          print("name:", d.name)
+          print("raytracing:", d.supportsRaytracing)
+          print("metal3:", d.supportsFamily(.metal3), "apple7:", d.supportsFamily(.apple7), "mac2:", d.supportsFamily(.mac2))
+          print("argbuffers tier:", d.argumentBuffersSupport.rawValue)
+          print("raytracingFromRender:", d.supportsRaytracingFromRender)
+          SWIFT
+          swift probe.swift
+          xcrun -sdk macosx metal --version || echo "no metal compiler"
+          sw_vers; xcodebuild -version

@@ -26,7 +26,7 @@ namespace {
 
 constexpr std::uint32_t cooker_version = 3;        ///< bump when cooked data changes, to invalidate every cache entry
 constexpr std::uint32_t vmesh_magic = 0x48534D56;  // "VMSH"
-constexpr std::uint32_t vmesh_version = 2;  // 2: meshlets
+constexpr std::uint32_t vmesh_version = 2;         // 2: meshlets
 
 /// FNV-1a, 64 bits: a cache key, not a security boundary.
 struct Fnv64 {

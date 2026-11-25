@@ -47,16 +47,17 @@ struct SpotLight {
 /// On a camera entity: render its view with the reference path tracer (ADR 0034). Scriptable.
 /// What the path tracer computes (docs/specs/realtime-renderer-v0/spec.md).
 namespace path_tracer_mode {
-inline constexpr std::uint32_t full = 0;    ///< all light transport: the reference
-inline constexpr std::uint32_t direct = 1;  ///< light reaching the first surface straight from lights; no sky, no bounces
-inline constexpr std::uint32_t ao = 2;      ///< debug view: ambient occlusion (1 m) at the first surface, never lighting
+inline constexpr std::uint32_t full = 0;  ///< all light transport: the reference
+inline constexpr std::uint32_t direct =
+    1;                                  ///< light reaching the first surface straight from lights; no sky, no bounces
+inline constexpr std::uint32_t ao = 2;  ///< debug view: ambient occlusion (1 m) at the first surface, never lighting
 }  // namespace path_tracer_mode
 
 struct PathTracer {
     std::uint32_t samples_per_frame = 1;
     std::uint32_t max_bounces = 8;
-    math::vec3 sky{0.0f};      ///< radiance of every ray that escapes, nits
-    std::uint32_t mode = 0;    ///< path_tracer_mode: 0 full, 1 direct, 2 ao (debug view)
+    math::vec3 sky{0.0f};    ///< radiance of every ray that escapes, nits
+    std::uint32_t mode = 0;  ///< path_tracer_mode: 0 full, 1 direct, 2 ao (debug view)
 };
 
 }  // namespace veach

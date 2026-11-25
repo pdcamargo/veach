@@ -59,5 +59,6 @@ VEACH_ERROR(render_history_lost, "render.history_lost",
             "Path-traced pixels read back something other than the accumulation they last wrote")
 VEACH_ERROR(render_nonfinite_samples, "render.nonfinite_samples", "The path tracer produced NaN or infinite samples")
 VEACH_ERROR(rhi_invalid_surface, "rhi.invalid_surface", "The native window handle given to the RHI is invalid")
-VEACH_ERROR(rhi_invalid_descriptor, "rhi.invalid_descriptor", "A shader used a descriptor handle that names no live resource of its kind")
+VEACH_ERROR(rhi_invalid_descriptor, "rhi.invalid_descriptor",
+            "A shader used a descriptor handle that names no live resource of its kind")
 VEACH_ERROR(rhi_invalid_texture, "rhi.invalid_texture", "A texture description cannot be created on every backend")

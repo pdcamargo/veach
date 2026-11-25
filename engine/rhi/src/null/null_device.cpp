@@ -52,7 +52,7 @@ Result<BufferHandle> NullDevice::create_buffer(const BufferDesc& desc, std::span
     return buffers_.insert(std::move(buffer));
 }
 
-Result<TextureHandle> NullDevice::create_texture(const TextureDesc& desc) {
+Result<TextureHandle> NullDevice::create_texture(const TextureDesc& desc, std::span<const std::span<const std::byte>>) {
     return textures_.insert(desc);
 }
 
@@ -98,7 +98,7 @@ Result<SurfaceId> NullDevice::create_surface(const NativeWindowHandle& window, c
     if (auto valid = validate_surface_handle(window); !valid) {
         return std::unexpected(valid.error());
     }
-    auto image = create_texture({desc.width, desc.height, surface_format, TextureUsage::color_target, "surface"});
+    auto image = create_texture({desc.width, desc.height, surface_format, TextureUsage::color_target, "surface"}, {});
     surfaces_.push_back({desc, *image});
     return SurfaceId{static_cast<std::uint32_t>(surfaces_.size())};
 }

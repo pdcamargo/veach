@@ -3,6 +3,7 @@ add_executable(veach-tests
     asset_tests.cpp
     core_tests.cpp
     ecs_tests.cpp
+    gpu_texture_tests.cpp
     lifecycle_tests.cpp
     platform_tests.cpp
     render_tests.cpp

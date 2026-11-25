@@ -56,7 +56,10 @@ public:
     // ---- resources
     [[nodiscard]] virtual Result<BufferHandle> create_buffer(const BufferDesc& desc,
                                                              std::span<const std::byte> initial_data = {}) = 0;
-    [[nodiscard]] virtual Result<TextureHandle> create_texture(const TextureDesc& desc) = 0;
+    /// `mips`, if given, holds one tightly packed span per mip level (row_bytes x row_count each). A texture
+    /// created with data is uploaded before any later submission runs and starts in shader_read.
+    [[nodiscard]] virtual Result<TextureHandle> create_texture(
+        const TextureDesc& desc, std::span<const std::span<const std::byte>> mips = {}) = 0;
     [[nodiscard]] virtual Result<SamplerHandle> create_sampler(const SamplerDesc& desc) = 0;
     [[nodiscard]] virtual Result<PipelineHandle> create_graphics_pipeline(const GraphicsPipelineDesc& desc) = 0;
     [[nodiscard]] virtual Result<PipelineHandle> create_compute_pipeline(const ComputePipelineDesc& desc) = 0;

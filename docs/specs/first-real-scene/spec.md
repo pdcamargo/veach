@@ -85,6 +85,8 @@ struct GlowMaterial : IMaterial {
   scene (FLIP).
 - **scene.AC8**: The accumulation restarts when the camera moves, and converges: 4× the samples lowers the
   error against a high-sample reference.
+- **scene.AC9**: RGBA8 and BC7 textures with full mip chains upload, and mip 0 reads back byte for byte, on Metal
+  and DX12.
 
 ## Out of scope
 

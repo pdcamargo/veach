@@ -77,9 +77,23 @@ enum class Format : std::uint8_t {
     r32_float,
     rgb32_float,  ///< vertex positions for acceleration structures only
     depth32_float,
+    rgba8_srgb,  ///< sRGB-encoded storage, linear when sampled
+    bc7_unorm,   ///< 4x4 blocks of 16 bytes (ADR 0032): normal and metallic-roughness maps
+    bc7_srgb,    ///< BC7, sRGB-encoded: base color and emissive
 };
 
+/// Bytes per pixel; 0 for block-compressed formats (use row_bytes / row_count).
 [[nodiscard]] std::uint32_t bytes_per_pixel(Format format);
+[[nodiscard]] bool is_block_compressed(Format format);
+[[nodiscard]] bool is_srgb(Format format);
+/// Bytes in one row of pixels, or of 4x4 blocks for block-compressed formats, tightly packed.
+[[nodiscard]] std::uint64_t row_bytes(Format format, std::uint32_t width);
+/// Rows of pixels, or of 4x4 blocks.
+[[nodiscard]] std::uint32_t row_count(Format format, std::uint32_t height);
+/// Size of mip `level` of a width x height texture: max(1, size >> level).
+[[nodiscard]] constexpr std::uint32_t mip_size(std::uint32_t size, std::uint32_t level) {
+    return size >> level > 0 ? size >> level : 1;
+}
 [[nodiscard]] std::string_view to_string(Format format);
 
 enum class MemoryType : std::uint8_t {
@@ -137,6 +151,7 @@ struct TextureDesc {
     Format format = Format::rgba8_unorm;
     TextureUsage usage = TextureUsage::sampled;
     std::string debug_name;
+    std::uint32_t mip_levels = 1;
 };
 
 enum class Filter : std::uint8_t { nearest, linear };

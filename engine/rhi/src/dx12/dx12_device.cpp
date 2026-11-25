@@ -83,6 +83,9 @@ DXGI_FORMAT to_dxgi(Format format) {
         case Format::r32_float: return DXGI_FORMAT_R32_FLOAT;
         case Format::rgb32_float: return DXGI_FORMAT_R32G32B32_FLOAT;
         case Format::depth32_float: return DXGI_FORMAT_D32_FLOAT;
+        case Format::rgba8_srgb: return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+        case Format::bc7_unorm: return DXGI_FORMAT_BC7_UNORM;
+        case Format::bc7_srgb: return DXGI_FORMAT_BC7_UNORM_SRGB;
         case Format::undefined: return DXGI_FORMAT_UNKNOWN;
     }
     return DXGI_FORMAT_UNKNOWN;
@@ -515,7 +518,13 @@ public:
         return buffers_.insert(std::move(buffer));
     }
 
-    [[nodiscard]] Result<TextureHandle> create_texture(const TextureDesc& desc) override {
+    [[nodiscard]] Result<TextureHandle> create_texture(const TextureDesc& desc,
+                                                       std::span<const std::span<const std::byte>> mips) override {
+        const std::uint32_t levels = std::max(1u, desc.mip_levels);
+        if (!mips.empty() && mips.size() != levels) {
+            return make_error(ErrorCode::internal, std::format("create_texture '{}': {} mip levels, data for {}",
+                                                               desc.debug_name, levels, mips.size()));
+        }
         const DXGI_FORMAT format = to_dxgi(desc.format);
         if (format == DXGI_FORMAT_UNKNOWN || desc.format == Format::rgb32_float) {
             return make_error(ErrorCode::rhi_not_implemented,
@@ -527,7 +536,7 @@ public:
         d.Width = desc.width;
         d.Height = desc.height;
         d.DepthOrArraySize = 1;
-        d.MipLevels = 1;
+        d.MipLevels = static_cast<UINT16>(levels);
         d.Format = format;
         d.SampleDesc.Count = 1;
         d.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
@@ -564,7 +573,7 @@ public:
             srv.Format = depth ? DXGI_FORMAT_R32_FLOAT : format;
             srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
             srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-            srv.Texture2D.MipLevels = 1;
+            srv.Texture2D.MipLevels = levels;
             device_->CreateShaderResourceView(texture.resource.Get(), &srv, view_heap_.cpu(texture.srv));
         }
         if (storage) {
@@ -578,6 +587,12 @@ public:
             rtv.Format = format;
             rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
             device_->CreateRenderTargetView(texture.resource.Get(), &rtv, rtv_heap_.cpu(texture.rtv));
+        }
+        if (!mips.empty()) {
+            if (auto uploaded = upload_texture(texture.resource.Get(), d, desc, mips); !uploaded) {
+                free_descriptors(texture);
+                return std::unexpected(uploaded.error());
+            }
         }
         return textures_.insert(std::move(texture));
     }
@@ -1057,6 +1072,79 @@ private:
         return {};
     }
 
+    /// Copies every mip through a staging buffer laid out by GetCopyableFootprints1, on its own submission, and
+    /// leaves the texture in SHADER_RESOURCE (the RHI's shader_read). The staging buffer is retired with it.
+    Result<> upload_texture(ID3D12Resource* texture, const D3D12_RESOURCE_DESC1& resource_desc, const TextureDesc& desc,
+                            std::span<const std::span<const std::byte>> mips) {
+        const auto count = static_cast<UINT>(mips.size());
+        std::vector<D3D12_PLACED_SUBRESOURCE_FOOTPRINT> footprints(count);
+        std::vector<UINT> rows(count);
+        std::vector<UINT64> row_sizes(count);
+        UINT64 total = 0;
+        device_->GetCopyableFootprints1(&resource_desc, 0, count, 0, footprints.data(), rows.data(), row_sizes.data(),
+                                        &total);
+        auto staging = create_resource(D3D12_HEAP_TYPE_UPLOAD, buffer_resource(total, D3D12_RESOURCE_FLAG_NONE),
+                                       D3D12_BARRIER_LAYOUT_UNDEFINED, desc.debug_name + " (upload)");
+        if (!staging) {
+            return std::unexpected(staging.error());
+        }
+        void* mapped = nullptr;
+        const D3D12_RANGE nothing_read{0, 0};
+        if (const HRESULT hr = (*staging)->Map(0, &nothing_read, &mapped); FAILED(hr)) {
+            return gpu_error("mapping a texture upload buffer", hr);
+        }
+        for (UINT level = 0; level < count; ++level) {
+            const std::uint64_t packed = row_bytes(desc.format, mip_size(desc.width, level));
+            for (UINT row = 0; row < rows[level]; ++row) {
+                std::memcpy(static_cast<std::byte*>(mapped) + footprints[level].Offset +
+                                std::uint64_t{row} * footprints[level].Footprint.RowPitch,
+                            mips[level].data() + row * packed, packed);
+            }
+        }
+        std::unique_ptr<Recorder> recorder = take_recorder();
+        if (!recorder) {
+            return make_error(ErrorCode::rhi_gpu_error, "D3D12: no command list for a texture upload");
+        }
+        ID3D12GraphicsCommandList7* list = recorder->list.Get();
+        const auto transition = [&](D3D12_BARRIER_SYNC sync_before, D3D12_BARRIER_ACCESS access_before,
+                                    D3D12_BARRIER_LAYOUT layout_before, D3D12_BARRIER_SYNC sync_after,
+                                    D3D12_BARRIER_ACCESS access_after, D3D12_BARRIER_LAYOUT layout_after) {
+            D3D12_TEXTURE_BARRIER barrier{};
+            barrier.SyncBefore = sync_before;
+            barrier.SyncAfter = sync_after;
+            barrier.AccessBefore = access_before;
+            barrier.AccessAfter = access_after;
+            barrier.LayoutBefore = layout_before;
+            barrier.LayoutAfter = layout_after;
+            barrier.pResource = texture;
+            barrier.Subresources.IndexOrFirstMipLevel = 0xffffffff;
+            D3D12_BARRIER_GROUP group{};
+            group.Type = D3D12_BARRIER_TYPE_TEXTURE;
+            group.NumBarriers = 1;
+            group.pTextureBarriers = &barrier;
+            list->Barrier(1, &group);
+        };
+        transition(D3D12_BARRIER_SYNC_NONE, D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_LAYOUT_UNDEFINED,
+                   D3D12_BARRIER_SYNC_COPY, D3D12_BARRIER_ACCESS_COPY_DEST, D3D12_BARRIER_LAYOUT_COPY_DEST);
+        for (UINT level = 0; level < count; ++level) {
+            D3D12_TEXTURE_COPY_LOCATION to{};
+            to.pResource = texture;
+            to.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            to.SubresourceIndex = level;
+            D3D12_TEXTURE_COPY_LOCATION from{};
+            from.pResource = staging->Get();
+            from.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            from.PlacedFootprint = footprints[level];
+            list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+        }
+        transition(D3D12_BARRIER_SYNC_COPY, D3D12_BARRIER_ACCESS_COPY_DEST, D3D12_BARRIER_LAYOUT_COPY_DEST,
+                   D3D12_BARRIER_SYNC_NONE, D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_LAYOUT_SHADER_RESOURCE);
+        list->Close();
+        static_cast<void>(execute(std::move(recorder)));
+        tracker_.retire([keep = std::move(*staging)] {});
+        return {};
+    }
+
     void free_descriptors(const Dx12Buffer& b) {
         view_heap_.release(b.srv);
         view_heap_.release(b.uav);
@@ -1444,19 +1532,20 @@ void Dx12CommandList::copy_texture_to_buffer(TextureHandle src, BufferHandle dst
     Dx12Texture* t = device_.texture(src);
     Dx12Buffer* b = device_.buffer(dst);
     VEACH_ASSERT(t != nullptr && b != nullptr, "copy_texture_to_buffer: invalid handles");
-    const std::uint32_t row = t->desc.width * bytes_per_pixel(t->desc.format);
-    VEACH_ASSERT(b->desc.size >= std::uint64_t{row} * t->desc.height, "copy_texture_to_buffer: buffer too small");
+    const auto row = static_cast<std::uint32_t>(row_bytes(t->desc.format, t->desc.width));
+    const std::uint32_t rows = row_count(t->desc.format, t->desc.height);
+    VEACH_ASSERT(b->desc.size >= std::uint64_t{row} * rows, "copy_texture_to_buffer: buffer too small");
     // D3D12 copies rows with a 256-byte pitch. Unaligned rows go through a pitched buffer that map() packs.
     const auto pitch = static_cast<std::uint32_t>(align_up(row, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT));
     ID3D12Resource* target = b->resource.Get();
     if (pitch != row) {
-        PitchedReadback* p = device_.pitched_readback(*b, std::uint64_t{pitch} * t->desc.height);
+        PitchedReadback* p = device_.pitched_readback(*b, std::uint64_t{pitch} * rows);
         if (p == nullptr) {
             return;
         }
         p->row_bytes = row;
         p->pitch = pitch;
-        p->rows = t->desc.height;
+        p->rows = rows;
         p->pending = true;
         target = p->resource.Get();
     }

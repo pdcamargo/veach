@@ -34,6 +34,9 @@ MTLPixelFormat to_mtl(Format format) {
         case Format::rgba32_float: return MTLPixelFormatRGBA32Float;
         case Format::r32_float: return MTLPixelFormatR32Float;
         case Format::depth32_float: return MTLPixelFormatDepth32Float;
+        case Format::rgba8_srgb: return MTLPixelFormatRGBA8Unorm_sRGB;
+        case Format::bc7_unorm: return MTLPixelFormatBC7_RGBAUnorm;
+        case Format::bc7_srgb: return MTLPixelFormatBC7_RGBAUnorm_sRGB;
         case Format::rgb32_float:
         case Format::undefined: return MTLPixelFormatInvalid;
     }
@@ -177,11 +180,19 @@ public:
         return buffers_.insert({buffer, desc});
     }
 
-    [[nodiscard]] Result<TextureHandle> create_texture(const TextureDesc& desc) override {
+    [[nodiscard]] Result<TextureHandle> create_texture(const TextureDesc& desc,
+                                                       std::span<const std::span<const std::byte>> mips) override {
+        if (is_block_compressed(desc.format) && !device_.supportsBCTextureCompression) {
+            return make_error(ErrorCode::rhi_backend_unavailable,
+                              std::format("'{}' does not support BC texture compression", caps_.device_name),
+                              "BC7 textures (ADR 0032) need an Apple-silicon Mac.");
+        }
+        const std::uint32_t levels = std::max(1u, desc.mip_levels);
         MTLTextureDescriptor* d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:to_mtl(desc.format)
                                                                                      width:desc.width
                                                                                     height:desc.height
                                                                                  mipmapped:NO];
+        d.mipmapLevelCount = levels;
         d.storageMode = MTLStorageModePrivate;
         d.hazardTrackingMode = MTLHazardTrackingModeTracked;
         MTLTextureUsage usage = 0;
@@ -204,7 +215,47 @@ public:
         if (!desc.debug_name.empty()) {
             texture.label = ns(desc.debug_name);
         }
+        if (!mips.empty()) {
+            if (mips.size() != levels) {
+                return make_error(ErrorCode::internal, std::format("create_texture '{}': {} mip levels, data for {}",
+                                                                   desc.debug_name, levels, mips.size()));
+            }
+            upload(texture, desc, mips);
+        }
         return textures_.insert({texture, desc, false});
+    }
+
+    /// Private textures are filled by a blit from a shared staging buffer, committed now: the queue runs in
+    /// order, so every later submission sees the data. The command buffer keeps the staging buffer alive.
+    void upload(id<MTLTexture> texture, const TextureDesc& desc, std::span<const std::span<const std::byte>> mips) {
+        std::size_t total = 0;
+        for (const auto& mip : mips) {
+            total += mip.size();
+        }
+        id<MTLBuffer> staging = [device_ newBufferWithLength:std::max<std::size_t>(total, 16)
+                                                     options:MTLResourceStorageModeShared];
+        id<MTLCommandBuffer> commands = [queue_ commandBuffer];
+        commands.label = @"texture upload";
+        id<MTLBlitCommandEncoder> blit = [commands blitCommandEncoder];
+        std::size_t offset = 0;
+        for (std::uint32_t level = 0; level < mips.size(); ++level) {
+            const std::uint32_t w = mip_size(desc.width, level);
+            const std::uint32_t h = mip_size(desc.height, level);
+            const std::uint64_t row = row_bytes(desc.format, w);
+            std::memcpy(static_cast<std::byte*>(staging.contents) + offset, mips[level].data(), mips[level].size());
+            [blit copyFromBuffer:staging
+                       sourceOffset:offset
+                  sourceBytesPerRow:row
+                sourceBytesPerImage:row * row_count(desc.format, h)
+                         sourceSize:MTLSizeMake(w, h, 1)
+                          toTexture:texture
+                   destinationSlice:0
+                   destinationLevel:level
+                  destinationOrigin:MTLOriginMake(0, 0, 0)];
+            offset += mips[level].size();
+        }
+        [blit endEncoding];
+        [commands commit];
     }
 
     [[nodiscard]] Result<SamplerHandle> create_sampler(const SamplerDesc& desc) override {
@@ -734,8 +785,9 @@ void MetalCommandList::copy_texture_to_buffer(TextureHandle src, BufferHandle ds
     MetalTexture* t = device_.texture(src);
     MetalBuffer* b = device_.buffer(dst);
     VEACH_ASSERT(t != nullptr && b != nullptr, "copy_texture_to_buffer: invalid handles");
-    const std::uint32_t row = t->desc.width * bytes_per_pixel(t->desc.format);
-    VEACH_ASSERT(b->desc.size >= std::uint64_t{row} * t->desc.height, "copy_texture_to_buffer: buffer too small");
+    const auto row = static_cast<std::uint32_t>(row_bytes(t->desc.format, t->desc.width));
+    const std::uint32_t rows = row_count(t->desc.format, t->desc.height);
+    VEACH_ASSERT(b->desc.size >= std::uint64_t{row} * rows, "copy_texture_to_buffer: buffer too small");
     id<MTLBlitCommandEncoder> blit = [buffer_ blitCommandEncoder];
     [blit copyFromTexture:t->texture
                      sourceSlice:0
@@ -745,7 +797,7 @@ void MetalCommandList::copy_texture_to_buffer(TextureHandle src, BufferHandle ds
                         toBuffer:b->buffer
                destinationOffset:0
           destinationBytesPerRow:row
-        destinationBytesPerImage:std::uint64_t{row} * t->desc.height];
+        destinationBytesPerImage:std::uint64_t{row} * rows];
     [blit endEncoding];
 }
 

@@ -20,7 +20,8 @@ public:
 
     [[nodiscard]] Result<BufferHandle> create_buffer(const BufferDesc& desc,
                                                      std::span<const std::byte> initial) override;
-    [[nodiscard]] Result<TextureHandle> create_texture(const TextureDesc& desc) override;
+    [[nodiscard]] Result<TextureHandle> create_texture(const TextureDesc& desc,
+                                                       std::span<const std::span<const std::byte>> mips) override;
     [[nodiscard]] Result<SamplerHandle> create_sampler(const SamplerDesc& desc) override;
     [[nodiscard]] Result<PipelineHandle> create_graphics_pipeline(const GraphicsPipelineDesc& desc) override;
     [[nodiscard]] Result<PipelineHandle> create_compute_pipeline(const ComputePipelineDesc& desc) override;

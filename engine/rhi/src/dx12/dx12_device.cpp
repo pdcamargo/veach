@@ -70,6 +70,66 @@ void set_name(ID3D12Object* object, std::string_view name) {
     }
 }
 
+std::string_view breadcrumb_op(D3D12_AUTO_BREADCRUMB_OP op) {
+    switch (op) {
+        case D3D12_AUTO_BREADCRUMB_OP_DISPATCH: return "Dispatch";
+        case D3D12_AUTO_BREADCRUMB_OP_DRAWINSTANCED: return "DrawInstanced";
+        case D3D12_AUTO_BREADCRUMB_OP_DRAWINDEXEDINSTANCED: return "DrawIndexedInstanced";
+        case D3D12_AUTO_BREADCRUMB_OP_COPYBUFFERREGION: return "CopyBufferRegion";
+        case D3D12_AUTO_BREADCRUMB_OP_COPYTEXTUREREGION: return "CopyTextureRegion";
+        case D3D12_AUTO_BREADCRUMB_OP_BUILDRAYTRACINGACCELERATIONSTRUCTURE:
+            return "BuildRaytracingAccelerationStructure";
+        case D3D12_AUTO_BREADCRUMB_OP_BARRIER: return "Barrier";
+        case D3D12_AUTO_BREADCRUMB_OP_BEGINEVENT: return "BeginEvent";
+        case D3D12_AUTO_BREADCRUMB_OP_ENDEVENT: return "EndEvent";
+        default: return "another command";
+    }
+}
+
+/// What DRED recorded about a device removal: the first command that did not finish in each command list, the
+/// debug group around it, and the allocations at a faulting address. Empty without DRED (no debug layer).
+std::string dred_report(ID3D12Device* device) {
+    ComPtr<ID3D12DeviceRemovedExtendedData1> dred;
+    if (FAILED(device->QueryInterface(IID_PPV_ARGS(&dred)))) {
+        return {};
+    }
+    std::string out;
+    D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT1 crumbs{};
+    if (SUCCEEDED(dred->GetAutoBreadcrumbsOutput1(&crumbs))) {
+        for (const D3D12_AUTO_BREADCRUMB_NODE1* node = crumbs.pHeadAutoBreadcrumbNode; node != nullptr;
+             node = node->pNext) {
+            const UINT done = node->pLastBreadcrumbValue != nullptr ? *node->pLastBreadcrumbValue : 0;
+            if (node->pCommandHistory == nullptr || done >= node->BreadcrumbCount) {
+                continue;  // finished, or never started
+            }
+            std::string group;
+            for (UINT i = 0; i < node->BreadcrumbContextsCount; ++i) {
+                const D3D12_DRED_BREADCRUMB_CONTEXT& context = node->pBreadcrumbContexts[i];
+                if (context.BreadcrumbIndex <= done && context.pContextString != nullptr) {
+                    group = narrow(context.pContextString);
+                }
+            }
+            out += std::format("; command list '{}' stopped at {} (command {} of {}{})",
+                               node->pCommandListDebugNameW != nullptr ? narrow(node->pCommandListDebugNameW) : "",
+                               breadcrumb_op(node->pCommandHistory[done]), done + 1, node->BreadcrumbCount,
+                               group.empty() ? "" : std::format(", in '{}'", group));
+        }
+    }
+    D3D12_DRED_PAGE_FAULT_OUTPUT1 fault{};
+    if (SUCCEEDED(dred->GetPageFaultAllocationOutput1(&fault)) && fault.PageFaultVA != 0) {
+        out += std::format("; page fault at GPU address 0x{:X}", fault.PageFaultVA);
+        for (const D3D12_DRED_ALLOCATION_NODE1* node = fault.pHeadExistingAllocationNode; node != nullptr;
+             node = node->pNext) {
+            out += std::format(", in '{}'", node->ObjectNameW != nullptr ? narrow(node->ObjectNameW) : "?");
+        }
+        for (const D3D12_DRED_ALLOCATION_NODE1* node = fault.pHeadRecentFreedAllocationNode; node != nullptr;
+             node = node->pNext) {
+            out += std::format(", in freed '{}'", node->ObjectNameW != nullptr ? narrow(node->ObjectNameW) : "?");
+        }
+    }
+    return out;
+}
+
 constexpr std::uint64_t align_up(std::uint64_t value, std::uint64_t alignment) {
     return (value + alignment - 1) / alignment * alignment;
 }
@@ -879,6 +939,7 @@ public:
         // After SetDescriptorHeaps: directly indexed heaps require that order.
         recorder->list->SetGraphicsRootSignature(root_signature_.Get());
         recorder->list->SetComputeRootSignature(root_signature_.Get());
+        set_name(recorder->list.Get(), debug_name);  // DRED reports lists by name
         auto list = std::make_unique<Dx12CommandList>(*this, std::move(recorder));
         list->push_debug_group(debug_name);
         return list;
@@ -1111,6 +1172,7 @@ private:
             return make_error(ErrorCode::rhi_gpu_error, "D3D12: no command list for a texture upload");
         }
         ID3D12GraphicsCommandList7* list = recorder->list.Get();
+        set_name(list, desc.debug_name + " (upload)");
         const auto transition = [&](D3D12_BARRIER_SYNC sync_before, D3D12_BARRIER_ACCESS access_before,
                                     D3D12_BARRIER_LAYOUT layout_before, D3D12_BARRIER_SYNC sync_after,
                                     D3D12_BARRIER_ACCESS access_after, D3D12_BARRIER_LAYOUT layout_after) {
@@ -1339,8 +1401,10 @@ private:
         }
         device_removed_reported_ = true;
         log::error("rhi", Error{ErrorCode::rhi_gpu_error,
-                                std::format("D3D12 device removed ({})", hresult(device_->GetDeviceRemovedReason())),
-                                "Run a debug build (D3D12 debug layer on) for the call that caused it."});
+                                std::format("D3D12 device removed ({}){}", hresult(device_->GetDeviceRemovedReason()),
+                                            dred_report(device_.Get())),
+                                "Run a debug build (D3D12 debug layer and DRED on) for the call that caused it; "
+                                "VEACH_DX12_GPU_VALIDATION=1 adds GPU-based validation."});
     }
 
     std::unique_ptr<Recorder> take_recorder() {
@@ -1594,11 +1658,15 @@ Dx12CommandList::~Dx12CommandList() {
 
 static_assert(!std::is_abstract_v<Dx12Device>, "Dx12Device must implement the whole rhi::Device interface");
 
+bool env_equals(const char* name, std::string_view expected) {
+    std::array<char, 16> value{};
+    const DWORD length = GetEnvironmentVariableA(name, value.data(), static_cast<DWORD>(value.size()));
+    return length > 0 && length < value.size() && std::string_view(value.data(), length) == expected;
+}
+
 /// VEACH_DX12_ADAPTER=warp forces WARP, the software device, even when a GPU is present.
 bool warp_forced() {
-    std::array<char, 16> value{};
-    const DWORD length = GetEnvironmentVariableA("VEACH_DX12_ADAPTER", value.data(), static_cast<DWORD>(value.size()));
-    return length > 0 && length < value.size() && std::string_view(value.data(), length) == "warp";
+    return env_equals("VEACH_DX12_ADAPTER", "warp");
 }
 
 struct Candidate {
@@ -1650,8 +1718,20 @@ Result<std::unique_ptr<Device>> create_dx12_device(const DeviceDesc& desc) {
         if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)))) {
             debug->EnableDebugLayer();
             log::debug("rhi", "D3D12 debug layer enabled");
+            ComPtr<ID3D12Debug1> debug1;
+            if (env_equals("VEACH_DX12_GPU_VALIDATION", "1") && SUCCEEDED(debug.As(&debug1))) {
+                debug1->SetEnableGPUBasedValidation(TRUE);
+                log::info("rhi", "D3D12 GPU-based validation enabled (VEACH_DX12_GPU_VALIDATION=1)");
+            }
         } else {
             log::warn("rhi", "the D3D12 debug layer is unavailable (D3D12\\d3d12SDKLayers.dll missing?)");
+        }
+        // DRED: a device removal then names the command that was running and the allocation that faulted.
+        ComPtr<ID3D12DeviceRemovedExtendedDataSettings1> dred;
+        if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&dred)))) {
+            dred->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+            dred->SetBreadcrumbContextEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+            dred->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
         }
     }
     // The DXGI debug layer (dxgidebug.dll) comes with the Graphics Tools feature, which may be missing.

@@ -166,6 +166,8 @@ elseif(WIN32)
     veach_golden_test("golden: triangle (camera, raytraced, dx12)" triangle_camera_raytraced triangle_camera dx12)
     veach_golden_test("golden: cornell box (path traced, dx12)" cornell_box cornell_box dx12 FRAMES 4)
     veach_golden_test("golden: flight helmet (path traced, dx12)" flight_helmet flight_helmet dx12 FRAMES 4)
+    # On WARP the helmet takes 85-120 s (cooking 15 textures, then path tracing on the CPU); ctest's default is 120.
+    set_tests_properties("golden: flight helmet (path traced, dx12)" PROPERTIES TIMEOUT 600)
     # Two frames in flight under load (dx12.AC6). A debug-layer error makes the exit code 1.
     add_test(NAME "dx12: ray-traced soak"
         COMMAND veach-lab --rhi dx12 --headless --frames 300 --script scripts/triangle_raytraced.luau)

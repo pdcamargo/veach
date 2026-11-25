@@ -59,10 +59,14 @@ def main() -> int:
     parser.add_argument("--emissive-samples", type=int, default=4, help="real-time emissive light samples")
     parser.add_argument("--max-mean", type=float, default=None)
     parser.add_argument("--out", type=pathlib.Path, default=ROOT / "build" / "compare_direct")
+    parser.add_argument("--lab", type=pathlib.Path, help="veach-lab (default: build/<preset>/apps/lab/veach-lab)")
+    parser.add_argument("--imgdiff", type=pathlib.Path, help="veach-cli (default: build/<preset>/tools/veach-cli/veach)")
+    parser.add_argument("--extra", default="", help="Luau appended to both variants (e.g. a light)")
+    parser.add_argument("--label", default="", help="suffix for the scene's name in the report and file names")
     args = parser.parse_args()
     size = tuple(int(v) for v in args.size.split("x"))
-    lab = ROOT / "build" / args.preset / "apps" / "lab" / "veach-lab"
-    imgdiff = ROOT / "build" / args.preset / "tools" / "veach-cli" / "veach"
+    lab = args.lab or ROOT / "build" / args.preset / "apps" / "lab" / "veach-lab"
+    imgdiff = args.imgdiff or ROOT / "build" / args.preset / "tools" / "veach-cli" / "veach"
     args.out.mkdir(parents=True, exist_ok=True)
 
     failed = False
@@ -71,30 +75,31 @@ def main() -> int:
     print("|---|---|---|---|")
     for scene in args.scenes:
         scene = scene.resolve()
-        realtime = variant(scene, "realtime", size,
+        name = scene.stem + (f"_{args.label}" if args.label else "")
+        realtime = variant(scene, f"{args.label}realtime", size, args.extra + "\n"
                            "camera:remove(veach.components.PathTracer)\n"
                            "camera:set(veach.components.RealtimeLighting, { emissive_samples = "
                            f"{args.emissive_samples}, ambient = false, sky = vector.zero, ao_rays = 0, "
                            "ao_radius = 1 })")
-        reference = variant(scene, "reference", size,
+        reference = variant(scene, f"{args.label}reference", size, args.extra + "\n"
                             "camera:set(veach.components.PathTracer, { samples_per_frame = "
                             f"{args.spf}, max_bounces = 1, sky = vector.zero, mode = 1, jitter = false }})")
         try:
-            rt_png = args.out / f"{scene.stem}.realtime.png"
-            pt_png = args.out / f"{scene.stem}.reference.png"
+            rt_png = args.out / f"{name}.realtime.png"
+            pt_png = args.out / f"{name}.reference.png"
             render(lab, args.rhi, realtime, 3, rt_png)
             render(lab, args.rhi, reference, args.frames, pt_png)
             diff = subprocess.run([str(imgdiff), "imgdiff", str(pt_png), str(rt_png), "--max-mean", "1",
                                    "--max-p999", "1", "--max-outliers", "1000000000",
-                                   "--diff", str(args.out / f"{scene.stem}.diff.png")],
+                                   "--diff", str(args.out / f"{name}.diff.png")],
                                   capture_output=True, text=True).stdout
             match = re.search(r"mean FLIP ([\d.]+).*?99\.9th percentile ([\d.]+).*?(\d+) pixels above 0\.5", diff)
             if not match:
                 raise RuntimeError(f"{scene.name}: unexpected imgdiff output: {diff.strip()}")
             mean, p999, outliers = float(match[1]), float(match[2]), int(match[3])
-            print(f"| {scene.stem} | {mean:.4f} | {p999:.3f} | {outliers} |")
+            print(f"| {name} | {mean:.4f} | {p999:.3f} | {outliers} |")
             if args.max_mean is not None and mean > args.max_mean:
-                print(f"compare_direct: {scene.stem}: mean FLIP {mean:.4f} exceeds {args.max_mean}", file=sys.stderr)
+                print(f"compare_direct: {name}: mean FLIP {mean:.4f} exceeds {args.max_mean}", file=sys.stderr)
                 failed = True
         except RuntimeError as error:
             print(f"compare_direct: {error}", file=sys.stderr)

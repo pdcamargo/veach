@@ -1,11 +1,13 @@
 // The real-time renderer v0 (docs/specs/realtime-renderer-v0/spec.md).
 
 #include <veach/asset/scene.hpp>
+#include <veach/render/camera.hpp>
 
 #include <doctest/doctest.h>
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <vector>
 
 using namespace veach;
@@ -79,4 +81,22 @@ TEST_CASE("[rt.AC1] meshlets cover every triangle once, within the limits, one s
     build_meshlets(again);
     CHECK(again.meshlet_triangles == mesh.meshlet_triangles);
     CHECK(again.meshlet_vertices == mesh.meshlet_vertices);
+}
+
+TEST_CASE("[rt.AC6] exposure follows the physical camera") {
+    Camera camera;
+    CHECK(ev100_of(camera) == doctest::Approx(0.0));  // f/1, 1 s, ISO 100: existing scenes keep their exposure
+    camera.aperture = 16.0f;
+    camera.shutter = 1.0f / 125.0f;
+    camera.iso = 100.0f;
+    CHECK(ev100_of(camera) == doctest::Approx(std::log2(16.0 * 16.0 * 125.0)));  // sunny 16: about EV 15
+    const float before = ev100_of(camera);
+    camera.shutter *= 2.0f;  // twice the light reaches the sensor: one stop less EV, twice the image value
+    CHECK(ev100_of(camera) == doctest::Approx(before - 1.0f));
+    const auto exposure = [](float ev100) {
+        return 1.0f / (1.2f * std::exp2(ev100));
+    };
+    CHECK(exposure(ev100_of(camera)) == doctest::Approx(2.0f * exposure(before)));
+    camera.ev100 = 9.0f;  // an explicit EV100 wins
+    CHECK(ev100_of(camera) == doctest::Approx(9.0));
 }

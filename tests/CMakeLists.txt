@@ -154,6 +154,55 @@ function(veach_golden_test name script golden rhi)
                 -DFRAMES=${ARG_FRAMES} ${pixel_limits} -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/golden_test.cmake")
     set_tests_properties("${name}" PROPERTIES SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE")
 endfunction()
+
+# The real-time renderer against the path tracer's direct light (tools/bench/compare_direct.py, rt.AC3/rt.AC4).
+function(veach_compare_test name script rhi max_mean)
+    cmake_parse_arguments(ARG "" "LABEL;EXTRA;SIZE;FRAMES;EMISSIVE" "" ${ARGN})
+    if(NOT Python3_FOUND)
+        return()
+    endif()
+    set(extra_args "")
+    if(ARG_LABEL)
+        list(APPEND extra_args --label ${ARG_LABEL})
+    endif()
+    if(ARG_EXTRA)
+        list(APPEND extra_args --extra "${ARG_EXTRA}")
+    endif()
+    add_test(NAME "${name}"
+        COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/bench/compare_direct.py" --rhi ${rhi}
+                --lab $<TARGET_FILE:veach-lab> --imgdiff $<TARGET_FILE:veach-cli>
+                --out "${CMAKE_CURRENT_BINARY_DIR}/compare/${rhi}" --size ${ARG_SIZE} --frames ${ARG_FRAMES} --spf 16
+                --emissive-samples ${ARG_EMISSIVE} --max-mean ${max_mean} ${extra_args}
+                "${PROJECT_SOURCE_DIR}/apps/lab/scripts/${script}.luau")
+    set_tests_properties("${name}" PROPERTIES SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable")
+endfunction()
+
+# One strong light of each type over the Cornell box (rt.AC4): a shadow in the wrong place costs far more FLIP than
+# the noise left at these sample counts.
+set(_test_sun "local l = veach.spawn('test sun')
+l:set(veach.components.Transform, { translation = vector.zero, rotation = veach.quat.look_rotation(vector.create(0.4, -1, -0.3)), scale = vector.one })
+l:set(veach.components.DirectionalLight, { color = vector.one, illuminance = 40 })")
+set(_test_point "local l = veach.spawn('test bulb')
+l:set(veach.components.Transform, { translation = vector.create(0.6, 1.5, 0.6), rotation = veach.quat.identity(), scale = vector.one })
+l:set(veach.components.PointLight, { color = vector.one, intensity = 25 })")
+set(_test_spot "local l = veach.spawn('test spot')
+l:set(veach.components.Transform, { translation = vector.create(-0.7, 1.6, 0.8), rotation = veach.quat.look_rotation(vector.create(0.6, -1, -0.6)), scale = vector.one })
+l:set(veach.components.SpotLight, { color = vector.one, intensity = 40, inner_angle = 0.35, outer_angle = 0.6 })")
+function(veach_realtime_tests rhi)
+    set(suffix "")
+    if(NOT rhi STREQUAL "metal")
+        set(suffix ", ${rhi}")
+    endif()
+    veach_golden_test("golden: cornell box (realtime${suffix})" cornell_box_realtime cornell_box_realtime ${rhi})
+    veach_golden_test("golden: flight helmet (realtime${suffix})" flight_helmet_realtime flight_helmet_realtime ${rhi})
+    veach_golden_test("golden: cornell box AO view (path traced${suffix})" cornell_box_ao cornell_box_ao ${rhi} FRAMES 4)
+    veach_compare_test("rt.AC3: GlowMaterial renders the same in both renderers (${rhi})" glow_closeup ${rhi} 0.01
+        SIZE 160x160 FRAMES 32 EMISSIVE 64)
+    foreach(light sun point spot)
+        veach_compare_test("rt.AC4: ${light} light and its hard shadow match the reference (${rhi})" cornell_box ${rhi}
+            0.04 LABEL ${light} EXTRA "${_test_${light}}" SIZE 320x180 FRAMES 32 EMISSIVE 64)
+    endforeach()
+endfunction()
 if(APPLE)
     veach_golden_test("golden: background" hello background metal)
     veach_golden_test("golden: triangle (raster)" triangle_raster triangle_raster metal)
@@ -162,6 +211,7 @@ if(APPLE)
     veach_golden_test("golden: triangle (camera, raytraced)" triangle_camera_raytraced triangle_camera metal)
     veach_golden_test("golden: cornell box (path traced)" cornell_box cornell_box metal FRAMES 4)
     veach_golden_test("golden: flight helmet (path traced)" flight_helmet flight_helmet metal FRAMES 4)
+    veach_realtime_tests(metal)
     # A NaN light: the path tracer leaves the samples out but fails the run (render.nonfinite_samples).
     add_test(NAME "lab: NaN samples are errors"
         COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/nonfinite_light.luau)
@@ -181,6 +231,12 @@ if(APPLE)
                 --screenshot "${_golden_dir}/cornell_box.png"
         COMMAND veach-lab --rhi metal --headless --frames 4 --script scripts/flight_helmet.luau
                 --screenshot "${_golden_dir}/flight_helmet.png"
+        COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/cornell_box_realtime.luau
+                --screenshot "${_golden_dir}/cornell_box_realtime.png"
+        COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/flight_helmet_realtime.luau
+                --screenshot "${_golden_dir}/flight_helmet_realtime.png"
+        COMMAND veach-lab --rhi metal --headless --frames 4 --script scripts/cornell_box_ao.luau
+                --screenshot "${_golden_dir}/cornell_box_ao.png"
         COMMENT "Regenerating golden images in tests/golden/ (review the diff before committing)"
         VERBATIM)
 elseif(WIN32)
@@ -191,6 +247,7 @@ elseif(WIN32)
     veach_golden_test("golden: triangle (camera, raytraced, dx12)" triangle_camera_raytraced triangle_camera dx12)
     veach_golden_test("golden: cornell box (path traced, dx12)" cornell_box cornell_box dx12 FRAMES 4)
     veach_golden_test("golden: flight helmet (path traced, dx12)" flight_helmet flight_helmet dx12 FRAMES 4)
+    veach_realtime_tests(dx12)
     add_test(NAME "lab: NaN samples are errors (dx12)"
         COMMAND veach-lab --rhi dx12 --headless --frames 3 --script scripts/nonfinite_light.luau)
     set_tests_properties("lab: NaN samples are errors (dx12)" PROPERTIES

@@ -175,15 +175,20 @@ Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device) {
             return l;
         };
         world.each([&](const DirectionalLight& d, const GlobalTransform& g) {
-            out.lights.push_back(light(LightKind::directional, g, d.color * d.illuminance));
+            RenderLight l = light(LightKind::directional, g, d.color * d.illuminance);
+            l.size = 0.5f * d.angle;
+            out.lights.push_back(l);
         });
         world.each([&](const PointLight& p, const GlobalTransform& g) {
-            out.lights.push_back(light(LightKind::point, g, p.color * p.intensity));
+            RenderLight l = light(LightKind::point, g, p.color * p.intensity);
+            l.size = p.radius;
+            out.lights.push_back(l);
         });
         world.each([&](const SpotLight& s, const GlobalTransform& g) {
             RenderLight l = light(LightKind::spot, g, s.color * s.intensity);
             l.cos_inner = std::cos(s.inner_angle);
             l.cos_outer = std::cos(s.outer_angle);
+            l.size = s.radius;
             out.lights.push_back(l);
         });
     });
@@ -449,16 +454,19 @@ RenderModule::RenderModule(World& world) {
     world.component<DirectionalLight>()
         .member(&DirectionalLight::color, "color")
         .member(&DirectionalLight::illuminance, "illuminance")
+        .member(&DirectionalLight::angle, "angle")
         .add<Scriptable>();
     world.component<PointLight>()
         .member(&PointLight::color, "color")
         .member(&PointLight::intensity, "intensity")
+        .member(&PointLight::radius, "radius")
         .add<Scriptable>();
     world.component<SpotLight>()
         .member(&SpotLight::color, "color")
         .member(&SpotLight::intensity, "intensity")
         .member(&SpotLight::inner_angle, "inner_angle")
         .member(&SpotLight::outer_angle, "outer_angle")
+        .member(&SpotLight::radius, "radius")
         .add<Scriptable>();
     world.component<RealtimeView>();
     world.component<RealtimeLighting>()

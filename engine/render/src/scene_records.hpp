@@ -56,7 +56,7 @@ struct LightRecord {
     float cos_inner = 1.0f;
     float cos_outer = 0.0f;
     std::uint32_t kind = 0;
-    std::uint32_t pad = 0;
+    float size = 0.0f;  ///< RenderLight::size: sphere radius or angular radius; 0 = punctual
 };
 static_assert(sizeof(LightRecord) == 64);
 

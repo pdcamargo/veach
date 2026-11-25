@@ -69,6 +69,7 @@ struct RenderLight {
     math::vec3 radiance{0.0f};
     float cos_inner = 1.0f;
     float cos_outer = 0.0f;
+    float size = 0.0f;  ///< sphere radius (point, spot), angular radius (directional); 0 = punctual (soft-shadows spec)
 };
 
 /// Renderer-owned snapshot of what to draw this frame. Rebuilt by extraction every frame.

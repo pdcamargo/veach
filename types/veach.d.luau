@@ -85,6 +85,7 @@ export type Camera = {
 export type DirectionalLight = {
 	color: vector,
 	illuminance: number,
+	angle: number,
 }
 export type PathTracer = {
 	samples_per_frame: number,
@@ -96,6 +97,7 @@ export type PathTracer = {
 export type PointLight = {
 	color: vector,
 	intensity: number,
+	radius: number,
 }
 export type RealtimeView = "final" | "noisy" | "motion" | "history" | "accumulated"
 export type RealtimeLighting = {
@@ -118,6 +120,7 @@ export type SpotLight = {
 	intensity: number,
 	inner_angle: number,
 	outer_angle: number,
+	radius: number,
 }
 export type quat = {
 	x: number,

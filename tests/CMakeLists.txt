@@ -146,6 +146,13 @@ if(Python3_FOUND)
                     "${PROJECT_SOURCE_DIR}/apps/lab/scripts/flight_helmet.luau")
         set_tests_properties("temporal.AC4: ReSTIR DI converges to the direct-light reference (metal)" PROPERTIES
             SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable")
+        # shadows.AC1-AC2: lights with a size match the path tracer, and their penumbrae show (soft-shadows spec).
+        add_test(NAME "shadows: sized lights cast penumbrae that match the reference (metal)"
+            COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/soft_shadows.py" --rhi metal
+                    --lab $<TARGET_FILE:veach-lab> --imgdiff $<TARGET_FILE:veach-cli>
+                    --out "${CMAKE_CURRENT_BINARY_DIR}/soft_shadows")
+        set_tests_properties("shadows: sized lights cast penumbrae that match the reference (metal)" PROPERTIES
+            SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 900)
         # The temporal renderer's acceptance criteria (docs/specs/temporal-direct-lighting/spec.md), read from its
         # debug views and images over MCP. Shader validation is off, as for goldens (it varies ray queries).
         foreach(_temporal motion stability ghosting)

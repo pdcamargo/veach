@@ -41,7 +41,7 @@ struct LightRecord {
     float cos_inner;
     float cos_outer;
     uint kind;
-    uint pad;
+    float size;  ///< sphere radius (point, spot) or angular radius (directional); 0 = punctual (soft-shadows spec)
 };
 
 /// Mirrors render::EmissiveTriangle: picked with probability proportional to area x material weight.

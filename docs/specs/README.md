@@ -24,3 +24,4 @@ acceptance criteria (`[area.ACn] ...`) → status Implemented.
 | [Real-time renderer v0](realtime-renderer-v0/spec.md) | render, asset, rhi | Implemented |
 | [Record and replay](record-replay/spec.md) | runtime | Implemented |
 | [Temporal foundation and direct lighting at speed](temporal-direct-lighting/spec.md) | render, rhi | Implemented (AC6 not met on FlightHelmet) |
+| [Soft shadows from lights with a size](soft-shadows/spec.md) | render | Implemented |

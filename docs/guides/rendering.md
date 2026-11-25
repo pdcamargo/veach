@@ -157,7 +157,9 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   "GlowMaterial"}`. Renderers call `evaluateSurface(kind, context)` and never read material records directly
   ([ADR 0033](../adr/0033-material-model.md)).
 - **Lights:** `DirectionalLight` (lux), `PointLight` and `SpotLight` (candela), shining down −Z, and emissive
-  surfaces (nits). `Camera.ev100` sets exposure, or derives it from `aperture`, `shutter` and `iso` when 0; a
+  surfaces (nits). `PointLight.radius` and `SpotLight.radius` (meters) and `DirectionalLight.angle` (angular
+  diameter, radians) give them a size and soft shadows in both renderers, at the same intensity
+  ([soft-shadows spec](../specs/soft-shadows/spec.md)). `Camera.ev100` sets exposure, or derives it from `aperture`, `shutter` and `iso` when 0; a
   display pass applies it and the AgX tonemapper to the linear radiance renderers produce
   ([ADR 0038](../adr/0038-exposure-and-tonemapping.md)).
 - **One feature, two renderers.** The app adds `render::SceneRenderer(SceneShaders{<ns>::path_tracer(),

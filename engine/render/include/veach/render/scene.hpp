@@ -28,12 +28,14 @@ struct MeshInstance {
 struct DirectionalLight {
     math::vec3 color{1.0f};
     float illuminance = 1.0f;
+    float angle = 0.0f;  ///< apparent angular diameter, radians (the sun: 0.0093); 0 = hard shadows
 };
 
 /// Intensity in candela. Scriptable.
 struct PointLight {
     math::vec3 color{1.0f};
     float intensity = 1.0f;
+    float radius = 0.0f;  ///< meters: a sphere emitting the same intensity; 0 = hard shadows
 };
 
 /// Intensity in candela, cone angles in radians (KHR_lights_punctual falloff). Shines down −Z. Scriptable.
@@ -42,6 +44,7 @@ struct SpotLight {
     float intensity = 1.0f;
     float inner_angle = 0.0f;
     float outer_angle = 0.7853982f;
+    float radius = 0.0f;  ///< meters, as PointLight's
 };
 
 /// On a camera entity: render its view with the reference path tracer (ADR 0034). Scriptable.

@@ -9,7 +9,6 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 
 - **VCH-061** Exact directional lights next to ReSTIR — *render* — FlightHelmet's final image is 0.0048 FLIP from the direct-light reference, v0's was 0.0017: v0 traced one ray per punctual light, ReSTIR samples them with one ray in all. Evaluating directional lights (usually one sun) exactly, with their own shadow ray, would close it for sun-lit scenes at one more ray per pixel. Needs the owner's call on the ray budget. [spec](../specs/temporal-direct-lighting/spec.md#results)
 - **VCH-060** Blended materials in the real-time renderer — *render* — The visibility buffer draws `BLEND` materials masked at 0.5; the path tracer covers them stochastically. Sponza's dirt decal shows the difference: +6% mean luminance against the reference. Stochastic or weighted coverage in the visibility pass, resolved by the denoiser and the upscaler.
-- **VCH-021** Soft shadows from area lights — *render* — Raytraced, with many-light sampling: area, spot and point lights with a radius, sampled through ReSTIR's light samples (after VCH-059).
 - **VCH-005** `Behavior` component — *script* — `veach.behavior(Component, { on_update = function(self, dt) ... end })` sugar for per-entity scripts, run internally as an ordinary Simulation system with batched dispatch. No separate update path.
 - **VCH-009** Runtime shader compilation — *render* — Build-time Slang → metallib/DXIL exists ([ADR 0026](../adr/0026-shader-compilation.md)). Add libslang at run time for shader hot reload, and a pipeline cache.
 
@@ -49,6 +48,7 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 
 ## Done
 
+- **VCH-021** Soft shadows from area lights — *render* — `PointLight.radius`, `SpotLight.radius`, `DirectionalLight.angle`: spheres and disks sampled by both renderers through shared code, as ReSTIR light samples in real time (no extra rays). [spec](../specs/soft-shadows/spec.md)
 - **VCH-059** Temporal foundation and direct lighting at speed — *render* — Render resolution and jitter, a surface pass with analytic motion, per-view history and disocclusion; ReSTIR DI with one shadow ray per pixel; the denoiser (VCH-022) and upscaling (VCH-023). Target: Bistro under 16.6 ms at 1440p output on the M5 Max, no FLIP regression against the direct-light reference. [spec](../specs/temporal-direct-lighting/spec.md)
 - **VCH-022** Denoiser — *render* — Shared denoising for GI, reflections and shadows: our own SVGF/ReLAX-style filter on demodulated signals. [ADR](../adr/0042-denoiser.md)
 - **VCH-023** Upscaler — *render* — Temporal upscaling to hit 60 fps at 1440p output; MetalFX's temporal scaler on Apple GPUs and our own TAAU everywhere, behind one interface; DLSS/FSR later, after a license decision. [ADR](../adr/0043-upscaling.md)

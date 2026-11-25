@@ -638,6 +638,7 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
         r.cos_inner = l.cos_inner;
         r.cos_outer = l.cos_outer;
         r.kind = l.kind == LightKind::directional ? 0u : l.kind == LightKind::point ? 1u : 2u;
+        r.size = l.size;
         lights.push_back(r);
     }
     std::vector<EmissiveTriangle> emitters;

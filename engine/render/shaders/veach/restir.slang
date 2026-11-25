@@ -79,21 +79,22 @@ Domain domain_of(GSurface s, float3 camera) {
     return d;
 }
 
-/// The unshadowed contribution of a sample at a domain: radiance x f x cos (x the light's cos / d² for triangles),
-/// and the direction and distance a shadow ray takes (distance >= 1e29: a directional light).
-float3 contribution(Reservoir r, Domain d, uint light_count, out float3 l, out float distance) {
+/// What a sample sends toward p before the BSDF, in the measure its source density uses: a point light's irradiance
+/// (exact), a sized light's sample (veach/lights.slang), a triangle point's radiance x cos at the light / d^2. And the
+/// shadow ray's direction and length (distance >= 1e29: a directional light).
+float3 incoming_of(Reservoir r, float3 p, uint light_count, out float3 l, out float distance) {
     l = float3(0.0, 0.0, 1.0);
     distance = 0.0;
-    if (r.light == no_light || !d.valid) {
+    if (r.light == no_light) {
         return float3(0.0, 0.0, 0.0);
     }
     const uint index = r.light & ~light_double_sided;
-    float pdf;
     if (index < light_count) {
-        const float3 irradiance = punctual_irradiance(veach_scene.lights[index], d.p, l, distance);
-        return irradiance * brdf_eval(d.b, d.v, d.frame.to_local(l), pdf);
+        const LightRecord light = veach_scene.lights[index];
+        return light.size > 0.0 ? light_extent_incoming(light, r.position, r.normal, p, l, distance)
+                                : punctual_irradiance(light, p, l, distance);
     }
-    const float3 to_light = r.position - d.p;
+    const float3 to_light = r.position - p;
     distance = length(to_light);
     if (distance <= 1e-6) {
         return float3(0.0, 0.0, 0.0);
@@ -103,10 +104,22 @@ float3 contribution(Reservoir r, Domain d, uint light_count, out float3 l, out f
     if ((r.light & light_double_sided) != 0) {
         cos_light = abs(cos_light);
     }
-    if (cos_light <= 0.0) {
+    return cos_light > 0.0 ? r.radiance * cos_light / (distance * distance) : float3(0.0, 0.0, 0.0);
+}
+
+/// The unshadowed contribution of a sample at a domain: incoming x f x cos.
+float3 contribution(Reservoir r, Domain d, uint light_count, out float3 l, out float distance) {
+    if (!d.valid) {
+        l = float3(0.0, 0.0, 1.0);
+        distance = 0.0;
         return float3(0.0, 0.0, 0.0);
     }
-    return r.radiance * brdf_eval(d.b, d.v, d.frame.to_local(l), pdf) * cos_light / (distance * distance);
+    const float3 incoming = incoming_of(r, d.p, light_count, l, distance);
+    if (all(incoming <= 0.0)) {
+        return float3(0.0, 0.0, 0.0);
+    }
+    float pdf;
+    return incoming * brdf_eval(d.b, d.v, d.frame.to_local(l), pdf);
 }
 
 /// contribution() split into the BRDF's diffuse and specular lobes (shading for the denoiser).
@@ -116,28 +129,12 @@ void contribution_lobes(Reservoir r, Domain d, uint light_count, out float3 diff
     specular = float3(0.0, 0.0, 0.0);
     l = float3(0.0, 0.0, 1.0);
     distance = 0.0;
-    if (r.light == no_light || !d.valid) {
+    if (!d.valid) {
         return;
     }
-    const uint index = r.light & ~light_double_sided;
-    float3 incoming;
-    if (index < light_count) {
-        incoming = punctual_irradiance(veach_scene.lights[index], d.p, l, distance);
-    } else {
-        const float3 to_light = r.position - d.p;
-        distance = length(to_light);
-        if (distance <= 1e-6) {
-            return;
-        }
-        l = to_light / distance;
-        float cos_light = dot(r.normal, -l);
-        if ((r.light & light_double_sided) != 0) {
-            cos_light = abs(cos_light);
-        }
-        if (cos_light <= 0.0) {
-            return;
-        }
-        incoming = r.radiance * cos_light / (distance * distance);
+    const float3 incoming = incoming_of(r, d.p, light_count, l, distance);
+    if (all(incoming <= 0.0)) {
+        return;
     }
     float3 fd;
     float3 fs;
@@ -171,6 +168,11 @@ Reservoir sample_light(RealtimeFrame f, Domain d, inout Rng rng, out float sourc
     if (index < f.light_count) {
         c.light = index;
         source_pdf = select;
+        const LightRecord light = veach_scene.lights[index];
+        if (light.size > 0.0) {  // a sized light: a point of its sphere or a direction of its disk
+            sample_light_extent(light, float2(rng.next(), rng.next()), c.position, c.normal);
+            source_pdf = select * light_extent_pdf(light);
+        }
         return c;
     }
     const EmissiveTriangle tri = veach_scene.emissive[index - f.light_count];

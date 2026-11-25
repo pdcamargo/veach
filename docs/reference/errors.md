@@ -201,6 +201,17 @@ the backend can't use for a texture. The message names what is missing and the h
 
 Surfaces need a window from the SDL platform backend. Headless runs have no native window, so the engine does not create a surface for them.
 
+## rhi.invalid_descriptor
+
+**A shader used a descriptor handle that names no live resource of its kind.**
+
+Debug builds check every `DescriptorHandle` a shader dereferences (ADR 0039): a handle never set (0), past the
+end of the heap, of the wrong kind (a buffer handle used as a texture), or kept after its resource was destroyed.
+The shader goes on with the kind's null descriptor, and the message names the first bad handle and the frame.
+Set every handle a shader can read, including in records it may only read behind a flag, and use
+`device.null_descriptor(kind)` for "no resource". DX12 checks in the shader; on Metal, Metal's shader validation
+(on in debug builds) reports the same mistakes as `rhi.gpu_error`.
+
 ## rhi.invalid_texture
 
 **A texture description cannot be created on every backend.**
@@ -230,6 +241,24 @@ captures the last frame. The message says which of these was missing, or why the
 
 For example, a pass reads a transient texture that no earlier pass writes. The message names the pass and the
 resource. `RenderGraph::describe()` (logged at debug level) shows the compiled order and barriers.
+
+## render.history_lost
+
+**Path-traced pixels read back something other than the accumulation they last wrote.**
+
+The path tracer keeps a running mean per pixel and stores the sample count next to it. Every frame checks
+that each pixel reads back the count it wrote, and that the mean is finite and not negative. A mismatch means
+the accumulation memory was lost or overwritten between frames (a synchronization, residency or aliasing bug),
+which shows as dark blocks that fade slowly. The message gives the number of pixels and the frame. Rerun with
+`MTL_SHADER_VALIDATION=1` (Metal) or the D3D12 debug layer, or take a GPU capture of that frame.
+
+## render.nonfinite_samples
+
+**The path tracer produced NaN or infinite samples.**
+
+They are left out of the image, so one bad sample cannot blacken a pixel for good, but they are counted and
+logged with the frame: a NaN means a bug in a material, a light or the path tracer (a division by a zero pdf,
+the normal of a degenerate triangle, a NaN light intensity). The run exits with code 1.
 
 ## ecs.unknown_component
 

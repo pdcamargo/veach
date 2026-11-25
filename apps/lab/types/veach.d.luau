@@ -87,6 +87,7 @@ export type PathTracer = {
 	samples_per_frame: number,
 	max_bounces: number,
 	sky: vector,
+	mode: number,
 }
 export type PointLight = {
 	color: vector,

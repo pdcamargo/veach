@@ -168,8 +168,9 @@ C++ components tagged `veach::Scriptable` (all fields Luau-representable). The e
 - `SceneInstance` (`path` of a glTF asset): spawns the scene as children
 - `DirectionalLight` (`color`, `illuminance` lux), `PointLight` (`color`, `intensity` cd), `SpotLight` (`color`,
   `intensity`, `inner_angle`, `outer_angle`)
-- `PathTracer` (`samples_per_frame`, `max_bounces`, `sky`): on a camera, renders it with the reference path
-  tracer; see [first-real-scene](../specs/first-real-scene/spec.md)
+- `PathTracer` (`samples_per_frame`, `max_bounces`, `sky`, `mode`): on a camera, renders it with the reference
+  path tracer; see [first-real-scene](../specs/first-real-scene/spec.md). `mode` 0 is everything, 1 direct light
+  only (no sky, no bounces: what the real-time renderer estimates), 2 an ambient-occlusion debug view.
 
 ```lua
 local camera = veach.spawn("camera")

@@ -4,6 +4,8 @@
 // no camera it is the identity, and rays are orthographic through NDC. Layout
 // must match TraceParams in apps/lab/src/triangle_feature.cpp (ADR 0024).
 
+import veach.bindless;
+
 struct Vertex {
     float4 position;
     float4 color;

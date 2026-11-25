@@ -454,6 +454,7 @@ RenderModule::RenderModule(World& world) {
         .member(&PathTracer::samples_per_frame, "samples_per_frame")
         .member(&PathTracer::max_bounces, "max_bounces")
         .member(&PathTracer::sky, "sky")
+        .member(&PathTracer::mode, "mode")
         .add<Scriptable>();
     world.observer<const SceneInstance>("SpawnSceneInstances")
         .event(flecs::OnSet)

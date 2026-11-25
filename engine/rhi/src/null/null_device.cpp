@@ -30,6 +30,7 @@ public:
     void build_tlas(AccelHandle, std::span<const TlasInstance>) override {}
     void refit_tlas(AccelHandle, std::span<const TlasInstance>) override {}
     void copy_texture_to_buffer(TextureHandle, BufferHandle) override {}
+    void copy_buffer(BufferHandle, BufferHandle, std::uint64_t) override {}
     void use(ResourceRef, ResourceState) override {}
     void barrier(std::span<const Barrier>) override {}
     void push_debug_group(std::string_view) override {}

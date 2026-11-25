@@ -7,6 +7,8 @@
 3. CLAUDE.md is exactly one line: @AGENTS.md (ADR 0018).
 4. Every .slang file with a parameter block has its C++ mirror checked against the reflected layout:
    parameters_match<...>(<namespace>::layout::<stem>, ...) somewhere in C++ (VCH-041, ADR 0024).
+5. Every .slang file that uses DescriptorHandle imports veach.bindless, so debug builds check its handles
+   (ADR 0039).
 """
 
 from __future__ import annotations
@@ -62,6 +64,14 @@ def main() -> int:
                 not re.search(r"layout::" + re.escape(shader.stem) + r"\b", cpp_sources):
             errors.append(f"{shader.relative_to(ROOT).as_posix()}: its parameter block has no C++ layout check; add "
                           f"static_assert(veach::rhi::parameters_match<T>(<namespace>::layout::{shader.stem}, {{...}}))")
+
+    for shader in sorted(ROOT.glob("**/*.slang")):
+        if ".cpm-cache" in shader.parts or "build" in shader.parts or shader.name == "bindless.slang":
+            continue
+        text = shader.read_text(encoding="utf-8")
+        if "DescriptorHandle" in text and not re.search(r"^import veach\.bindless;", text, re.MULTILINE):
+            errors.append(f"{shader.relative_to(ROOT).as_posix()}: uses DescriptorHandle without "
+                          "`import veach.bindless;` (its handles would go unchecked, ADR 0039)")
 
     claude = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
     if claude != "@AGENTS.md\n":

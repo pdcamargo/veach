@@ -14,6 +14,7 @@
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
 
+#include <array>
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
@@ -110,6 +111,7 @@ public:
     void build_tlas(AccelHandle tlas, std::span<const TlasInstance> instances) override;
     void refit_tlas(AccelHandle tlas, std::span<const TlasInstance> instances) override;
     void copy_texture_to_buffer(TextureHandle src, BufferHandle dst) override;
+    void copy_buffer(BufferHandle src, BufferHandle dst, std::uint64_t size) override;
     void use(ResourceRef resource, ResourceState state) override;
     void barrier(std::span<const Barrier> barriers) override;
     void push_debug_group(std::string_view name) override { [buffer_ pushDebugGroup:ns(name)]; }
@@ -149,9 +151,30 @@ public:
         caps_.bindless =
             [device supportsFamily:MTLGPUFamilyMetal3] && device.argumentBuffersSupport == MTLArgumentBuffersTier2;
         caps_.mesh_shaders = [device supportsFamily:MTLGPUFamilyApple7] || [device supportsFamily:MTLGPUFamilyMac2];
+        create_null_resources();
     }
 
     ~MetalDevice() override { wait_idle(); }
+
+    /// ADR 0039: shared storage, so the zeros are written once from the CPU.
+    void create_null_resources() {
+        MTLTextureDescriptor* d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                                                                     width:1
+                                                                                    height:1
+                                                                                 mipmapped:NO];
+        d.storageMode = MTLStorageModeShared;
+        d.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+        null_texture_ = [device_ newTextureWithDescriptor:d];
+        const std::array<std::uint8_t, 4> zero{};
+        [null_texture_ replaceRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0 withBytes:zero.data() bytesPerRow:4];
+        null_texture_.label = @"null texture";
+        null_buffer_ = [device_ newBufferWithLength:16 options:MTLResourceStorageModeShared];
+        std::memset(null_buffer_.contents, 0, 16);
+        null_buffer_.label = @"null buffer";
+        MTLSamplerDescriptor* s = [MTLSamplerDescriptor new];
+        s.supportArgumentBuffers = YES;
+        null_sampler_ = [device_ newSamplerStateWithDescriptor:s];
+    }
 
     [[nodiscard]] SubmissionTracker& tracker() { return state_->tracker; }
     MetalDevice(const MetalDevice&) = delete;
@@ -473,6 +496,28 @@ public:
         auto* s = samplers_.get(h);
         return {s ? (*s).gpuResourceID._impl : 0};
     }
+    [[nodiscard]] DescriptorHandle null_descriptor(DescriptorKind kind) override {
+        switch (kind) {
+            case DescriptorKind::texture:
+            case DescriptorKind::storage_texture: return {null_texture_.gpuResourceID._impl};
+            case DescriptorKind::buffer:
+            case DescriptorKind::storage_buffer: return {null_buffer_.gpuAddress};
+            case DescriptorKind::sampler: return {null_sampler_.gpuResourceID._impl};
+        }
+        return {};
+    }
+
+    /// Null descriptors are reached through handles, so every encoder makes them resident.
+    void use_null_resources(id<MTLComputeCommandEncoder> encoder) const {
+        [encoder useResource:null_texture_ usage:MTLResourceUsageRead | MTLResourceUsageWrite];
+        [encoder useResource:null_buffer_ usage:MTLResourceUsageRead | MTLResourceUsageWrite];
+    }
+    void use_null_resources(id<MTLRenderCommandEncoder> encoder) const {
+        const MTLRenderStages stages = MTLRenderStageVertex | MTLRenderStageFragment;
+        [encoder useResource:null_texture_ usage:MTLResourceUsageRead stages:stages];
+        [encoder useResource:null_buffer_ usage:MTLResourceUsageRead stages:stages];
+    }
+
     [[nodiscard]] DescriptorHandle descriptor(AccelHandle h) override {
         const MetalAccel* a = accels_.get(h);
         return {a ? a->accel.gpuResourceID._impl : 0};
@@ -633,6 +678,9 @@ private:
     id<MTLDevice> device_;
     id<MTLCommandQueue> queue_;
     bool validation_ = false;
+    id<MTLTexture> null_texture_;  ///< 1x1, zero; read and read-write
+    id<MTLBuffer> null_buffer_;    ///< 16 zero bytes
+    id<MTLSamplerState> null_sampler_;
     Capabilities caps_;
     SlotMap<MetalBuffer, BufferHandle> buffers_;
     SlotMap<MetalTexture, TextureHandle> textures_;
@@ -675,12 +723,14 @@ void MetalCommandList::begin_render_pass(const RenderPassDesc& desc) {
     }
     render_ = [buffer_ renderCommandEncoderWithDescriptor:d];
     render_.label = ns(desc.debug_name);
+    device_.use_null_resources(render_);
 }
 
 void MetalCommandList::begin_compute_pass(std::string_view name) {
     end_encoder();
     compute_ = [buffer_ computeCommandEncoder];
     compute_.label = ns(name);
+    device_.use_null_resources(compute_);
 }
 
 void MetalCommandList::set_pipeline(PipelineHandle handle) {
@@ -785,6 +835,17 @@ void MetalCommandList::refit_tlas(AccelHandle tlas, std::span<const TlasInstance
     encode_accel(tlas, true);
 }
 
+void MetalCommandList::copy_buffer(BufferHandle src, BufferHandle dst, std::uint64_t size) {
+    end_encoder();
+    MetalBuffer* from = device_.buffer(src);
+    MetalBuffer* to = device_.buffer(dst);
+    VEACH_ASSERT(from != nullptr && to != nullptr, "copy_buffer: invalid handles");
+    VEACH_ASSERT(size <= from->desc.size && size <= to->desc.size, "copy_buffer: {} bytes do not fit", size);
+    id<MTLBlitCommandEncoder> blit = [buffer_ blitCommandEncoder];
+    [blit copyFromBuffer:from->buffer sourceOffset:0 toBuffer:to->buffer destinationOffset:0 size:size];
+    [blit endEncoding];
+}
+
 void MetalCommandList::copy_texture_to_buffer(TextureHandle src, BufferHandle dst) {
     end_encoder();
     MetalTexture* t = device_.texture(src);
@@ -857,6 +918,9 @@ Result<std::unique_ptr<Device>> create_metal_device(const DeviceDesc& desc) {
         // Read when Metal creates the device; must be set before MTLCreateSystemDefaultDevice.
         setenv("MTL_DEBUG_LAYER", "1", 0);
         setenv("MTL_DEBUG_LAYER_ERROR_MODE", "assert", 0);
+        // ADR 0039: Metal handles are opaque in shaders, so Metal's shader validation checks them instead (nil,
+        // freed or non-resident resources, out-of-bounds buffers); a failure fails the command buffer (rhi.gpu_error).
+        setenv("MTL_SHADER_VALIDATION", "1", 0);
     }
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
     if (!device) {

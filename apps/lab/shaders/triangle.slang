@@ -3,6 +3,8 @@
 // one: the positions are already NDC). Layout must match RasterParams in
 // apps/lab/src/triangle_feature.cpp (ADR 0024).
 
+import veach.bindless;
+
 struct Vertex {
     float4 position;  // xyz in NDC (z = 0.5), w unused
     float4 color;

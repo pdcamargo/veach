@@ -83,7 +83,8 @@ struct alignas(16) PathTraceParams {
     std::uint32_t light_count;
     std::uint32_t emissive_count;
     float emissive_total_weight;
-    std::uint32_t pad;
+    std::uint32_t mode;
+    rhi::DescriptorHandle diagnostics;
 };
 static_assert(rhi::parameters_match<PathTraceParams>(
     veach_render_shaders::layout::path_tracer,
@@ -94,7 +95,8 @@ static_assert(rhi::parameters_match<PathTraceParams>(
      VEACH_PARAM(PathTraceParams, lights), VEACH_PARAM(PathTraceParams, emissive), VEACH_PARAM(PathTraceParams, size),
      VEACH_PARAM(PathTraceParams, sample_index), VEACH_PARAM(PathTraceParams, samples_per_frame),
      VEACH_PARAM(PathTraceParams, light_count), VEACH_PARAM(PathTraceParams, emissive_count),
-     VEACH_PARAM(PathTraceParams, emissive_total_weight), VEACH_PARAM(PathTraceParams, pad)}));
+     VEACH_PARAM(PathTraceParams, emissive_total_weight), VEACH_PARAM(PathTraceParams, mode),
+     VEACH_PARAM(PathTraceParams, diagnostics)}));
 
 float luminance(math::vec3 c) {
     return 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z;  // GLM_FORCE_XYZW_ONLY
@@ -157,7 +159,6 @@ struct PathTracerFeature::Impl {
     rhi::Device* device = nullptr;
     rhi::PipelineHandle pipeline;
     rhi::SamplerHandle sampler;
-    rhi::TextureHandle blank;  ///< 1x1 white: every texture slot of a material record names a real texture
     std::unordered_map<AssetId, GpuMesh> meshes;
     std::unordered_map<AssetId, GpuTexture> textures;
     rhi::AccelHandle tlas;
@@ -172,6 +173,17 @@ struct PathTracerFeature::Impl {
     std::uint64_t samples = 0;
     std::uint64_t scene_hash = 0;
     bool reset = true;
+    /// The shader's counters (diagnostics in path_tracer.slang), copied each frame into that frame slot's readback
+    /// buffer and checked when the slot comes round again (or at shutdown).
+    struct Readback {
+        rhi::BufferHandle buffer;
+        std::uint64_t frame = 0;    ///< the frame whose counters it holds; 0 = nothing pending
+        std::uint64_t samples = 0;  ///< samples per pixel after that frame
+    };
+    rhi::BufferHandle diagnostics;
+    bool diagnostics_written = false;
+    std::vector<Readback> readbacks;
+    std::array<std::uint32_t, 2> seen{};  ///< counter values already reported
     std::set<std::string> reported;
     std::optional<Error> unavailable;  ///< why this device cannot path trace; reported when a camera asks
 
@@ -183,6 +195,18 @@ struct PathTracerFeature::Impl {
             return;
         }
         device->wait_idle();
+        std::vector<Readback*> pending;
+        for (Readback& r : readbacks) {
+            pending.push_back(&r);
+        }
+        std::ranges::sort(pending, {}, &Readback::frame);
+        for (Readback* r : pending) {
+            check(*r);
+        }
+        for (Readback& r : readbacks) {
+            destroy_if(r.buffer);
+        }
+        destroy_if(diagnostics);
         release_frame_buffers();
         for (auto& [id, mesh] : meshes) {
             destroy(mesh);
@@ -194,7 +218,6 @@ struct PathTracerFeature::Impl {
         destroy_if(accumulation);
         destroy_if(pipeline);
         destroy_if(sampler);
-        destroy_if(blank);
     }
     Impl(const Impl&) = delete;
     Impl& operator=(const Impl&) = delete;
@@ -214,6 +237,37 @@ struct PathTracerFeature::Impl {
         destroy_if(m.slots);
         destroy_if(m.blas);
     }
+    /// Reports what the counters in `r` added since the last check. The frame it holds must have completed.
+    void check(Readback& r) {
+        if (r.frame == 0) {
+            return;
+        }
+        const auto* counters = static_cast<const std::uint32_t*>(device->map(r.buffer));
+        if (counters != nullptr) {
+            const std::uint32_t lost = counters[0] - seen[0];
+            const std::uint32_t nonfinite = counters[1] - seen[1];
+            seen = {counters[0], counters[1]};
+            if (lost != 0) {
+                log::warn("render", "DEBUG totals: wrong count {}, negative mean {}", counters[2], counters[3]);
+                log::error("render",
+                           Error{ErrorCode::render_history_lost,
+                                 std::format("{} path-traced pixels read back something other than the accumulation "
+                                             "they wrote (frame {}, {} samples per pixel)",
+                                             lost, r.frame, r.samples),
+                                 "The accumulation memory was lost or overwritten between frames. Rerun with "
+                                 "MTL_SHADER_VALIDATION=1 or take a GPU capture of that frame."});
+            }
+            if (nonfinite != 0) {
+                log::error("render",
+                           Error{ErrorCode::render_nonfinite_samples,
+                                 std::format("{} path-traced samples were NaN or infinite and were left out (frame {})",
+                                             nonfinite, r.frame),
+                                 "A material, a light (a NaN intensity?) or the path tracer divided by zero."});
+            }
+        }
+        r.frame = 0;
+    }
+
     void release_frame_buffers() {
         for (rhi::BufferHandle& b : frame_buffers) {
             device->destroy(b);
@@ -276,16 +330,16 @@ struct PathTracerFeature::Impl {
         return &gpu;
     }
 
-    /// The texture's handle, or the blank texture's when there is none: a handle in a record is never left
+    /// The texture's handle, or the null texture's when there is none (ADR 0039): a handle in a record is never left
     /// unwritten, since a compiler may load the descriptor before the shader tests the material's flags.
     rhi::DescriptorHandle texture(const std::optional<AssetId>& id, bool& present) {
         present = false;
         if (!id) {
-            return device->descriptor(blank);
+            return device->null_descriptor(rhi::DescriptorKind::texture);
         }
         const TextureAsset* source = assets.get(Handle<TextureAsset>{*id});
         if (source == nullptr) {
-            return device->descriptor(blank);
+            return device->null_descriptor(rhi::DescriptorKind::texture);
         }
         GpuTexture& gpu = textures[*id];
         if (gpu.source != source) {
@@ -303,7 +357,7 @@ struct PathTracerFeature::Impl {
             if (!created) {
                 report("texture " + id->to_string(), created.error());
                 gpu = {};
-                return device->descriptor(blank);
+                return device->null_descriptor(rhi::DescriptorKind::texture);
             }
             gpu.source = source;
             gpu.texture = *created;
@@ -332,7 +386,7 @@ struct PathTracerFeature::Impl {
         MaterialRecord r;
         r.sampler = device->descriptor(sampler);
         r.base_color_texture = r.metallic_roughness_texture = r.normal_texture = r.emissive_texture =
-            device->descriptor(blank);
+            device->null_descriptor(rhi::DescriptorKind::texture);
         const MaterialAsset* m = assets.get(Handle<MaterialAsset>{id});
         if (m == nullptr) {
             return r;
@@ -413,14 +467,26 @@ Result<> PathTracerFeature::prepare(rhi::Device& device) {
         return std::unexpected(sampler.error());
     }
     s.sampler = *sampler;
-    const std::array<std::byte, 4> white{std::byte{255}, std::byte{255}, std::byte{255}, std::byte{255}};
-    const std::array<std::span<const std::byte>, 1> mips{white};
-    auto blank =
-        device.create_texture({1, 1, rhi::Format::rgba8_unorm, rhi::TextureUsage::sampled, "blank texture"}, mips);
-    if (!blank) {
-        return std::unexpected(blank.error());
+    const std::array<std::uint32_t, 4> zeros{};
+    auto diagnostics = device.create_buffer({.size = sizeof(zeros),
+                                             .usage = rhi::BufferUsage::storage | rhi::BufferUsage::copy_src,
+                                             .debug_name = "path tracer diagnostics",
+                                             .stride = sizeof(std::uint32_t)},
+                                            std::as_bytes(std::span(zeros)));
+    if (!diagnostics) {
+        return std::unexpected(diagnostics.error());
     }
-    s.blank = *blank;
+    s.diagnostics = *diagnostics;
+    for (std::uint32_t i = 0; i < device.frames_in_flight(); ++i) {
+        auto readback = device.create_buffer({.size = sizeof(zeros),
+                                              .usage = rhi::BufferUsage::copy_dst,
+                                              .memory = rhi::MemoryType::readback,
+                                              .debug_name = "path tracer diagnostics readback"});
+        if (!readback) {
+            return std::unexpected(readback.error());
+        }
+        s.readbacks.push_back({*readback});
+    }
     return {};
 }
 
@@ -555,6 +621,7 @@ void PathTracerFeature::record(RenderGraph& graph, const FrameContext& frame) {
     // Not samples_per_frame: it sets the pace, not the image (MCP path_trace changes it mid-accumulation).
     hash.add(&settings.max_bounces, sizeof(settings.max_bounces));
     hash.add(&settings.sky, sizeof(settings.sky));
+    hash.add(&settings.mode, sizeof(settings.mode));
     hash.add(&view->exposure, sizeof(float));
     hash.add_all(materials);
     hash.add_all(lights);
@@ -630,7 +697,7 @@ void PathTracerFeature::record(RenderGraph& graph, const FrameContext& frame) {
         },
         [tlas_handle = s.tlas, tlas_instances](PassContext& ctx) { ctx.cmd.build_tlas(tlas_handle, tlas_instances); });
 
-    std::vector<GraphResource> textures{graph.import(s.blank, "blank texture", rhi::ResourceState::shader_read)};
+    std::vector<GraphResource> textures;
     for (const auto& [id, texture] : s.textures) {
         if (texture.texture.is_valid()) {
             textures.push_back(graph.import(texture.texture, "scene texture", rhi::ResourceState::shader_read));
@@ -644,11 +711,20 @@ void PathTracerFeature::record(RenderGraph& graph, const FrameContext& frame) {
         graph.import(s.accumulation, "path tracer accumulation",
                      s.accumulation_written ? rhi::ResourceState::shader_write : rhi::ResourceState::undefined);
     s.accumulation_written = true;
+    // The counters: this slot's last frame has completed (begin_frame waited for it), so its readback is ready.
+    const rhi::FrameInfo info = s.device->current_frame();
+    Impl::Readback& slot = s.readbacks.at(info.slot % s.readbacks.size());
+    s.check(slot);
+    const GraphResource diagnostics =
+        graph.import(s.diagnostics, "path tracer diagnostics",
+                     s.diagnostics_written ? rhi::ResourceState::copy_src : rhi::ResourceState::undefined);
+    s.diagnostics_written = true;
 
     PathTraceParams params{};
     params.inverse_view_projection = view->inverse_view_projection;
     params.camera_position_exposure = math::vec4(view->position, view->exposure);
     params.sky_bounces = math::vec4(settings.sky, static_cast<float>(settings.max_bounces));
+    params.mode = settings.mode;
     params.size = {width, height};
     params.sample_index = static_cast<std::uint32_t>(s.samples);
     params.samples_per_frame = std::max(1u, settings.samples_per_frame);
@@ -674,10 +750,12 @@ void PathTracerFeature::record(RenderGraph& graph, const FrameContext& frame) {
                 b.read(r);
             }
             b.write(accumulation, rhi::ResourceState::shader_write);
+            b.write(diagnostics, rhi::ResourceState::shader_write);
             b.write(frame.scene_color, rhi::ResourceState::shader_write);
         },
         [params, pipeline = s.pipeline, tlas, accumulation, color = frame.scene_color, instance_buffer, material_buffer,
-         light_buffer, emissive_buffer](PassContext& ctx) mutable {
+         light_buffer, emissive_buffer, diagnostics](PassContext& ctx) mutable {
+            params.diagnostics = ctx.device.descriptor(ctx.buffer(diagnostics), rhi::View::storage);
             params.output = ctx.device.descriptor(ctx.texture(color), rhi::View::storage);
             params.accumulation = ctx.device.descriptor(ctx.texture(accumulation), rhi::View::storage);
             params.scene = ctx.device.descriptor(ctx.accel(tlas));
@@ -689,6 +767,20 @@ void PathTracerFeature::record(RenderGraph& graph, const FrameContext& frame) {
             ctx.cmd.set_parameters(params);
             ctx.cmd.dispatch((params.size[0] + 7) / 8, (params.size[1] + 7) / 8);
         });
+
+    const GraphResource readback =
+        graph.import(slot.buffer, "path tracer diagnostics readback", rhi::ResourceState::undefined);
+    graph.add_transfer_pass(
+        "path tracer diagnostics",
+        [&](PassBuilder& b) {
+            b.read(diagnostics, rhi::ResourceState::copy_src);
+            b.write(readback, rhi::ResourceState::copy_dst);
+        },
+        [diagnostics, readback](PassContext& ctx) {
+            ctx.cmd.copy_buffer(ctx.buffer(diagnostics), ctx.buffer(readback), 4 * sizeof(std::uint32_t));
+        });
+    slot.frame = info.index;
+    slot.samples = s.samples;
 }
 
 }  // namespace veach::render

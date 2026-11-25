@@ -103,6 +103,46 @@ TEST_CASE("[scene.AC2] BC7 cooking keeps the image (PSNR >= 35 dB)") {
     CHECK(cook_texture(image, {.srgb = false, .compress = true}).mips == cooked.mips);
 }
 
+TEST_CASE("[scene.AC2] an unaligned BC7 texture is resampled to whole blocks, so UVs still map to the image") {
+    // 255x129 is a multiple of 4 in neither direction: the cooker rounds it to 256x132 by resampling. Padding
+    // would shift every UV (the image would end at u = 255/256); resampling keeps u = 1 at the image's edge.
+    const std::uint32_t w = 255;
+    const std::uint32_t h = 129;
+    ImageRgba8 image{w, h, std::vector<std::uint8_t>(std::size_t{w} * h * 4)};
+    for (std::uint32_t y = 0; y < h; ++y) {
+        for (std::uint32_t x = 0; x < w; ++x) {
+            std::uint8_t* p = &image.pixels[(std::size_t{y} * w + x) * 4];
+            p[0] = static_cast<std::uint8_t>(std::lround(255.0 * x / (w - 1)));  // u ramp
+            p[1] = static_cast<std::uint8_t>(std::lround(255.0 * y / (h - 1)));  // v ramp
+            p[2] = 128;
+            p[3] = 255;
+        }
+    }
+    const TextureAsset cooked = cook_texture(image, {.srgb = false, .compress = true});
+    REQUIRE(cooked.width == 256);
+    REQUIRE(cooked.height == 132);
+    const std::uint32_t bw = cooked.width / 4;
+    const auto texel = [&](std::uint32_t x, std::uint32_t y) {
+        std::array<bc7decomp::color_rgba, 16> block{};
+        REQUIRE(bc7decomp::unpack_bc7(&cooked.mips[0][(std::size_t{y / 4} * bw + x / 4) * 16], block.data()));
+        return block[(y % 4) * 4 + x % 4];
+    };
+    // At every texel center of the cooked image, the ramps must read what the source has at the same UV.
+    double worst = 0.0;
+    for (std::uint32_t y = 0; y < cooked.height; ++y) {
+        for (std::uint32_t x = 0; x < cooked.width; ++x) {
+            const double u = (x + 0.5) / cooked.width;
+            const double v = (y + 0.5) / cooked.height;
+            const double expected_r = std::clamp((u * w - 0.5) / (w - 1), 0.0, 1.0) * 255.0;
+            const double expected_g = std::clamp((v * h - 0.5) / (h - 1), 0.0, 1.0) * 255.0;
+            const bc7decomp::color_rgba t = texel(x, y);
+            worst = std::max({worst, std::abs(t.m_comps[0] - expected_r), std::abs(t.m_comps[1] - expected_g)});
+        }
+    }
+    MESSAGE("worst ramp error: ", worst, " levels");
+    CHECK(worst <= 4.0);  // BC7 quantization; a padded image is off by up to 255 at its far edge
+}
+
 namespace {
 
 /// An AssetServer on a temp copy of the lab's Cornell box, with the glTF and KTX2 loaders.

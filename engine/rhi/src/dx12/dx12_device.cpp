@@ -231,8 +231,14 @@ struct Recorder {
     std::uint64_t last_use = 0;
 };
 
+/// What a descriptor slot holds, as veach/bindless.slang checks it (ADR 0039).
+enum class SlotKind : std::uint32_t { none, texture, storage_texture, buffer, storage_buffer, sampler, accel };
+
 /// A descriptor heap with a free list. Index 0 is never handed out, so a zero DescriptorHandle means "none"
 /// on DX12 as it does on Metal. Slots are released through SubmissionTracker::retire() only (ADR 0029).
+/// Each slot has an entry, (kind << 24) | generation, mirrored into the shader-visible validation table; handles
+/// carry the entry they were made with in their upper 32 bits, so debug shaders spot freed, reused and
+/// wrong-kind handles (ADR 0039).
 class DescriptorHeap {
 public:
     HRESULT init(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, std::uint32_t capacity, bool shader_visible) {
@@ -246,22 +252,48 @@ public:
         base_ = heap_->GetCPUDescriptorHandleForHeapStart();
         increment_ = device->GetDescriptorHandleIncrementSize(type);
         capacity_ = capacity;
+        entries_.assign(capacity, 0);
+        generations_.assign(capacity, 0);
         return S_OK;
     }
 
-    /// A free slot, or 0 when the heap is full.
-    [[nodiscard]] std::uint32_t allocate() {
+    /// Where this heap's entries live in the validation table (one u32 per slot).
+    void attach(std::uint32_t* table) { table_ = table; }
+
+    /// Keeps slots 1..count for fixed descriptors (the null descriptors); allocate() starts after them.
+    void reserve(std::uint32_t count) { next_ = 1 + count; }
+
+    /// A free slot now holding `kind`, or 0 when the heap is full.
+    [[nodiscard]] std::uint32_t allocate(SlotKind kind) {
+        std::uint32_t index = 0;
         if (!free_.empty()) {
-            const std::uint32_t index = free_.back();
+            index = free_.back();
             free_.pop_back();
-            return index;
+        } else if (next_ < capacity_) {
+            index = next_++;
         }
-        return next_ < capacity_ ? next_++ : 0;
+        if (index != 0) {
+            mark(index, kind);
+        }
+        return index;
+    }
+    /// Records that `index` now holds `kind`, with a new generation.
+    void mark(std::uint32_t index, SlotKind kind) {
+        std::uint32_t generation = ++generations_[index] & 0xFFFFFFu;
+        if (generation == 0) {
+            generation = ++generations_[index] & 0xFFFFFFu;  // 0 would read as a free slot
+        }
+        set_entry(index, (static_cast<std::uint32_t>(kind) << 24) | generation);
     }
     void release(std::uint32_t index) {
         if (index != 0) {
+            set_entry(index, 0);
             free_.push_back(index);
         }
+    }
+    /// The handle shaders use for `index`: the slot, and its current entry for validation.
+    [[nodiscard]] DescriptorHandle handle(std::uint32_t index) const {
+        return {index == 0 ? 0 : index | (std::uint64_t{entries_[index]} << 32)};
     }
 
     [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE cpu(std::uint32_t index) const {
@@ -271,7 +303,17 @@ public:
     [[nodiscard]] std::uint32_t capacity() const { return capacity_; }
 
 private:
+    void set_entry(std::uint32_t index, std::uint32_t entry) {
+        entries_[index] = entry;
+        if (table_ != nullptr) {
+            table_[index] = entry;
+        }
+    }
+
     ComPtr<ID3D12DescriptorHeap> heap_;
+    std::vector<std::uint32_t> entries_;
+    std::vector<std::uint32_t> generations_;
+    std::uint32_t* table_ = nullptr;
     D3D12_CPU_DESCRIPTOR_HANDLE base_{};
     UINT increment_ = 0;
     std::uint32_t capacity_ = 0;
@@ -282,6 +324,7 @@ private:
 /// Shader-visible heap sizes. 65,536 CBV/SRV/UAV slots fit every tier-3 device; 2,048 is the sampler maximum.
 constexpr std::uint32_t view_heap_capacity = 65'536;
 constexpr std::uint32_t sampler_heap_capacity = 2'048;
+constexpr std::uint32_t null_sampler_slot = 1;  ///< view-heap null descriptors are slots 1..4 (create_null_descriptors)
 constexpr std::uint32_t rtv_heap_capacity = 1'024;
 
 /// Rows a texture copy wrote with D3D12's 256-byte pitch, to be packed tightly on map().
@@ -445,6 +488,7 @@ public:
         encode_accel(tlas, true, instances);
     }
     void copy_texture_to_buffer(TextureHandle src, BufferHandle dst) override;
+    void copy_buffer(BufferHandle src, BufferHandle dst, std::uint64_t size) override;
     void use(ResourceRef, ResourceState) override {}  // committed resources are always resident
     void barrier(std::span<const Barrier> barriers) override;
     void push_debug_group(std::string_view name) override {
@@ -488,6 +532,7 @@ public:
 
     ~Dx12Device() override {
         wait_idle();
+        check_descriptor_errors();
         if (info_queue_ && callback_cookie_ != 0) {
             info_queue_->UnregisterMessageCallback(callback_cookie_);
         }
@@ -527,7 +572,16 @@ public:
             FAILED(hr)) {
             return gpu_error("creating the RTV heap", hr);
         }
+        if (auto created = create_validation_buffers(); !created) {
+            return created;
+        }
+        create_null_descriptors();
         return create_root_signature();
+    }
+
+    [[nodiscard]] DescriptorHandle null_descriptor(DescriptorKind kind) override {
+        return kind == DescriptorKind::sampler ? sampler_heap_.handle(null_sampler_slot)
+                                               : view_heap_.handle(1u + static_cast<std::uint32_t>(kind));
     }
 
     [[nodiscard]] Backend backend() const override { return Backend::dx12; }
@@ -560,8 +614,8 @@ public:
             }
         }
         if (storage && desc.memory != MemoryType::readback) {  // readback heaps are copy destinations only
-            buffer.srv = view_heap_.allocate();
-            buffer.uav = gpu_memory ? view_heap_.allocate() : 0;
+            buffer.srv = view_heap_.allocate(SlotKind::buffer);
+            buffer.uav = gpu_memory ? view_heap_.allocate(SlotKind::storage_buffer) : 0;
             if (buffer.srv == 0 || (gpu_memory && buffer.uav == 0)) {
                 view_heap_.release(buffer.srv);
                 view_heap_.release(buffer.uav);
@@ -626,9 +680,9 @@ public:
         const bool sampled = has(desc.usage, TextureUsage::sampled);
         const bool storage = has(desc.usage, TextureUsage::storage);
         const bool target = has(desc.usage, TextureUsage::color_target);
-        texture.srv = sampled ? view_heap_.allocate() : 0;
-        texture.uav = storage ? view_heap_.allocate() : 0;
-        texture.rtv = target ? rtv_heap_.allocate() : 0;
+        texture.srv = sampled ? view_heap_.allocate(SlotKind::texture) : 0;
+        texture.uav = storage ? view_heap_.allocate(SlotKind::storage_texture) : 0;
+        texture.rtv = target ? rtv_heap_.allocate(SlotKind::none) : 0;
         if ((sampled && texture.srv == 0) || (storage && texture.uav == 0) || (target && texture.rtv == 0)) {
             free_descriptors(texture);
             return heap_full(target && texture.rtv == 0 ? "RTV" : "CBV/SRV/UAV",
@@ -664,7 +718,7 @@ public:
     }
 
     [[nodiscard]] Result<SamplerHandle> create_sampler(const SamplerDesc& desc) override {
-        const std::uint32_t index = sampler_heap_.allocate();
+        const std::uint32_t index = sampler_heap_.allocate(SlotKind::sampler);
         if (index == 0) {
             return heap_full("sampler", sampler_heap_.capacity());
         }
@@ -843,19 +897,19 @@ public:
 
     [[nodiscard]] DescriptorHandle descriptor(BufferHandle h, View view) override {
         const Dx12Buffer* b = buffers_.get(h);
-        return {b ? (view == View::storage ? b->uav : b->srv) : 0u};
+        return view_heap_.handle(b ? (view == View::storage ? b->uav : b->srv) : 0u);
     }
     [[nodiscard]] DescriptorHandle descriptor(TextureHandle h, View view) override {
         const Dx12Texture* t = textures_.get(h);
-        return {t ? (view == View::storage ? t->uav : t->srv) : 0u};
+        return view_heap_.handle(t ? (view == View::storage ? t->uav : t->srv) : 0u);
     }
     [[nodiscard]] DescriptorHandle descriptor(SamplerHandle h) override {
         const Dx12Sampler* s = samplers_.get(h);
-        return {s ? s->index : 0u};
+        return sampler_heap_.handle(s ? s->index : 0u);
     }
     [[nodiscard]] DescriptorHandle descriptor(AccelHandle h) override {
         const Dx12Accel* a = accels_.get(h);
-        return {a ? a->srv : 0u};
+        return view_heap_.handle(a ? a->srv : 0u);
     }
     // ---- surfaces: flip-model swapchains on the HWND
 
@@ -943,6 +997,12 @@ public:
         // After SetDescriptorHeaps: directly indexed heaps require that order.
         recorder->list->SetGraphicsRootSignature(root_signature_.Get());
         recorder->list->SetComputeRootSignature(root_signature_.Get());
+        const D3D12_GPU_VIRTUAL_ADDRESS table = validation_table_->GetGPUVirtualAddress();
+        const D3D12_GPU_VIRTUAL_ADDRESS errors = validation_errors_->GetGPUVirtualAddress();
+        recorder->list->SetGraphicsRootShaderResourceView(1, table);
+        recorder->list->SetGraphicsRootUnorderedAccessView(2, errors);
+        recorder->list->SetComputeRootShaderResourceView(1, table);
+        recorder->list->SetComputeRootUnorderedAccessView(2, errors);
         set_name(recorder->list.Get(), debug_name);  // DRED reports lists by name
         auto list = std::make_unique<Dx12CommandList>(*this, std::move(recorder));
         list->push_debug_group(debug_name);
@@ -1270,7 +1330,7 @@ private:
         accel.scratch = std::move(*scratch);
         accel.inputs.pGeometryDescs = nullptr;  // points into `accel`, which moves; set again at build time
         if (accel.tlas) {
-            accel.srv = view_heap_.allocate();
+            accel.srv = view_heap_.allocate(SlotKind::accel);
             if (accel.srv == 0) {
                 return heap_full("CBV/SRV/UAV", view_heap_.capacity());
             }
@@ -1284,17 +1344,65 @@ private:
     }
 
     /// 64 root-constant DWORDs at b0 (the Slang parameter block) and both heaps directly indexed (ADR 0024).
+    /// Null views read as zero (D3D12 defines reads of a null descriptor of the shader's type). Slots 1..4 of the
+    /// view heap, in DescriptorKind order, and slot 1 of the sampler heap (a real sampler: there are no null ones).
+    void create_null_descriptors() {
+        view_heap_.reserve(4);
+        D3D12_SHADER_RESOURCE_VIEW_DESC texture{};
+        texture.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        texture.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        texture.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        texture.Texture2D.MipLevels = 1;
+        view_heap_.mark(1, SlotKind::texture);
+        view_heap_.mark(2, SlotKind::storage_texture);
+        view_heap_.mark(3, SlotKind::buffer);
+        view_heap_.mark(4, SlotKind::storage_buffer);
+        device_->CreateShaderResourceView(nullptr, &texture, view_heap_.cpu(1));
+        D3D12_UNORDERED_ACCESS_VIEW_DESC storage_texture{};
+        storage_texture.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+        storage_texture.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        device_->CreateUnorderedAccessView(nullptr, nullptr, &storage_texture, view_heap_.cpu(2));
+        D3D12_SHADER_RESOURCE_VIEW_DESC buffer{};
+        buffer.Format = DXGI_FORMAT_UNKNOWN;
+        buffer.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        buffer.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        buffer.Buffer.NumElements = 1;
+        buffer.Buffer.StructureByteStride = 4;
+        device_->CreateShaderResourceView(nullptr, &buffer, view_heap_.cpu(3));
+        D3D12_UNORDERED_ACCESS_VIEW_DESC storage_buffer{};
+        storage_buffer.Format = DXGI_FORMAT_UNKNOWN;
+        storage_buffer.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        storage_buffer.Buffer.NumElements = 1;
+        storage_buffer.Buffer.StructureByteStride = 4;
+        device_->CreateUnorderedAccessView(nullptr, nullptr, &storage_buffer, view_heap_.cpu(4));
+        sampler_heap_.reserve(1);
+        sampler_heap_.mark(null_sampler_slot, SlotKind::sampler);
+        D3D12_SAMPLER_DESC sampler{};
+        sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+        sampler.AddressU = sampler.AddressV = sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sampler.MaxLOD = D3D12_FLOAT32_MAX;
+        device_->CreateSampler(&sampler, sampler_heap_.cpu(null_sampler_slot));
+    }
+
     Result<> create_root_signature() {
-        D3D12_ROOT_PARAMETER1 constants{};
-        constants.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-        constants.Constants.ShaderRegister = 0;
-        constants.Constants.RegisterSpace = 0;
-        constants.Constants.Num32BitValues = static_cast<UINT>(max_parameter_bytes / 4);
-        constants.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        // b0: the parameter block; t30 and u31: the descriptor validation table and error record (ADR 0039).
+        std::array<D3D12_ROOT_PARAMETER1, 3> parameters{};
+        parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        parameters[0].Constants.ShaderRegister = 0;
+        parameters[0].Constants.Num32BitValues = static_cast<UINT>(max_parameter_bytes / 4);
+        parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        parameters[1].Descriptor.ShaderRegister = 30;
+        parameters[1].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE;
+        parameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+        parameters[2].Descriptor.ShaderRegister = 31;
+        parameters[2].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE;
+        for (D3D12_ROOT_PARAMETER1& p : parameters) {
+            p.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        }
         D3D12_VERSIONED_ROOT_SIGNATURE_DESC desc{};
         desc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
-        desc.Desc_1_1.NumParameters = 1;
-        desc.Desc_1_1.pParameters = &constants;
+        desc.Desc_1_1.NumParameters = static_cast<UINT>(parameters.size());
+        desc.Desc_1_1.pParameters = parameters.data();
         desc.Desc_1_1.Flags = D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED |
                               D3D12_ROOT_SIGNATURE_FLAG_SAMPLER_HEAP_DIRECTLY_INDEXED;
         ComPtr<ID3DBlob> blob;
@@ -1354,7 +1462,7 @@ private:
             }
             set_name(image.resource.Get(), "swapchain");
             image.desc = {d.Width, d.Height, surface_format, TextureUsage::color_target, "swapchain"};
-            image.rtv = rtv_heap_.allocate();
+            image.rtv = rtv_heap_.allocate(SlotKind::none);
             if (image.rtv == 0) {
                 return heap_full("RTV", rtv_heap_.capacity());
             }
@@ -1388,6 +1496,81 @@ private:
             tracker_.mark_completed({done});
         }
         tracker_.collect();
+        check_descriptor_errors();
+    }
+
+    /// Reports handles that debug shaders found invalid since the last check (veach/bindless.slang, ADR 0039).
+    void check_descriptor_errors() {
+        if (validation_errors_data_ == nullptr || validation_errors_data_[0] == validation_errors_seen_) {
+            return;
+        }
+        const std::uint32_t count = validation_errors_data_[0];
+        const std::uint32_t slot = validation_errors_data_[2];
+        const std::uint32_t entry = validation_errors_data_[3];
+        const std::uint32_t kind = validation_errors_data_[4];
+        static constexpr std::array<std::string_view, 7> names{
+            "unknown", "texture", "storage texture", "buffer", "storage buffer", "sampler", "acceleration structure"};
+        const auto name = [](std::uint32_t k) {
+            return names.at(k < names.size() ? k : 0);
+        };
+        const std::uint32_t capacity = kind == 5 ? sampler_heap_capacity : view_heap_capacity;
+        const std::uint32_t current =
+            slot < capacity ? validation_table_data_[16 + (kind == 5 ? view_heap_capacity : 0) + slot] : 0;
+        const std::string holds = slot == 0                 ? "handle 0 (never set)"
+                                  : slot >= capacity        ? "a slot past the end of the heap"
+                                  : current == 0            ? "a free slot (its resource was destroyed)"
+                                  : (current >> 24) != kind ? std::format("a {}", name(current >> 24))
+                                                            : "a newer resource (the handle is stale)";
+        log::error("rhi", Error{ErrorCode::rhi_invalid_descriptor,
+                                std::format("{} shader descriptor loads used an invalid handle; the first wanted a {} "
+                                            "at slot {} (generation {}) and found {}, by frame {}",
+                                            count - validation_errors_seen_, name(kind), slot, entry & 0xFFFFFFu, holds,
+                                            tracker_.current_frame().index),
+                                "Set every handle a shader reads, keep resources alive while frames use them, and "
+                                "use device.null_descriptor(kind) for \"no resource\" (ADR 0039)."});
+        validation_errors_seen_ = count;
+    }
+
+    /// ADR 0039. The table is in an upload heap (a root SRV may point there); the error record in a CPU-readable
+    /// custom heap, so the shader's atomics land where the CPU reads them without a copy.
+    Result<> create_validation_buffers() {
+        const std::uint64_t entries = 16 + std::uint64_t{view_heap_capacity} + sampler_heap_capacity;
+        auto table = create_resource(D3D12_HEAP_TYPE_UPLOAD, buffer_resource(entries * 4, D3D12_RESOURCE_FLAG_NONE),
+                                     D3D12_BARRIER_LAYOUT_UNDEFINED, "descriptor validation table");
+        if (!table) {
+            return std::unexpected(table.error());
+        }
+        validation_table_ = std::move(*table);
+        void* mapped = nullptr;
+        const D3D12_RANGE nothing_read{0, 0};
+        if (const HRESULT hr = validation_table_->Map(0, &nothing_read, &mapped); FAILED(hr)) {
+            return gpu_error("mapping the descriptor validation table", hr);
+        }
+        validation_table_data_ = static_cast<std::uint32_t*>(mapped);
+        std::memset(validation_table_data_, 0, entries * 4);
+        validation_table_data_[0] = view_heap_capacity;
+        validation_table_data_[1] = sampler_heap_capacity;
+        view_heap_.attach(validation_table_data_ + 16);
+        sampler_heap_.attach(validation_table_data_ + 16 + view_heap_capacity);
+
+        D3D12_HEAP_PROPERTIES heap{};
+        heap.Type = D3D12_HEAP_TYPE_CUSTOM;
+        heap.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
+        heap.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+        const D3D12_RESOURCE_DESC1 desc = buffer_resource(64, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+        if (const HRESULT hr =
+                device_->CreateCommittedResource3(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_BARRIER_LAYOUT_UNDEFINED,
+                                                  nullptr, nullptr, 0, nullptr, IID_PPV_ARGS(&validation_errors_));
+            FAILED(hr)) {
+            return gpu_error("creating the descriptor validation record", hr);
+        }
+        set_name(validation_errors_.Get(), "descriptor validation errors");
+        if (const HRESULT hr = validation_errors_->Map(0, nullptr, &mapped); FAILED(hr)) {
+            return gpu_error("mapping the descriptor validation record", hr);
+        }
+        std::memset(mapped, 0, 64);
+        validation_errors_data_ = static_cast<volatile std::uint32_t*>(mapped);
+        return {};
     }
 
     void report_device_removed() {
@@ -1451,6 +1634,13 @@ private:
     SlotMap<Dx12Accel, AccelHandle> accels_;
     std::vector<Dx12Surface> surfaces_;
     ComPtr<ID3D12RootSignature> root_signature_;
+    // ADR 0039: the live-descriptor table (header, then one entry per view and sampler slot) and the error record
+    // debug shaders write (count, first-recorded flag, slot, handle entry, kind). Bound to every command list.
+    ComPtr<ID3D12Resource> validation_table_;
+    ComPtr<ID3D12Resource> validation_errors_;
+    std::uint32_t* validation_table_data_ = nullptr;
+    volatile std::uint32_t* validation_errors_data_ = nullptr;
+    std::uint32_t validation_errors_seen_ = 0;
     bool device_removed_reported_ = false;
 };
 
@@ -1604,6 +1794,14 @@ void Dx12CommandList::barrier(std::span<const Barrier> barriers) {
     if (count != 0) {
         recorder_->list->Barrier(count, groups.data());
     }
+}
+
+void Dx12CommandList::copy_buffer(BufferHandle src, BufferHandle dst, std::uint64_t size) {
+    Dx12Buffer* from = device_.buffer(src);
+    Dx12Buffer* to = device_.buffer(dst);
+    VEACH_ASSERT(from != nullptr && to != nullptr, "copy_buffer: invalid handles");
+    VEACH_ASSERT(size <= from->desc.size && size <= to->desc.size, "copy_buffer: {} bytes do not fit", size);
+    recorder_->list->CopyBufferRegion(to->resource.Get(), 0, from->resource.Get(), 0, size);
 }
 
 void Dx12CommandList::copy_texture_to_buffer(TextureHandle src, BufferHandle dst) {

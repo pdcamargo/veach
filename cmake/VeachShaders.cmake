@@ -9,7 +9,13 @@
 # <name>.hpp/.cpp in the target's build dir with one accessor per shader file:
 #   const veach::rhi::ShaderLibrary& <name>::<file stem>();
 
-set(VEACH_SHADER_FLAGS -matrix-layout-column-major -warnings-as-errors all)
+# 41017 (use of an uninitialized global) is off: veach/scene.slang's `veach_scene` is filled by each entry point
+# before any use, which Slang's flow analysis cannot see across the entry point.
+set(VEACH_SHADER_FLAGS -matrix-layout-column-major -warnings-as-errors all -warnings-disable 41017)
+# Debug shaders check every bindless handle before use (veach/bindless.slang, ADR 0039).
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    list(APPEND VEACH_SHADER_FLAGS -DVEACH_VALIDATE_BINDLESS=1)
+endif()
 
 if(APPLE)
     set(VEACH_SLANGC "${slang_SOURCE_DIR}/bin/slangc")

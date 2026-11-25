@@ -11,6 +11,8 @@
 // functions are pure and sample textures at an explicit LOD (no derivatives:
 // they run in compute and ray-query shaders).
 
+import veach.bindless;  // every DescriptorHandle dereference is checked in debug builds (ADR 0039)
+
 /// Where on a surface the material is evaluated. World space.
 struct SurfaceInput {
     float3 position;
@@ -65,8 +67,10 @@ struct SurfaceSample {
     float3 emission;  ///< radiance leaving the front side, nits
 };
 
+/// Material handles come from per-hit records, so they differ across a wave: `nonuniform` is required (without it
+/// the shader may use one lane's descriptor for all lanes, which is undefined).
 float4 sampleTexture(DescriptorHandle<Texture2D<float4>> texture, DescriptorHandle<SamplerState> sampler, float2 uv) {
-    return texture.SampleLevel(sampler, uv, 0.0);
+    return nonuniform(texture)->SampleLevel(nonuniform(sampler), uv, 0.0);
 }
 
 // ---- the defaults: glTF metallic-roughness. Public, so overrides can extend them. ------------------------

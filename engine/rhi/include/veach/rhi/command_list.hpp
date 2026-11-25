@@ -14,7 +14,9 @@
 
 namespace veach::rhi {
 
-inline constexpr std::size_t max_parameter_bytes = 256;  ///< DX12 root constants: 64 DWORDs (ADR 0024)
+/// DX12 root constants: 60 of the root signature's 64 DWORDs (ADR 0024); the other 4 hold the descriptor-validation
+/// buffers (ADR 0039).
+inline constexpr std::size_t max_parameter_bytes = 240;
 
 class CommandList {
 public:
@@ -39,6 +41,8 @@ public:
 
     /// Copies a whole texture into a buffer, tightly packed rows.
     virtual void copy_texture_to_buffer(TextureHandle src, BufferHandle dst) = 0;
+    /// Copies the first `size` bytes of `src` to the start of `dst` (copy_src and copy_dst states).
+    virtual void copy_buffer(BufferHandle src, BufferHandle dst, std::uint64_t size) = 0;
 
     /// Declares that the current pass accesses `resource` in `state` (residency on Metal).
     virtual void use(ResourceRef resource, ResourceState state) = 0;

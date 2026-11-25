@@ -83,6 +83,8 @@ public:
     [[nodiscard]] virtual DescriptorHandle descriptor(TextureHandle texture, View view = View::read) = 0;
     [[nodiscard]] virtual DescriptorHandle descriptor(SamplerHandle sampler) = 0;
     [[nodiscard]] virtual DescriptorHandle descriptor(AccelHandle accel) = 0;
+    /// A valid descriptor of `kind` that reads as zero (ADR 0039). Use it for "no resource"; handle 0 is invalid.
+    [[nodiscard]] virtual DescriptorHandle null_descriptor(DescriptorKind kind) = 0;
 
     // ---- surfaces (swapchains)
     [[nodiscard]] virtual Result<SurfaceId> create_surface(const NativeWindowHandle& window,

@@ -55,5 +55,9 @@ VEACH_ERROR(rhi_not_implemented, "rhi.not_implemented", "The requested RHI featu
 VEACH_ERROR(rhi_gpu_error, "rhi.gpu_error", "The GPU reported an error while executing commands")
 VEACH_ERROR(render_screenshot_failed, "render.screenshot_failed", "A screenshot could not be captured or written")
 VEACH_ERROR(render_graph_invalid, "render.graph_invalid", "A render graph pass declared an impossible resource access")
+VEACH_ERROR(render_history_lost, "render.history_lost",
+            "Path-traced pixels read back something other than the accumulation they last wrote")
+VEACH_ERROR(render_nonfinite_samples, "render.nonfinite_samples", "The path tracer produced NaN or infinite samples")
 VEACH_ERROR(rhi_invalid_surface, "rhi.invalid_surface", "The native window handle given to the RHI is invalid")
+VEACH_ERROR(rhi_invalid_descriptor, "rhi.invalid_descriptor", "A shader used a descriptor handle that names no live resource of its kind")
 VEACH_ERROR(rhi_invalid_texture, "rhi.invalid_texture", "A texture description cannot be created on every backend")

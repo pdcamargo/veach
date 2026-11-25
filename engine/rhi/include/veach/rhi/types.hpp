@@ -57,6 +57,9 @@ static_assert(sizeof(DescriptorHandle) == 8);
 /// Which view of a resource a descriptor is for (DX12 has separate SRVs and UAVs).
 enum class View : std::uint8_t { read, storage };
 
+/// What a descriptor points at, for null descriptors (ADR 0039).
+enum class DescriptorKind : std::uint8_t { texture, storage_texture, buffer, storage_buffer, sampler };
+
 struct SubmissionId {
     std::uint64_t value = 0;
 };

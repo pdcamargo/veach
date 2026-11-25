@@ -121,18 +121,26 @@ endif()
 set(_golden_dir "${PROJECT_SOURCE_DIR}/tests/golden")
 # veach_golden_test(<name> <script> <golden> <rhi> [FRAMES n] [MAX_MEAN x])
 function(veach_golden_test name script golden rhi)
-    cmake_parse_arguments(ARG "" "FRAMES;MAX_MEAN" "" ${ARGN})
+    cmake_parse_arguments(ARG "" "FRAMES;MAX_MEAN;MAX_P999;MAX_OUTLIERS" "" ${ARGN})
     if(NOT ARG_FRAMES)
         set(ARG_FRAMES 3)
     endif()
     if(NOT ARG_MAX_MEAN)
         set(ARG_MAX_MEAN 0.01)
     endif()
+    # imgdiff's per-pixel defaults (99.9th percentile 0.25, no pixel above 0.5) apply unless a test loosens them.
+    set(pixel_limits "")
+    if(DEFINED ARG_MAX_P999)
+        list(APPEND pixel_limits -DMAX_P999=${ARG_MAX_P999})
+    endif()
+    if(DEFINED ARG_MAX_OUTLIERS)
+        list(APPEND pixel_limits -DMAX_OUTLIERS=${ARG_MAX_OUTLIERS})
+    endif()
     add_test(NAME "${name}"
         COMMAND "${CMAKE_COMMAND}" -DLAB=$<TARGET_FILE:veach-lab> -DIMGDIFF=$<TARGET_FILE:veach-cli> -DRHI=${rhi}
                 -DSCRIPT=scripts/${script}.luau -DGOLDEN=${_golden_dir}/${golden}.png
                 -DOUT=${CMAKE_CURRENT_BINARY_DIR}/golden/${golden}.${rhi}.png -DMAX_MEAN=${ARG_MAX_MEAN}
-                -DFRAMES=${ARG_FRAMES} -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/golden_test.cmake")
+                -DFRAMES=${ARG_FRAMES} ${pixel_limits} -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/golden_test.cmake")
     set_tests_properties("${name}" PROPERTIES SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE")
 endfunction()
 if(APPLE)
@@ -143,6 +151,12 @@ if(APPLE)
     veach_golden_test("golden: triangle (camera, raytraced)" triangle_camera_raytraced triangle_camera metal)
     veach_golden_test("golden: cornell box (path traced)" cornell_box cornell_box metal FRAMES 4)
     veach_golden_test("golden: flight helmet (path traced)" flight_helmet flight_helmet metal FRAMES 4)
+    # A NaN light: the path tracer leaves the samples out but fails the run (render.nonfinite_samples).
+    add_test(NAME "lab: NaN samples are errors"
+        COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/nonfinite_light.luau)
+    set_tests_properties("lab: NaN samples are errors" PROPERTIES
+        PASS_REGULAR_EXPRESSION "path-traced samples were NaN or infinite.*render\\.nonfinite_samples"
+        SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable")
     add_custom_target(update-goldens
         COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/hello.luau
                 --screenshot "${_golden_dir}/background.png"
@@ -166,6 +180,10 @@ elseif(WIN32)
     veach_golden_test("golden: triangle (camera, raytraced, dx12)" triangle_camera_raytraced triangle_camera dx12)
     veach_golden_test("golden: cornell box (path traced, dx12)" cornell_box cornell_box dx12 FRAMES 4)
     veach_golden_test("golden: flight helmet (path traced, dx12)" flight_helmet flight_helmet dx12 FRAMES 4)
+    add_test(NAME "lab: NaN samples are errors (dx12)"
+        COMMAND veach-lab --rhi dx12 --headless --frames 3 --script scripts/nonfinite_light.luau)
+    set_tests_properties("lab: NaN samples are errors (dx12)" PROPERTIES
+        PASS_REGULAR_EXPRESSION "path-traced samples were NaN or infinite.*render\\.nonfinite_samples")
     # On WARP the helmet takes 85-120 s (cooking 15 textures, then path tracing on the CPU); ctest's default is 120.
     set_tests_properties("golden: flight helmet (path traced, dx12)" PROPERTIES TIMEOUT 600)
     # Two frames in flight under load (dx12.AC6). A debug-layer error makes the exit code 1.

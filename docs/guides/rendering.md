@@ -95,7 +95,7 @@ Rules:
    such check. The shader build itself fails on `float3`/`uint3` members and 3-row or 3-column matrices, whose
    layout differs between Metal and HLSL (ADR 0024). Use 8-byte `rhi::DescriptorHandle`s for handles, and never
    leave one unwritten (handle 0) where a shader might read it, even behind a flag: the compiler may load the
-   descriptor before the branch. Point absent textures at a default (the path tracer's 1x1 white). Keep raster and compute entry points that need different parameters
+   descriptor before the branch. Point absent resources at `device.null_descriptor(kind)` (ADR 0039). Keep raster and compute entry points that need different parameters
    in separate `.slang` files.
 
 macOS builds compile to `.metallib`. Windows builds compile every entry point to DXIL, and the Windows CI job
@@ -121,10 +121,13 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   ([ADR 0033](../adr/0033-material-model.md)).
 - **Lights:** `DirectionalLight` (lux), `PointLight` and `SpotLight` (candela), shining down −Z, and emissive
   surfaces (nits). `Camera.ev100` sets exposure ([ADR 0034](../adr/0034-lights-and-reference-path-tracer.md)).
-- **The reference path tracer** renders a camera that has a `PathTracer { samples_per_frame, max_bounces, sky
-  }`. It accumulates while nothing changes and restarts on any change. The app adds it with
+- **The reference path tracer** renders a camera that has a `PathTracer { samples_per_frame, max_bounces, sky,
+  mode }`. It accumulates while nothing changes and restarts on any change. The app adds it with
   `render::PathTracerFeature(<ns>::path_tracer(), <ns>::material_kinds, assets)`. Example:
-  `apps/lab/scripts/cornell_box.luau`.
+  `apps/lab/scripts/cornell_box.luau`. Its surface reconstruction, BRDF and light sampling live in shared modules
+  (`veach/scene.slang`, `veach/brdf.slang`, `veach/lights.slang`, ADR 0037). It counts what should never happen and
+  fails the run: pixels whose accumulation reads back wrong (`render.history_lost`) and NaN or infinite samples
+  (`render.nonfinite_samples`).
 
 ## Screenshots and golden images
 

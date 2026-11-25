@@ -1,6 +1,8 @@
 // Copies the scene color into the swapchain image with a fullscreen triangle.
 // Parameter layout must match PresentParams in renderer.cpp (ADR 0024).
 
+import veach.bindless;
+
 struct Params {
     DescriptorHandle<Texture2D<float4>> source;
     DescriptorHandle<SamplerState> sampler;

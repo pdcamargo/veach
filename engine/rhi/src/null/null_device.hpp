@@ -41,6 +41,7 @@ public:
     [[nodiscard]] DescriptorHandle descriptor(TextureHandle texture, View view) override;
     [[nodiscard]] DescriptorHandle descriptor(SamplerHandle sampler) override;
     [[nodiscard]] DescriptorHandle descriptor(AccelHandle accel) override;
+    [[nodiscard]] DescriptorHandle null_descriptor(DescriptorKind) override { return {}; }
 
     [[nodiscard]] Result<SurfaceId> create_surface(const NativeWindowHandle& window, const SurfaceDesc& desc) override;
     void resize_surface(SurfaceId surface, std::uint32_t width, std::uint32_t height) override;

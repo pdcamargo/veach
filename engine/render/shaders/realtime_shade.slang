@@ -8,6 +8,7 @@
 //   shade:           the selected light sample with one shadow ray, emission and the ambient stopgap, into
 //                    exposed radiance.
 //   accumulate:      view_accumulated: the average of that radiance over frames while nothing changes.
+//   denoise_*:       the denoiser (ADR 0042): temporal accumulation, variance, an a-trous filter, remodulation.
 
 import veach.bindless;
 import veach.brdf;
@@ -258,19 +259,25 @@ void shade(uint3 id: SV_DispatchThreadID) {
     }
     if (!s.valid) {
         f.radiance_out[id.xy] = float4((ambient ? f.sky_ambient.xyz : float3(0.0, 0.0, 0.0)) * exposure, 1.0);
+        f.noisy_diffuse_out[id.xy] = float4(0.0, 0.0, 0.0, 0.0);
+        f.noisy_specular_out[id.xy] = float4(0.0, 0.0, 0.0, 0.0);
         return;
     }
     Rng rng = { pcg(id.x + pcg(id.y + pcg(f.frame * 4u + 3u))) };
-    float3 radiance = s.emission;
+    float3 diffuse = float3(0.0, 0.0, 0.0);
+    float3 specular = float3(0.0, 0.0, 0.0);
     const Domain d = domain_of(s, f.camera_position.xyz);
     if (d.valid) {
         // Direct light: the reservoir's sample, with the pixel's one shadow ray (ADR 0041).
         const Reservoir r = unpack(f.final_reservoirs[id.y * f.render_size.x + id.x]);
+        float3 cd;
+        float3 cs;
         float3 l;
         float distance;
-        const float3 c = contribution(r, d, f.light_count, l, distance);
-        if (r.W > 0.0 && any(c > 0.0) && light_visible(d.p, d.g, l, distance, rng)) {
-            radiance += c * r.W;
+        contribution_lobes(r, d, f.light_count, cd, cs, l, distance);
+        if (r.W > 0.0 && (any(cd > 0.0) || any(cs > 0.0)) && light_visible(d.p, d.g, l, distance, rng)) {
+            diffuse += cd * r.W;
+            specular += cs * r.W;
         }
         // STOPGAP until Candela (VCH-017): constant sky light on the diffuse lobe, darkened by short-range
         // ray-traced AO. A black sky contributes nothing, so its AO rays are skipped.
@@ -282,10 +289,14 @@ void shade(uint3 id: SV_DispatchThreadID) {
                 const float3 dir = d.frame.to_world(float3(r2 * cos(2.0 * pi * u.y), r2 * sin(2.0 * pi * u.y), sqrt(1.0 - u.x)));
                 open += visible(offset_origin(d.p, d.g, dir), dir, f.ao_radius, rng) ? 1 : 0;
             }
-            radiance += f.sky_ambient.xyz * d.b.diffuse * (float(open) / float(f.ao_rays));
+            diffuse += f.sky_ambient.xyz * d.b.diffuse * (float(open) / float(f.ao_rays));
         }
     }
-    f.radiance_out[id.xy] = float4(radiance * exposure, 1.0);
+    // The noisy image, and its two lobes demodulated for the denoiser (ADR 0042); all exposed.
+    const Demodulation m = demodulation_of(s, f.camera_position.xyz);
+    f.radiance_out[id.xy] = float4((s.emission + diffuse + specular) * exposure, 1.0);
+    f.noisy_diffuse_out[id.xy] = float4(diffuse / m.diffuse * exposure, 0.0);
+    f.noisy_specular_out[id.xy] = float4(specular / m.specular * exposure, 0.0);
 }
 
 // ---- accumulate (view_accumulated) -----------------------------------------------------------------------
@@ -301,4 +312,218 @@ void accumulate(uint3 id: SV_DispatchThreadID) {
     const float n = float(f.accumulated);
     const float4 average = f.accumulated == 0 ? current : (f.accumulation.Load(int3(id.xy, 0)) * n + current) / (n + 1.0);
     f.accumulation_out[id.xy] = average;
+}
+
+// ---- the denoiser (ADR 0042) ------------------------------------------------------------------------------
+
+static const float diffuse_max_history = 32.0;
+static const float atrous_kernel[3] = { 0.25, 0.5, 0.25 };
+
+float max_specular_history(float roughness) {
+    return 8.0 + 24.0 * roughness;
+}
+
+/// Mean + 3 standard deviations of the 3x3 neighborhood's luminance: a brighter sample is a firefly.
+float firefly_limit(DescriptorHandle<Texture2D<float4>> signal, int2 p, uint2 size) {
+    float m1 = 0.0;
+    float m2 = 0.0;
+    for (int y = -1; y <= 1; ++y) {
+        for (int x = -1; x <= 1; ++x) {
+            const int2 q = clamp(p + int2(x, y), int2(0, 0), int2(size) - 1);
+            const float l = luminance(signal.Load(int3(q, 0)).rgb);
+            m1 += l;
+            m2 += l * l;
+        }
+    }
+    m1 /= 9.0;
+    return m1 + 3.0 * sqrt(max(m2 / 9.0 - m1 * m1, 0.0));
+}
+
+float3 clamp_firefly(float3 c, float limit) {
+    const float l = luminance(c);
+    return l > limit ? c * (limit / max(l, 1e-6)) : c;
+}
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void denoise_temporal(uint3 id: SV_DispatchThreadID) {
+    const RealtimeFrame f = realtime_params.frame[0];
+    if (any(id.xy >= f.render_size)) {
+        return;
+    }
+    const int2 p = int2(id.xy);
+    if (f.position.Load(int3(p, 0)).w <= 0.0) {
+        f.diffuse_history_out[id.xy] = float4(0.0, 0.0, 0.0, 0.0);
+        f.specular_history_out[id.xy] = float4(0.0, 0.0, 0.0, 0.0);
+        f.moments_out[id.xy] = float4(0.0, 0.0, 0.0, 0.0);
+        return;
+    }
+    const float3 diffuse = clamp_firefly(f.noisy_diffuse.Load(int3(p, 0)).rgb, firefly_limit(f.noisy_diffuse, p, f.render_size));
+    const float3 specular = clamp_firefly(f.noisy_specular.Load(int3(p, 0)).rgb, firefly_limit(f.noisy_specular, p, f.render_size));
+    const float roughness = f.normal.Load(int3(p, 0)).w;
+    float4 hd = float4(0.0, 0.0, 0.0, 0.0);
+    float4 hs = float4(0.0, 0.0, 0.0, 0.0);
+    float4 hm = float4(0.0, 0.0, 0.0, 0.0);
+    bool valid = false;
+    if ((f.flags & frame_denoiser_history_valid) != 0) {
+        const History h = history_of(id.xy, f.motion.Load(int3(p, 0)));
+        valid = h.valid;
+        for (uint k = 0; k < 4; ++k) {
+            const float w = h.weights[k];
+            if (w > 0.0) {
+                const int2 q = h.base + history_taps[k];
+                hd += f.previous_diffuse_history.Load(int3(q, 0)) * w;
+                hs += f.previous_specular_history.Load(int3(q, 0)) * w;
+                hm += f.previous_moments.Load(int3(q, 0)) * w;
+            }
+        }
+    }
+    // History is dropped at a disocclusion, never blended (ADR 0042).
+    const float length_d = valid ? min(hd.a + 1.0, diffuse_max_history) : 1.0;
+    const float length_s = valid ? min(hs.a + 1.0, max_specular_history(roughness)) : 1.0;
+    const float alpha_d = 1.0 / length_d;
+    const float alpha_s = 1.0 / length_s;
+    const float ld = luminance(diffuse);
+    const float ls = luminance(specular);
+    f.diffuse_history_out[id.xy] = float4(lerp(hd.rgb, diffuse, alpha_d), length_d);
+    f.specular_history_out[id.xy] = float4(lerp(hs.rgb, specular, alpha_s), length_s);
+    f.moments_out[id.xy] = float4(lerp(hm.xy, float2(ld, ld * ld), alpha_d), lerp(hm.zw, float2(ls, ls * ls), alpha_s));
+}
+
+/// Luminance variance over the 7x7 neighborhood on the same surface: for pixels with too little history.
+float2 spatial_variance(RealtimeFrame f, int2 p, float3 normal) {
+    float4 m = float4(0.0, 0.0, 0.0, 0.0);
+    float count = 0.0;
+    for (int y = -3; y <= 3; ++y) {
+        for (int x = -3; x <= 3; ++x) {
+            const int2 q = p + int2(x, y);
+            if (any(q < 0) || any(q >= int2(f.render_size)) || f.position.Load(int3(q, 0)).w <= 0.0 ||
+                dot(f.normal.Load(int3(q, 0)).xyz, normal) < 0.9) {
+                continue;
+            }
+            const float ld = luminance(f.diffuse_history.Load(int3(q, 0)).rgb);
+            const float ls = luminance(f.specular_history.Load(int3(q, 0)).rgb);
+            m += float4(ld, ld * ld, ls, ls * ls);
+            count += 1.0;
+        }
+    }
+    m /= max(count, 1.0);
+    return max(float2(m.y - m.x * m.x, m.w - m.z * m.z), 0.0);
+}
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void denoise_variance(uint3 id: SV_DispatchThreadID) {
+    const RealtimeFrame f = realtime_params.frame[0];
+    if (any(id.xy >= f.render_size)) {
+        return;
+    }
+    const int2 p = int2(id.xy);
+    const float4 d = f.diffuse_history.Load(int3(p, 0));
+    const float4 s = f.specular_history.Load(int3(p, 0));
+    float2 variance;
+    if (min(d.a, s.a) < 4.0) {
+        variance = spatial_variance(f, p, f.normal.Load(int3(p, 0)).xyz);  // too little history for moments
+    } else {
+        const float4 m = f.moments.Load(int3(p, 0));
+        variance = max(float2(m.y - m.x * m.x, m.w - m.z * m.z), 0.0);
+    }
+    f.atrous_diffuse0_out[id.xy] = float4(d.rgb, variance.x);
+    f.atrous_specular0_out[id.xy] = float4(s.rgb, variance.y);
+}
+
+/// One a-trous iteration (argument: 0..4, step 2^argument): reads ping-pong buffer argument % 2, writes the other.
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void denoise_atrous(uint3 id: SV_DispatchThreadID) {
+    const RealtimeFrame f = realtime_params.frame[0];
+    if (any(id.xy >= f.render_size)) {
+        return;
+    }
+    const uint iteration = realtime_params.argument;
+    const bool from0 = iteration % 2 == 0;
+    const int step = 1 << iteration;
+    const int2 p = int2(id.xy);
+    const float4 cd = from0 ? f.atrous_diffuse0.Load(int3(p, 0)) : f.atrous_diffuse1.Load(int3(p, 0));
+    const float4 cs = from0 ? f.atrous_specular0.Load(int3(p, 0)) : f.atrous_specular1.Load(int3(p, 0));
+    const float4 position = f.position.Load(int3(p, 0));
+    float4 out_d = cd;
+    float4 out_s = cs;
+    if (position.w > 0.0) {
+        const float4 normal = f.normal.Load(int3(p, 0));
+        const float roughness = normal.w;
+        const float ld = luminance(cd.rgb);
+        const float ls = luminance(cs.rgb);
+        const float sigma_d = 4.0 * sqrt(cd.a) + 1e-4;
+        const float sigma_s = 4.0 * sqrt(cs.a) + 1e-4;
+        const float specular_power = lerp(256.0, 16.0, saturate(roughness));  // smoother: sharper normal weight
+        const bool mirror = roughness < 0.05 && iteration > 0;  // mirror-like specular: the first iteration only
+        float3 sum_d = float3(0.0, 0.0, 0.0);
+        float3 sum_s = float3(0.0, 0.0, 0.0);
+        float w_d = 0.0;
+        float w_s = 0.0;
+        float var_d = 0.0;
+        float var_s = 0.0;
+        for (int y = -1; y <= 1; ++y) {
+            for (int x = -1; x <= 1; ++x) {
+                const int2 q = p + int2(x, y) * step;
+                if (any(q < 0) || any(q >= int2(f.render_size))) {
+                    continue;
+                }
+                const float4 qp = f.position.Load(int3(q, 0));
+                if (qp.w <= 0.0) {
+                    continue;
+                }
+                const float3 qn = f.normal.Load(int3(q, 0)).xyz;
+                const float4 qd = from0 ? f.atrous_diffuse0.Load(int3(q, 0)) : f.atrous_diffuse1.Load(int3(q, 0));
+                const float4 qs = from0 ? f.atrous_specular0.Load(int3(q, 0)) : f.atrous_specular1.Load(int3(q, 0));
+                const float kernel = atrous_kernel[x + 1] * atrous_kernel[y + 1];
+                const float plane = abs(dot(normal.xyz, qp.xyz - position.xyz));
+                const float w_plane = exp(-plane / max(0.01 * position.w, 1e-4));
+                const float n_dot = saturate(dot(normal.xyz, qn));
+                const float wd = kernel * w_plane * pow(n_dot, 128.0) * exp(-abs(luminance(qd.rgb) - ld) / sigma_d);
+                const float ws = kernel * w_plane * pow(n_dot, specular_power) * exp(-abs(luminance(qs.rgb) - ls) / sigma_s);
+                sum_d += qd.rgb * wd;
+                w_d += wd;
+                var_d += wd * wd * qd.a;
+                sum_s += qs.rgb * ws;
+                w_s += ws;
+                var_s += ws * ws * qs.a;
+            }
+        }
+        if (w_d > 0.0) {
+            out_d = float4(sum_d / w_d, var_d / (w_d * w_d));
+        }
+        if (w_s > 0.0 && !mirror) {
+            out_s = float4(sum_s / w_s, var_s / (w_s * w_s));
+        }
+    }
+    if (from0) {
+        f.atrous_diffuse1_out[id.xy] = out_d;
+        f.atrous_specular1_out[id.xy] = out_s;
+    } else {
+        f.atrous_diffuse0_out[id.xy] = out_d;
+        f.atrous_specular0_out[id.xy] = out_s;
+    }
+}
+
+/// Remodulation (argument: the ping-pong buffer the last a-trous iteration wrote): albedos back on, emission added.
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void denoise_combine(uint3 id: SV_DispatchThreadID) {
+    const RealtimeFrame f = realtime_params.frame[0];
+    if (any(id.xy >= f.render_size)) {
+        return;
+    }
+    const int2 p = int2(id.xy);
+    const GSurface s = load_surface(f, p);
+    if (!s.valid) {
+        f.denoised_out[id.xy] = f.radiance.Load(int3(p, 0));  // the sky, as shaded
+        return;
+    }
+    const bool in0 = realtime_params.argument == 0;
+    const float3 diffuse = in0 ? f.atrous_diffuse0.Load(int3(p, 0)).rgb : f.atrous_diffuse1.Load(int3(p, 0)).rgb;
+    const float3 specular = in0 ? f.atrous_specular0.Load(int3(p, 0)).rgb : f.atrous_specular1.Load(int3(p, 0)).rgb;
+    const Demodulation m = demodulation_of(s, f.camera_position.xyz);
+    f.denoised_out[id.xy] = float4(s.emission * f.camera_position.w + diffuse * m.diffuse + specular * m.specular, 1.0);
 }

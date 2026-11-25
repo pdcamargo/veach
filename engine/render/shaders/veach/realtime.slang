@@ -25,7 +25,8 @@ struct PackedReservoir {
 };
 
 static const uint frame_history_valid = 1;    ///< RealtimeFrame::flags: last frame's targets belong to this view
-static const uint frame_reservoirs_valid = 2;  ///< RealtimeFrame::flags: last frame's reservoirs hold these lights' samples
+static const uint frame_reservoirs_valid = 2;
+static const uint frame_denoiser_history_valid = 4;  ///< the denoiser ran last frame: its history is this view's  ///< RealtimeFrame::flags: last frame's reservoirs hold these lights' samples
 
 // RealtimeFrame::view: what the renderer shows (render::RealtimeView).
 static const uint view_final = 0;
@@ -82,7 +83,30 @@ struct RealtimeFrame {
     DescriptorHandle<StructuredBuffer<PackedReservoir>> previous_reservoirs;   ///< last frame's final reservoirs
     DescriptorHandle<Texture2D<float4>> accumulation;    ///< view_accumulated: the average so far
     DescriptorHandle<RWTexture2D<float4>> accumulation_out;
-    DescriptorHandle<Texture2D<float4>> unused0;
+    // The denoiser (ADR 0042): demodulated diffuse and specular light, exposed.
+    DescriptorHandle<Texture2D<float4>> noisy_diffuse;
+    DescriptorHandle<RWTexture2D<float4>> noisy_diffuse_out;
+    DescriptorHandle<Texture2D<float4>> noisy_specular;
+    DescriptorHandle<RWTexture2D<float4>> noisy_specular_out;
+    DescriptorHandle<Texture2D<float4>> previous_diffuse_history;   ///< rgb accumulated, a = frames in it
+    DescriptorHandle<Texture2D<float4>> previous_specular_history;
+    DescriptorHandle<RWTexture2D<float4>> diffuse_history_out;
+    DescriptorHandle<RWTexture2D<float4>> specular_history_out;
+    DescriptorHandle<Texture2D<float4>> diffuse_history;
+    DescriptorHandle<Texture2D<float4>> specular_history;
+    DescriptorHandle<Texture2D<float4>> previous_moments;  ///< luminance and its square: diffuse xy, specular zw
+    DescriptorHandle<RWTexture2D<float4>> moments_out;
+    DescriptorHandle<Texture2D<float4>> moments;
+    DescriptorHandle<Texture2D<float4>> atrous_diffuse0;   ///< the spatial filter's ping-pong: rgb, a = variance
+    DescriptorHandle<RWTexture2D<float4>> atrous_diffuse0_out;
+    DescriptorHandle<Texture2D<float4>> atrous_diffuse1;
+    DescriptorHandle<RWTexture2D<float4>> atrous_diffuse1_out;
+    DescriptorHandle<Texture2D<float4>> atrous_specular0;
+    DescriptorHandle<RWTexture2D<float4>> atrous_specular0_out;
+    DescriptorHandle<Texture2D<float4>> atrous_specular1;
+    DescriptorHandle<RWTexture2D<float4>> atrous_specular1_out;
+    DescriptorHandle<Texture2D<float4>> denoised;          ///< remodulated, exposed: the upscaler's input
+    DescriptorHandle<RWTexture2D<float4>> denoised_out;
 
     uint2 render_size;
     uint frame;  ///< seeds the random numbers
@@ -100,7 +124,7 @@ struct RealtimeFrame {
     uint spatial_samples;
     uint temporal_reuse;  ///< 1: reuse last frame's reservoirs
     uint accumulated;     ///< view_accumulated: frames in the average before this one
-    uint pad1;
+    uint denoise;         ///< 1: the denoiser runs (shade still writes the noisy image to radiance)
     uint2 pad2;
 };
 
@@ -193,6 +217,21 @@ GSurface load_previous_surface(RealtimeFrame f, int2 pixel) {
     s.f0 = f.previous_specular.Load(int3(pixel, 0)).xyz;
     s.emission = float3(0.0, 0.0, 0.0);
     return s;
+}
+
+/// What the denoiser divides light by before filtering and multiplies back after (ADR 0042): the diffuse albedo and
+/// the specular lobe's albedo, floored so dark surfaces keep their signal.
+struct Demodulation {
+    float3 diffuse;
+    float3 specular;
+};
+
+Demodulation demodulation_of(GSurface s, float3 camera) {
+    Demodulation d;
+    const float n_dot_v = saturate(dot(s.normal, normalize(camera - s.position)));
+    d.diffuse = max(s.diffuse, 0.001);
+    d.specular = max(specular_albedo(s.f0, s.roughness, n_dot_v), 0.001);
+    return d;
 }
 
 /// The BRDF the path tracer would use at this surface (veach/brdf.slang's brdf_of, from stored terms).

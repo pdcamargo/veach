@@ -109,6 +109,43 @@ float3 contribution(Reservoir r, Domain d, uint light_count, out float3 l, out f
     return r.radiance * brdf_eval(d.b, d.v, d.frame.to_local(l), pdf) * cos_light / (distance * distance);
 }
 
+/// contribution() split into the BRDF's diffuse and specular lobes (shading for the denoiser).
+void contribution_lobes(Reservoir r, Domain d, uint light_count, out float3 diffuse, out float3 specular,
+                        out float3 l, out float distance) {
+    diffuse = float3(0.0, 0.0, 0.0);
+    specular = float3(0.0, 0.0, 0.0);
+    l = float3(0.0, 0.0, 1.0);
+    distance = 0.0;
+    if (r.light == no_light || !d.valid) {
+        return;
+    }
+    const uint index = r.light & ~light_double_sided;
+    float3 incoming;
+    if (index < light_count) {
+        incoming = punctual_irradiance(veach_scene.lights[index], d.p, l, distance);
+    } else {
+        const float3 to_light = r.position - d.p;
+        distance = length(to_light);
+        if (distance <= 1e-6) {
+            return;
+        }
+        l = to_light / distance;
+        float cos_light = dot(r.normal, -l);
+        if ((r.light & light_double_sided) != 0) {
+            cos_light = abs(cos_light);
+        }
+        if (cos_light <= 0.0) {
+            return;
+        }
+        incoming = r.radiance * cos_light / (distance * distance);
+    }
+    float3 fd;
+    float3 fs;
+    brdf_eval_lobes(d.b, d.v, d.frame.to_local(l), fd, fs);
+    diffuse = incoming * fd;
+    specular = incoming * fs;
+}
+
 /// The target function: the contribution's luminance.
 float target(Reservoir r, Domain d, uint light_count) {
     float3 l;

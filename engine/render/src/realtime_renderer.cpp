@@ -95,7 +95,11 @@ struct alignas(16) RealtimeFrame {
     rhi::DescriptorHandle previous_reservoirs;
     rhi::DescriptorHandle accumulation;
     rhi::DescriptorHandle accumulation_out;
-    rhi::DescriptorHandle unused0;
+    /// The denoiser (ADR 0042), in veach/realtime.slang's order: noisy diffuse and specular (read, write each), last
+    /// frame's diffuse and specular history, this frame's (write, then read), last frame's moments, this frame's
+    /// (write, read), the a-trous ping-pong (diffuse 0, 1, specular 0, 1: read, write each), the denoised image (read,
+    /// write).
+    std::array<rhi::DescriptorHandle, 23> denoiser;
     std::array<std::uint32_t, 2> render_size{};
     std::uint32_t frame = 0;
     std::uint32_t flags = 0;
@@ -112,15 +116,16 @@ struct alignas(16) RealtimeFrame {
     std::uint32_t spatial_samples = 0;
     std::uint32_t temporal_reuse = 0;
     std::uint32_t accumulated = 0;
-    std::uint32_t pad1 = 0;
+    std::uint32_t denoise = 0;
     std::array<std::uint32_t, 2> pad2{};
 };
 static_assert(offsetof(RealtimeFrame, tlas) == 320);
 static_assert(offsetof(RealtimeFrame, surfaces) == 368);
 static_assert(offsetof(RealtimeFrame, previous) == 480);
 static_assert(offsetof(RealtimeFrame, alias) == 536);
-static_assert(offsetof(RealtimeFrame, render_size) == 608);
-static_assert(sizeof(RealtimeFrame) == 688);
+static_assert(offsetof(RealtimeFrame, denoiser) == 600);
+static_assert(offsetof(RealtimeFrame, render_size) == 784);
+static_assert(sizeof(RealtimeFrame) == 864);
 
 /// Mirrors PackedReservoir in shaders/veach/realtime.slang (ADR 0041).
 struct PackedReservoir {
@@ -132,7 +137,9 @@ static_assert(sizeof(PackedReservoir) == 48);
 
 constexpr std::uint32_t frame_history_valid = 1;  ///< RealtimeFrame::flags, as in veach/realtime.slang
 constexpr std::uint32_t frame_reservoirs_valid = 2;
-constexpr std::uint32_t jitter_phases = 16;  ///< Halton(2,3) phases (ADR 0040)
+constexpr std::uint32_t frame_denoiser_history_valid = 4;
+constexpr std::uint32_t atrous_iterations = 5;  ///< steps 1, 2, 4, 8, 16 (ADR 0042)
+constexpr std::uint32_t jitter_phases = 16;     ///< Halton(2,3) phases (ADR 0040)
 
 /// The surface targets (ADR 0040), in RealtimeFrame's order.
 constexpr std::array<rhi::Format, 7> surface_formats{
@@ -183,9 +190,19 @@ struct RealtimeRenderer::Impl {
         std::uint32_t accumulated = 0;                     ///< frames in it
         PersistentBuffer temporal_reservoirs;              ///< ReSTIR: initial + temporal, this frame
         std::array<PersistentBuffer, 2> final_reservoirs;  ///< ReSTIR: after spatial reuse, ping-pong
-        std::uint64_t lights_hash = 0;                     ///< the lights last frame's reservoirs sampled
-        bool history = false;                              ///< last frame's targets belong to this view
-        std::uint32_t frame = 0;  ///< frames since the targets were made; its parity picks the set
+        // The denoiser (ADR 0042): noisy lobes, histories and moments (ping-pong), the a-trous ping-pong, the result.
+        Persistent noisy_diffuse;
+        Persistent noisy_specular;
+        std::array<Persistent, 2> diffuse_history;
+        std::array<Persistent, 2> specular_history;
+        std::array<Persistent, 2> moments;
+        std::array<Persistent, 2> atrous_diffuse;
+        std::array<Persistent, 2> atrous_specular;
+        Persistent denoised;
+        bool denoised_last_frame = false;  ///< the denoiser's history is this view's
+        std::uint64_t lights_hash = 0;     ///< the lights last frame's reservoirs sampled
+        bool history = false;              ///< last frame's targets belong to this view
+        std::uint32_t frame = 0;           ///< frames since the targets were made; its parity picks the set
         math::mat4 previous_view_projection{1.0f};
         math::mat4 previous_view{1.0f};
         math::vec3 previous_position{0.0f};
@@ -198,6 +215,10 @@ struct RealtimeRenderer::Impl {
     rhi::PipelineHandle restir_temporal_pipeline;
     rhi::PipelineHandle restir_spatial_pipeline;
     rhi::PipelineHandle accumulate_pipeline;
+    rhi::PipelineHandle denoise_temporal_pipeline;
+    rhi::PipelineHandle denoise_variance_pipeline;
+    rhi::PipelineHandle denoise_atrous_pipeline;
+    rhi::PipelineHandle denoise_combine_pipeline;
     rhi::PipelineHandle taau_pipeline;
     rhi::PipelineHandle display_pipeline;
     rhi::SamplerHandle linear_clamp;
@@ -216,7 +237,8 @@ struct RealtimeRenderer::Impl {
         }
         for (rhi::PipelineHandle* p :
              {&visibility_pipeline, &surface_pipeline, &shade_pipeline, &restir_temporal_pipeline,
-              &restir_spatial_pipeline, &accumulate_pipeline, &taau_pipeline, &display_pipeline}) {
+              &restir_spatial_pipeline, &accumulate_pipeline, &denoise_temporal_pipeline, &denoise_variance_pipeline,
+              &denoise_atrous_pipeline, &denoise_combine_pipeline, &taau_pipeline, &display_pipeline}) {
             if (p->is_valid()) {
                 device->destroy(*p);
             }
@@ -252,14 +274,23 @@ struct RealtimeRenderer::Impl {
             }
         }
         destroy(v.radiance);
+        destroy(v.denoised);
         for (Persistent& p : v.upscaled) {
             destroy(p);
         }
         destroy(v.accumulation);
+        for (Persistent* p : denoiser_targets(v)) {
+            destroy(*p);
+        }
         destroy(v.temporal_reservoirs);
         for (PersistentBuffer& b : v.final_reservoirs) {
             destroy(b);
         }
+    }
+    static std::array<Persistent*, 12> denoiser_targets(ViewState& v) {
+        return {&v.noisy_diffuse,       &v.noisy_specular,      &v.diffuse_history[0], &v.diffuse_history[1],
+                &v.specular_history[0], &v.specular_history[1], &v.moments[0],         &v.moments[1],
+                &v.atrous_diffuse[0],   &v.atrous_diffuse[1],   &v.atrous_specular[0], &v.atrous_specular[1]};
     }
     void destroy(PersistentBuffer& b) {
         if (b.handle.is_valid()) {
@@ -307,6 +338,10 @@ struct RealtimeRenderer::Impl {
         }
         ok = ok && create(v.radiance, {rw, rh, rhi::Format::rgba16_float, rw_usage, "radiance"});
         ok = ok && create(v.accumulation, {rw, rh, rhi::Format::rgba32_float, rw_usage, "accumulation"});
+        for (Persistent* p : denoiser_targets(v)) {
+            ok = ok && create(*p, {rw, rh, rhi::Format::rgba16_float, rw_usage, "denoiser"});
+        }
+        ok = ok && create(v.denoised, {rw, rh, rhi::Format::rgba16_float, rw_usage, "denoised"});
         const std::uint64_t reservoirs = std::uint64_t{rw} * rh * sizeof(PackedReservoir);
         ok = ok && create(v.temporal_reservoirs, reservoirs, "reservoirs (temporal)");
         for (PersistentBuffer& b : v.final_reservoirs) {
@@ -364,6 +399,10 @@ Result<> RealtimeRenderer::prepare(rhi::Device& device, const SceneShaders& shad
           std::tuple{&shaders.shade, "restir_spatial", &s.restir_spatial_pipeline},
           std::tuple{&shaders.shade, "shade", &s.shade_pipeline},
           std::tuple{&shaders.shade, "accumulate", &s.accumulate_pipeline},
+          std::tuple{&shaders.shade, "denoise_temporal", &s.denoise_temporal_pipeline},
+          std::tuple{&shaders.shade, "denoise_variance", &s.denoise_variance_pipeline},
+          std::tuple{&shaders.shade, "denoise_atrous", &s.denoise_atrous_pipeline},
+          std::tuple{&shaders.shade, "denoise_combine", &s.denoise_combine_pipeline},
           std::tuple{&veach_render_shaders::taau(), "taau", &s.taau_pipeline},
           std::tuple{&veach_render_shaders::display(), "display", &s.display_pipeline}}) {
         if (auto made = compute(*library, entry, *out); !made) {
@@ -467,10 +506,33 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     f.previous_reservoirs = device.descriptor(v.final_reservoirs[previous].handle);
     f.accumulation = device.descriptor(v.accumulation.handle);
     f.accumulation_out = device.descriptor(v.accumulation.handle, rhi::View::storage);
-    f.unused0 = device.null_descriptor(rhi::DescriptorKind::texture);
+    const auto rw_pair = [&](Persistent& p, std::size_t at) {
+        f.denoiser.at(at) = device.descriptor(p.handle);
+        f.denoiser.at(at + 1) = device.descriptor(p.handle, rhi::View::storage);
+    };
+    rw_pair(v.noisy_diffuse, 0);
+    rw_pair(v.noisy_specular, 2);
+    f.denoiser[4] = device.descriptor(v.diffuse_history[previous].handle);
+    f.denoiser[5] = device.descriptor(v.specular_history[previous].handle);
+    f.denoiser[6] = device.descriptor(v.diffuse_history[current].handle, rhi::View::storage);
+    f.denoiser[7] = device.descriptor(v.specular_history[current].handle, rhi::View::storage);
+    f.denoiser[8] = device.descriptor(v.diffuse_history[current].handle);
+    f.denoiser[9] = device.descriptor(v.specular_history[current].handle);
+    f.denoiser[10] = device.descriptor(v.moments[previous].handle);
+    f.denoiser[11] = device.descriptor(v.moments[current].handle, rhi::View::storage);
+    f.denoiser[12] = device.descriptor(v.moments[current].handle);
+    rw_pair(v.atrous_diffuse[0], 13);
+    rw_pair(v.atrous_diffuse[1], 15);
+    rw_pair(v.atrous_specular[0], 17);
+    rw_pair(v.atrous_specular[1], 19);
+    rw_pair(v.denoised, 21);
     f.render_size = {rw, rh};
     f.frame = s.frame++;
-    f.flags = (v.history ? frame_history_valid : 0u) | (reservoirs_valid ? frame_reservoirs_valid : 0u);
+    // The denoiser runs for the final image; its history is valid only if it ran last frame too (ADR 0042).
+    const bool denoise = lighting.denoise && lighting.view == RealtimeView::final;
+    f.flags = (v.history ? frame_history_valid : 0u) | (reservoirs_valid ? frame_reservoirs_valid : 0u) |
+              (v.history && v.denoised_last_frame ? frame_denoiser_history_valid : 0u);
+    v.denoised_last_frame = denoise;
     f.light_count = scene.light_count;
     f.emissive_count = scene.emissive_count;
     f.emissive_total_weight = scene.emissive_total_weight;
@@ -483,6 +545,7 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     f.spatial_samples = lighting.spatial_samples;
     f.temporal_reuse = lighting.temporal_reuse ? 1u : 0u;
     f.accumulated = v.accumulated;
+    f.denoise = denoise ? 1u : 0u;
 
     const std::array<RealtimeFrame, 1> records{f};
     auto frame_buffer = device.create_buffer({.size = sizeof(RealtimeFrame),
@@ -521,6 +584,10 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     const GraphResource final_reservoirs = s.import(graph, v.final_reservoirs[current], "reservoirs");
     const GraphResource previous_reservoirs = s.import(graph, v.final_reservoirs[previous], "reservoirs (last frame)");
     const GraphResource accumulation = s.import(graph, v.accumulation, "accumulation");
+    const GraphResource noisy_diffuse = s.import(graph, v.noisy_diffuse, "noisy diffuse");
+    const GraphResource noisy_specular = s.import(graph, v.noisy_specular, "noisy specular");
+    v.noisy_diffuse.written = true;
+    v.noisy_specular.written = true;
     v.visibility.written = true;
     v.radiance.written = true;
     v.temporal_reservoirs.written = true;
@@ -552,18 +619,24 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
             }
         });
 
-    const auto dispatch = [&](const char* name, rhi::PipelineHandle pipeline, const auto& declare) {
+    const auto dispatch_with = [&](std::string name, rhi::PipelineHandle pipeline, std::uint32_t argument,
+                                   const auto& declare) {
+        RealtimeParams pass_params = params;
+        pass_params.argument = argument;
         graph.add_compute_pass(
-            name,
+            std::move(name),
             [&](PassBuilder& b) {
                 b.read(frame_data);
                 declare(b);
             },
-            [params, pipeline, rw, rh](PassContext& ctx) {
+            [pass_params, pipeline, rw, rh](PassContext& ctx) {
                 ctx.cmd.set_pipeline(pipeline);
-                ctx.cmd.set_parameters(params);
+                ctx.cmd.set_parameters(pass_params);
                 ctx.cmd.dispatch((rw + 7) / 8, (rh + 7) / 8);
             });
+    };
+    const auto dispatch = [&](const char* name, rhi::PipelineHandle pipeline, const auto& declare) {
+        dispatch_with(name, pipeline, 0, declare);
     };
 
     // ---- surfaces, motion and disocclusion (ADR 0040).
@@ -606,6 +679,8 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
         }
         b.read(final_reservoirs);
         b.write(radiance, rhi::ResourceState::shader_write);
+        b.write(noisy_diffuse, rhi::ResourceState::shader_write);
+        b.write(noisy_specular, rhi::ResourceState::shader_write);
     });
     if (accumulating) {
         dispatch("accumulate", s.accumulate_pipeline, [&](PassBuilder& b) {
@@ -616,9 +691,78 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
         ++v.accumulated;
     }
 
+    // ---- the denoiser (ADR 0042): temporal accumulation, variance, a-trous, remodulation.
+    GraphResource lit = radiance;  // what the upscaler reads
+    rhi::TextureHandle lit_handle = v.radiance.handle;
+    if (denoise) {
+        const GraphResource diffuse_history = s.import(graph, v.diffuse_history[current], "denoiser diffuse history");
+        const GraphResource specular_history =
+            s.import(graph, v.specular_history[current], "denoiser specular history");
+        const GraphResource moments = s.import(graph, v.moments[current], "denoiser moments");
+        const GraphResource previous_diffuse = s.import(graph, v.diffuse_history[previous], "denoiser diffuse history");
+        const GraphResource previous_specular =
+            s.import(graph, v.specular_history[previous], "denoiser specular history");
+        const GraphResource previous_moments = s.import(graph, v.moments[previous], "denoiser moments");
+        const std::array<GraphResource, 2> atrous_diffuse{s.import(graph, v.atrous_diffuse[0], "a-trous diffuse"),
+                                                          s.import(graph, v.atrous_diffuse[1], "a-trous diffuse")};
+        const std::array<GraphResource, 2> atrous_specular{s.import(graph, v.atrous_specular[0], "a-trous specular"),
+                                                           s.import(graph, v.atrous_specular[1], "a-trous specular")};
+        const GraphResource denoised = s.import(graph, v.denoised, "denoised");
+        for (Persistent* p :
+             {&v.diffuse_history[current], &v.specular_history[current], &v.moments[current], &v.atrous_diffuse[0],
+              &v.atrous_diffuse[1], &v.atrous_specular[0], &v.atrous_specular[1], &v.denoised}) {
+            p->written = true;
+        }
+        dispatch("denoise: temporal", s.denoise_temporal_pipeline, [&](PassBuilder& b) {
+            b.read(noisy_diffuse);
+            b.read(noisy_specular);
+            b.read(current_targets[0]);
+            b.read(current_targets[1]);
+            b.read(current_targets[6]);
+            b.read(previous_diffuse);
+            b.read(previous_specular);
+            b.read(previous_moments);
+            b.write(diffuse_history, rhi::ResourceState::shader_write);
+            b.write(specular_history, rhi::ResourceState::shader_write);
+            b.write(moments, rhi::ResourceState::shader_write);
+        });
+        dispatch("denoise: variance", s.denoise_variance_pipeline, [&](PassBuilder& b) {
+            b.read(current_targets[0]);
+            b.read(current_targets[1]);
+            b.read(diffuse_history);
+            b.read(specular_history);
+            b.read(moments);
+            b.write(atrous_diffuse[0], rhi::ResourceState::shader_write);
+            b.write(atrous_specular[0], rhi::ResourceState::shader_write);
+        });
+        for (std::uint32_t i = 0; i < atrous_iterations; ++i) {
+            dispatch_with(std::format("denoise: a-trous {}", 1u << i), s.denoise_atrous_pipeline, i,
+                          [&](PassBuilder& b) {
+                              b.read(current_targets[0]);
+                              b.read(current_targets[1]);
+                              b.read(atrous_diffuse[i % 2]);
+                              b.read(atrous_specular[i % 2]);
+                              b.write(atrous_diffuse[(i + 1) % 2], rhi::ResourceState::shader_write);
+                              b.write(atrous_specular[(i + 1) % 2], rhi::ResourceState::shader_write);
+                          });
+        }
+        constexpr std::uint32_t filtered = atrous_iterations % 2;  // the ping-pong buffer the last iteration wrote
+        dispatch_with("denoise: combine", s.denoise_combine_pipeline, filtered, [&](PassBuilder& b) {
+            for (const GraphResource& r : current_targets) {
+                b.read(r);
+            }
+            b.read(radiance);
+            b.read(atrous_diffuse[filtered]);
+            b.read(atrous_specular[filtered]);
+            b.write(denoised, rhi::ResourceState::shader_write);
+        });
+        lit = denoised;
+        lit_handle = v.denoised.handle;
+    }
+
     // ---- upscaling (ADR 0043), unless a debug view shows render pixels as they are.
     const bool image = lighting.view == RealtimeView::final || lighting.view == RealtimeView::noisy;
-    GraphResource shown = accumulating ? accumulation : radiance;
+    GraphResource shown = accumulating ? accumulation : lit;
     std::array<std::uint32_t, 2> shown_size{rw, rh};
     if (mode != UpscalerMode::none && image) {
         Persistent& out = v.upscaled[current];
@@ -627,7 +771,7 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
         const GraphResource history_resource = s.import(graph, history, "upscaled history");
         out.written = true;
         TaauParams taau;
-        taau.color = device.descriptor(v.radiance.handle);
+        taau.color = device.descriptor(lit_handle);
         taau.motion = device.descriptor(surfaces[6].handle);
         taau.position = device.descriptor(surfaces[0].handle);
         taau.history = device.descriptor(history.handle);
@@ -640,7 +784,7 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
         graph.add_compute_pass(
             "taau",
             [&](PassBuilder& b) {
-                b.read(radiance);
+                b.read(lit);
                 b.read(current_targets[6]);
                 b.read(current_targets[0]);
                 b.read(history_resource);

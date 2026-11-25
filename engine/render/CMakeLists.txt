@@ -18,7 +18,8 @@ veach_add_shader(veach_render shaders/path_tracer.slang ENTRIES trace_pixels:com
 veach_add_shader(veach_render shaders/realtime_visibility.slang ENTRIES vis_vs:vertex vis_fs:fragment
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
 veach_add_shader(veach_render shaders/realtime_shade.slang ENTRIES surface:compute restir_temporal:compute restir_spatial:compute shade:compute
-        accumulate:compute
+        accumulate:compute denoise_temporal:compute denoise_variance:compute denoise_atrous:compute
+        denoise_combine:compute
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
 veach_add_shader(veach_render shaders/taau.slang ENTRIES taau:compute)
 veach_shader_library(veach_render NAMESPACE veach_render_shaders)

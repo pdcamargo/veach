@@ -1,5 +1,6 @@
 set(_rhi_sources
     src/rhi.cpp
+    src/submission_tracker.cpp
     src/types.cpp
     src/null/null_device.cpp
     # The DX12 stub has no Windows dependencies yet, so it compiles everywhere: its

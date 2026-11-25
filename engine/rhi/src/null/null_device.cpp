@@ -37,7 +37,7 @@ public:
 
 }  // namespace
 
-NullDevice::NullDevice() {
+NullDevice::NullDevice(std::uint32_t frames_in_flight) : tracker_(frames_in_flight) {
     caps_.device_name = "null";
 }
 
@@ -129,7 +129,10 @@ std::unique_ptr<CommandList> NullDevice::begin_commands(std::string_view) {
 }
 
 SubmissionId NullDevice::submit(std::unique_ptr<CommandList>, SurfaceId) {
-    return {++submissions_};
+    const SubmissionId id = tracker_.next_submission();
+    tracker_.mark_completed(id);
+    tracker_.collect();
+    return id;
 }
 
 }  // namespace veach::rhi

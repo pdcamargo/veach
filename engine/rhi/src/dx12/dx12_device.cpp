@@ -62,6 +62,13 @@ public:
     SubmissionId submit(std::unique_ptr<CommandList>, SurfaceId) override { return {}; }
     void wait(SubmissionId) override {}
     void wait_idle() override {}
+    // Frames: build on SubmissionTracker (ADR 0029). Fence value = SubmissionId; ID3D12Fence::SetEventOnCompletion
+    // to wait; destroy() and descriptor-slot frees go through SubmissionTracker::retire().
+    FrameInfo begin_frame() override { return {}; }
+    void end_frame() override {}
+    [[nodiscard]] FrameInfo current_frame() const override { return {}; }
+    [[nodiscard]] std::uint32_t frames_in_flight() const override { return 2; }
+    [[nodiscard]] double last_frame_gpu_ms() const override { return 0.0; }
 
 private:
     Capabilities caps_{.device_name = "dx12 (stub)"};

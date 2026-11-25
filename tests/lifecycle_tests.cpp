@@ -102,6 +102,11 @@ TEST_CASE("[lifecycle.AC5] bad flags and bad project files explain the fix") {
     const std::vector<std::string_view> both{"--headless", "--window"};
     CHECK(resolve_config({.name = "t"}, both).error().code == ErrorCode::cli_conflicting_flags);
 
+    const std::vector<std::string_view> no_frames{"--screenshot", "out.png", "--rhi", "metal"};
+    CHECK(resolve_config({.name = "t"}, no_frames).error().code == ErrorCode::cli_conflicting_flags);
+    const std::vector<std::string_view> null_rhi{"--screenshot", "out.png", "--frames", "1"};
+    CHECK(resolve_config({.name = "t"}, null_rhi).error().message.find("GPU backend") != std::string::npos);
+
     const std::vector<std::string_view> bad_number{"--frames", "three"};
     CHECK(resolve_config({.name = "t"}, bad_number).error().code == ErrorCode::cli_invalid_value);
 

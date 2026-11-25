@@ -4,7 +4,7 @@ Date: 2026-11-24
 
 ## Status
 
-Accepted
+Accepted. The "Queues and frames" paragraph is superseded by [ADR 0029](0029-frame-and-sync-model.md).
 
 ## Context
 

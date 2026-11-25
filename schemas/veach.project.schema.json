@@ -11,6 +11,10 @@
       "default": 0,
       "type": "integer"
     },
+    "frames_in_flight": {
+      "default": 2,
+      "type": "integer"
+    },
     "headless": {
       "default": false,
       "type": "boolean"

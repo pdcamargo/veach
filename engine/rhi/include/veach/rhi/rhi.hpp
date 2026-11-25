@@ -10,6 +10,7 @@
 #include <veach/core/error.hpp>
 #include <veach/platform/native_window.hpp>
 #include <veach/rhi/command_list.hpp>
+#include <veach/rhi/submission_tracker.hpp>
 #include <veach/rhi/types.hpp>
 
 #include <cstdint>
@@ -33,6 +34,7 @@ struct Capabilities {
 struct DeviceDesc {
     Backend backend = Backend::null;
     bool validation = false;  ///< API validation (Metal debug layer / D3D12 debug layer); errors become error logs.
+    std::uint32_t frames_in_flight = 2;  ///< How far the CPU may run ahead of the GPU (ADR 0029).
 };
 
 struct SurfaceDesc {
@@ -61,7 +63,8 @@ public:
     [[nodiscard]] virtual Result<AccelHandle> create_blas(const BlasDesc& desc) = 0;
     [[nodiscard]] virtual Result<AccelHandle> create_tlas(const TlasDesc& desc) = 0;
 
-    /// Destruction waits for the GPU to finish with the resource (v0: waits for idle, VCH-042).
+    /// Never waits. The handle is invalid immediately; the GPU object (and, on DX12, its descriptor slots)
+    /// is released once every submission made before this call has completed (ADR 0029).
     virtual void destroy(BufferHandle buffer) = 0;
     virtual void destroy(TextureHandle texture) = 0;
     virtual void destroy(SamplerHandle sampler) = 0;
@@ -86,11 +89,23 @@ public:
     [[nodiscard]] virtual Result<TextureHandle> acquire_image(SurfaceId surface) = 0;
     virtual void destroy_surface(SurfaceId surface) = 0;
 
+    // ---- frames (ADR 0029)
+    /// Starts recording a frame. Blocks only until the frame that last used this frame's slot
+    /// (frame - frames_in_flight) has completed on the GPU, then runs pending releases.
+    virtual FrameInfo begin_frame() = 0;
+    /// Ends the frame: its submissions become the fence for its slot.
+    virtual void end_frame() = 0;
+    [[nodiscard]] virtual FrameInfo current_frame() const = 0;
+    [[nodiscard]] virtual std::uint32_t frames_in_flight() const = 0;
+    /// GPU time of the most recently completed frame, in milliseconds (0 when unknown).
+    [[nodiscard]] virtual double last_frame_gpu_ms() const = 0;
+
     // ---- work
     [[nodiscard]] virtual std::unique_ptr<CommandList> begin_commands(std::string_view debug_name) = 0;
     /// Submits the work; if `present` is valid, its acquired image is presented afterwards.
     virtual SubmissionId submit(std::unique_ptr<CommandList> commands, SurfaceId present = {}) = 0;
     virtual void wait(SubmissionId submission) = 0;
+    /// Waits for all submitted work and runs every pending release.
     virtual void wait_idle() = 0;
 };
 

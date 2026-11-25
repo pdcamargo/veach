@@ -159,11 +159,8 @@ void Renderer::render() {
         return;
     }
 
-    // One frame in flight (v0): wait for the previous frame before reusing its resources.
-    if (in_flight_) {
-        device_.wait(*in_flight_);
-        in_flight_.reset();
-    }
+    // Frames in flight (ADR 0029): blocks only if the GPU is frames_in_flight frames behind.
+    device_.begin_frame();
 
     RenderGraph graph(device_, &pool_);
     const GraphResource color = graph.import(scene_color_, "scene_color", scene_color_state_);
@@ -251,12 +248,11 @@ void Renderer::render() {
     auto cmd = device_.begin_commands(std::format("frame {}", render_world_.frame));
     graph.execute(*cmd);
     const rhi::SubmissionId submission = device_.submit(std::move(cmd), present);
+    device_.end_frame();
     scene_color_state_ = graph.final_state(color);
-    in_flight_ = submission;
 
     if (capture) {
         device_.wait(submission);
-        in_flight_.reset();
         write_screenshot(width, height);
     }
 }

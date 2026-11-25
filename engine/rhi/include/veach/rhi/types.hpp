@@ -234,6 +234,9 @@ struct Barrier {
     ResourceRef resource;
     ResourceState before = ResourceState::undefined;
     ResourceState after = ResourceState::undefined;
+    /// The old contents are not needed (first use of a transient this frame). `before` is still the real
+    /// previous state, so the barrier synchronizes with earlier frames' use; DX12 discards the layout.
+    bool discard = false;
 };
 
 }  // namespace veach::rhi

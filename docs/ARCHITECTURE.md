@@ -148,7 +148,8 @@ Single-threaded today: the main thread runs the loop, all phases and all scripts
 Taskflow, decided by ADR in VCH-015) arrives later, and Flecs worker threads will be hooked into it rather than
 spawning their own. Asset loaders are written to be thread-safe from the start: they never touch the world.
 Until then, script systems are `immediate()` and apply their command buffers directly after collecting their
-batch. The GPU runs one frame behind at most: the renderer waits for the previous submission before recording.
+batch. The CPU may run `frames_in_flight` frames ahead of the GPU (default 2; [ADR 0029](adr/0029-frame-and-sync-model.md)).
+Destroyed GPU resources are released once the submissions that might use them complete.
 GPU error callbacks arrive on Metal's thread, which is why the log and the engine's error counter are thread-safe.
 
 ## Where things live

@@ -13,7 +13,7 @@ namespace veach::rhi {
 /// The default backend, and the one headless CI and agents use.
 class NullDevice final : public Device {
 public:
-    NullDevice();
+    explicit NullDevice(std::uint32_t frames_in_flight = 2);
 
     [[nodiscard]] Backend backend() const override { return Backend::null; }
     [[nodiscard]] const Capabilities& capabilities() const override { return caps_; }
@@ -49,7 +49,17 @@ public:
     [[nodiscard]] std::unique_ptr<CommandList> begin_commands(std::string_view debug_name) override;
     SubmissionId submit(std::unique_ptr<CommandList> commands, SurfaceId present) override;
     void wait(SubmissionId) override {}
-    void wait_idle() override {}
+    void wait_idle() override { tracker_.collect(); }
+    FrameInfo begin_frame() override {
+        SubmissionId unused;
+        const FrameInfo frame = tracker_.begin_frame(unused);
+        tracker_.collect();
+        return frame;
+    }
+    void end_frame() override { tracker_.end_frame(); }
+    [[nodiscard]] FrameInfo current_frame() const override { return tracker_.current_frame(); }
+    [[nodiscard]] std::uint32_t frames_in_flight() const override { return tracker_.frames_in_flight(); }
+    [[nodiscard]] double last_frame_gpu_ms() const override { return 0.0; }
 
 private:
     struct Buffer {
@@ -68,7 +78,7 @@ private:
     SlotMap<int, PipelineHandle> pipelines_;
     SlotMap<int, AccelHandle> accels_;
     std::vector<Surface> surfaces_;  ///< SurfaceId is index + 1
-    std::uint64_t submissions_ = 0;
+    SubmissionTracker tracker_;      ///< submissions "complete" immediately
 };
 
 }  // namespace veach::rhi

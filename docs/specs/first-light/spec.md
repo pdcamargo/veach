@@ -90,9 +90,9 @@ cmake --build --preset debug --target update-goldens      # regenerate goldens o
 
 ## Out of scope
 
-- The DX12 implementation (VCH-012), depth buffers, a camera (VCH-011), multiple frames in flight (v0 waits for the
-  previous frame), transient aliasing, async compute, deferred destruction (VCH-042), and layout validation of
-  parameter blocks against Slang reflection (VCH-041).
+- The DX12 implementation (VCH-012), depth buffers, a camera (VCH-011), transient aliasing, async compute, and
+  layout validation of parameter blocks against Slang reflection (VCH-041). Frames in flight and deferred
+  destruction landed later, in VCH-045 ([ADR 0029](../../adr/0029-frame-and-sync-model.md)).
 
 ## Open questions
 

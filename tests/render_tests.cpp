@@ -172,3 +172,31 @@ TEST_CASE("[render.AC5] the null RHI runs the whole renderer without a GPU") {
     CHECK(engine.run() == 0);
     CHECK_FALSE(logs.has_code("render.graph_invalid"));
 }
+
+TEST_CASE("[frames.AC5] a pooled transient's first barrier in the next frame syncs with its last use") {
+    GraphFixture f;
+    const rhi::TextureDesc desc{64, 64, rhi::Format::rgba8_unorm,
+                                rhi::TextureUsage::color_target | rhi::TextureUsage::sampled, "gbuffer"};
+    std::vector<std::string> first_barriers;
+    for (int frame = 0; frame < 2; ++frame) {
+        render::RenderGraph graph(*f.device, &f.pool);
+        const auto out = graph.import(f.texture("out"), "out", ResourceState::undefined);
+        const auto gbuffer = graph.create_texture(desc);
+        graph.add_graphics_pass("geometry", [&](render::PassBuilder& b) { b.color_target(gbuffer); }, noop());
+        graph.add_graphics_pass(
+            "lighting",
+            [&](render::PassBuilder& b) {
+                b.read(gbuffer);
+                b.color_target(out);
+            },
+            noop());
+        REQUIRE(graph.compile().has_value());
+        RecordingCommandList cmd;
+        graph.execute(cmd);
+        const auto it = std::ranges::find_if(cmd.calls, [](const std::string& c) { return c.starts_with("barrier"); });
+        first_barriers.push_back(*it);
+        CHECK(graph.describe().find("(discard)") != std::string::npos);
+    }
+    CHECK(first_barriers[0] == "barrier undefined->color_target");
+    CHECK(first_barriers[1] == "barrier shader_read->color_target");  // last frame left it in shader_read
+}

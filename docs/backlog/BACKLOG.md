@@ -17,7 +17,6 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 - **VCH-011** Views and cameras — *render* — `Camera` component (reverse-Z perspective via `veach::math`), extracted into `RenderWorld` views. Gameplay never touches GPU handles.
 - **VCH-012** DX12 backend — *rhi* — Implement the stub `Dx12Device` (it already compiles against the full interface): ID3D12Device with DXR 1.1 and SM 6.6, enhanced barriers mapped from `ResourceState`, a shader-visible CBV/SRV/UAV heap plus a sampler heap for bindless descriptors, root constants for parameter blocks, a DXGI swapchain from the HWND, and readback. Shaders already compile to DXIL. [ADR 0024](../adr/0024-resource-binding-model.md), [ADR 0025](../adr/0025-sync-and-barrier-model.md)
 - **VCH-009** Runtime shader compilation — *render* — Build-time Slang → metallib/DXIL exists ([ADR 0026](../adr/0026-shader-compilation.md)). Add libslang at run time for shader hot reload, and a pipeline cache.
-- **VCH-045** Multiple frames in flight — *render* — The renderer waits for the previous frame before recording the next. Allow two frames in flight, with per-frame upload, instance and parameter buffers.
 
 ## Later
 
@@ -48,12 +47,13 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 - **VCH-037** Window polish — *platform* — Exclusive fullscreen, pixel-size and DPI fields, multi-monitor placement.
 - **VCH-038** Blocking clang-tidy in CI — *process* — Make the `.clang-tidy` baseline clean, then run `run-clang-tidy` as a required CI job.
 - **VCH-041** Validate parameter-block layouts — *render* — Compare each C++ parameter struct with Slang's `-reflection-json` offsets in a test, instead of hand-written `static_assert`s. [ADR](../adr/0024-resource-binding-model.md)
-- **VCH-042** Deferred resource destruction — *rhi* — A fence-tagged free list instead of waiting for GPU idle when destroying resources (and, on DX12, descriptor slots). [ADR](../adr/0025-sync-and-barrier-model.md)
 - **VCH-043** Drop the MSL `RayDesc` patch — *render* — Remove `cmake/patch_msl.cmake` once Slang's Metal target emits `RayDesc` (reported against 2026.22). [ADR](../adr/0026-shader-compilation.md)
 - **VCH-047** Windows GPU runner script — *process* — Turn the manual Windows steps in [ci-runners](../guides/ci-runners.md) into a PowerShell setup/teardown pair, once the DX12 goldens exist.
 - **VCH-039** Windows ASan in CI — *process* — MSVC `/fsanitize=address` job (MSVC has no UBSan).
 
 ## Done
+
+- **VCH-045** Frames in flight — *rhi* — N frames in flight (default 2) on a shared `SubmissionTracker`: monotonic submission ids, per-slot fences, per-frame TLAS instance buffers, and fence-tracked retirement for `destroy()` (absorbs VCH-042). Pooled transients sync with their previous frame (`Barrier::discard`). [ADR 0029](../adr/0029-frame-and-sync-model.md)
 
 - **VCH-010** First light: RHI v0 and render graph v0 — *render* — Metal backend with buffers, textures, samplers, graphics and compute pipelines, BLAS/TLAS build and refit, swapchain, offscreen targets, readback, Metal validation in debug, and GPU errors logged at error level. Bindless through `DescriptorHandle`. The render graph derives order, culling and barriers. A rasterized triangle and a ray-query triangle. [spec](../specs/first-light/spec.md)
 - **VCH-013** Golden-image tests — *tools* — `--screenshot`, `veach imgdiff` (NVIDIA FLIP), goldens in Git LFS, an `update-goldens` target, and a skip on unsupported GPUs (`VEACH_REQUIRE_GPU=1` makes it a failure). [spec](../specs/first-light/spec.md)

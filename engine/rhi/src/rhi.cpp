@@ -21,7 +21,7 @@ std::string_view to_string(Backend backend) {
 
 Result<std::unique_ptr<Device>> create_device(const DeviceDesc& desc) {
     switch (desc.backend) {
-        case Backend::null: return std::unique_ptr<Device>(std::make_unique<NullDevice>());
+        case Backend::null: return std::unique_ptr<Device>(std::make_unique<NullDevice>(desc.frames_in_flight));
         case Backend::metal:
 #if defined(__APPLE__)
             return create_metal_device(desc);

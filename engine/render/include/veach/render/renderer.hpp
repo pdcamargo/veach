@@ -139,7 +139,6 @@ private:
     rhi::BufferHandle readback_;
     std::uint64_t readback_size_ = 0;
 
-    std::optional<rhi::SubmissionId> in_flight_;
     std::string last_graph_;
 };
 

@@ -185,6 +185,7 @@ void register_config_types(World& world) {
         .member(&ProjectConfig::log_format, "log_format")
         .member(&ProjectConfig::log_level, "log_level")
         .member(&ProjectConfig::rhi, "rhi")
+        .member(&ProjectConfig::frames_in_flight, "frames_in_flight")
         .member(&ProjectConfig::rest, "rest");
 }
 
@@ -268,6 +269,21 @@ Result<EngineConfig> resolve_config(const AppInfo& app, std::span<const std::str
     }
     if (cli->rest) {
         p.rest = true;
+    }
+    if (p.frames_in_flight < 1 || p.frames_in_flight > 4) {
+        return make_error(ErrorCode::data_type_mismatch,
+                          std::format("frames_in_flight is {}; it must be between 1 and 4", p.frames_in_flight),
+                          "2 is the default: the CPU records one frame while the GPU renders the previous one.");
+    }
+    if (!config.screenshot.empty()) {
+        if (p.frames == 0) {
+            return make_error(ErrorCode::cli_conflicting_flags, "--screenshot needs --frames N",
+                              "The screenshot is taken of the last frame, e.g. --frames 1 --screenshot out.png");
+        }
+        if (p.rhi == rhi::Backend::null) {
+            return make_error(ErrorCode::cli_conflicting_flags, "--screenshot needs a GPU backend",
+                              "The null RHI draws nothing. Add --rhi metal (macOS).");
+        }
     }
     return config;
 }

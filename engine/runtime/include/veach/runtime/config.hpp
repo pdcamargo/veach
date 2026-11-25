@@ -31,7 +31,8 @@ struct ProjectConfig {
     log::Format log_format = log::Format::human;
     log::Level log_level = log::Level::info;
     rhi::Backend rhi = rhi::Backend::null;
-    bool rest = false;  ///< Serve the Flecs REST API / explorer on port 27750.
+    std::uint32_t frames_in_flight = 2;  ///< How far the CPU may run ahead of the GPU (ADR 0029).
+    bool rest = false;                   ///< Serve the Flecs REST API / explorer on port 27750.
 };
 
 struct AppInfo {

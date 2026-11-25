@@ -78,6 +78,23 @@ Result<rhi::TextureHandle> TransientPool::acquire(const rhi::TextureDesc& desc) 
     return *texture;
 }
 
+rhi::ResourceState TransientPool::state(rhi::TextureHandle texture) const {
+    for (const Entry& e : entries_) {
+        if (e.texture == texture) {
+            return e.state;
+        }
+    }
+    return rhi::ResourceState::undefined;
+}
+
+void TransientPool::set_state(rhi::TextureHandle texture, rhi::ResourceState state) {
+    for (Entry& e : entries_) {
+        if (e.texture == texture) {
+            e.state = state;
+        }
+    }
+}
+
 void TransientPool::release_all() {
     for (Entry& e : entries_) {
         e.in_use = false;
@@ -268,11 +285,15 @@ Result<> RenderGraph::compile() {
                 return std::unexpected(texture.error());
             }
             r.ref = *texture;
+            // A pooled texture may have been used by an earlier frame still in flight: its first barrier
+            // this frame starts from that real state (synchronization) but discards the contents.
+            r.initial = pool_->state(*texture);
         }
     }
 
     // Barriers.
     std::vector<rhi::ResourceState> state(resources_.size());
+    std::vector<bool> touched(resources_.size(), false);
     for (std::size_t r = 0; r < resources_.size(); ++r) {
         state[r] = resources_[r].initial;
     }
@@ -281,9 +302,11 @@ Result<> RenderGraph::compile() {
         pass.barriers.clear();
         for (const Access& a : pass.accesses) {
             rhi::ResourceState& current = state[a.resource.id];
+            const bool first_transient_use = resources_[a.resource.id].transient && !touched[a.resource.id];
+            touched[a.resource.id] = true;
             const bool uav = a.state == rhi::ResourceState::shader_write && current == rhi::ResourceState::shader_write;
-            if (current != a.state || uav) {
-                pass.barriers.push_back({resources_[a.resource.id].ref, current, a.state});
+            if (current != a.state || uav || first_transient_use) {
+                pass.barriers.push_back({resources_[a.resource.id].ref, current, a.state, first_transient_use});
                 current = a.state;
             }
         }
@@ -337,6 +360,11 @@ void RenderGraph::execute(rhi::CommandList& cmd) {
         cmd.barrier(final_barriers_);
     }
     if (pool_) {
+        for (const Resource& r : resources_) {
+            if (r.transient) {
+                pool_->set_state({r.ref.index, r.ref.generation}, r.end_state);
+            }
+        }
         pool_->release_all();
     }
 }
@@ -357,8 +385,8 @@ std::string RenderGraph::describe() const {
         constexpr std::array<const char*, 3> kinds{"graphics", "compute", "transfer"};
         out += std::format("  {}. {} [{}]\n", n++, pass.name, kinds.at(static_cast<std::size_t>(pass.kind)));
         for (const rhi::Barrier& b : pass.barriers) {
-            out += std::format("       barrier {}: {} -> {}\n", name_of(b.resource), rhi::to_string(b.before),
-                               rhi::to_string(b.after));
+            out += std::format("       barrier {}: {} -> {}{}\n", name_of(b.resource), rhi::to_string(b.before),
+                               rhi::to_string(b.after), b.discard ? " (discard)" : "");
         }
         for (const Access& a : pass.accesses) {
             out += std::format("       {} {} ({})\n", rhi::is_write(a.state) ? "writes" : "reads",

@@ -6,6 +6,7 @@ add_executable(veach-tests
     lifecycle_tests.cpp
     platform_tests.cpp
     render_tests.cpp
+    rhi_tests.cpp
     script_tests.cpp)
 target_link_libraries(veach-tests PRIVATE veach::veach doctest::doctest)
 target_compile_definitions(veach-tests PRIVATE VEACH_SOURCE_DIR="${PROJECT_SOURCE_DIR}")

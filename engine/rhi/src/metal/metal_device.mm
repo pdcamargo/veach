@@ -13,10 +13,12 @@
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
 
+#include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <format>
 #include <map>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -71,7 +73,9 @@ struct MetalAccel {
     id<MTLAccelerationStructure> accel;
     MTLAccelerationStructureDescriptor* descriptor = nil;
     id<MTLBuffer> scratch;
-    id<MTLBuffer> instances;  ///< TLAS only: MTLAccelerationStructureInstanceDescriptor[max]
+    /// TLAS only: MTLAccelerationStructureInstanceDescriptor[max], one buffer per frame slot because the CPU
+    /// writes them while earlier frames may still be building from theirs (ADR 0029).
+    std::vector<id<MTLBuffer>> instances;
     std::vector<AccelHandle> blases;
     std::uint32_t max_instances = 0;
     bool tlas = false;
@@ -123,9 +127,17 @@ private:
     std::map<ResourceRef, ResourceState> states_;  ///< debug validation of barriers
 };
 
+/// Shared with command-buffer completion handlers, which can run after the device is gone.
+struct CompletionState {
+    explicit CompletionState(std::uint32_t frames) : tracker(frames) {}
+    SubmissionTracker tracker;
+    std::atomic<double> last_gpu_ms{0.0};
+};
+
 class MetalDevice final : public Device {
 public:
-    MetalDevice(id<MTLDevice> device, bool validation) : device_(device), validation_(validation) {
+    MetalDevice(id<MTLDevice> device, bool validation, std::uint32_t frames_in_flight)
+        : device_(device), validation_(validation), state_(std::make_shared<CompletionState>(frames_in_flight)) {
         queue_ = [device newCommandQueue];
         caps_.device_name = device.name.UTF8String;
         caps_.gpu = true;
@@ -136,6 +148,8 @@ public:
     }
 
     ~MetalDevice() override { wait_idle(); }
+
+    [[nodiscard]] SubmissionTracker& tracker() { return state_->tracker; }
     MetalDevice(const MetalDevice&) = delete;
     MetalDevice& operator=(const MetalDevice&) = delete;
     MetalDevice(MetalDevice&&) = delete;
@@ -351,13 +365,15 @@ public:
         }
         accel.tlas = true;
         accel.max_instances = desc.max_instances;
-        accel.instances = [device_
-            newBufferWithLength:sizeof(MTLAccelerationStructureInstanceDescriptor) * std::max(1u, desc.max_instances)
-                        options:MTLResourceStorageModeShared];
+        for (std::uint32_t slot = 0; slot < tracker().frames_in_flight(); ++slot) {
+            accel.instances.push_back([device_ newBufferWithLength:sizeof(MTLAccelerationStructureInstanceDescriptor) *
+                                                                   std::max(1u, desc.max_instances)
+                                                           options:MTLResourceStorageModeShared]);
+        }
         MTLInstanceAccelerationStructureDescriptor* d = [MTLInstanceAccelerationStructureDescriptor descriptor];
         d.instancedAccelerationStructures = blases;
         d.instanceCount = desc.max_instances;
-        d.instanceDescriptorBuffer = accel.instances;
+        d.instanceDescriptorBuffer = accel.instances.front();
         d.instanceDescriptorType = MTLAccelerationStructureInstanceDescriptorTypeDefault;
         if (desc.allow_refit) {
             d.usage = MTLAccelerationStructureUsageRefit;
@@ -365,25 +381,20 @@ public:
         return make_accel(d, std::move(accel), desc.debug_name);
     }
 
-    void destroy(BufferHandle h) override {
-        wait_idle();
-        buffers_.erase(h);
-    }
-    void destroy(TextureHandle h) override {
-        wait_idle();
-        textures_.erase(h);
-    }
-    void destroy(SamplerHandle h) override {
-        wait_idle();
-        samplers_.erase(h);
-    }
-    void destroy(PipelineHandle h) override {
-        wait_idle();
-        pipelines_.erase(h);
-    }
-    void destroy(AccelHandle h) override {
-        wait_idle();
-        accels_.erase(h);
+    void destroy(BufferHandle h) override { retire(buffers_, h); }
+    void destroy(TextureHandle h) override { retire(textures_, h); }
+    void destroy(SamplerHandle h) override { retire(samplers_, h); }
+    void destroy(PipelineHandle h) override { retire(pipelines_, h); }
+    void destroy(AccelHandle h) override { retire(accels_, h); }
+
+    /// The handle dies now; the Objective-C object (kept alive by the closure) once the GPU is done with it.
+    template <class Map, class H>
+    void retire(Map& map, H h) {
+        if (auto* object = map.get(h)) {
+            auto keep = std::make_shared<std::decay_t<decltype(*object)>>(std::move(*object));
+            map.erase(h);
+            tracker().retire([keep] {});
+        }
     }
 
     [[nodiscard]] void* map(BufferHandle h) override {
@@ -482,35 +493,57 @@ public:
             [buffer presentDrawable:s->drawable];
             s->drawable = nil;
         }
+        const SubmissionId submission = tracker().next_submission();
         const std::string label = buffer.label ? buffer.label.UTF8String : "commands";
+        std::shared_ptr<CompletionState> state = state_;
         [buffer addCompletedHandler:^(id<MTLCommandBuffer> done) {
           if (done.status == MTLCommandBufferStatusError) {
               log::error("rhi", Error{ErrorCode::rhi_gpu_error,
                                       std::format("GPU error in '{}': {}", label, describe(done.error)),
                                       "Run a debug build (Metal validation on) for details."});
           }
+          state->last_gpu_ms.store((done.GPUEndTime - done.GPUStartTime) * 1000.0);
+          state->tracker.mark_completed(submission);
         }];
         [buffer commit];
-        std::erase_if(in_flight_, [](const auto& entry) {
-            return entry.second.status == MTLCommandBufferStatusCompleted ||
-                   entry.second.status == MTLCommandBufferStatusError;
-        });
-        const SubmissionId id{++submitted_};
-        in_flight_[id.value] = buffer;
-        return id;
+        in_flight_[submission.value] = buffer;
+        prune();
+        return submission;
     }
 
     void wait(SubmissionId id) override {
-        if (const auto it = in_flight_.find(id.value); it != in_flight_.end()) {
-            [it->second waitUntilCompleted];  // the queue is in order: everything before it is done too
-            in_flight_.erase(in_flight_.begin(), std::next(it));
+        if (id.value != 0 && !tracker().is_complete(id)) {
+            if (const auto it = in_flight_.find(id.value); it != in_flight_.end()) {
+                [it->second waitUntilCompleted];  // the queue is in order: everything before it is done too
+            }
+            tracker().mark_completed(id);  // the completion handler may not have run yet
         }
+        prune();
+        tracker().collect();
     }
 
-    void wait_idle() override {
-        if (!in_flight_.empty()) {
-            wait(SubmissionId{in_flight_.rbegin()->first});
+    void wait_idle() override { wait(tracker().last_submitted()); }
+
+    FrameInfo begin_frame() override {
+        SubmissionId wait_for;
+        const FrameInfo frame = tracker().begin_frame(wait_for);
+        if (wait_for.value != 0) {
+            wait(wait_for);
+        } else {
+            prune();
+            tracker().collect();
         }
+        return frame;
+    }
+
+    void end_frame() override { tracker().end_frame(); }
+    [[nodiscard]] FrameInfo current_frame() const override { return state_->tracker.current_frame(); }
+    [[nodiscard]] std::uint32_t frames_in_flight() const override { return state_->tracker.frames_in_flight(); }
+    [[nodiscard]] double last_frame_gpu_ms() const override { return state_->last_gpu_ms.load(); }
+
+    void prune() {
+        const std::uint64_t done = tracker().completed().value;
+        std::erase_if(in_flight_, [done](const auto& entry) { return entry.first <= done; });
     }
 
     // Used by MetalCommandList.
@@ -553,8 +586,8 @@ private:
     SlotMap<MetalAccel, AccelHandle> accels_;
     std::unordered_map<const ShaderLibrary*, id<MTLLibrary>> libraries_;
     std::vector<MetalSurface> surfaces_;
+    std::shared_ptr<CompletionState> state_;
     std::map<std::uint64_t, id<MTLCommandBuffer>> in_flight_;
-    std::uint64_t submitted_ = 0;
 };
 
 // ---- MetalCommandList -----------------------------------------------------------
@@ -662,7 +695,8 @@ void MetalCommandList::refit_blas(AccelHandle blas) {
 void MetalCommandList::write_instances(MetalAccel& tlas, std::span<const TlasInstance> instances) {
     VEACH_ASSERT(instances.size() <= tlas.max_instances, "{} instances exceed the TLAS capacity of {}",
                  instances.size(), tlas.max_instances);
-    auto* out = static_cast<MTLAccelerationStructureInstanceDescriptor*>(tlas.instances.contents);
+    id<MTLBuffer> buffer = tlas.instances.at(device_.tracker().current_frame().slot % tlas.instances.size());
+    auto* out = static_cast<MTLAccelerationStructureInstanceDescriptor*>(buffer.contents);
     for (std::size_t i = 0; i < instances.size(); ++i) {
         const TlasInstance& in = instances[i];
         MTLAccelerationStructureInstanceDescriptor& d = out[i];
@@ -676,7 +710,9 @@ void MetalCommandList::write_instances(MetalAccel& tlas, std::span<const TlasIns
         d.intersectionFunctionTableOffset = 0;
         d.accelerationStructureIndex = in.blas_index;
     }
-    static_cast<MTLInstanceAccelerationStructureDescriptor*>(tlas.descriptor).instanceCount = instances.size();
+    auto* descriptor = static_cast<MTLInstanceAccelerationStructureDescriptor*>(tlas.descriptor);
+    descriptor.instanceDescriptorBuffer = buffer;
+    descriptor.instanceCount = instances.size();
 }
 
 void MetalCommandList::build_tlas(AccelHandle tlas, std::span<const TlasInstance> instances) {
@@ -779,7 +815,7 @@ Result<std::unique_ptr<Device>> create_metal_device(const DeviceDesc& desc) {
     if (desc.validation) {
         log::debug("rhi", "Metal API validation enabled (MTL_DEBUG_LAYER)");
     }
-    return std::unique_ptr<Device>(std::make_unique<MetalDevice>(device, desc.validation));
+    return std::unique_ptr<Device>(std::make_unique<MetalDevice>(device, desc.validation, desc.frames_in_flight));
 }
 
 }  // namespace veach::rhi

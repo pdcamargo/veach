@@ -226,7 +226,8 @@ Result<> Engine::init() {
 #else
             constexpr bool validation = true;  // API validation errors become error logs (exit code 1)
 #endif
-            auto device = rhi::create_device({.backend = project.rhi, .validation = validation});
+            auto device = rhi::create_device(
+                {.backend = project.rhi, .validation = validation, .frames_in_flight = project.frames_in_flight});
             if (!device) {
                 return std::unexpected(device.error());
             }

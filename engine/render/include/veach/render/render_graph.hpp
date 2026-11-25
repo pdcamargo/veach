@@ -80,12 +80,16 @@ public:
 
     [[nodiscard]] Result<rhi::TextureHandle> acquire(const rhi::TextureDesc& desc);
     void release_all();  ///< end of frame: everything becomes reusable
+    /// State a pooled texture was left in by the last frame that used it (synchronization across frames).
+    [[nodiscard]] rhi::ResourceState state(rhi::TextureHandle texture) const;
+    void set_state(rhi::TextureHandle texture, rhi::ResourceState state);
 
 private:
     struct Entry {
         rhi::TextureDesc desc;
         rhi::TextureHandle texture;
         bool in_use = false;
+        rhi::ResourceState state = rhi::ResourceState::undefined;
     };
     rhi::Device& device_;
     std::vector<Entry> entries_;

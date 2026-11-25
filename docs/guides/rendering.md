@@ -79,9 +79,17 @@ Rules:
    ```
 3. Include `"my_shaders.hpp"` and pass `&my_shaders::thing()` to the pipeline description. For compute,
    `threads_per_group` must equal the shader's `[numthreads]`.
-4. Mirror `Params` with a C++ struct. Follow the layout rules in ADR 0024: 8-byte `rhi::DescriptorHandle`s,
-   16-byte alignment for `float4`/`float4x4`, no `float3`/`uint3` members, and a `static_assert` on the size.
-   Keep raster and compute entry points that need different parameters in separate `.slang` files.
+4. Mirror `Params` with a C++ struct and **check it against the shader's reflected layout** (VCH-041):
+   ```cpp
+   struct TraceParams { rhi::DescriptorHandle output; rhi::DescriptorHandle scene; std::array<std::uint32_t, 2> size; };
+   static_assert(rhi::parameters_match<TraceParams>(my_shaders::layout::thing_cs,
+       {VEACH_PARAM(TraceParams, output), VEACH_PARAM(TraceParams, scene), VEACH_PARAM(TraceParams, size)}));
+   ```
+   `my_shaders::layout::<stem>` is generated from Slang's reflection of the shader. Different field names, order,
+   offsets or sizes are a compile error, and the hygiene check fails if a shader with a parameter block has no
+   such check. The shader build itself fails on `float3`/`uint3` members and 3-row or 3-column matrices, whose
+   layout differs between Metal and HLSL (ADR 0024). Use 8-byte `rhi::DescriptorHandle`s for handles. Keep
+   raster and compute entry points that need different parameters in separate `.slang` files.
 
 macOS builds compile to `.metallib`. Windows builds compile every entry point to DXIL, so non-portable Slang
 fails Windows CI even before the DX12 backend exists.

@@ -5,6 +5,8 @@
    and that item exists in docs/backlog/BACKLOG.md.
 2. No `flecs::` in apps/ — apps use the veach:: aliases (ADR 0005).
 3. CLAUDE.md is exactly one line: @AGENTS.md (ADR 0018).
+4. Every .slang file with a parameter block has its C++ mirror checked against the reflected layout:
+   parameters_match<...>(<namespace>::layout::<stem>, ...) somewhere in C++ (VCH-041, ADR 0024).
 """
 
 from __future__ import annotations
@@ -50,6 +52,16 @@ def main() -> int:
             if rel.startswith("apps/") and "flecs::" in line:
                 errors.append(f"{rel}:{lineno}: `flecs::` in apps/ — use the veach:: aliases (veach::World, "
                               "veach::Entity, ...) or veach::ecs:: for raw Flecs")
+
+    cpp_sources = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in code_files()
+                             if p.suffix in {".cpp", ".mm", ".hpp"})
+    for shader in sorted(ROOT.glob("**/shaders/*.slang")):
+        if ".cpm-cache" in shader.parts or "build" in shader.parts:
+            continue
+        if "ConstantBuffer<" in shader.read_text(encoding="utf-8") and \
+                not re.search(r"layout::" + re.escape(shader.stem) + r"\b", cpp_sources):
+            errors.append(f"{shader.relative_to(ROOT).as_posix()}: its parameter block has no C++ layout check; add "
+                          f"static_assert(veach::rhi::parameters_match<T>(<namespace>::layout::{shader.stem}, {{...}}))")
 
     claude = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
     if claude != "@AGENTS.md\n":

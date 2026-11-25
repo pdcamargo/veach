@@ -23,7 +23,9 @@ struct PresentParams {
     rhi::DescriptorHandle source;
     rhi::DescriptorHandle sampler;
 };
-static_assert(sizeof(PresentParams) == 16);
+static_assert(rhi::parameters_match<PresentParams>(veach_render_shaders::layout::present,
+                                                   {VEACH_PARAM(PresentParams, source),
+                                                    VEACH_PARAM(PresentParams, sampler)}));
 
 }  // namespace
 

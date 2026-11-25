@@ -38,7 +38,8 @@ constexpr std::array<Vertex, 3> triangle{{
 struct RasterParams {
     rhi::DescriptorHandle vertices;
 };
-static_assert(sizeof(RasterParams) == 8);
+static_assert(rhi::parameters_match<RasterParams>(lab_shaders::layout::triangle,
+                                                  {VEACH_PARAM(RasterParams, vertices)}));
 
 /// Mirrors `Params` in shaders/triangle_rt.slang.
 struct TraceParams {
@@ -47,7 +48,9 @@ struct TraceParams {
     rhi::DescriptorHandle vertices;
     std::array<std::uint32_t, 2> size;
 };
-static_assert(sizeof(TraceParams) == 32 && offsetof(TraceParams, size) == 24);
+static_assert(rhi::parameters_match<TraceParams>(lab_shaders::layout::triangle_rt,
+                                                 {VEACH_PARAM(TraceParams, output), VEACH_PARAM(TraceParams, scene),
+                                                  VEACH_PARAM(TraceParams, vertices), VEACH_PARAM(TraceParams, size)}));
 
 class TriangleFeature final : public render::RenderFeature {
 public:

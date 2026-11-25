@@ -29,15 +29,30 @@ function(veach_add_shader target file)
     file(MAKE_DIRECTORY "${out_dir}")
     set(outputs "")
     set(entry_specs "")
+    set(entry_args "")
+    foreach(entry_stage IN LISTS ARG_ENTRIES)
+        string(REPLACE ":" ";" pair "${entry_stage}")
+        list(GET pair 0 entry)
+        list(GET pair 1 stage)
+        list(APPEND entry_args -entry ${entry} -stage ${stage})
+    endforeach()
+
+    # Parameter-block layout, on every platform (HLSL source needs no DXC). It gives true byte offsets
+    # for the C++ checks of VCH-041; embed_shaders.cmake turns it into <ns>::layout::<stem>. Every entry in
+    # a file shares the one parameter block, so reflecting the first entry is enough.
+    list(SUBLIST entry_args 0 4 first_entry_args)
+    set(reflection "${out_dir}/${stem}.reflection.json")
+    add_custom_command(
+        OUTPUT "${reflection}"
+        COMMAND "${VEACH_SLANGC}" "${source}" -target hlsl -profile sm_6_6 ${first_entry_args} ${VEACH_SHADER_FLAGS}
+                -reflection-json "${reflection}" -depfile "${reflection}.d" -o "${out_dir}/${stem}.hlsl"
+        DEPENDS "${source}"
+        DEPFILE "${reflection}.d"
+        COMMENT "Slang reflection: ${file}"
+        VERBATIM)
+    list(APPEND outputs "${reflection}")
 
     if(APPLE)
-        set(entry_args "")
-        foreach(entry_stage IN LISTS ARG_ENTRIES)
-            string(REPLACE ":" ";" pair "${entry_stage}")
-            list(GET pair 0 entry)
-            list(GET pair 1 stage)
-            list(APPEND entry_args -entry ${entry} -stage ${stage})
-        endforeach()
         set(msl "${out_dir}/${stem}.metal")
         set(air "${out_dir}/${stem}.air")
         set(metallib "${out_dir}/${stem}.metallib")
@@ -79,7 +94,7 @@ function(veach_add_shader target file)
         list(APPEND entry_specs "${stem}|${entry}|${stage}|${dxil}")
     endforeach()
 
-    set_property(TARGET ${target} APPEND PROPERTY VEACH_SHADER_LIBRARIES "${stem}|${metallib}")
+    set_property(TARGET ${target} APPEND PROPERTY VEACH_SHADER_LIBRARIES "${stem}|${metallib}|${reflection}|${file}")
     set_property(TARGET ${target} APPEND PROPERTY VEACH_SHADER_ENTRIES ${entry_specs})
     set_property(TARGET ${target} APPEND PROPERTY VEACH_SHADER_OUTPUTS ${outputs})
 endfunction()

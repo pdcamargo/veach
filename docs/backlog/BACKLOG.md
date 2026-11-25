@@ -46,12 +46,13 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 - **VCH-036** Gamepads — *platform* — SDL gamepad events into `Input` and actions.
 - **VCH-037** Window polish — *platform* — Exclusive fullscreen, pixel-size and DPI fields, multi-monitor placement.
 - **VCH-038** Blocking clang-tidy in CI — *process* — Make the `.clang-tidy` baseline clean, then run `run-clang-tidy` as a required CI job.
-- **VCH-041** Validate parameter-block layouts — *render* — Compare each C++ parameter struct with Slang's `-reflection-json` offsets in a test, instead of hand-written `static_assert`s. [ADR](../adr/0024-resource-binding-model.md)
 - **VCH-043** Drop the MSL `RayDesc` patch — *render* — Remove `cmake/patch_msl.cmake` once Slang's Metal target emits `RayDesc` (reported against 2026.22). [ADR](../adr/0026-shader-compilation.md)
 - **VCH-047** Windows GPU runner script — *process* — Turn the manual Windows steps in [ci-runners](../guides/ci-runners.md) into a PowerShell setup/teardown pair, once the DX12 goldens exist.
 - **VCH-039** Windows ASan in CI — *process* — MSVC `/fsanitize=address` job (MSVC has no UBSan).
 
 ## Done
+
+- **VCH-041** Parameter-block layout checks — *render* — Each shader's parameter block is reflected (Slang, HLSL layout) into `<ns>::layout::<stem>`. `static_assert(rhi::parameters_match<T>(...))` compares names, order, offsets and sizes at compile time. The shader build rejects `float3`/3-row matrices. The hygiene check requires a layout check for every shader with parameters. [ADR 0024](../adr/0024-resource-binding-model.md)
 
 - **VCH-045** Frames in flight — *rhi* — N frames in flight (default 2) on a shared `SubmissionTracker`: monotonic submission ids, per-slot fences, per-frame TLAS instance buffers, and fence-tracked retirement for `destroy()` (absorbs VCH-042). Pooled transients sync with their previous frame (`Barrier::discard`). [ADR 0029](../adr/0029-frame-and-sync-model.md)
 

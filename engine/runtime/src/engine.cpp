@@ -337,6 +337,31 @@ Result<> Engine::start() {
         log::info("engine", "startup script '{}' loaded", config_.project.script);
     }
     run_phase(PhaseId::startup, 0.0);
+    if (!config_.record.empty()) {
+        auto recorder =
+            ReplayRecorder::open(config_.record, {std::string(engine_version), config_.app.name, config_.project.script,
+                                                  config_.project.seed, fixed_delta_seconds});
+        if (!recorder) {
+            return std::unexpected(recorder.error());
+        }
+        recorder_ = std::move(*recorder);
+        log::info("engine", "recording to '{}'", config_.record.string());
+    }
+    if (!config_.replay.empty()) {
+        auto log = read_replay(config_.replay);
+        if (!log) {
+            return std::unexpected(log.error());
+        }
+        if (log->header.fixed_step != fixed_delta_seconds) {
+            return make_error(ErrorCode::replay_invalid,
+                              std::format("the recording's fixed step is {} s; this engine steps {} s",
+                                          log->header.fixed_step, fixed_delta_seconds),
+                              "Replay it with the engine that recorded it.");
+        }
+        replay_ = std::move(*log);
+        platform_->set_replaying(true);
+        log::info("engine", "replaying '{}' ({} frames)", config_.replay.string(), replay_->frames.size());
+    }
     started_ = true;
     last_frame_time_ = clock::now_seconds();
     std::signal(SIGINT, on_interrupt);
@@ -360,6 +385,14 @@ bool Engine::frame() {
         frame_delta = std::min(now - last_frame_time_, 0.25);
         last_frame_time_ = now;
         steps = fixed_.advance(frame_delta);
+    }
+    const ReplayFrame* replayed = nullptr;
+    if (replay_ && frame_ < replay_->frames.size()) {
+        replayed = &replay_->frames[frame_];
+        steps = replayed->steps;
+        for (const PlatformEvent& e : replayed->events) {
+            platform_->inject(e);
+        }
     }
 
     if (!project.headless && project.hot_reload) {
@@ -387,6 +420,33 @@ bool Engine::frame() {
         Time& time = world_->get_mut<Time>();
         time.fixed_step = fixed_steps_;
         time.elapsed = static_cast<double>(fixed_steps_) * fixed_delta_seconds;
+    }
+    if (recorder_ || replayed != nullptr) {
+        StateHash state = simulation_hash(*world_);
+        if (recorder_) {
+            recorder_->write({frame_, steps, platform_->applied_events(), state});
+        }
+        if (replayed != nullptr && state.total != replayed->state.total) {
+            std::string component = "(none recorded)";
+            for (const auto& [name, hash] : replayed->state.components) {
+                if (const auto it = state.components.find(name); it == state.components.end() || it->second != hash) {
+                    component = name;
+                    break;
+                }
+            }
+            for (const auto& [name, hash] : state.components) {
+                if (component == "(none recorded)" && !replayed->state.components.contains(name)) {
+                    component = name;
+                }
+            }
+            log::error("engine", Error{ErrorCode::replay_diverged,
+                                       std::format("the replay's simulation state differs from the recording at "
+                                                   "frame {}, first in {}",
+                                                   frame_, component),
+                                       "Something in simulation is not a function of the seed, the script and "
+                                       "the recorded input (wall clock, an unseeded random number, MCP edits)."});
+            return false;
+        }
     }
     run_phase(PhaseId::pre_extract, frame_delta);
     run_phase(PhaseId::extract, frame_delta);

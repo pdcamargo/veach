@@ -236,6 +236,23 @@ Logged when a submission completes with an error, for example a page fault, a ti
 an encoder. The message names the submission. Run a debug build, where Metal API validation is on, to get the
 API call that caused it. The run exits with code 1.
 
+## replay.invalid
+
+**A recording cannot be replayed with this run.**
+
+The file is missing, malformed or from another recording format, or the run asks for something the recording
+contradicts: a different `--script` or `--seed` (a replay takes both from the recording; leave them out). Record
+again with `--record` (docs/specs/record-replay/spec.md).
+
+## replay.diverged
+
+**A replay's simulation state differs from the recording's.**
+
+Every frame of a recording carries a hash of the simulation state (every entity's Scriptable components); the
+replay stops at the first frame whose state differs and names the component. Something in simulation is not a
+function of the seed, the script and the recorded input: wall-clock time, an unseeded random number, iteration
+order of an unordered container, or world edits made over MCP while recording (not recorded yet).
+
 ## render.screenshot_failed
 
 **A screenshot could not be captured or written.**

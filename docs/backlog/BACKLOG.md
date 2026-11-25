@@ -16,7 +16,6 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 - **VCH-058** Release packaging for Windows — *process* — `veach_deploy_d3d12` copies WARP's `d3d10warp.dll` next to every Windows executable, which is right for CI and development, but WARP's license allows testing only and forbids redistribution. A release package must leave it out, and must meet the Agility SDK's redistribution terms (THIRD_PARTY_NOTICES).
 - **VCH-048** MCP over HTTP — *agents* — Streamable HTTP transport next to stdio, so several clients can attach to one running app (an editor session). Same tools. [spec](../specs/mcp-server/spec.md)
 - **VCH-008** Richer script components — *script* — Nested tables and arrays in script components (explicit scalar, entity and optional types exist). Let `veach types` include an app's own modules (today it emits engine types only).
-- **VCH-014** Record/replay — *runtime* — Record seed, input and script command logs; replay a run bit-for-bit. Depends on the determinism rules (fixed step, seeded RNG, no wall clock in simulation).
 - **VCH-015** Job system — *core* — enkiTS or Taskflow (decide by ADR), with Flecs worker threads hooked into it. Everything is single-threaded until this lands.
 - **VCH-016** Tessera: virtualized geometry — *render* — Cluster hierarchies, visibility buffer, GPU culling, streaming. Our Nanite.
 - **VCH-017** Candela: real-time global illumination — *render* — Hardware-raytraced, denoised GI within real-time budgets. Our Lumen.
@@ -51,6 +50,7 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 
 ## Done
 
+- **VCH-014** Record/replay — *runtime* — `--record` writes JSON Lines (seed, script, per frame the fixed steps, the applied platform events and a hash of every Scriptable component); `--replay` repeats it headless or windowed, injecting the events and steps, and stops with `replay.diverged` naming the first differing component. MCP world edits are not recorded yet. [spec](../specs/record-replay/spec.md)
 - **VCH-049** Per-pass GPU timings — *render* — The render graph times every pass (`CommandList::begin_timing`/`end_timing`: Metal counter sample buffers at encoder boundaries, DX12 timestamp queries); `Device::last_frame_timings()` and MCP `gpu_timings` return them by pass name (rt.AC7). [spec](../specs/realtime-renderer-v0/spec.md)
 - **VCH-044** GPU runner for CI — *process* — Won't do (2026-11-25): no self-hosted runner; the pre-push gate runs the Metal goldens on a real Mac. [ADR](../adr/0036-no-self-hosted-gpu-runner.md)
 - **VCH-054** Reference path tracer — *render* — Progressive, unbiased: GGX + Lambert, NEE to punctual lights and emissive triangles with MIS, alpha by continuing opaque rays (ADR 0035), PCG per pixel and sample; restarts on any change. MCP `path_trace`. Cornell box and FlightHelmet goldens on Metal and DX12/WARP. [ADR](../adr/0034-lights-and-reference-path-tracer.md)

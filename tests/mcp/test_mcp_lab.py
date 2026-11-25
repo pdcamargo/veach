@@ -158,6 +158,69 @@ def fly(lab: str) -> None:
     check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
 
 
+def replay(lab: str) -> None:
+    """Record and replay (docs/specs/record-replay/spec.md)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        recording = os.path.join(tmp, "fly.vreplay")
+        client = McpClient([lab, "--mcp", "--headless", "--script", "scripts/fly_camera.luau", "--record", recording])
+        client.initialize()
+        client.call_json("send_input", key="w", down=True)
+        client.call_json("step_frames", count=20)
+        client.call_json("send_input", key="w", down=False)
+        client.call_json("send_input", key="left", down=True)
+        client.call_json("step_frames", count=15)
+        client.call_json("send_input", key="left", down=False)
+        client.call_json("step_frames", count=5)
+        recorded = client.call_json("get_component", entity="camera", component="Transform")
+        check(client.close() == 0, "[replay.AC1] the recording run exits 0")
+        with open(recording, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        check(len(lines) == 41 and json.loads(lines[0])["script"] == "scripts/fly_camera.luau",
+              f"[replay.AC1] a header and one line per frame ({len(lines)} lines)")
+
+        client = McpClient([lab, "--mcp", "--headless", "--replay", recording])
+        client.initialize()
+        client.call_json("step_frames", count=40)
+        replayed = client.call_json("get_component", entity="camera", component="Transform")
+        check(replayed == recorded, f"[replay.AC1] the replay ends where the recording did ({replayed} vs {recorded})")
+        check(client.close() == 0, "[replay.AC1] every frame's state matches (no replay.diverged)")
+
+        run = subprocess.run([lab, "--headless", "--replay", recording, "--seed", "7"], capture_output=True,
+                             text=True)
+        check(run.returncode != 0 and "[replay.invalid]" in run.stdout + run.stderr,
+              "[replay.AC2] a different seed is replay.invalid before the first frame")
+
+        first = json.loads(lines[1])
+        first["events"] = []  # the recorded 'w' press, dropped
+        tampered = os.path.join(tmp, "tampered.vreplay")
+        with open(tampered, "w", encoding="utf-8") as f:
+            f.write("\n".join([lines[0], json.dumps(first)] + lines[2:]) + "\n")
+        run = subprocess.run([lab, "--headless", "--replay", tampered], capture_output=True, text=True)
+        out = run.stdout + run.stderr
+        check(run.returncode == 1 and "[replay.diverged]" in out and "at frame 1" in out and
+              re.search(r"first in \S*(FlyCamera|Transform|InputAction|Input)", out) is not None,
+              f"[replay.AC3] a replay that differs stops at the first wrong frame, naming the component: {out[-400:]}")
+
+
+def replay_windowed(lab: str) -> None:
+    """[replay.AC4] A windowed recording (frames of varying fixed steps) replays headless to the same state."""
+    with tempfile.TemporaryDirectory() as tmp:
+        recording = os.path.join(tmp, "windowed.vreplay")
+        run = subprocess.run([lab, "--window", "--frames", "90", "--record", recording], capture_output=True,
+                             text=True)
+        out = run.stdout + run.stderr
+        if run.returncode != 0 and ("platform" in out and "window" in out.lower()):
+            print("VEACH_WINDOW_UNAVAILABLE: skipped (no window on this machine)")
+            return
+        check(run.returncode == 0, f"[replay.AC4] the windowed recording runs: {out[-300:]}")
+        spun = re.findall(r"spinner turned ([\d.]+) rad", out)
+        replayed = subprocess.run([lab, "--headless", "--replay", recording], capture_output=True, text=True)
+        rout = replayed.stdout + replayed.stderr
+        check(replayed.returncode == 0, f"[replay.AC4] the headless replay matches every frame: {rout[-300:]}")
+        check(spun and spun == re.findall(r"spinner turned ([\d.]+) rad", rout),
+              f"[replay.AC4] the spinner turned as far in the replay ({spun})")
+
+
 COUNTER_SCRIPT = '''--!strict
 local veach = require("@veach")
 local Counter = veach.component("Counter", {{ value = 0 }})
@@ -305,10 +368,15 @@ def main() -> int:
     parser.add_argument("--golden")
     parser.add_argument("--out")
     parser.add_argument("--rhi", default="metal")
-    parser.add_argument("mode", choices=["protocol", "golden", "fly", "reload", "path_trace", "gpu_timings"])
+    parser.add_argument("mode", choices=["protocol", "golden", "fly", "reload", "path_trace", "gpu_timings", "replay",
+                                         "replay_windowed"])
     args = parser.parse_args()
     if args.mode == "protocol":
         protocol(args.lab)
+    elif args.mode == "replay":
+        replay(args.lab)
+    elif args.mode == "replay_windowed":
+        replay_windowed(args.lab)
     elif args.mode == "fly":
         fly(args.lab)
     elif args.mode == "reload":

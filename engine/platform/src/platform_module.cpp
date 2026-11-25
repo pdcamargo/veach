@@ -22,7 +22,21 @@ constexpr const char* actions_scope = "veach::actions";
 void handle_events(World& world, Platform& platform) {
     std::vector<PlatformEvent> events;
     platform.poll_events(events);
+    if (platform.replaying()) {
+        std::erase_if(events, [](const PlatformEvent& e) {
+            return e.type != PlatformEvent::Type::quit_requested &&
+                   e.type != PlatformEvent::Type::window_close_requested;
+        });
+    }
     platform.take_injected(events);
+    std::vector<PlatformEvent> applied;
+    for (const PlatformEvent& e : events) {
+        if (e.type == PlatformEvent::Type::key_down || e.type == PlatformEvent::Type::key_up ||
+            e.type == PlatformEvent::Type::window_resized) {
+            applied.push_back(e);
+        }
+    }
+    platform.set_applied_events(std::move(applied));
 
     Input& input = world.get_mut<Input>();
     input.begin_frame();

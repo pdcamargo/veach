@@ -20,6 +20,7 @@
 #include <veach/ecs/phases.hpp>
 #include <veach/ecs/services.hpp>
 #include <veach/runtime/config.hpp>
+#include <veach/runtime/replay.hpp>
 
 #include <veach/rhi/types.hpp>
 
@@ -123,6 +124,8 @@ private:
     std::atomic<std::uint64_t> errors_{0};  ///< GPU errors are logged from Metal's completion thread
     rhi::SurfaceId surface_;
     std::uint32_t error_sink_ = 0;
+    std::optional<ReplayRecorder> recorder_;  ///< --record (docs/specs/record-replay/spec.md)
+    std::optional<ReplayLog> replay_;         ///< --replay
 };
 
 }  // namespace veach

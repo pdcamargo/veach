@@ -65,6 +65,8 @@ struct EngineConfig {
     std::filesystem::path screenshot;   ///< --screenshot: PNG of the last frame (needs --frames and a GPU RHI)
     std::filesystem::path write_types;  ///< --write-types: write this app's veach.d.luau and exit
     bool mcp = false;                   ///< --mcp: serve the Model Context Protocol on stdio (logs go to stderr)
+    std::filesystem::path record;       ///< --record: write a recording (docs/specs/record-replay/spec.md)
+    std::filesystem::path replay;       ///< --replay: replay a recording, checking state every frame
 };
 
 /// Registers ProjectConfig and the types it uses, for JSON loading and schemas.

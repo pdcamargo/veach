@@ -40,7 +40,9 @@ clang-format -i <files>                                  # LLVM 23; a Claude hoo
 ```
 
 Every app takes `--headless --window --frames N --seed N --log-format human|json --log-level L --project P
---script S --rhi null|metal|dx12 --rest --wait-for-profiler --screenshot PATH --write-types PATH --mcp --help`.
+--script S --rhi null|metal|dx12 --rest --wait-for-profiler --screenshot PATH --write-types PATH --mcp
+--record PATH --replay PATH --help`. A recording repeats a run exactly, headless: record a bug once with `--record`, then
+`--replay` it as often as needed ([spec](docs/specs/record-replay/spec.md)).
 **Exit code 0 means nothing was logged at error level**, GPU validation and GPU errors included. Verify
 your work headless with `--frames` and check the exit code and log. Profiling: [docs/guides/profiling.md](docs/guides/profiling.md).
 Building details: [docs/guides/building.md](docs/guides/building.md).

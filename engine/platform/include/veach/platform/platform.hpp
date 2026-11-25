@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <memory>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace veach {
@@ -55,8 +56,18 @@ public:
         injected_.clear();
     }
 
+    /// Replaying (docs/specs/record-replay/spec.md): the OS's input and resize events are dropped, so only the
+    /// recorded ones (injected) drive the run; quit and close requests still count.
+    void set_replaying(bool replaying) { replaying_ = replaying; }
+    [[nodiscard]] bool replaying() const { return replaying_; }
+    /// The input and resize events applied in the last Input phase, OS and injected: what a recording keeps.
+    [[nodiscard]] const std::vector<PlatformEvent>& applied_events() const { return applied_; }
+    void set_applied_events(std::vector<PlatformEvent> events) { applied_ = std::move(events); }
+
 private:
     std::vector<PlatformEvent> injected_;
+    std::vector<PlatformEvent> applied_;
+    bool replaying_ = false;
 };
 
 [[nodiscard]] Result<std::unique_ptr<Platform>> create_platform(PlatformBackend backend);

@@ -80,6 +80,16 @@ if(Python3_FOUND)
                 --lab $<TARGET_FILE:veach-lab> reload
         WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
     # input.AC5: the lab's fly camera script, driven only through MCP send_input.
+    add_test(NAME "replay: fly camera recorded over MCP replays headless (null RHI)"
+        COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
+                --lab $<TARGET_FILE:veach-lab> replay
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
+    add_test(NAME "replay: a windowed recording replays headless"
+        COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
+                --lab $<TARGET_FILE:veach-lab> replay_windowed
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
+    set_tests_properties("replay: a windowed recording replays headless" PROPERTIES
+        SKIP_REGULAR_EXPRESSION "VEACH_WINDOW_UNAVAILABLE")
     add_test(NAME "mcp: fly camera through send_input (null RHI)"
         COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
                 --lab $<TARGET_FILE:veach-lab> fly

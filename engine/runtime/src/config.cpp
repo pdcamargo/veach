@@ -1,4 +1,5 @@
 #include <veach/runtime/config.hpp>
+#include <veach/runtime/replay.hpp>
 
 #include <veach/core/suggest.hpp>
 #include <veach/ecs/components.hpp>
@@ -32,14 +33,16 @@ struct CliOverrides {
     bool wait_for_profiler = false;
     std::optional<std::string> screenshot;
     std::optional<std::string> write_types;
+    std::optional<std::string> record;
+    std::optional<std::string> replay;
     bool mcp = false;
 };
 
 const std::vector<std::string>& known_flags() {
     static const std::vector<std::string> flags{
-        "--help",       "--headless",          "--window",     "--frames",      "--seed",
-        "--log-format", "--log-level",         "--project",    "--script",      "--rhi",
-        "--rest",       "--wait-for-profiler", "--screenshot", "--write-types", "--mcp",
+        "--help",       "--headless",    "--window", "--frames", "--seed",   "--log-format",
+        "--log-level",  "--project",     "--script", "--rhi",    "--rest",   "--wait-for-profiler",
+        "--screenshot", "--write-types", "--mcp",    "--record", "--replay",
     };
     return flags;
 }
@@ -147,12 +150,15 @@ Result<CliOverrides> parse_args(std::span<const std::string_view> args) {
             if (!found) {
                 return invalid(flag, *v, "null, metal or dx12");
             }
-        } else if (flag == "--screenshot" || flag == "--write-types") {
+        } else if (flag == "--screenshot" || flag == "--write-types" || flag == "--record" || flag == "--replay") {
             auto v = value();
             if (!v) {
                 return std::unexpected(v.error());
             }
-            (flag == "--screenshot" ? cli.screenshot : cli.write_types) = std::string(*v);
+            (flag == "--screenshot"    ? cli.screenshot
+             : flag == "--write-types" ? cli.write_types
+             : flag == "--record"      ? cli.record
+                                       : cli.replay) = std::string(*v);
         } else if (flag == "--project" || flag == "--script") {
             auto v = value();
             if (!v) {
@@ -276,6 +282,12 @@ Result<EngineConfig> resolve_config(const AppInfo& app, std::span<const std::str
     if (cli->write_types) {
         config.write_types = std::filesystem::absolute(*cli->write_types);
     }
+    if (cli->record) {
+        config.record = std::filesystem::absolute(*cli->record);
+    }
+    if (cli->replay) {
+        config.replay = std::filesystem::absolute(*cli->replay);
+    }
 
     namespace stdfs = std::filesystem;
     if (cli->project) {
@@ -325,6 +337,32 @@ Result<EngineConfig> resolve_config(const AppInfo& app, std::span<const std::str
     if (cli->rest) {
         p.rest = true;
     }
+    // Record and replay (docs/specs/record-replay/spec.md): a replay takes its seed and script from the recording;
+    // neither runs hot reload, which would make the run unrepeatable.
+    if (!config.record.empty() && !config.replay.empty()) {
+        return make_error(ErrorCode::cli_conflicting_flags, "--record and --replay together",
+                          "Replay a recording, or record a new one; not both in one run.");
+    }
+    if (!config.record.empty() || !config.replay.empty()) {
+        p.hot_reload = false;
+    }
+    if (!config.replay.empty()) {
+        auto log = read_replay(config.replay);
+        if (!log) {
+            return std::unexpected(log.error());
+        }
+        if ((cli->seed && *cli->seed != log->header.seed) || (cli->script && *cli->script != log->header.script)) {
+            return make_error(ErrorCode::replay_invalid,
+                              std::format("the recording ran script '{}' with seed {}; this run asks for others",
+                                          log->header.script, log->header.seed),
+                              "Leave --script and --seed out: a replay takes them from the recording.");
+        }
+        p.seed = log->header.seed;
+        p.script = log->header.script;
+        if (p.frames == 0 || p.frames > log->frames.size()) {
+            p.frames = log->frames.size();
+        }
+    }
     if (p.frames_in_flight < 1 || p.frames_in_flight > 4) {
         return make_error(ErrorCode::data_type_mismatch,
                           std::format("frames_in_flight is {}; it must be between 1 and 4", p.frames_in_flight),
@@ -362,6 +400,8 @@ Core flags (every Veach app accepts these; they override veach.project.json):
   --write-types PATH      Write this app's veach.d.luau (engine + app modules) and exit.
   --mcp                   Serve the Model Context Protocol on stdio for agents (logs go to stderr).
                           Headless, frames advance only through the step_frames tool.
+  --record PATH           Record the run (seed, script, input, steps, state hashes) to replay it exactly.
+  --replay PATH           Replay a recording, checking the simulation state every frame.
   --help                  Show this text.
 
 Exit code: 0 when the run logged no errors, 1 otherwise.

@@ -55,6 +55,8 @@ VEACH_ERROR(rhi_not_implemented, "rhi.not_implemented", "The requested RHI featu
 VEACH_ERROR(rhi_gpu_error, "rhi.gpu_error", "The GPU reported an error while executing commands")
 VEACH_ERROR(render_screenshot_failed, "render.screenshot_failed", "A screenshot could not be captured or written")
 VEACH_ERROR(render_graph_invalid, "render.graph_invalid", "A render graph pass declared an impossible resource access")
+VEACH_ERROR(replay_invalid, "replay.invalid", "A recording cannot be replayed with this run")
+VEACH_ERROR(replay_diverged, "replay.diverged", "A replay's simulation state differs from the recording's")
 VEACH_ERROR(render_history_lost, "render.history_lost",
             "Path-traced pixels read back something other than the accumulation they last wrote")
 VEACH_ERROR(render_nonfinite_samples, "render.nonfinite_samples", "The path tracer produced NaN or infinite samples")

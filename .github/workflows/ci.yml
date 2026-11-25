@@ -126,3 +126,15 @@ jobs:
       # self-hosted gpu job runs them). Windows runs the DX12 goldens on WARP and requires them to pass.
       - name: Test (unit, hello world, luau-analyze, generated files, goldens, hygiene)
         run: ctest --preset ${{ matrix.preset }}
+      # TEMPORARY (diagnosis for the windowed DX12 test): Present failures with and without the resize.
+      - name: Diagnose windowed present
+        if: runner.os == 'Windows' && always()
+        shell: bash
+        run: |
+          for script in triangle_raster window_resize; do
+            for run in 1 2 3; do
+              out=$(build/debug/apps/lab/veach-lab.exe --window --rhi dx12 --frames 60 --script scripts/$script.luau 2>&1 || true)
+              echo "$script run $run: $(echo "$out" | grep -c 'Present failed' || true) of 60 presents failed"
+              echo "$out" | grep -E 'Present failed|resizing' | cut -c1-140 || true
+            done
+          done

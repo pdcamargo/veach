@@ -11,7 +11,7 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | #    | Title                                                                    | Status   |
 |------|--------------------------------------------------------------------------|----------|
 | 0001 | [Language and build system](0001-language-and-build-system.md)           | Accepted |
-| 0002 | [Target platforms and hardware](0002-target-platforms-and-hardware.md)   | Accepted |
+| 0002 | [Target platforms and hardware](0002-target-platforms-and-hardware.md)   | Accepted (CI line superseded by 0030) |
 | 0003 | [Shaders in Slang](0003-shaders-slang.md)                                | Accepted |
 | 0004 | [ECS: Flecs v4](0004-ecs-flecs-v4.md)                                    | Accepted |
 | 0005 | [Flecs barrel, not a wrapper](0005-flecs-barrel-not-wrapper.md)          | Accepted |
@@ -37,5 +37,6 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0025 | [Synchronization and barrier model](0025-sync-and-barrier-model.md)      | Accepted (frames part superseded by 0029) |
 | 0026 | [Shader compilation](0026-shader-compilation.md)                         | Accepted |
 | 0027 | [Image I/O and perceptual comparison](0027-image-io-and-comparison.md)    | Accepted |
-| 0028 | [One shared set of golden images across backends](0028-golden-images-across-backends.md) | Accepted |
+| 0028 | [One shared set of golden images across backends](0028-golden-images-across-backends.md) | Accepted (Windows runner part superseded by 0030) |
 | 0029 | [Frame and synchronization model](0029-frame-and-sync-model.md)          | Accepted |
+| 0030 | [Windows is verified only through GitHub-hosted CI](0030-windows-verified-in-hosted-ci.md) | Accepted |

@@ -61,7 +61,7 @@ local Window = veach.components.Window
 ## Out of scope
 
 - Gamepads (VCH-036), exclusive fullscreen and DPI fields (VCH-037), Luau input API (VCH-006), file watching for
-  hot reload (VCH-004). Windows hardware verification is VCH-002.
+  hot reload (VCH-004). Windows verification (hosted CI only, ADR 0030) is VCH-002.
 
 ## Open questions
 

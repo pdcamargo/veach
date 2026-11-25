@@ -4,17 +4,17 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 
 ## Now
 
-- **VCH-002** Windows bring-up — *platform* — Build and run on real Windows hardware: SDL window, HWND handle reaching the RHI, MSVC warnings clean, DX12 stub selected with `--rhi dx12`. CI already builds and tests Windows headless. [ADR](../adr/0002-target-platforms-and-hardware.md)
+- **VCH-012** DX12 backend — *rhi* — Implement `Dx12Device` on the Agility SDK: SM 6.6 descriptor heaps, enhanced barriers, root constants, DXR 1.1 inline ray queries, a DXGI swapchain, readback. Verified only in hosted CI on WARP, step by step ([ADR 0030](../adr/0030-windows-verified-in-hosted-ci.md)). Brief: [dx12-port](../guides/dx12-port.md).
 - **VCH-044** GPU runner for CI — *process* — Self-hosted Mac runner (decided 2026-11-25): separate non-admin user, no secrets, push to main and manual dispatch only, `VEACH_REQUIRE_GPU=1`. Script and guide in [ci-runners](../guides/ci-runners.md). Done once the `macOS GPU` job passes on `main`.
 
 ## Next
 
+- **VCH-002** Windows bring-up — *platform* — A windowed run on hosted Windows CI: SDL window, HWND reaching the RHI, DX12 swapchain present and resize, exit 0 on close. Whatever the runner's desktop session cannot show moves to VCH-050. [ADR](../adr/0030-windows-verified-in-hosted-ci.md)
 - **VCH-004** Hot reload — *asset* — File watcher in the platform layer. Reload changed assets in place behind the same `Handle<T>`. Re-execute changed scripts, replacing their systems (systems are named, so this is a swap).
 - **VCH-005** `Behavior` component — *script* — `veach.behavior(Component, { on_update = function(self, dt) ... end })` sugar for per-entity scripts, run internally as an ordinary Simulation system with batched dispatch. No separate update path.
 - **VCH-006** Input in Luau and data-driven bindings — *script* — `veach.input.pressed("jump")`, `down`, `released`; action bindings in `veach.project.json` (`"input": {"jump": ["space", "w"]}`), reflected and schema-validated.
 - **VCH-007** Transforms and hierarchy — *ecs* — `Transform`/`GlobalTransform` components (glTF conventions), TransformPropagation system, and parent/child exposed to Luau (`veach.spawn{ parent = e }`, `e:parent()`, `e:children()`). Other relationships stay hidden from scripts.
 - **VCH-011** Views and cameras — *render* — `Camera` component (reverse-Z perspective via `veach::math`), extracted into `RenderWorld` views. Gameplay never touches GPU handles.
-- **VCH-012** DX12 backend — *rhi* — Implement the stub `Dx12Device` (it already compiles against the full interface): ID3D12Device with DXR 1.1 and SM 6.6, enhanced barriers mapped from `ResourceState`, a shader-visible CBV/SRV/UAV heap plus a sampler heap for bindless descriptors, root constants for parameter blocks, a DXGI swapchain from the HWND, and readback. Shaders already compile to DXIL. Brief: [dx12-port](../guides/dx12-port.md).
 - **VCH-009** Runtime shader compilation — *render* — Build-time Slang → metallib/DXIL exists ([ADR 0026](../adr/0026-shader-compilation.md)). Add libslang at run time for shader hot reload, and a pipeline cache.
 
 ## Later
@@ -48,11 +48,15 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 - **VCH-037** Window polish — *platform* — Exclusive fullscreen, pixel-size and DPI fields, multi-monitor placement.
 - **VCH-038** Blocking clang-tidy in CI — *process* — Make the `.clang-tidy` baseline clean, then run `run-clang-tidy` as a required CI job.
 - **VCH-043** Drop the MSL `RayDesc` patch — *render* — Remove `cmake/patch_msl.cmake` once Slang's Metal target emits `RayDesc` (reported against 2026.22). [ADR](../adr/0026-shader-compilation.md)
-- **VCH-047** Windows GPU runner script — *process* — Turn the manual Windows steps in [ci-runners](../guides/ci-runners.md) into a PowerShell setup/teardown pair, once the DX12 goldens exist.
 - **VCH-039** Windows ASan in CI — *process* — MSVC `/fsanitize=address` job (MSVC has no UBSan).
+
+## Blocked
+
+- **VCH-050** DX12 on real DXR hardware — *rhi* — Run the DX12 goldens and a long frames-in-flight soak on a physical DXR 1.1 GPU (vendor drivers, real timings). Blocked: no Windows GPU machine or runner ([ADR 0030](../adr/0030-windows-verified-in-hosted-ci.md)). Unblocked by a paid GPU runner or a Windows machine registered as a runner.
 
 ## Done
 
+- **VCH-047** Windows GPU runner script — *process* — Dropped 2026-11-25: there is no Windows machine, and Windows is verified in hosted CI only ([ADR 0030](../adr/0030-windows-verified-in-hosted-ci.md)).
 - **VCH-003** MCP server v0 — *agents* — `--mcp` serves MCP over stdio: `query_entities`, `get_component`, `set_component`, `spawn_entity`, `step_frames`, `screenshot` (PNG, headless or windowed), `render_graph_plan`, `gpu_timings`, sandboxed transactional `eval`. Schemas come from reflection; errors carry codes and did-you-mean hints. A test drives the lab through MCP to a golden. `load_scene` moves to VCH-027. [spec](../specs/mcp-server/spec.md)
 - **VCH-041** Parameter-block layout checks — *render* — Each shader's parameter block is reflected (Slang, HLSL layout) into `<ns>::layout::<stem>`. `static_assert(rhi::parameters_match<T>(...))` compares names, order, offsets and sizes at compile time. The shader build rejects `float3`/3-row matrices. The hygiene check requires a layout check for every shader with parameters. [ADR 0024](../adr/0024-resource-binding-model.md)
 

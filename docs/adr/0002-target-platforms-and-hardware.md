@@ -4,7 +4,7 @@ Date: 2026-11-24
 
 ## Status
 
-Accepted
+Accepted. The CI line is superseded by [ADR 0030](0030-windows-verified-in-hosted-ci.md) (Windows is verified in hosted CI only).
 
 ## Context
 

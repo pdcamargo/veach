@@ -83,6 +83,10 @@ running window. Look at screenshots you take; a successful call is not a correct
 - **TODOs reference the backlog**: `// TODO(VCH-012): ...`. Bare TODOs fail CI.
 - **Warnings are errors** on Veach targets (Clang and MSVC). Keep both compilers clean; you can't run MSVC on
   macOS, so write portable code and watch CI.
+- **Windows is CI-only** ([ADR 0030](docs/adr/0030-windows-verified-in-hosted-ci.md)). Nobody has a Windows machine:
+  never plan work that needs a person on Windows. Windows (DX12 on WARP included) is verified by GitHub-hosted CI;
+  real GPU hardware only on macOS. Keep Windows-touching commits small so a red job points at one change. If
+  something can't be verified without a Windows machine, add it to the backlog as **Blocked** and move on.
 
 ## Workflow
 
@@ -95,7 +99,8 @@ running window. Look at screenshots you take; a successful call is not a correct
 5. Before pushing: `tools/scripts/pre-push.sh`. It runs the build, every test with GPU goldens required on macOS,
    the hygiene check and clang-format, and is installed as a hook with `git config core.hooksPath tools/githooks`.
    Then push and check CI (`gh run list`). The `macOS GPU` job runs on a self-hosted Mac
-   ([docs/guides/ci-runners.md](docs/guides/ci-runners.md)); it may stay queued while that Mac sleeps.
+   ([docs/guides/ci-runners.md](docs/guides/ci-runners.md)); it may stay queued while that Mac sleeps. Docs-only
+   pushes skip the build jobs.
 
 How to add a module, component, system, Luau binding, loader, error code or engine subsystem:
 [docs/guides/extending.md](docs/guides/extending.md).

@@ -7,7 +7,8 @@ The backlog is [BACKLOG.md](BACKLOG.md), in the repo, next to the code it descri
 - **Now**: actively being worked on. Keep it short (one to three items).
 - **Next**: agreed to be done soon, roughly in order.
 - **Later**: the roadmap. Order is loose.
-- **Done**: finished items, newest first. Never delete an item; move it here.
+- **Blocked**: cannot be done or verified with what we have (for example real Windows GPU hardware, ADR 0030). Each says what would unblock it.
+- **Done**: finished items, newest first. Never delete an item; move it here, including dropped ones (say so).
 
 ## Items
 

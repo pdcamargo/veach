@@ -4,7 +4,7 @@ Date: 2026-11-25
 
 ## Status
 
-Accepted
+Accepted. The self-hosted Windows runner it assumes is superseded by [ADR 0030](0030-windows-verified-in-hosted-ci.md).
 
 ## Context
 

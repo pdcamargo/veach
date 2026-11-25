@@ -14,6 +14,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    # Docs-only changes skip the build jobs (ADR 0030). "Changed" is measured from the last commit whose hosted
+    # jobs passed, so a docs push that cancels a code push's run still builds that code.
+    name: Detect code changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: tools/ci/code_changed.sh "$EVENT" "$PR_BASE" >> "$GITHUB_OUTPUT"
+
   lint:
     name: Lint (hygiene, format)
     runs-on: ubuntu-latest
@@ -40,7 +61,8 @@ jobs:
     # Never on pull_request: a self-hosted runner must not run code from forks.
     # When the Mac is asleep or off the job stays queued (GitHub keeps it up to 24 h) instead of failing.
     name: macOS GPU (Metal goldens, self-hosted)
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: changes
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.changes.outputs.code == 'true'
     runs-on: [self-hosted, macOS, ARM64, gpu-metal]
     permissions:
       contents: read
@@ -59,6 +81,8 @@ jobs:
 
   build:
     name: ${{ matrix.name }}
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

@@ -1,10 +1,10 @@
 # Self-hosted GPU runners
 
 GitHub's hosted runners have no real GPU: the macOS ones expose a paravirtual device without Metal 3 or ray
-tracing. GPU golden images therefore run on our own machines (VCH-044, [ADR 0028](../adr/0028-golden-images-across-backends.md)).
-This guide sets up a runner on the Mac now, and on the Windows machine for DX12 later, under the same rules.
+tracing. Metal golden images therefore run on a self-hosted Mac (VCH-044, [ADR 0028](../adr/0028-golden-images-across-backends.md)).
+This guide sets it up. Windows has no self-hosted runner (see the end of this guide).
 
-## Rules (both machines)
+## Rules
 
 | Rule | How it is enforced |
 |---|---|
@@ -70,35 +70,8 @@ From then on, `git push` runs `tools/scripts/pre-push.sh`: build (`debug`), ever
 on macOS (GPU goldens must pass, not skip), repo hygiene and clang-format. Run it by hand the same way. For
 another preset use `VEACH_PREPUSH_PRESET=asan`. On a Mac without a suitable GPU, use `VEACH_REQUIRE_GPU=0`.
 
-## Windows (DX12 goldens, next): the same recipe
+## Windows: hosted runners only
 
-Do these by hand in an elevated PowerShell. A script will follow once the steps are proven (VCH-047).
-
-1. **Account.** Create a standard (non-admin) local user, e.g. `veachci`:
-   `New-LocalUser veachci -NoPassword` (or set a random password), then
-   `Set-LocalUser veachci -PasswordNeverExpires $true`. Do not add it to any group.
-2. **No access to your files.** Your profile (`C:\Users\<you>`) already denies other standard users. Check with
-   `icacls C:\Users\<you>`: only you, `SYSTEM` and `Administrators` should be listed. Don't put the runner under
-   your profile.
-3. **Runner.** As admin, create `C:\veachci\actions-runner`, give `veachci` full control of `C:\veachci`, and
-   extract `actions-runner-win-x64-2.338.2.zip` there. Its SHA256 must be
-   `a1f17aa987fc8158bc7521d284912267a0d01b7c2c4684b33c86783b5e8221cc`.
-4. **Register as a service** running as that user, with the DX12 label:
-   ```powershell
-   $token = gh api -X POST repos/pdcamargo/veach/actions/runners/registration-token -q .token
-   .\config.cmd --url https://github.com/pdcamargo/veach --token $token --name "$env:COMPUTERNAME-gpu" `
-       --labels gpu-dx12 --work _work --unattended --runasservice `
-       --windowslogonaccount ".\veachci" --windowslogonpassword "<its password>"
-   ```
-5. **Tools for the service account.** Visual Studio 2022 Build Tools with C++, CMake, Ninja and Git LFS, all
-   machine-wide installs. Set `VEACH_REQUIRE_GPU=1`, `CPM_SOURCE_CACHE=C:\veachci\cpm-cache` and
-   `CCACHE_DIR=C:\veachci\ccache` in `C:\veachci\actions-runner\.env`.
-6. **CI job.** Copy the `gpu` job in `.github/workflows/ci.yml` as `gpu-dx12`:
-   `runs-on: [self-hosted, Windows, X64, gpu-dx12]`, the same `if`, `permissions` and `VEACH_REQUIRE_GPU`, plus
-   `ilammy/msvc-dev-cmd` before configuring. Register the DX12 golden tests with `-DRHI=dx12`, against the same
-   shared goldens (ADR 0028).
-7. **Teardown.** `.\config.cmd remove --token (gh api -X POST repos/pdcamargo/veach/actions/runners/remove-token -q .token)`,
-   then remove the service if it is still listed (`sc.exe delete actions.runner.*`), then
-   `Remove-LocalUser veachci` and delete `C:\veachci`.
-
-Sleep and power behave as on the Mac: jobs queue until the machine is online, for up to 24 hours.
+There is no self-hosted Windows runner ([ADR 0030](../adr/0030-windows-verified-in-hosted-ci.md)). Windows,
+DX12 included, is verified on GitHub's hosted `windows-2025` runners. Real DXR hardware is blocked until a Windows
+GPU runner exists (VCH-050).

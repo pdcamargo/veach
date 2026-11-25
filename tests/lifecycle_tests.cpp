@@ -48,7 +48,12 @@ TEST_CASE("[lifecycle.AC2] a failed init step unwinds the steps that completed")
     test::LogCapture logs;
     test::TempProject project("lifecycle-fail");
     EngineConfig config = test::headless_config(project.path(), {}, 1);
-    config.project.rhi = rhi::Backend::dx12;  // unavailable on macOS, a stub on Windows: fails either way
+    // A backend this platform doesn't have, so the rhi step fails.
+#if defined(_WIN32)
+    config.project.rhi = rhi::Backend::metal;
+#else
+    config.project.rhi = rhi::Backend::dx12;
+#endif
     Engine engine(std::move(config));
     CHECK(engine.run() == 1);
     CHECK(logs.has_code("engine.init_failed"));

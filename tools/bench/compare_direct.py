@@ -108,6 +108,9 @@ def main() -> int:
                              "its anti-aliased image with an anti-aliased reference")
     parser.add_argument("--max-luminance-error", type=float, default=None,
                         help="fail if the mean luminance differs from the reference's by more than this fraction")
+    parser.add_argument("--sky", action="store_true",
+                        help="direct light plus sky light: the scene's sky, the ambient stopgap on with unlimited range, the path tracer's "
+                             "mode 3 (physical-sky spec, sky.AC3); otherwise both sides render without a sky")
     parser.add_argument("--no-reuse", action="store_true",
                         help="no temporal or spatial reservoir reuse: independent frames converge faster when averaged")
     parser.add_argument("--realtime-frames", type=int, default=1,
@@ -129,13 +132,15 @@ def main() -> int:
           f"{args.frames * args.spf} spp, real time {args.candidates} candidates, {args.realtime_frames} frames)")
     print("|---|---|---|---|---|")
     view = "final" if args.final else "accumulated" if args.realtime_frames > 1 else "noisy"
+    no_sky = "" if args.sky else "camera:set(veach.components.Sky, { mode = \"none\" })\n"
     for scene in args.scenes:
         scene = scene.resolve()
         name = scene.stem + (f"_{args.label}" if args.label else "")
         realtime = variant(scene, f"{args.label}realtime", size, args.extra + "\n"
-                           "camera:remove(veach.components.PathTracer)\n"
+                           "camera:remove(veach.components.PathTracer)\n" + no_sky +
                            "camera:set(veach.components.RealtimeLighting, { light_candidates = "
-                           f"{args.candidates}, ambient = false, sky = vector.zero, ao_rays = 0, ao_radius = 1, "
+                           f"{args.candidates}, ambient = {'true' if args.sky else 'false'}, "
+                           f"ao_rays = {4 if args.sky else 0}, ao_radius = {10000 if args.sky else 1}, "
                            f"denoise = {'true' if args.final else 'false'}, view = \"{view}\", "
                            f"temporal_reuse = {'false' if args.no_reuse else 'true'}, "
                            f"spatial_samples = {0 if args.no_reuse else 2} }})\n"
@@ -145,9 +150,9 @@ def main() -> int:
                               f"render_scale = {args.render_scale} }})"
                               if args.final and args.upscaler != "none" else
                               "camera:set(veach.components.Upscaling, { mode = \"none\", render_scale = 1 })"))
-        reference = variant(scene, f"{args.label}reference", size, args.extra + "\n"
+        reference = variant(scene, f"{args.label}reference", size, args.extra + "\n" + no_sky +
                             "camera:set(veach.components.PathTracer, { samples_per_frame = "
-                            f"{args.spf}, max_bounces = 1, sky = vector.zero, mode = 1, "
+                            f"{args.spf}, max_bounces = 1, mode = {3 if args.sky else 1}, "
                             f"jitter = {'true' if args.final and args.upscaler != 'none' else 'false'} }})")
         try:
             rt_png = args.out / f"{name}.realtime.png"

@@ -5,6 +5,7 @@
 // app's shader library with its materials (veach_add_scene_shaders).
 // Parameter layout must match render::PathTraceParams (scene_renderer.cpp).
 
+import veach.atmosphere;
 import veach.bindless;
 import veach.material;
 import veach.materials_generated;  // evaluateSurface(kind, c), evaluateAlpha(kind, c)
@@ -16,7 +17,7 @@ import veach.scene;
 struct Params {
     float4x4 inverse_view_projection;
     float4 camera_position_exposure;  ///< xyz, w = exposure scale (1 / (1.2 * 2^ev100))
-    float4 sky_bounces;               ///< xyz sky radiance (nits), w = max bounces
+    float4 sky_bounces;               ///< w = max bounces (xyz unused: the sky is `sky`, ADR 0050)
     DescriptorHandle<RWTexture2D<float4>> accumulation;  ///< rgba32f running mean of radiance (nits), w = samples
     DescriptorHandle<RaytracingAccelerationStructure> scene;
     DescriptorHandle<StructuredBuffer<InstanceRecord>> instances;
@@ -29,31 +30,41 @@ struct Params {
     uint light_count;
     uint emissive_count;
     float emissive_total_weight;  ///< sum of area x weight over every emissive triangle
-    uint mode;  ///< PathTracer.mode: 0 full, 1 direct (first-bounce lights only, no sky), 2 AO debug view
+    uint mode;  ///< PathTracer.mode: 0 full, 1 direct (first-bounce lights only, no sky), 2 AO debug view,
+                ///< 3 direct + sky (mode 1 plus the sky on the first hit's diffuse lobe)
     DescriptorHandle<RWStructuredBuffer<uint>> diagnostics;  ///< [0] lost history, [1] non-finite samples; never reset
     uint jitter;  ///< 1: rays spread over the pixel (anti-aliased); 0: through its center, as the real-time renderer
     uint scene_flags;  ///< SceneData::flags (veach/scene.slang)
-    uint2 pad1;
+    DescriptorHandle<StructuredBuffer<SkyFrame>> sky;  ///< the environment (ADR 0050)
 };
 [[vk::push_constant]] ConstantBuffer<Params> params;
 
 // ---- the path -----------------------------------------------------------------------------------------------
 
-float3 radiance(float3 origin, float3 direction, inout Rng rng) {
+/// The radiance along a camera ray, and the distance to its first hit (0 if it escaped: aerial perspective).
+float3 radiance(float3 origin, float3 direction, inout Rng rng, out float first_hit) {
     float3 result = float3(0.0, 0.0, 0.0);
     float3 throughput = float3(1.0, 1.0, 1.0);
     float previous_bsdf_pdf = 0.0;  // 0 for the camera ray: emission it sees is not MIS-weighted
+    first_hit = 0.0;
     // Direct mode: light from light sources reaching the first surface (next-event estimation, and BSDF rays
     // that hit an emitter), with no sky and no further bounces: what the real-time renderer's direct lighting
-    // estimates.
-    const bool direct = params.mode == 1;
+    // estimates. Direct + sky (mode 3) adds the sky on the first hit's diffuse lobe, through a cosine ray: what its
+    // ambient stopgap estimates (the sky in specular reflections waits for the reflections milestone, VCH-018).
+    const bool direct = params.mode == 1 || params.mode == 3;
     const uint max_bounces = direct ? 1 : uint(params.sky_bounces.w);
-    const float3 sky = direct ? float3(0.0, 0.0, 0.0) : params.sky_bounces.xyz;
+    const SkyFrame sky = params.sky[0];
     for (uint bounce = 0; bounce <= max_bounces; ++bounce) {
         const Trace t = trace(origin, direction, 1e30, rng);
         if (!t.hit) {
-            result += throughput * sky;
+            // The sun is the directional light (next-event estimation): only camera rays see its disk.
+            if (params.mode == 0 || (bounce == 0 && params.mode == 3)) {
+                result += throughput * sky_radiance(sky, direction, bounce == 0);
+            }
             break;
+        }
+        if (bounce == 0) {
+            first_hit = t.t;
         }
         const TriangleHit hit = surface_at(t.instance, t.primitive, t.bary, origin);
         MaterialContext ctx = { hit.surface, hit.material };
@@ -88,6 +99,14 @@ float3 radiance(float3 origin, float3 direction, inout Rng rng) {
         }
         const Brdf b = brdf_of(s, v.z);
         result += throughput * sample_light(hit.surface.position, hit.surface.geometric_normal, frame, b, v, rng);
+        if (params.mode == 3) {
+            const float2 u = float2(rng.next(), rng.next());
+            const float r = sqrt(u.x);
+            const float3 l = frame.to_world(float3(r * cos(2.0 * pi * u.y), r * sin(2.0 * pi * u.y), sqrt(1.0 - u.x)));
+            if (visible(offset_origin(hit.surface.position, hit.surface.geometric_normal, l), l, 1e30, rng)) {
+                result += throughput * b.diffuse * sky_radiance(sky, l, false);
+            }
+        }
 
         const float3 l = brdf_sample(b, v, rng);
         float pdf;
@@ -150,7 +169,12 @@ void trace_pixels(uint3 id : SV_DispatchThreadID) {
                                   1.0 - (float(id.y) + jitter.y) / float(params.size.y) * 2.0);
         const float3 near_point = unproject(ndc, 1.0);  // reverse-Z: the near plane is depth 1
         const float3 direction = normalize(unproject(ndc, 0.5) - near_point);
-        const float3 l = radiance(params.camera_position_exposure.xyz, direction, rng);
+        float first_hit;
+        float3 l = radiance(params.camera_position_exposure.xyz, direction, rng, first_hit);
+        if (first_hit > 0.0 && params.mode != 1 && params.mode != 2) {  // aerial perspective, as the real-time renderer
+            const float4 air = aerial_perspective(params.sky[0], (float2(id.xy) + jitter) / float2(params.size), first_hit);
+            l = l * air.a + air.rgb;
+        }
         // Left out so one bad sample cannot blacken a pixel for good, but counted: it is a bug (render.nonfinite_samples).
         if (finite(l)) {
             sum += l;

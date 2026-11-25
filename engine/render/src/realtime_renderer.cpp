@@ -100,8 +100,8 @@ struct alignas(16) RealtimeFrame {
     /// (write, read), the a-trous ping-pong (diffuse 0, 1, specular 0, 1: read, write each), the denoised image (read,
     /// write).
     std::array<rhi::DescriptorHandle, 23> denoiser;
-    rhi::DescriptorHandle counters;  ///< [0] direct-light shadow rays, [1] lit pixels (temporal.AC5)
-    rhi::DescriptorHandle unused0;
+    rhi::DescriptorHandle counters;  ///< [0] ReSTIR's shadow rays, [1] lit pixels, [2] directional lights' rays
+    rhi::DescriptorHandle sky;       ///< SkyFrame (ADR 0050)
     std::array<std::uint32_t, 2> render_size{};
     std::uint32_t frame = 0;
     std::uint32_t flags = 0;
@@ -559,7 +559,7 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     f.previous_view_projection = v.history ? v.previous_view_projection : view.view_projection;
     f.camera_position = math::vec4(view.position, view.exposure);
     f.previous_camera_position = math::vec4(v.history ? v.previous_position : view.position, 0.0f);
-    f.sky_ambient = math::vec4(lighting.sky, lighting.ambient ? 1.0f : 0.0f);
+    f.sky_ambient = math::vec4(0.0f, 0.0f, 0.0f, lighting.ambient ? 1.0f : 0.0f);
     f.jitter = math::vec4(jitter, 0.0f, 0.0f);
     rhi::Device& device = *s.device;
     f.tlas = device.descriptor(scene.tlas_handle);
@@ -606,7 +606,7 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     rw_pair(v.atrous_specular[1], 19);
     rw_pair(v.denoised, 21);
     f.counters = device.descriptor(s.counters, rhi::View::storage);
-    f.unused0 = device.null_descriptor(rhi::DescriptorKind::texture);
+    f.sky = device.descriptor(scene.sky);
     f.render_size = {rw, rh};
     f.frame = s.frame++;
     // The denoiser runs for the final image; its history is valid only if it ran last frame too (ADR 0042).
@@ -850,6 +850,7 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
         }
         constexpr std::uint32_t filtered = atrous_iterations % 2;  // the ping-pong buffer the last iteration wrote
         dispatch_with("denoise: combine", s.denoise_combine_pipeline, filtered, [&](PassBuilder& b) {
+            scene.read_sky(b);
             for (const GraphResource& r : current_targets) {
                 b.read(r);
             }

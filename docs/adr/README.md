@@ -59,3 +59,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0047 | [Image accuracy against recorded baselines with explicit tolerances](0047-image-tolerance-policy.md) | Accepted |
 | 0048 | [Visibility rays test alpha-tested triangles as candidates in one traversal](0048-alpha-tested-visibility-rays.md) | Accepted |
 | 0049 | [Frame budget and quality tiers](0049-frame-budget-and-quality-tiers.md) | Proposed |
+| 0050 | [The physical atmosphere: Hillaire LUTs shared by both renderers, one Sky component](0050-physical-atmosphere.md) | Accepted |

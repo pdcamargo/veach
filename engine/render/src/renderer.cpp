@@ -10,6 +10,7 @@
 #include <veach/platform/window.hpp>
 #include <veach/render/png.hpp>
 
+#include "atmosphere.hpp"
 #include "veach_render_shaders.hpp"
 
 #include <algorithm>
@@ -17,6 +18,7 @@
 #include <cmath>
 #include <format>
 #include <functional>
+#include <optional>
 #include <utility>
 
 namespace veach::render {
@@ -83,6 +85,57 @@ void spawn_scene(Entity root, const SceneInstance& instance) {
     for (const std::uint32_t root_node : (*scene)->roots) {
         spawn(root_node, root);
     }
+}
+
+float luminance_of(math::vec3 c) {
+    return 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z;
+}
+
+/// The frame's sky (ADR 0050): the first Sky in entity order, or the defaults. A Sky that drives the sun replaces
+/// the scene's directional lights with the atmosphere's sun; without one, the default sky follows the scene's first
+/// directional light, scaled so its ground illuminance is that light's.
+void resolve_sky(const World& world, RenderWorld& out) {
+    std::optional<std::pair<std::uint64_t, Sky>> found;
+    world.each([&](Entity e, const Sky& sky) {
+        if (!found || e.id() < found->first) {
+            found = std::pair{e.id(), sky};
+        }
+    });
+    ResolvedSky& r = out.sky;
+    r.settings = found ? found->second : Sky{};
+    r.mode = r.settings.mode;
+    r.sun_direction = sun_direction(r.settings);
+    r.sun_illuminance_top = r.settings.sun_illuminance;
+    if (r.mode != SkyMode::physical) {
+        return;
+    }
+    const AtmosphereParams atmosphere = atmosphere_params(r.settings);
+    if (found && r.settings.drives_sun) {
+        std::erase_if(out.lights, [](const RenderLight& l) { return l.kind == LightKind::directional; });
+        const math::vec3 transmittance = atmosphere_transmittance(atmosphere, 0.0f, r.sun_direction);
+        if (math::length(transmittance) > 0.0f) {
+            RenderLight sun{.kind = LightKind::directional,
+                            .direction = -r.sun_direction,
+                            .radiance = transmittance * r.settings.sun_illuminance};
+            sun.size = 0.004625f;  // the sun's angular radius: 0.53 degrees across
+            out.lights.push_back(sun);
+        }
+        return;
+    }
+    // The scene's sun is its brightest directional light (glTF scenes can carry disabled, zero-intensity ones).
+    const RenderLight* light = nullptr;
+    for (const RenderLight& l : out.lights) {
+        if (l.kind == LightKind::directional &&
+            (light == nullptr || luminance_of(l.radiance) > luminance_of(light->radiance))) {
+            light = &l;
+        }
+    }
+    if (light == nullptr) {
+        return;
+    }
+    r.sun_direction = -light->direction;
+    const float ground = luminance_of(atmosphere_transmittance(atmosphere, 0.0f, r.sun_direction));
+    r.sun_illuminance_top = ground > 1e-4f ? luminance_of(light->radiance) / ground : 0.0f;
 }
 
 }  // namespace
@@ -191,6 +244,7 @@ Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device) {
             l.size = s.radius;
             out.lights.push_back(l);
         });
+        resolve_sky(world, out);
     });
 }
 
@@ -475,11 +529,27 @@ RenderModule::RenderModule(World& world) {
         .member(&RealtimeLighting::spatial_samples, "spatial_samples")
         .member(&RealtimeLighting::denoise, "denoise")
         .member(&RealtimeLighting::ambient, "ambient")
-        .member(&RealtimeLighting::sky, "sky")
         .member(&RealtimeLighting::ao_rays, "ao_rays")
         .member(&RealtimeLighting::ao_radius, "ao_radius")
         .member(&RealtimeLighting::debug_skip, "debug_skip")
         .member(&RealtimeLighting::view, "view")
+        .add<Scriptable>();
+    world.component<SkyMode>();
+    world.component<Sky>()
+        .member(&Sky::mode, "mode")
+        .member(&Sky::color, "color")
+        .member(&Sky::drives_sun, "drives_sun")
+        .member(&Sky::time_of_day, "time_of_day")
+        .member(&Sky::latitude, "latitude")
+        .member(&Sky::day_of_year, "day_of_year")
+        .member(&Sky::north, "north")
+        .member(&Sky::sun_illuminance, "sun_illuminance")
+        .member(&Sky::ground_albedo, "ground_albedo")
+        .member(&Sky::rayleigh, "rayleigh")
+        .member(&Sky::mie, "mie")
+        .member(&Sky::ozone, "ozone")
+        .member(&Sky::mie_g, "mie_g")
+        .member(&Sky::aerial_perspective, "aerial_perspective")
         .add<Scriptable>();
     world.component<UpscalerMode>();
     world.component<Upscaling>()
@@ -489,7 +559,6 @@ RenderModule::RenderModule(World& world) {
     world.component<PathTracer>()
         .member(&PathTracer::samples_per_frame, "samples_per_frame")
         .member(&PathTracer::max_bounces, "max_bounces")
-        .member(&PathTracer::sky, "sky")
         .member(&PathTracer::mode, "mode")
         .member(&PathTracer::jitter, "jitter")
         .add<Scriptable>();

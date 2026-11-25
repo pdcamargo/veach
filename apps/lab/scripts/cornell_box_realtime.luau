@@ -13,6 +13,8 @@ camera:set(veach.components.Transform, {
 	scale = vector.one,
 })
 camera:set(veach.components.Camera, { fov_y = math.rad(40), near_plane = 0.1, active = true, ev100 = 0 })
+-- A closed room lit by its own lights: no sky.
+camera:set(veach.components.Sky, { mode = "none" })
 
 -- The temporal path with Veach's own upscaler, on every backend: one golden for Metal and DX12 (ADR 0043).
 camera:set(veach.components.Upscaling, { mode = "temporal" })

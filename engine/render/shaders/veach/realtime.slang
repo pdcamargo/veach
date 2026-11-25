@@ -3,6 +3,7 @@
 // Layout mirrors render::RealtimeFrame (realtime_renderer.cpp): float4x4 and float4 first, then 8-byte handles,
 // then scalars in groups of four, so Metal and HLSL agree byte for byte.
 
+import veach.atmosphere;
 import veach.bindless;
 import veach.brdf;
 import veach.material;
@@ -42,7 +43,7 @@ struct RealtimeFrame {
     float4x4 previous_view_projection;    ///< last frame's, unjittered
     float4 camera_position;               ///< xyz; w = exposure (1 / (1.2 * 2^ev100))
     float4 previous_camera_position;      ///< xyz
-    float4 sky_ambient;                   ///< xyz sky radiance (nits); w = 1 when the ambient stopgap is on
+    float4 sky_ambient;                   ///< w = 1 when the ambient stopgap is on (its light: the sky, ADR 0050)
     float4 jitter;                        ///< xy: this frame's sample offset from the pixel center, render pixels
 
     DescriptorHandle<RaytracingAccelerationStructure> tlas;
@@ -108,7 +109,7 @@ struct RealtimeFrame {
     DescriptorHandle<Texture2D<float4>> denoised;          ///< remodulated, exposed: the upscaler's input
     DescriptorHandle<RWTexture2D<float4>> denoised_out;
     DescriptorHandle<RWStructuredBuffer<uint>> counters;   ///< [0] ReSTIR's shadow rays, [1] lit pixels, [2] directional lights' rays
-    DescriptorHandle<Texture2D<float4>> unused0;
+    DescriptorHandle<StructuredBuffer<SkyFrame>> sky;      ///< the environment (ADR 0050)
 
     uint2 render_size;
     uint frame;  ///< seeds the random numbers

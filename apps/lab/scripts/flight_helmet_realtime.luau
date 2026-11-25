@@ -16,7 +16,8 @@ camera:set(c.Transform, {
 	scale = vector.one,
 })
 camera:set(c.Camera, { fov_y = math.rad(35), near_plane = 0.05, active = true, ev100 = 0 })
-camera:set(c.RealtimeLighting, { ambient = true, sky = vector.create(0.12, 0.13, 0.15), ao_rays = 4, ao_radius = 0.5 })
+camera:set(c.Sky, { mode = "constant", color = vector.create(0.12, 0.13, 0.15) })
+camera:set(c.RealtimeLighting, { ambient = true, ao_rays = 4, ao_radius = 0.5 })
 
 -- Lights shine down their -Z: look_rotation points it.
 local key = veach.spawn("key light")

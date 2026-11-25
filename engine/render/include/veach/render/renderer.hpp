@@ -72,6 +72,14 @@ struct RenderLight {
     float size = 0.0f;  ///< sphere radius (point, spot), angular radius (directional); 0 = punctual (soft-shadows spec)
 };
 
+/// The frame's sky (ADR 0050), resolved by extraction from the Sky component (or its defaults) and the lights.
+struct ResolvedSky {
+    SkyMode mode = SkyMode::physical;
+    Sky settings;
+    math::vec3 sun_direction{0.0f, 1.0f, 0.0f};  ///< toward the sun
+    float sun_illuminance_top = 128000.0f;       ///< lux at the top of the atmosphere
+};
+
 /// Renderer-owned snapshot of what to draw this frame. Rebuilt by extraction every frame.
 class RenderWorld {
 public:
@@ -82,6 +90,7 @@ public:
     std::vector<RenderView> views;  ///< active cameras, in entity-id order; the first is the primary view
     std::vector<MeshDraw> meshes;   ///< in entity-id order
     std::vector<RenderLight> lights;
+    ResolvedSky sky;
 
     /// Per-frame data extracted by modules, one value per type.
     template <class T>

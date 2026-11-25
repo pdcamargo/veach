@@ -186,12 +186,19 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   shows `noisy` (before the denoiser), `motion`, `history` (green: last frame's surface found, red: disoccluded)
   or `accumulated` (the undenoised lighting averaged while nothing changes: what bias checks compare). Example:
   `scripts/cornell_box_realtime.luau`.
-- **The reference path tracer** renders a camera that has a `PathTracer { samples_per_frame, max_bounces, sky,
-  mode, jitter }`. It accumulates while nothing changes and restarts on any change. `mode` 1 computes direct light
-  only, which is what the real-time renderer estimates; `tools/bench/compare_direct.py` measures one against the
-  other per scene. Example: `scripts/cornell_box.luau`. It counts what should never happen and fails the run:
+- **The reference path tracer** renders a camera that has a `PathTracer { samples_per_frame, max_bounces, mode,
+  jitter }`. It accumulates while nothing changes and restarts on any change. `mode` 1 computes direct light
+  only, which is what the real-time renderer estimates; mode 3 adds the sky on the first hit's diffuse lobe (the
+  real-time ambient stopgap's term); `tools/bench/compare_direct.py` measures one against the other per scene
+  (`--sky` for mode 3). Example: `scripts/cornell_box.luau`. It counts what should never happen and fails the run:
   pixels whose accumulation reads back wrong (`render.history_lost`) and NaN or infinite samples
   (`render.nonfinite_samples`).
+- **The sky** ([ADR 0050](../adr/0050-physical-atmosphere.md)): a `Sky` component on any entity, physical by
+  default. Its lookup tables (transmittance, multiple scattering, sky view, aerial perspective) are built by the
+  scene renderer's passes and read by both renderers: the real-time background, ambient stopgap and haze, and the
+  path tracer's escaped rays. Without a `Sky` entity the sky follows the scene's brightest directional light; with
+  one, it drives the sun from `time_of_day`. Closed test scenes set `Sky { mode = "none" }` (a warning says so when
+  the scene has lights). Example: `scripts/bistro_sunset.luau`.
 - **GPU timings:** `tools/bench/frame_times.py` reports the frame and each pass over MCP (`gpu_timings`).
 - **Looking around:** the lab runs `scripts/dev/fly_camera.luau` after every scene (`"dev_scripts"` in its
   `veach.project.json`), so any windowed run flies its active camera with W/A/S/D, Q/E, the arrows and shift:

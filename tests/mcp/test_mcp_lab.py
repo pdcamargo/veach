@@ -459,6 +459,32 @@ def yaw(angle: float) -> dict:
     return {"x": 0.0, "y": math.sin(angle / 2), "z": 0.0, "w": math.cos(angle / 2)}
 
 
+def sky(lab: str, out_dir: str) -> None:
+    """sky.AC2 (the noon sky is blue) and sky.AC5 (Sky set over MCP changes the sun the next frame), at Bistro."""
+    os.makedirs(out_dir, exist_ok=True)
+    client = realtime_client(lab, "scripts/bistro_noon.luau")
+    if client is None:
+        return
+    # Straight up: the camera's -Z turned 90 degrees about +X. The street's wires and lights cross some pixels, so
+    # the checks use the frame's mean.
+    up = {"x": math.sin(math.pi / 4), "y": 0.0, "z": 0.0, "w": math.cos(math.pi / 4)}
+    client.call_json("set_component", entity="camera", component="Transform", value={"rotation": up})
+
+    def mean(name: str) -> tuple[float, float, float]:
+        pixels = shot(client, out_dir, name)
+        return tuple(sum(srgb_to_linear(p[c]) for p in pixels) / len(pixels) for c in range(3))
+
+    client.call_json("step_frames", count=8)
+    noon = mean("zenith_noon")
+    check(noon[2] > 1.5 * noon[0], f"[sky.AC2] the noon sky is blue: mean linear RGB {noon}")
+    client.call_json("set_component", entity="sky", component="Sky", value={"time_of_day": 23.0})
+    client.call_json("step_frames", count=1)
+    dusk = mean("zenith_dusk")
+    check(sum(dusk) < 0.2 * sum(noon), f"[sky.AC5] setting time_of_day to 23:00 darkens the sky the next frame: "
+                                       f"{noon} -> {dusk}")
+    check(client.close() == 0, "the lab exits 0")
+
+
 def temporal_motion(lab: str, out_dir: str) -> None:
     """temporal.AC1-AC3: motion vectors, disocclusion and history resets, read from the debug views."""
     os.makedirs(out_dir, exist_ok=True)
@@ -675,7 +701,7 @@ def main() -> int:
     parser.add_argument("--rhi", default="metal")
     parser.add_argument("mode", choices=["protocol", "golden", "fly", "reload", "path_trace", "gpu_timings", "replay",
                                          "replay_windowed", "upscalers", "temporal_motion", "temporal_stability",
-                                         "temporal_ghosting"])
+                                         "temporal_ghosting", "sky"])
     args = parser.parse_args()
     if args.mode == "protocol":
         protocol(args.lab)
@@ -697,6 +723,8 @@ def main() -> int:
         temporal_stability(args.lab, args.imgdiff, args.out)
     elif args.mode == "temporal_ghosting":
         temporal_ghosting(args.lab, args.imgdiff, args.out)
+    elif args.mode == "sky":
+        sky(args.lab, args.out)
     elif args.mode == "path_trace":
         path_trace(args.lab, args.imgdiff, args.golden, args.out, args.rhi)
     else:

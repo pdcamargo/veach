@@ -6,6 +6,7 @@
 #include <veach/core/profile.hpp>
 #include <veach/core/suggest.hpp>
 
+#include "atmosphere.hpp"
 #include "realtime_renderer.hpp"
 #include "scene_records.hpp"
 #include "veach_render_shaders.hpp"
@@ -45,7 +46,7 @@ struct alignas(16) PathTraceParams {
     rhi::DescriptorHandle diagnostics;
     std::uint32_t jitter = 1;
     std::uint32_t scene_flags = 0;
-    std::array<std::uint32_t, 2> pad1{};
+    rhi::DescriptorHandle sky;  ///< SkyFrame (ADR 0050)
 };
 static_assert(rhi::parameters_match<PathTraceParams>(veach_render_shaders::layout::path_tracer,
                                                      {VEACH_PARAM(PathTraceParams, inverse_view_projection),
@@ -67,7 +68,7 @@ static_assert(rhi::parameters_match<PathTraceParams>(veach_render_shaders::layou
                                                       VEACH_PARAM(PathTraceParams, diagnostics),
                                                       VEACH_PARAM(PathTraceParams, jitter),
                                                       VEACH_PARAM(PathTraceParams, scene_flags),
-                                                      VEACH_PARAM(PathTraceParams, pad1)}));
+                                                      VEACH_PARAM(PathTraceParams, sky)}));
 
 constexpr float pi = 3.14159265358979f;
 
@@ -173,7 +174,9 @@ struct SceneRenderer::Impl {
     rhi::Device* device = nullptr;
     rhi::PipelineHandle pipeline;
     rhi::PipelineHandle display_pipeline;
-    RealtimeRenderer realtime;                                     ///< ADR 0037, ADR 0040
+    RealtimeRenderer realtime;      ///< ADR 0037, ADR 0040
+    AtmosphereRenderer atmosphere;  ///< ADR 0050
+    bool warned_no_sky = false;
     std::unordered_map<std::uint64_t, math::mat4> previous_world;  ///< last frame's transform per draw entity
     rhi::SamplerHandle sampler;
     std::unordered_map<AssetId, GpuMesh> meshes;
@@ -503,6 +506,9 @@ Result<> SceneRenderer::prepare(rhi::Device& device) {
         return std::unexpected(display.error());
     }
     s.display_pipeline = *display;
+    if (auto atmosphere = s.atmosphere.prepare(device); !atmosphere) {
+        return atmosphere;
+    }
     if (auto realtime = s.realtime.prepare(device, s.shaders); !realtime) {
         return realtime;
     }
@@ -711,7 +717,11 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
         hash.add(&view->view_projection, sizeof(math::mat4));
         // Not samples_per_frame: it sets the pace, not the image (MCP path_trace changes it mid-accumulation).
         hash.add(&settings.max_bounces, sizeof(settings.max_bounces));
-        hash.add(&settings.sky, sizeof(settings.sky));
+        const ResolvedSky& sky = frame.world.sky;
+        hash.add(&sky.mode, sizeof(sky.mode));
+        hash.add(&sky.settings, sizeof(sky.settings));
+        hash.add(&sky.sun_direction, sizeof(sky.sun_direction));
+        hash.add(&sky.sun_illuminance_top, sizeof(sky.sun_illuminance_top));
         hash.add(&settings.mode, sizeof(settings.mode));
         hash.add(&settings.jitter, sizeof(settings.jitter));
         hash.add(&view->exposure, sizeof(float));
@@ -802,7 +812,22 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
     for (const rhi::BufferHandle b : {instance_buffer, material_buffer, light_buffer, emissive_buffer}) {
         frame_data.push_back(graph.import(b, "scene frame data", rhi::ResourceState::shader_read));
     }
+    // The sky (ADR 0050): its LUTs for this view, read by every ray-tracing pass. A lit scene without one is dark.
+    const ResolvedSky& resolved_sky = frame.world.sky;
+    if (!s.warned_no_sky && !frame.world.lights.empty() &&
+        (resolved_sky.mode == SkyMode::none ||
+         (resolved_sky.mode == SkyMode::constant && resolved_sky.settings.color == math::vec3(0.0f)))) {
+        log::warn("render",
+                  "the scene has lights but no sky (Sky.mode = none): whatever they do not reach directly "
+                  "renders black. Leave Sky out for the physical sky, or set a constant one.");
+        s.warned_no_sky = true;
+    }
+    const SkyResources sky = s.atmosphere.record(graph, resolved_sky, *view);
+    if (!sky.read) {
+        return;
+    }
     const auto read_scene = [&](PassBuilder& b) {
+        sky.read(b);
         b.read(tlas, rhi::ResourceState::accel_read);
         for (const GraphResource& r : blases) {
             b.read(r, rhi::ResourceState::accel_read);
@@ -870,7 +895,9 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
                                .light_count = static_cast<std::uint32_t>(lights.size()),
                                .emissive_count = static_cast<std::uint32_t>(emitters.size()),
                                .emissive_total_weight = total,
-                               .scene_flags = scene_flags};
+                               .scene_flags = scene_flags,
+                               .sky = sky.frame,
+                               .read_sky = sky.read};
         s.realtime.record(graph, frame, *view, realtime);
         return;
     }
@@ -891,7 +918,8 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
     PathTraceParams params{};
     params.inverse_view_projection = view->inverse_view_projection;
     params.camera_position_exposure = math::vec4(view->position, view->exposure);
-    params.sky_bounces = math::vec4(settings.sky, static_cast<float>(settings.max_bounces));
+    params.sky_bounces = math::vec4(0.0f, 0.0f, 0.0f, static_cast<float>(settings.max_bounces));
+    params.sky = s.device->descriptor(sky.frame);
     params.mode = settings.mode;
     params.jitter = settings.jitter ? 1u : 0u;
     params.scene_flags = scene_flags;

@@ -170,9 +170,20 @@ C++ components tagged `veach::Scriptable` (all fields Luau-representable). The e
 - `SceneInstance` (`path` of a glTF asset): spawns the scene as children
 - `DirectionalLight` (`color`, `illuminance` lux), `PointLight` (`color`, `intensity` cd), `SpotLight` (`color`,
   `intensity`, `inner_angle`, `outer_angle`)
-- `PathTracer` (`samples_per_frame`, `max_bounces`, `sky`, `mode`): on a camera, renders it with the reference
+- `PathTracer` (`samples_per_frame`, `max_bounces`, `mode`): on a camera, renders it with the reference
   path tracer; see [first-real-scene](../specs/first-real-scene/spec.md). `mode` 0 is everything, 1 direct light
-  only (no sky, no bounces: what the real-time renderer estimates), 2 an ambient-occlusion debug view.
+  only (no sky, no bounces: what the real-time renderer estimates), 2 an ambient-occlusion debug view, 3 direct light
+  plus the sky on the first hit's diffuse lobe (what the real-time renderer estimates with its ambient stopgap).
+- `Sky` (on any one entity; none means the defaults): `mode` `"physical"` (default), `"constant"` (`color` in nits)
+  or `"none"`; the physical sky's `time_of_day` (hours, solar time), `latitude` (degrees), `day_of_year`, `north`
+  (radians: north is -Z turned about +Y), `sun_illuminance` (lux at the top of the atmosphere), `ground_albedo`,
+  `rayleigh`, `mie` and `ozone` (density multipliers), `mie_g`, `aerial_perspective`, and `drives_sun` (the sky's
+  sun replaces the scene's directional lights). See [physical-sky](../specs/physical-sky/spec.md).
+
+  ```lua
+  veach.spawn("sky"):set(veach.components.Sky, { time_of_day = 19.5, latitude = 48.9 })
+  camera:set(veach.components.Sky, { mode = "none" }) -- a closed room lit by its own lights
+  ```
 
 ```lua
 local camera = veach.spawn("camera")

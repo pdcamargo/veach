@@ -14,7 +14,8 @@ camera:set(veach.components.Transform, {
 	scale = vector.one,
 })
 camera:set(veach.components.Camera, { fov_y = math.rad(40), near_plane = 0.1, active = true, ev100 = 0 })
-camera:set(veach.components.PathTracer, { samples_per_frame = 16, max_bounces = 1, sky = vector.zero, mode = 2 })
+camera:set(veach.components.PathTracer, { samples_per_frame = 16, max_bounces = 1, mode = 2 })
+camera:set(veach.components.Sky, { mode = "none" })
 
 -- Square, small: the golden runs on WARP too.
 veach.system("CornellBoxSize", "Startup", veach.query(veach.components.Window), function(e, w)

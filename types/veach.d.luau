@@ -90,7 +90,6 @@ export type DirectionalLight = {
 export type PathTracer = {
 	samples_per_frame: number,
 	max_bounces: number,
-	sky: vector,
 	mode: number,
 	jitter: boolean,
 }
@@ -106,7 +105,6 @@ export type RealtimeLighting = {
 	spatial_samples: number,
 	denoise: boolean,
 	ambient: boolean,
-	sky: vector,
 	ao_rays: number,
 	ao_radius: number,
 	debug_skip: number,
@@ -114,6 +112,23 @@ export type RealtimeLighting = {
 }
 export type SceneInstance = {
 	path: string,
+}
+export type SkyMode = "physical" | "constant" | "none"
+export type Sky = {
+	mode: SkyMode,
+	color: vector,
+	drives_sun: boolean,
+	time_of_day: number,
+	latitude: number,
+	day_of_year: number,
+	north: number,
+	sun_illuminance: number,
+	ground_albedo: number,
+	rayleigh: number,
+	mie: number,
+	ozone: number,
+	mie_g: number,
+	aerial_perspective: boolean,
 }
 export type SpotLight = {
 	color: vector,
@@ -179,6 +194,7 @@ export type Veach = {
 		read PointLight: Component<PointLight>,
 		read RealtimeLighting: Component<RealtimeLighting>,
 		read SceneInstance: Component<SceneInstance>,
+		read Sky: Component<Sky>,
 		read SpotLight: Component<SpotLight>,
 		read Transform: Component<Transform>,
 		read Upscaling: Component<Upscaling>,

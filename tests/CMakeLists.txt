@@ -13,6 +13,7 @@ add_executable(veach-tests
     input_tests.cpp
     scene_tests.cpp
     script_tests.cpp
+    sky_tests.cpp
     transform_tests.cpp)
 if(WIN32)
     target_sources(veach-tests PRIVATE dx12_tests.cpp)  # DX12 on WARP in hosted CI (ADR 0031)
@@ -20,6 +21,7 @@ endif()
 target_link_libraries(veach-tests PRIVATE veach::veach doctest::doctest veach_bc7enc)
 # Shaders for RHI tests (tests/rhi_tests.cpp): <test_shaders.hpp>.
 veach_add_shader(veach-tests shaders/raster_states.slang ENTRIES vs_main:vertex fs_main:fragment)
+veach_add_shader(veach-tests shaders/atmosphere_probe.slang ENTRIES transmittance_probe:compute)
 veach_shader_library(veach-tests NAMESPACE test_shaders)
 target_compile_definitions(veach-tests PRIVATE VEACH_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 target_include_directories(veach-tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -148,6 +150,7 @@ if(Python3_FOUND)
             SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable")
         # The image tolerance policy (ADR 0047): the denoised final image within baseline + max(0.001, 5%) FLIP and
         # 2% luminance of the path tracer's direct light. Baselines: Cornell 0.0208, FlightHelmet 0.0018.
+        # Labeled: other tests render variants of the same scripts in parallel.
         foreach(_tol "cornell_box:0.0218" "flight_helmet:0.0028")
             string(REPLACE ":" ";" _tol "${_tol}")
             list(GET _tol 0 _scene)
@@ -156,10 +159,27 @@ if(Python3_FOUND)
                 COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/bench/compare_direct.py" --rhi metal
                         --lab $<TARGET_FILE:veach-lab> --imgdiff $<TARGET_FILE:veach-cli>
                         --out "${CMAKE_CURRENT_BINARY_DIR}/compare/tolerance" --size 640x360 --frames 64 --spf 16
-                        --final --realtime-frames 64 --max-mean ${_limit} --max-luminance-error 0.02
+                        --final --realtime-frames 64 --max-mean ${_limit} --max-luminance-error 0.02 --label tolerance
                         "${PROJECT_SOURCE_DIR}/apps/lab/scripts/${_scene}.luau")
             set_tests_properties("tolerance: ${_scene} final image within ADR 0047 (metal)" PROPERTIES
                 SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable" ENVIRONMENT "MTL_SHADER_VALIDATION=0")
+        endforeach()
+        # sky.AC3: Bistro at noon and at sunset, direct light plus sky light (the stopgap with unlimited range against
+        # the path tracer's mode 3), within ADR 0047 of the baselines in docs/specs/physical-sky/spec.md. Luminance:
+        # exceptions while the real-time image misses the trees' string-light bulbs (VCH-064).
+        foreach(_tol "noon:0.0328:0.03" "sunset:0.0426:0.09")
+            string(REPLACE ":" ";" _tol "${_tol}")
+            list(GET _tol 0 _time)
+            list(GET _tol 1 _limit)
+            list(GET _tol 2 _luminance)
+            add_test(NAME "sky.AC3: bistro at ${_time} within ADR 0047 of the path tracer (metal)"
+                COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/bench/compare_direct.py" --rhi metal
+                        --lab $<TARGET_FILE:veach-lab> --imgdiff $<TARGET_FILE:veach-cli>
+                        --out "${CMAKE_CURRENT_BINARY_DIR}/compare/sky" --size 640x360 --frames 64 --spf 16
+                        --final --realtime-frames 64 --sky --max-mean ${_limit} --max-luminance-error ${_luminance}
+                        "${PROJECT_SOURCE_DIR}/apps/lab/scripts/bistro_${_time}.luau")
+            set_tests_properties("sky.AC3: bistro at ${_time} within ADR 0047 of the path tracer (metal)" PROPERTIES
+                SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable" ENVIRONMENT "MTL_SHADER_VALIDATION=0" TIMEOUT 600)
         endforeach()
         # shadows.AC1-AC2: lights with a size match the path tracer, and their penumbrae show (soft-shadows spec).
         add_test(NAME "shadows: sized lights cast penumbrae that match the reference (metal)"
@@ -168,6 +188,13 @@ if(Python3_FOUND)
                     --out "${CMAKE_CURRENT_BINARY_DIR}/soft_shadows")
         set_tests_properties("shadows: sized lights cast penumbrae that match the reference (metal)" PROPERTIES
             SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 900)
+        # sky.AC2/AC5: the noon sky is blue; Sky set over MCP changes it the next frame (physical-sky spec).
+        add_test(NAME "mcp: sky set over MCP (metal)"
+            COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
+                    --lab $<TARGET_FILE:veach-lab> --out "${CMAKE_CURRENT_BINARY_DIR}/mcp/sky" sky
+            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
+        set_tests_properties("mcp: sky set over MCP (metal)" PROPERTIES
+            SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" ENVIRONMENT "MTL_SHADER_VALIDATION=0" TIMEOUT 600)
         # The temporal renderer's acceptance criteria (docs/specs/temporal-direct-lighting/spec.md), read from its
         # debug views and images over MCP. Shader validation is off, as for goldens (it varies ray queries).
         foreach(_temporal motion stability ghosting)
@@ -295,6 +322,16 @@ if(APPLE)
     veach_golden_test("golden: cornell box (path traced)" cornell_box cornell_box metal FRAMES 4)
     veach_golden_test("golden: flight helmet (path traced)" flight_helmet flight_helmet metal FRAMES 4)
     veach_realtime_tests(metal)
+    # sky.AC4: Bistro under the physical sky at noon and at sunset (Metal only: Bistro is too heavy for WARP).
+    foreach(_time noon sunset)
+        veach_golden_test("golden: bistro at ${_time} (realtime)" bistro_${_time} bistro_${_time} metal FRAMES 32)
+    endforeach()
+    # sky.AC6: lights and no sky: one warning (a warning, not an error: the run still exits 0).
+    add_test(NAME "lab: a scene with lights and no sky warns"
+        COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/cornell_box.luau)
+    set_tests_properties("lab: a scene with lights and no sky warns" PROPERTIES
+        PASS_REGULAR_EXPRESSION "warn  render: the scene has lights but no sky"
+        SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable")
     # A NaN light: the path tracer leaves the samples out but fails the run (render.nonfinite_samples).
     add_test(NAME "lab: NaN samples are errors"
         COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/nonfinite_light.luau)
@@ -320,6 +357,10 @@ if(APPLE)
                 --screenshot "${_golden_dir}/flight_helmet_realtime.png"
         COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 4 --script scripts/cornell_box_ao.luau
                 --screenshot "${_golden_dir}/cornell_box_ao.png"
+        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 32 --script scripts/bistro_noon.luau
+                --screenshot "${_golden_dir}/bistro_noon.png"
+        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 32 --script scripts/bistro_sunset.luau
+                --screenshot "${_golden_dir}/bistro_sunset.png"
         # Shader validation off, as in golden_test.cmake: with it, Metal's ray-query results vary run to run.
         COMMENT "Regenerating golden images in tests/golden/ (review the diff before committing)"
         VERBATIM)

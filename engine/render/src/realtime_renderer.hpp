@@ -32,6 +32,8 @@ struct RealtimeScene {
     std::uint32_t emissive_count = 0;
     float emissive_total_weight = 0.0f;
     std::uint32_t scene_flags = 0;
+    rhi::BufferHandle sky;                       ///< SkyFrame (ADR 0050)
+    std::function<void(PassBuilder&)> read_sky;  ///< declares it and the sky's LUTs
 };
 
 class RealtimeRenderer {

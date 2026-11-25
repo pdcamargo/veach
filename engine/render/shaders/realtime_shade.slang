@@ -10,6 +10,7 @@
 //   accumulate:      view_accumulated: the average of that radiance over frames while nothing changes.
 //   denoise_*:       the denoiser (ADR 0042): temporal accumulation, variance, an a-trous filter, remodulation.
 
+import veach.atmosphere;
 import veach.bindless;
 import veach.brdf;
 import veach.lights;
@@ -261,8 +262,10 @@ void shade(uint3 id: SV_DispatchThreadID) {
         f.radiance_out[id.xy] = float4(!h.valid || h.fallback ? 1.0 : 0.0, h.valid ? 1.0 : 0.0, s.valid ? 0.0 : 1.0, 1.0);
         return;
     }
-    if (!s.valid) {
-        f.radiance_out[id.xy] = float4((ambient ? f.sky_ambient.xyz : float3(0.0, 0.0, 0.0)) * exposure, 1.0);
+    const SkyFrame sky = f.sky[0];
+    if (!s.valid) {  // the sky, with the sun's disk (ADR 0050)
+        const float3 direction = camera_ray(f, float2(id.xy) + 0.5);
+        f.radiance_out[id.xy] = float4(sky_radiance(sky, direction, true) * exposure, 1.0);
         f.noisy_diffuse_out[id.xy] = float4(0.0, 0.0, 0.0, 0.0);
         f.noisy_specular_out[id.xy] = float4(0.0, 0.0, 0.0, 0.0);
         return;
@@ -315,22 +318,28 @@ void shade(uint3 id: SV_DispatchThreadID) {
             InterlockedAdd(f.counters[1], pixels);
             InterlockedAdd(f.counters[2], sun_rays);
         }
-        // STOPGAP until Candela (VCH-017): constant sky light on the diffuse lobe, darkened by short-range
-        // ray-traced AO. A black sky contributes nothing, so its AO rays are skipped.
-        if (ambient && f.ao_rays > 0 && any(f.sky_ambient.xyz > 0.0)) {
-            uint open = 0;
+        // STOPGAP until Candela (VCH-017): sky light on the diffuse lobe through cosine-distributed rays, each seeing
+        // the sky in its direction unless something within ao_radius blocks it (with an unlimited radius, the path
+        // tracer's mode 3). A black sky contributes nothing, so its rays are skipped.
+        if (ambient && f.ao_rays > 0 && any(sky_ambient_radiance(sky) > 0.0)) {
+            float3 sky_light = float3(0.0, 0.0, 0.0);
             for (uint i = 0; i < f.ao_rays; ++i) {
                 const float2 u = float2(rng.next(), rng.next());
                 const float r2 = sqrt(u.x);
                 const float3 dir = d.frame.to_world(float3(r2 * cos(2.0 * pi * u.y), r2 * sin(2.0 * pi * u.y), sqrt(1.0 - u.x)));
-                open += visible(offset_origin(d.p, d.g, dir), dir, f.ao_radius, rng) ? 1 : 0;
+                if (visible(offset_origin(d.p, d.g, dir), dir, f.ao_radius, rng)) {
+                    sky_light += sky_radiance(sky, dir, false);
+                }
             }
-            diffuse += f.sky_ambient.xyz * d.b.diffuse * (float(open) / float(f.ao_rays));
+            diffuse += sky_light * d.b.diffuse / float(f.ao_rays);
         }
     }
     // The noisy image, and its two lobes demodulated for the denoiser (ADR 0042); all exposed.
     const Demodulation m = demodulation_of(s, f.camera_position.xyz);
-    f.radiance_out[id.xy] = float4((s.emission + diffuse + specular) * exposure, 1.0);
+    // Aerial perspective (ADR 0050) on the image; the denoiser's signals stay without it (its combine adds it).
+    const float4 air = aerial_perspective(sky, (float2(id.xy) + 0.5) / float2(f.render_size),
+                                          length(s.position - f.camera_position.xyz));
+    f.radiance_out[id.xy] = float4(((s.emission + diffuse + specular) * air.a + air.rgb) * exposure, 1.0);
     f.noisy_diffuse_out[id.xy] = float4(diffuse / m.diffuse * exposure, 0.0);
     f.noisy_specular_out[id.xy] = float4(specular / m.specular * exposure, 0.0);
 }
@@ -568,5 +577,8 @@ void denoise_combine(uint3 id: SV_DispatchThreadID) {
     const float3 diffuse = in0 ? f.atrous_diffuse0.Load(int3(p, 0)).rgb : f.atrous_diffuse1.Load(int3(p, 0)).rgb;
     const float3 specular = in0 ? f.atrous_specular0.Load(int3(p, 0)).rgb : f.atrous_specular1.Load(int3(p, 0)).rgb;
     const Demodulation m = demodulation_of(s, f.camera_position.xyz);
-    f.denoised_out[id.xy] = float4(s.emission * f.camera_position.w + diffuse * m.diffuse + specular * m.specular, 1.0);
+    const float4 air = aerial_perspective(f.sky[0], (float2(id.xy) + 0.5) / float2(f.render_size),
+                                          length(s.position - f.camera_position.xyz));
+    const float3 lit = s.emission * f.camera_position.w + diffuse * m.diffuse + specular * m.specular;
+    f.denoised_out[id.xy] = float4(lit * air.a + air.rgb * f.camera_position.w, 1.0);
 }

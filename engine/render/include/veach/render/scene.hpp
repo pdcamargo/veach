@@ -58,6 +58,30 @@ inline constexpr std::uint32_t ao = 2;  ///< debug view: ambient occlusion (1 m)
 
 /// The real-time renderer's settings, on a camera without a PathTracer (docs/specs/realtime-renderer-v0/spec.md).
 /// Without the component, the defaults apply.
+/// The environment (docs/specs/physical-sky/spec.md, ADR 0050). On any one entity; none means the defaults.
+enum class SkyMode : std::uint8_t {
+    physical,  ///< Hillaire's atmosphere: sky light, the sun, aerial perspective
+    constant,  ///< `color` in every direction
+    none,      ///< black (indoor test scenes)
+};
+
+struct Sky {
+    SkyMode mode = SkyMode::physical;
+    math::vec3 color{0.0f};             ///< constant mode: radiance, nits
+    bool drives_sun = true;             ///< physical: the sky's sun replaces the scene's directional lights
+    float time_of_day = 12.0f;          ///< hours, local solar time
+    float latitude = 45.0f;             ///< degrees
+    float day_of_year = 172.0f;         ///< 1..365 (172: the June solstice)
+    float north = 0.0f;                 ///< radians: north is -Z turned by this about +Y
+    float sun_illuminance = 128000.0f;  ///< lux at the top of the atmosphere
+    float ground_albedo = 0.3f;
+    float rayleigh = 1.0f;  ///< density multipliers of the Earth defaults
+    float mie = 1.0f;
+    float ozone = 1.0f;
+    float mie_g = 0.8f;
+    bool aerial_perspective = true;
+};
+
 /// What the real-time renderer shows (docs/specs/temporal-direct-lighting/spec.md).
 enum class RealtimeView : std::uint8_t {
     final,        ///< the image
@@ -73,10 +97,9 @@ struct RealtimeLighting {
     bool temporal_reuse = true;           ///< reuse last frame's reservoirs
     std::uint32_t spatial_samples = 2;    ///< neighbors' reservoirs reused per pixel, up to 8; 0 = none
     bool denoise = true;                  ///< the denoiser (ADR 0042); off for the noisy view and bias checks
-    // STOPGAP until Candela (VCH-017): sky light on diffuse surfaces, darkened by short-range ray-traced AO.
-    // Candela replaces it; at most a short-range AO stays. Off for comparisons against direct light.
+    // STOPGAP until Candela (VCH-017): the sky's light (Sky, ADR 0050) on diffuse surfaces, darkened by short-range
+    // ray-traced AO. Candela replaces it; at most a short-range AO stays. Off for comparisons against direct light.
     bool ambient = true;
-    math::vec3 sky{0.0f};       ///< the ambient's sky radiance, nits; also what pixels without geometry show
     std::uint32_t ao_rays = 4;  ///< cosine rays per pixel
     float ao_radius = 1.0f;     ///< meters: occluders farther away do not darken
     /// Measurement only: parts of shading left out to time what they cost (tools/bench/frame_times.py
@@ -98,9 +121,10 @@ struct Upscaling {
 struct PathTracer {
     std::uint32_t samples_per_frame = 1;
     std::uint32_t max_bounces = 8;
-    math::vec3 sky{0.0f};    ///< radiance of every ray that escapes, nits
-    std::uint32_t mode = 0;  ///< path_tracer_mode: 0 full, 1 direct, 2 ao (debug view)
-    bool jitter = true;      ///< false: one ray per pixel center, no anti-aliasing (comparisons with real time)
+    /// path_tracer_mode: 0 full, 1 direct, 2 ao (debug view), 3 direct + sky light on the first hit's diffuse lobe
+    /// (what the real-time renderer's direct light and ambient stopgap estimate). Escaped rays see the Sky (ADR 0050).
+    std::uint32_t mode = 0;
+    bool jitter = true;  ///< false: one ray per pixel center, no anti-aliasing (comparisons with real time)
 };
 
 }  // namespace veach

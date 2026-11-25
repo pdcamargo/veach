@@ -14,7 +14,9 @@ camera:set(veach.components.Transform, {
 	scale = vector.one,
 })
 camera:set(veach.components.Camera, { fov_y = math.rad(40), near_plane = 0.1, active = true, ev100 = 0 })
-camera:set(veach.components.PathTracer, { samples_per_frame = 16, max_bounces = 8, sky = vector.zero })
+camera:set(veach.components.PathTracer, { samples_per_frame = 16, max_bounces = 8 })
+-- A closed room lit by its own lights: no sky.
+camera:set(veach.components.Sky, { mode = "none" })
 
 -- Square, small: the golden runs on WARP too.
 veach.system("CornellBoxSize", "Startup", veach.query(veach.components.Window), function(e, w)

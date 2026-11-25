@@ -21,7 +21,7 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 - **VCH-008** Richer script components — *script* — Nested tables and arrays in script components (explicit scalar, entity and optional types exist). Let `veach types` include an app's own modules (today it emits engine types only).
 - **VCH-015** Job system — *core* — enkiTS or Taskflow (decide by ADR), with Flecs worker threads hooked into it. Everything is single-threaded until this lands.
 - **VCH-016** Tessera: virtualized geometry — *render* — Cluster hierarchies, visibility buffer, GPU culling, streaming. Our Nanite.
-- **VCH-017** Candela: real-time global illumination — *render* — Hardware-raytraced, denoised GI within real-time budgets. Our Lumen.
+- **VCH-017** Candela: real-time global illumination — *render* — Hardware-raytraced, denoised GI within real-time budgets. Our Lumen. Design proposed (awaiting the owner): [spec](../specs/candela/spec.md), [ADR](../adr/0051-candela-approach.md).
 - **VCH-018** Raytraced reflections — *render* — With screen-space reflections as hybrid and fallback.
 - **VCH-020** Volumetric fog — *render* — Froxel-based, lit by the same light structures.
 - **VCH-024** Extendable materials — *render* — Materials as Slang modules implementing interfaces with default implementations, so users override only `evalAlbedo`, `evalEmission`, `displaceVertex`, and so on (like Bevy's `ExtendedMaterial`).

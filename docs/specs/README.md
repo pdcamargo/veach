@@ -26,3 +26,4 @@ acceptance criteria (`[area.ACn] ...`) → status Implemented.
 | [Temporal foundation and direct lighting at speed](temporal-direct-lighting/spec.md) | render, rhi | Implemented |
 | [Soft shadows from lights with a size](soft-shadows/spec.md) | render | Implemented |
 | [Physical sky and atmosphere](physical-sky/spec.md) | render | Implemented |
+| [Candela: real-time global illumination](candela/spec.md) | render | Draft |

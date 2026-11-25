@@ -174,9 +174,10 @@ The backend does not exist on this OS (Metal is macOS only, DX12 Windows only) o
 
 ## rhi.not_implemented
 
-**The requested RHI feature is a stub.**
+**The requested RHI feature is not available on this backend.**
 
-The backend is a stub. See the backlog item named in the hint.
+For example, a shader library without code for this backend (no DXIL or metallib for an entry point), or a format
+the backend can't use for a texture. The message names what is missing and the hint says how to provide it.
 
 ## rhi.invalid_surface
 

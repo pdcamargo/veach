@@ -1,5 +1,8 @@
 # DX12 port (VCH-012)
 
+**Status:** done (2026-11-25). Every step below is green in the hosted Windows job. Kept as the map of the
+backend and of what DX12 resists.
+
 How `Dx12Device` is built. The design is final; this guide gives the order, what DX12 resists, and which CI job
 proves each step. Nobody has a Windows machine ([ADR 0030](../adr/0030-windows-verified-in-hosted-ci.md)): every
 step is one small commit, proven by the hosted Windows job on WARP ([ADR 0031](../adr/0031-dx12-on-warp-in-ci.md)),
@@ -93,14 +96,17 @@ judge: watch the Windows job.
 
 Each step is one commit (or a few, all small) and ends when the **Windows** job of `.github/workflows/ci.yml` is
 green with its proof. From step 3 on, the Windows job sets `VEACH_REQUIRE_GPU=1`, so a DX12 golden that skips
-counts as a failure.
+counts as a failure. The lab sets up all its render features at startup, even when it draws nothing. That
+includes the ray-traced one whenever the device can ray trace, as WARP can. So every lab golden, `background`
+included, needs steps 3 to 5 together: step 3 also has its own unit test, and step 4 is proven together with
+step 5. Learned the hard way: plan a unit test for any step that comes before the first full lab run.
 
 | # | Step | Proof in the Windows job | Criterion |
 |---|---|---|---|
 | 1 | Agility SDK + WARP pinned and deployed; adapter choice; debug layer to logs; queue, fence, frames, command-list pool | `unit: [dx12.AC1] ...` | dx12.AC1 |
 | 2 | Descriptor heaps and slot allocator (freed via `retire()`); buffers (`stride`), textures, samplers; upload path | `unit: [dx12.AC2] ...` | dx12.AC2 |
-| 3 | Barriers (the ADR 0025 table); render passes with clear; RTVs; readback with repack | `golden: background (dx12)` | dx12.AC3 |
-| 4 | Root signature, root constants, graphics pipelines from DXIL, viewport and scissor | `golden: triangle (raster, dx12)` | dx12.AC4 |
+| 3 | Barriers (the ADR 0025 table); render passes with clear; RTVs; readback with repack | `unit: [dx12.AC3] ...` | dx12.AC3 |
+| 4 | Root signature, root constants, graphics pipelines from DXIL, viewport and scissor | `golden: background (dx12)`, `golden: triangle (raster, dx12)` (pass once step 5 is in) | dx12.AC4 |
 | 5 | Compute pipelines and UAVs; BLAS and TLAS build and refit; the BLAS → TLAS barrier | `golden: triangle (raytraced, dx12)` | dx12.AC5 |
 | 6 | Two frames in flight under load | `dx12: ray-traced soak` (300 frames) | dx12.AC6 |
 | 7 | MCP on DX12 | `mcp: golden through MCP (dx12)` | dx12.AC7 |

@@ -10,7 +10,7 @@ Decisions behind this: [ADR 0001](../adr/0001-language-and-build-system.md) (C++
 | CMake | ≥ 3.29 | ≥ 3.29 |
 | Generator | Ninja | Ninja |
 | Git | with **Git LFS** (`git lfs install`): golden images live in LFS | same |
-| GPU | Metal 3 with ray tracing (Apple M1 or newer) to run the GPU golden tests; they skip otherwise | DX12 is a stub; nothing GPU-side runs yet |
+| GPU | Metal 3 with ray tracing (Apple M1 or newer) to run the GPU golden tests; they skip otherwise | None needed: without a D3D12 GPU that has SM 6.6, enhanced barriers and DXR 1.1, DX12 runs on WARP, which the build deploys ([ADR 0031](../adr/0031-dx12-on-warp-in-ci.md)). `VEACH_DX12_ADAPTER=warp` forces it |
 | Optional | `ccache` (used automatically when found), Python 3 (repo hygiene test) | same |
 
 Dependencies are downloaded by CMake on first configure (see [CPM cache](#dependency-cache)). That includes the Slang

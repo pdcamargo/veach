@@ -62,7 +62,7 @@ In rough order (details and ids in [backlog/BACKLOG.md](backlog/BACKLOG.md)):
 4. Content: glTF (fastgltf, meshoptimizer), KTX2/BC7 textures, Flecs Script scenes and prefabs, extendable
    materials.
 5. The renderer: Tessera, Candela, RT reflections, sky and atmosphere, volumetric fog, area lights, denoiser,
-   upscaler. DX12 backend alongside Metal.
+   upscaler. DX12 backend alongside Metal (done early, verified on WARP in CI).
 6. The rest of a game engine: physics with Box3D (deterministic, MIT), audio, UI, an editor built on the same
    reflection and MCP machinery.
 

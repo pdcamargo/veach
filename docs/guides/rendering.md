@@ -91,8 +91,8 @@ Rules:
    layout differs between Metal and HLSL (ADR 0024). Use 8-byte `rhi::DescriptorHandle`s for handles. Keep
    raster and compute entry points that need different parameters in separate `.slang` files.
 
-macOS builds compile to `.metallib`. Windows builds compile every entry point to DXIL, so non-portable Slang
-fails Windows CI even before the DX12 backend exists.
+macOS builds compile to `.metallib`. Windows builds compile every entry point to DXIL, and the Windows CI job
+renders the goldens with it on WARP, so non-portable Slang fails CI either way.
 
 ## Screenshots and golden images
 

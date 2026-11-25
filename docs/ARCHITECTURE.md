@@ -51,7 +51,7 @@ flowchart BT
     platform["platform: SDL3 / headless, Window, Input, fs, clock"]
     asset["asset: AssetServer, Handle, loaders, .meta"]
     script["script: Luau VM, @veach bindings, type generator"]
-    rhi["rhi: Device, CommandList, bindless handles; null, metal, dx12 stub"]
+    rhi["rhi: Device, CommandList, bindless handles; null, metal, dx12"]
     render["render: Renderer, RenderGraph, features, extraction"]
     runtime["runtime: Engine, config, main loop, MCP server"]
     ecs --> core

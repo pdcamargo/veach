@@ -4,12 +4,10 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 
 ## Now
 
-- **VCH-012** DX12 backend — *rhi* — Implement `Dx12Device` on the Agility SDK: SM 6.6 descriptor heaps, enhanced barriers, root constants, DXR 1.1 inline ray queries, a DXGI swapchain, readback. Verified only in hosted CI on WARP, step by step ([ADR 0030](../adr/0030-windows-verified-in-hosted-ci.md)). Brief: [dx12-port](../guides/dx12-port.md).
 - **VCH-044** GPU runner for CI — *process* — Self-hosted Mac runner (decided 2026-11-25): separate non-admin user, no secrets, push to main and manual dispatch only, `VEACH_REQUIRE_GPU=1`. Script and guide in [ci-runners](../guides/ci-runners.md). Done once the `macOS GPU` job passes on `main`.
 
 ## Next
 
-- **VCH-002** Windows bring-up — *platform* — A windowed run on hosted Windows CI: SDL window, HWND reaching the RHI, DX12 swapchain present and resize, exit 0 on close. Whatever the runner's desktop session cannot show moves to VCH-050. [ADR](../adr/0030-windows-verified-in-hosted-ci.md)
 - **VCH-004** Hot reload — *asset* — File watcher in the platform layer. Reload changed assets in place behind the same `Handle<T>`. Re-execute changed scripts, replacing their systems (systems are named, so this is a swap).
 - **VCH-005** `Behavior` component — *script* — `veach.behavior(Component, { on_update = function(self, dt) ... end })` sugar for per-entity scripts, run internally as an ordinary Simulation system with batched dispatch. No separate update path.
 - **VCH-006** Input in Luau and data-driven bindings — *script* — `veach.input.pressed("jump")`, `down`, `released`; action bindings in `veach.project.json` (`"input": {"jump": ["space", "w"]}`), reflected and schema-validated.
@@ -52,10 +50,12 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 
 ## Blocked
 
-- **VCH-050** DX12 on real DXR hardware — *rhi* — Run the DX12 goldens and a long frames-in-flight soak on a physical DXR 1.1 GPU (vendor drivers, real timings). Blocked: no Windows GPU machine or runner ([ADR 0030](../adr/0030-windows-verified-in-hosted-ci.md)). Unblocked by a paid GPU runner or a Windows machine registered as a runner.
+- **VCH-050** DX12 on real hardware — *rhi* — Run the DX12 goldens and a long frames-in-flight soak on a physical DXR 1.1 GPU (vendor drivers, real timings), and present to a real display: on the hosted runner some `Present` calls fail with `E_INVALIDARG` that no debug layer explains, and the windowed test tolerates them. Blocked: no Windows GPU machine or runner ([ADR 0030](../adr/0030-windows-verified-in-hosted-ci.md)). Unblocked by a paid GPU runner or a Windows machine registered as a runner.
 
 ## Done
 
+- **VCH-012** DX12 backend — *rhi* — `Dx12Device` on the Agility SDK 1.620: SM 6.6 descriptor heaps, enhanced barriers, root constants, graphics and compute pipelines, DXR 1.1 BLAS/TLAS build and refit, readback, flip-model swapchain. Every shared golden passes on WARP in hosted CI at the default tolerance, plus a 300-frame soak and MCP on DX12. [spec](../specs/dx12-backend/spec.md), [ADR 0031](../adr/0031-dx12-on-warp-in-ci.md)
+- **VCH-002** Windows bring-up — *platform* — A windowed run on the hosted Windows runner: SDL window, HWND to the RHI, DX12 swapchain present and resize, clean exit. Real-display presentation is VCH-050.
 - **VCH-047** Windows GPU runner script — *process* — Dropped 2026-11-25: there is no Windows machine, and Windows is verified in hosted CI only ([ADR 0030](../adr/0030-windows-verified-in-hosted-ci.md)).
 - **VCH-003** MCP server v0 — *agents* — `--mcp` serves MCP over stdio: `query_entities`, `get_component`, `set_component`, `spawn_entity`, `step_frames`, `screenshot` (PNG, headless or windowed), `render_graph_plan`, `gpu_timings`, sandboxed transactional `eval`. Schemas come from reflection; errors carry codes and did-you-mean hints. A test drives the lab through MCP to a golden. `load_scene` moves to VCH-027. [spec](../specs/mcp-server/spec.md)
 - **VCH-041** Parameter-block layout checks — *render* — Each shader's parameter block is reflected (Slang, HLSL layout) into `<ns>::layout::<stem>`. `static_assert(rhi::parameters_match<T>(...))` compares names, order, offsets and sizes at compile time. The shader build rejects `float3`/3-row matrices. The hygiene check requires a layout check for every shader with parameters. [ADR 0024](../adr/0024-resource-binding-model.md)

@@ -14,6 +14,10 @@ veach_add_shader(veach_render shaders/display.slang ENTRIES display:compute)
 # (veach_add_path_tracer); this one also anchors the C++ parameter layout check (path_tracer.cpp).
 veach_add_shader(veach_render shaders/path_tracer.slang ENTRIES trace_pixels:compute
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
+veach_add_shader(veach_render shaders/realtime_visibility.slang ENTRIES vis_vs:vertex vis_fs:fragment
+    INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
+veach_add_shader(veach_render shaders/realtime_shade.slang ENTRIES shade:compute
+    INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
 veach_shader_library(veach_render NAMESPACE veach_render_shaders)
 # png.cpp compiles stb's implementation; its warnings are not ours.
 set_source_files_properties(src/png.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)

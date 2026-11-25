@@ -22,3 +22,6 @@ trace*.csv
 
 # Agent worktrees (Claude Code isolation)
 .claude/worktrees/
+
+# Intel Sponza: local only until its license question is settled (VCH-055)
+apps/lab/assets/sponza/

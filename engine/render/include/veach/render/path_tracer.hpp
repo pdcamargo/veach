@@ -51,9 +51,17 @@ static_assert(offsetof(MaterialRecord, roughness) == 48);
 static_assert(offsetof(MaterialRecord, base_color_texture) == 64);
 static_assert(offsetof(MaterialRecord, custom0) == 96);
 
+/// The scene shaders, compiled with an app's materials (veach_add_path_tracer): the reference path tracer and the
+/// real-time renderer's visibility and shading passes (ADR 0037).
+struct SceneShaders {
+    const rhi::ShaderLibrary& path_tracer;
+    const rhi::ShaderLibrary& visibility;
+    const rhi::ShaderLibrary& shade;
+};
+
 class PathTracerFeature final : public RenderFeature {
 public:
-    PathTracerFeature(const rhi::ShaderLibrary& library, std::span<const MaterialKind> kinds, AssetServer& assets);
+    PathTracerFeature(SceneShaders shaders, std::span<const MaterialKind> kinds, AssetServer& assets);
     ~PathTracerFeature() override;
     PathTracerFeature(const PathTracerFeature&) = delete;
     PathTracerFeature& operator=(const PathTracerFeature&) = delete;

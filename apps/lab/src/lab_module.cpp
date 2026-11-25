@@ -32,7 +32,9 @@ LabModule::LabModule(veach::World& world) {
     // The reference path tracer, with the lab's materials (scenes/*.luau put a PathTracer on their camera).
     auto& renderer = veach::services(world).get<veach::render::Renderer>();
     renderer.add_feature(std::make_unique<veach::render::PathTracerFeature>(
-        lab_shaders::path_tracer(), lab_shaders::material_kinds, veach::services(world).get<veach::AssetServer>()));
+        veach::render::SceneShaders{lab_shaders::path_tracer(), lab_shaders::realtime_visibility(),
+                                    lab_shaders::realtime_shade()},
+        lab_shaders::material_kinds, veach::services(world).get<veach::AssetServer>()));
 
     world.system<const Spinner>("ReportSpinner").kind<veach::phase::Shutdown>().each([](const Spinner& s) {
         veach::log::info("lab", "spinner turned {:.4f} rad", s.angle);

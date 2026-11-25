@@ -135,6 +135,9 @@ Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device) {
             if (const PathTracer* settings = e.try_get<PathTracer>()) {
                 view.path_tracer = *settings;
             }
+            if (const RealtimeLighting* lighting = e.try_get<RealtimeLighting>()) {
+                view.realtime = *lighting;
+            }
             views.emplace_back(e.id(), view);
         });
         std::ranges::sort(views, {}, &std::pair<std::uint64_t, RenderView>::first);
@@ -452,6 +455,13 @@ RenderModule::RenderModule(World& world) {
         .member(&SpotLight::intensity, "intensity")
         .member(&SpotLight::inner_angle, "inner_angle")
         .member(&SpotLight::outer_angle, "outer_angle")
+        .add<Scriptable>();
+    world.component<RealtimeLighting>()
+        .member(&RealtimeLighting::emissive_samples, "emissive_samples")
+        .member(&RealtimeLighting::ambient, "ambient")
+        .member(&RealtimeLighting::sky, "sky")
+        .member(&RealtimeLighting::ao_rays, "ao_rays")
+        .member(&RealtimeLighting::ao_radius, "ao_radius")
         .add<Scriptable>();
     world.component<PathTracer>()
         .member(&PathTracer::samples_per_frame, "samples_per_frame")

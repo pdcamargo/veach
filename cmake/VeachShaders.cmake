@@ -211,4 +211,9 @@ ${kinds}}};
 " @ONLY)
     veach_add_shader(${target} "${PROJECT_SOURCE_DIR}/engine/render/shaders/path_tracer.slang"
         ENTRIES trace_pixels:compute INCLUDES ${include_dirs})
+    # The real-time renderer with the same materials (ADR 0037).
+    veach_add_shader(${target} "${PROJECT_SOURCE_DIR}/engine/render/shaders/realtime_visibility.slang"
+        ENTRIES vis_vs:vertex vis_fs:fragment INCLUDES ${include_dirs})
+    veach_add_shader(${target} "${PROJECT_SOURCE_DIR}/engine/render/shaders/realtime_shade.slang"
+        ENTRIES shade:compute INCLUDES ${include_dirs})
 endfunction()

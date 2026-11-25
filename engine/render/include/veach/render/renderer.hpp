@@ -48,6 +48,7 @@ struct RenderView {
     std::uint32_t height = 0;
     float exposure = 1.0f / 1.2f;           ///< 1 / (1.2 * 2^ev100)
     std::optional<PathTracer> path_tracer;  ///< the camera's PathTracer component, if it has one
+    RealtimeLighting realtime;              ///< the camera's RealtimeLighting component, or the defaults
 };
 
 /// A mesh to draw this frame: an imported mesh, the material of each of its slots, and where it is.

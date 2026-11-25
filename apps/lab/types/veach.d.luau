@@ -96,6 +96,13 @@ export type PointLight = {
 	color: vector,
 	intensity: number,
 }
+export type RealtimeLighting = {
+	emissive_samples: number,
+	ambient: boolean,
+	sky: vector,
+	ao_rays: number,
+	ao_radius: number,
+}
 export type SceneInstance = {
 	path: string,
 }
@@ -163,6 +170,7 @@ export type Veach = {
 		read DirectionalLight: Component<DirectionalLight>,
 		read PathTracer: Component<PathTracer>,
 		read PointLight: Component<PointLight>,
+		read RealtimeLighting: Component<RealtimeLighting>,
 		read SceneInstance: Component<SceneInstance>,
 		read Spinner: Component<Spinner>,
 		read SpotLight: Component<SpotLight>,

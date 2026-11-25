@@ -53,6 +53,18 @@ inline constexpr std::uint32_t direct =
 inline constexpr std::uint32_t ao = 2;  ///< debug view: ambient occlusion (1 m) at the first surface, never lighting
 }  // namespace path_tracer_mode
 
+/// The real-time renderer's settings, on a camera without a PathTracer (docs/specs/realtime-renderer-v0/spec.md).
+/// Without the component, the defaults apply.
+struct RealtimeLighting {
+    std::uint32_t emissive_samples = 4;  ///< light samples per pixel from emissive triangles
+    // STOPGAP until Candela (VCH-017): sky light on diffuse surfaces, darkened by short-range ray-traced AO.
+    // Candela replaces it; at most a short-range AO stays. Off for comparisons against direct light.
+    bool ambient = true;
+    math::vec3 sky{0.0f};      ///< the ambient's sky radiance, nits; also what pixels without geometry show
+    std::uint32_t ao_rays = 4;  ///< cosine rays per pixel
+    float ao_radius = 1.0f;     ///< meters: occluders farther away do not darken
+};
+
 struct PathTracer {
     std::uint32_t samples_per_frame = 1;
     std::uint32_t max_bounces = 8;

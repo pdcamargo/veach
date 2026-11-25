@@ -91,6 +91,7 @@ export type PathTracer = {
 	max_bounces: number,
 	sky: vector,
 	mode: number,
+	jitter: boolean,
 }
 export type PointLight = {
 	color: vector,

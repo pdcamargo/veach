@@ -89,18 +89,31 @@ struct alignas(16) PathTraceParams {
     float emissive_total_weight;
     std::uint32_t mode;
     rhi::DescriptorHandle diagnostics;
+    std::uint32_t jitter = 1;
+    std::uint32_t pad0 = 0;
+    std::array<std::uint32_t, 2> pad1{};
 };
-static_assert(rhi::parameters_match<PathTraceParams>(
-    veach_render_shaders::layout::path_tracer,
-    {VEACH_PARAM(PathTraceParams, inverse_view_projection), VEACH_PARAM(PathTraceParams, camera_position_exposure),
-     VEACH_PARAM(PathTraceParams, sky_bounces), VEACH_PARAM(PathTraceParams, accumulation),
-     VEACH_PARAM(PathTraceParams, scene), VEACH_PARAM(PathTraceParams, instances),
-     VEACH_PARAM(PathTraceParams, materials), VEACH_PARAM(PathTraceParams, lights),
-     VEACH_PARAM(PathTraceParams, emissive), VEACH_PARAM(PathTraceParams, size),
-     VEACH_PARAM(PathTraceParams, sample_index), VEACH_PARAM(PathTraceParams, samples_per_frame),
-     VEACH_PARAM(PathTraceParams, light_count), VEACH_PARAM(PathTraceParams, emissive_count),
-     VEACH_PARAM(PathTraceParams, emissive_total_weight), VEACH_PARAM(PathTraceParams, mode),
-     VEACH_PARAM(PathTraceParams, diagnostics)}));
+static_assert(rhi::parameters_match<PathTraceParams>(veach_render_shaders::layout::path_tracer,
+                                                     {VEACH_PARAM(PathTraceParams, inverse_view_projection),
+                                                      VEACH_PARAM(PathTraceParams, camera_position_exposure),
+                                                      VEACH_PARAM(PathTraceParams, sky_bounces),
+                                                      VEACH_PARAM(PathTraceParams, accumulation),
+                                                      VEACH_PARAM(PathTraceParams, scene),
+                                                      VEACH_PARAM(PathTraceParams, instances),
+                                                      VEACH_PARAM(PathTraceParams, materials),
+                                                      VEACH_PARAM(PathTraceParams, lights),
+                                                      VEACH_PARAM(PathTraceParams, emissive),
+                                                      VEACH_PARAM(PathTraceParams, size),
+                                                      VEACH_PARAM(PathTraceParams, sample_index),
+                                                      VEACH_PARAM(PathTraceParams, samples_per_frame),
+                                                      VEACH_PARAM(PathTraceParams, light_count),
+                                                      VEACH_PARAM(PathTraceParams, emissive_count),
+                                                      VEACH_PARAM(PathTraceParams, emissive_total_weight),
+                                                      VEACH_PARAM(PathTraceParams, mode),
+                                                      VEACH_PARAM(PathTraceParams, diagnostics),
+                                                      VEACH_PARAM(PathTraceParams, jitter),
+                                                      VEACH_PARAM(PathTraceParams, pad0),
+                                                      VEACH_PARAM(PathTraceParams, pad1)}));
 
 /// Mirrors Params in shaders/display.slang.
 struct alignas(16) DisplayParams {
@@ -750,6 +763,7 @@ void PathTracerFeature::record(RenderGraph& graph, const FrameContext& frame) {
         hash.add(&settings.max_bounces, sizeof(settings.max_bounces));
         hash.add(&settings.sky, sizeof(settings.sky));
         hash.add(&settings.mode, sizeof(settings.mode));
+        hash.add(&settings.jitter, sizeof(settings.jitter));
         hash.add(&view->exposure, sizeof(float));
         hash.add_all(materials);
         hash.add_all(lights);
@@ -974,6 +988,7 @@ void PathTracerFeature::record(RenderGraph& graph, const FrameContext& frame) {
     params.camera_position_exposure = math::vec4(view->position, view->exposure);
     params.sky_bounces = math::vec4(settings.sky, static_cast<float>(settings.max_bounces));
     params.mode = settings.mode;
+    params.jitter = settings.jitter ? 1u : 0u;
     params.size = {width, height};
     params.sample_index = static_cast<std::uint32_t>(s.samples);
     params.samples_per_frame = std::max(1u, settings.samples_per_frame);

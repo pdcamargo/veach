@@ -31,6 +31,9 @@ struct Params {
     float emissive_total_weight;  ///< sum of area x weight over every emissive triangle
     uint mode;  ///< PathTracer.mode: 0 full, 1 direct (first-bounce lights only, no sky), 2 AO debug view
     DescriptorHandle<RWStructuredBuffer<uint>> diagnostics;  ///< [0] lost history, [1] non-finite samples; never reset
+    uint jitter;  ///< 1: rays spread over the pixel (anti-aliased); 0: through its center, as the real-time renderer
+    uint pad0;
+    uint2 pad1;
 };
 [[vk::push_constant]] ConstantBuffer<Params> params;
 
@@ -139,7 +142,8 @@ void trace_pixels(uint3 id : SV_DispatchThreadID) {
     for (uint k = 0; k < params.samples_per_frame; ++k) {
         const uint sample = params.sample_index + k;
         Rng rng = { pcg(id.x + pcg(id.y + pcg(sample))) };
-        const float2 jitter = float2(rng.next(), rng.next());
+        const float2 u = float2(rng.next(), rng.next());
+        const float2 jitter = params.jitter != 0 ? u : float2(0.5, 0.5);
         const float2 ndc = float2((float(id.x) + jitter.x) / float(params.size.x) * 2.0 - 1.0,
                                   1.0 - (float(id.y) + jitter.y) / float(params.size.y) * 2.0);
         const float3 near_point = unproject(ndc, 1.0);  // reverse-Z: the near plane is depth 1

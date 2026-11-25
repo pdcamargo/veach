@@ -70,6 +70,7 @@ struct PathTracer {
     std::uint32_t max_bounces = 8;
     math::vec3 sky{0.0f};    ///< radiance of every ray that escapes, nits
     std::uint32_t mode = 0;  ///< path_tracer_mode: 0 full, 1 direct, 2 ao (debug view)
+    bool jitter = true;      ///< false: one ray per pixel center, no anti-aliasing (comparisons with real time)
 };
 
 }  // namespace veach

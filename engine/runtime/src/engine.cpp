@@ -214,6 +214,17 @@ Result<> Engine::init() {
             scripts_ = std::make_unique<ScriptRuntime>(*world_);
             assets_->add_loader(std::make_unique<ScriptLoader>());
             services_.provide<ScriptRuntime>(*scripts_);
+            // A reloaded script that already ran runs again as if fresh (docs/specs/hot-reload/spec.md).
+            assets_->on_reloaded([this](AssetId, AssetTypeKey type, const void* data) -> Result<> {
+                if (type != asset_type_key<ScriptAsset>() || !scripts_) {
+                    return {};
+                }
+                auto reloaded = scripts_->reload(*static_cast<const ScriptAsset*>(data));
+                if (!reloaded) {
+                    log::error("script", reloaded.error());
+                }
+                return reloaded;
+            });
             return std::string("luau");
         },
         [this] {
@@ -347,6 +358,14 @@ bool Engine::frame() {
         steps = fixed_.advance(frame_delta);
     }
 
+    if (!project.headless && project.hot_reload) {
+        const double now = clock::now_seconds();
+        if (now - last_reload_poll_ >= 0.25) {
+            last_reload_poll_ = now;
+            static_cast<void>(hot_reload());
+        }
+    }
+
     ++frame_;
     world_->get_mut<Time>().frame = frame_;
     if (!config_.screenshot.empty() && frame_ == project.frames) {
@@ -398,6 +417,14 @@ bool Engine::step(std::uint64_t count) {
         }
     }
     return true;
+}
+
+std::vector<ReloadResult> Engine::hot_reload(std::optional<std::string_view> path) {
+    VEACH_ZONE("hot reload");
+    if (path) {
+        return {assets_->reload(*path)};
+    }
+    return assets_->reload_changed();
 }
 
 void Engine::render_frame() {

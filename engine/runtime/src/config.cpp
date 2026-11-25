@@ -231,7 +231,8 @@ void register_config_types(World& world) {
         .member(&ProjectConfig::log_level, "log_level")
         .member(&ProjectConfig::rhi, "rhi")
         .member(&ProjectConfig::frames_in_flight, "frames_in_flight")
-        .member(&ProjectConfig::rest, "rest");
+        .member(&ProjectConfig::rest, "rest")
+        .member(&ProjectConfig::hot_reload, "hot_reload");
 }
 
 Result<> load_project_file(const std::filesystem::path& file, ProjectConfig& config) {

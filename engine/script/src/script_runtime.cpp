@@ -82,6 +82,7 @@ struct ComponentInfo {
 
 struct ScriptSystem {
     std::string name;
+    std::string owner;  ///< chunk name of the script that defined it
     PhaseId phase = PhaseId::simulation;
     std::vector<const ComponentInfo*> components;
     int fn_ref = 0;
@@ -101,6 +102,9 @@ struct ScriptRuntime::Impl {
     std::vector<int> thread_refs;
     CommandBuffer* active = nullptr;  ///< Buffer of the invocation currently running.
     bool loading = false;             ///< A script's top level is running.
+    std::string reloading;            ///< Chunk being reloaded: its own systems' names may be reused.
+    /// Per script that ran: the entities its top level spawned (despawned when it reloads).
+    std::unordered_map<std::string, std::vector<ecs::entity_t>> spawned_by;
     int dispatcher_ref = 0;
     int entity_metatable_ref = 0;
     int veach_ref = 0;
@@ -456,7 +460,9 @@ struct ScriptRuntime::Impl {
                   did_you_mean(phase_name, names));
         }
         const auto taken = [&](const auto& list) {
-            return std::ranges::any_of(list, [&](const auto& s) { return s->name == name; });
+            return std::ranges::any_of(list, [&](const auto& s) {
+                return s->name == name && (rt.reloading.empty() || s->owner != rt.reloading);
+            });
         };
         if (taken(rt.systems) || taken(rt.pending_systems)) {
             raise(S, ErrorCode::script_duplicate_system, std::format("system '{}' is already defined", name),
@@ -985,7 +991,28 @@ struct ScriptRuntime::Impl {
         cmd.apply();
     }
 
-    Result<> execute(const ScriptAsset& script, std::vector<std::string>* returns = nullptr) {
+    /// Deletes the systems and top-level entities of `chunk` (a reload that succeeded replaces them).
+    void retire_script(const std::string& chunk) {
+        std::erase_if(systems, [&](const std::unique_ptr<ScriptSystem>& s) {
+            if (s->owner != chunk) {
+                return false;
+            }
+            if (ecs_is_alive(world.c_ptr(), s->entity)) {
+                ecs_delete(world.c_ptr(), s->entity);
+            }
+            lua_unref(L, s->fn_ref);
+            return true;
+        });
+        if (const auto it = spawned_by.find(chunk); it != spawned_by.end()) {
+            for (const ecs::entity_t e : it->second) {
+                if (ecs_is_alive(world.c_ptr(), e)) {
+                    ecs_delete(world.c_ptr(), e);
+                }
+            }
+        }
+    }
+
+    Result<> execute(const ScriptAsset& script, std::vector<std::string>* returns = nullptr, bool replace = false) {
         VEACH_ZONE_TEXT("script.execute", script.chunk_name.data(), script.chunk_name.size());
         if (loading) {
             return make_error(ErrorCode::internal, "scripts cannot load other scripts while loading");
@@ -1030,12 +1057,17 @@ struct ScriptRuntime::Impl {
                               std::format("{}: {}", script.chunk_name.substr(1), message),
                               "Nothing from this script was applied: its systems and writes were discarded.");
         }
+        if (replace) {
+            retire_script(script.chunk_name);
+        }
+        spawned_by[script.chunk_name] = cmd.spawned();
         cmd.apply();
         for (auto& system : pending_systems) {
+            system->owner = script.chunk_name;
             activate(std::move(system));
         }
         pending_systems.clear();
-        log::debug("script", "executed {}", script.chunk_name.substr(1));
+        log::debug("script", "{} {}", replace ? "reloaded" : "executed", script.chunk_name.substr(1));
         return {};
     }
 
@@ -1069,6 +1101,20 @@ ScriptRuntime::~ScriptRuntime() {
 
 Result<> ScriptRuntime::execute(const ScriptAsset& script) {
     return impl_->execute(script);
+}
+
+Result<> ScriptRuntime::reload(const ScriptAsset& script) {
+    if (!impl_->spawned_by.contains(script.chunk_name)) {
+        return {};  // never ran: nothing to replace
+    }
+    impl_->reloading = script.chunk_name;
+    auto result = impl_->execute(script, nullptr, true);
+    impl_->reloading.clear();
+    if (result) {
+        log::info("script", "reloaded {} ({} systems)", script.chunk_name.substr(1),
+                  std::ranges::count_if(impl_->systems, [&](const auto& s) { return s->owner == script.chunk_name; }));
+    }
+    return result;
 }
 
 Result<> ScriptRuntime::execute_source(std::string_view source, std::string_view chunk_name) {

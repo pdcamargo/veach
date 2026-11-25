@@ -34,6 +34,12 @@ public:
     /// systems it defines, and its world writes, take effect only if it succeeds.
     [[nodiscard]] Result<> execute(const ScriptAsset& script);
 
+    /// Hot reload (docs/specs/hot-reload/spec.md): runs a new version of a script that already ran, as if fresh.
+    /// If it succeeds, the old version's systems are replaced (by name) and the entities its top level spawned
+    /// are despawned, then the new top level's writes apply. If it fails, nothing changes. A script that never
+    /// ran is left alone.
+    [[nodiscard]] Result<> reload(const ScriptAsset& script);
+
     /// Runs Luau source directly (tests, tools, future MCP eval). Same transaction rules.
     [[nodiscard]] Result<> execute_source(std::string_view source, std::string_view chunk_name);
 

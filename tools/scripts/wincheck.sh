@@ -31,7 +31,7 @@ done
 for file in "$@"; do
     "$clang_cl" --target=x86_64-pc-windows-msvc -fms-compatibility-version=19.44 /std:c++latest /EHsc /W4 /WX \
         /permissive- -fsyntax-only -Wno-unused-command-line-argument -Wno-microsoft-include \
-        -Wno-nonportable-include-path -Wno-unknown-pragmas \
+        -Wno-nonportable-include-path -Wno-unknown-pragmas -Wno-missing-designated-field-initializers \
         /imsvc "$xwin/crt/include" /imsvc "$xwin/sdk/include/ucrt" /imsvc "$xwin/sdk/include/um" \
         /imsvc "$xwin/sdk/include/shared" /imsvc "$xwin/sdk/include/winrt" \
         /I "$agility/build/native/include" "${includes[@]}" \

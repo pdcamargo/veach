@@ -58,7 +58,8 @@ claude mcp add veach-lab -- build/debug/apps/lab/veach-lab --mcp --headless --rh
 ```
 
 Headless sessions are deterministic: nothing moves until you call `step_frames`. Press keys with `send_input`
-(they drive the actions bound in `veach.project.json`). Drop `--headless` to poke at a
+(they drive the actions bound in `veach.project.json`). After editing a script or asset, call `reload` (headless
+runs never reload by themselves; windowed runs do, every 250 ms), then `list_assets` to see errors. Drop `--headless` to poke at a
 running window. Look at screenshots you take; a successful call is not a correct image.
 
 ## Rules that are easy to get wrong

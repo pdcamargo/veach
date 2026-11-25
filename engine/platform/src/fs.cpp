@@ -47,4 +47,17 @@ bool exists(const Path& path) {
     return std::filesystem::exists(path, ec);
 }
 
+std::optional<FileStamp> stamp(const Path& path) {
+    std::error_code ec;
+    const auto time = std::filesystem::last_write_time(path, ec);
+    if (ec) {
+        return std::nullopt;
+    }
+    const auto size = std::filesystem::file_size(path, ec);
+    if (ec) {
+        return std::nullopt;
+    }
+    return FileStamp{time, size};
+}
+
 }  // namespace veach::fs

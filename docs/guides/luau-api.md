@@ -190,6 +190,15 @@ end)
 Changing `Window` changes the real OS window ([platform-and-windows](../specs/platform-and-windows/spec.md)).
 Enums are their constant names as strings.
 
+## Hot reload
+
+A windowed run reloads changed scripts every 250 ms (`"hot_reload": false` in `veach.project.json` turns it
+off); a headless run reloads when asked (MCP `reload`). A reloaded script runs again **as if fresh**: its
+systems are replaced by name, and the entities its top level spawned are despawned and spawned again, so state
+kept on them resets. Entities your systems spawned later are kept. If the new version fails (syntax or
+runtime error), nothing changes and the old version keeps running. Changing a `veach.component`'s fields needs
+a restart. Spec: [hot-reload](../specs/hot-reload/spec.md).
+
 ## Semantics
 
 - **Transactions.** Every *invocation* — running a script's top level, or one run of one

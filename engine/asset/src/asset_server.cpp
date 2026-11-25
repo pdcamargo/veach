@@ -7,6 +7,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <format>
 
@@ -42,7 +43,7 @@ const AssetLoader* AssetServer::find_loader(const fs::Path& path) const {
 AssetId AssetServer::fail(const fs::Path& path, AssetTypeKey type, Error error) {
     log::error("asset", error);
     const AssetId id = AssetId::generate();  // transient: failed assets have no stable identity
-    entries_.emplace(id, Entry{path, type, AssetState::failed, nullptr, std::move(error)});
+    entries_.emplace(id, Entry{.path = path, .type = type, .state = AssetState::failed, .error = std::move(error)});
     return id;
 }
 
@@ -114,13 +115,14 @@ AssetId AssetServer::load_erased(std::string_view path_text, AssetTypeKey type) 
     }
     const AssetId id = *AssetId::parse(meta->id);
 
+    const auto stamp = fs::stamp(absolute);  // before reading: a write during the read shows up next poll
     auto bytes = fs::read_file(absolute);
     if (!bytes) {
         return fail(path, type, bytes.error());
     }
     auto data = loader->load_erased(LoadContext{id, path, absolute, *bytes});
 
-    Entry entry{path, type, AssetState::loaded, nullptr, std::nullopt};
+    Entry entry{.path = path, .type = type, .state = AssetState::loaded, .loader = loader, .stamp = stamp};
     if (data) {
         entry.data = std::move(*data);
         log::debug("asset", "loaded '{}' ({}, id {})", key, loader->name(), meta->id);
@@ -154,6 +156,81 @@ const Error* AssetServer::error(AssetId id) const {
         return &unknown;
     }
     return it->second.error ? &*it->second.error : nullptr;
+}
+
+ReloadResult AssetServer::reload_entry(AssetId id, Entry& entry) {
+    VEACH_ZONE("AssetServer::reload");
+    ReloadResult result{.id = id, .path = entry.path};
+    const std::string key = entry.path.generic_string();
+    const fs::Path absolute = root_ / entry.path;
+    entry.stamp = fs::stamp(absolute);
+    auto bytes = fs::read_file(absolute);
+    auto data = bytes ? entry.loader->load_erased(LoadContext{id, entry.path, absolute, *bytes})
+                      : Result<std::shared_ptr<const void>>(std::unexpected(bytes.error()));
+    if (!data) {
+        log::error("asset", Error{data.error().code, std::format("reloading '{}': {}", key, data.error().message),
+                                  "The previous version stays in use until the file loads again."});
+        entry.reload_error = data.error();
+        result.error = std::move(data.error());
+        return result;
+    }
+    entry.data = std::move(*data);
+    entry.state = AssetState::loaded;
+    entry.error.reset();
+    entry.reload_error.reset();
+    ++entry.reloads;
+    result.reloaded = true;
+    log::info("asset", "reloaded '{}' (reload {})", key, entry.reloads);
+    for (const ReloadListener& listener : listeners_) {
+        if (auto applied = listener(id, entry.type, entry.data.get()); !applied) {
+            entry.reload_error = applied.error();
+            result.error = std::move(applied.error());
+            break;
+        }
+    }
+    return result;
+}
+
+ReloadResult AssetServer::reload(std::string_view path_text) {
+    const std::string key = fs::Path(path_text).lexically_normal().generic_string();
+    const auto it = by_path_.find(key);
+    if (it == by_path_.end()) {
+        std::vector<std::string> loaded;
+        for (const auto& [p, id] : by_path_) {
+            loaded.push_back(p);
+        }
+        return {.path = key,
+                .error = Error{ErrorCode::asset_not_found, std::format("'{}' is not a loaded asset", key),
+                               did_you_mean(key, loaded)}};
+    }
+    return reload_entry(it->second, entries_.at(it->second));
+}
+
+std::vector<ReloadResult> AssetServer::reload_changed() {
+    std::vector<ReloadResult> results;
+    for (const auto& [key, id] : by_path_) {
+        Entry& entry = entries_.at(id);
+        if (entry.loader != nullptr && fs::stamp(root_ / entry.path) != entry.stamp) {
+            results.push_back(reload_entry(id, entry));
+        }
+    }
+    return results;
+}
+
+std::vector<AssetInfo> AssetServer::list() const {
+    std::vector<AssetInfo> out;
+    for (const auto& [key, id] : by_path_) {
+        const Entry& e = entries_.at(id);
+        out.push_back({.id = id,
+                       .path = e.path,
+                       .loader = e.loader ? std::string(e.loader->name()) : std::string(),
+                       .state = e.state,
+                       .reloads = e.reloads,
+                       .error = e.error,
+                       .reload_error = e.reload_error});
+    }
+    std::ranges::sort(out, {}, [](const AssetInfo& a) { return a.path.generic_string(); });
+    return out;
 }
 
 std::optional<fs::Path> AssetServer::path(AssetId id) const {

@@ -16,6 +16,16 @@ Entity CommandBuffer::spawn(std::string name, ecs::entity_t parent) {
     return entity;
 }
 
+std::vector<ecs::entity_t> CommandBuffer::spawned() const {
+    std::vector<ecs::entity_t> out;
+    for (const Command& command : commands_) {
+        if (const auto* spawn = std::get_if<Spawn>(&command)) {
+            out.push_back(spawn->entity);
+        }
+    }
+    return out;
+}
+
 void CommandBuffer::despawn(Entity entity) {
     commands_.emplace_back(Despawn{entity.id()});
 }

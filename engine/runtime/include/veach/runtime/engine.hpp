@@ -13,6 +13,7 @@
 // Init order:    core -> platform -> ecs -> assets -> script -> rhi -> render -> modules
 // Shutdown:      the exact reverse, each step undone by RAII.
 
+#include <veach/asset/asset_server.hpp>
 #include <veach/core/error.hpp>
 #include <veach/core/time.hpp>
 #include <veach/ecs/module.hpp>
@@ -28,6 +29,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace veach {
@@ -76,6 +78,10 @@ public:
     bool step(std::uint64_t count);
     /// Runs only PreExtract, Extract and Render: draws the current state without advancing simulation.
     void render_frame();
+    /// Hot reload (docs/specs/hot-reload/spec.md): reloads `path`, or every asset whose file changed, between
+    /// frames. Windowed runs call it themselves every 250 ms when the project's `hot_reload` is on; headless
+    /// runs only through this call (MCP `reload`), so they stay deterministic.
+    std::vector<ReloadResult> hot_reload(std::optional<std::string_view> path = std::nullopt);
     void shutdown();
 
     [[nodiscard]] World& world();
@@ -113,6 +119,7 @@ private:
     std::uint64_t frame_ = 0;
     std::uint64_t fixed_steps_ = 0;
     double last_frame_time_ = 0.0;
+    double last_reload_poll_ = 0.0;
     std::atomic<std::uint64_t> errors_{0};  ///< GPU errors are logged from Metal's completion thread
     rhi::SurfaceId surface_;
     std::uint32_t error_sink_ = 0;

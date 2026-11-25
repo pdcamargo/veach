@@ -245,6 +245,16 @@ json McpServer::tools() const {
              {{"type", "object"},
               {"properties", {{"key", {{"type", "string"}, {"enum", keys}}}, {"down", {{"type", "boolean"}}}}},
               {"required", {"key", "down"}}}));
+    list.push_back(tool("reload",
+                        "Hot reload: reload 'path' (a loaded asset, e.g. \"scripts/main.luau\"), or every asset whose "
+                        "file changed. A script that already ran runs again as if fresh: its systems are replaced "
+                        "and the entities its top level spawned are respawned; if it fails, nothing changes. "
+                        "Returns what reloaded and any errors.",
+                        {{"type", "object"}, {"properties", {{"path", {{"type", "string"}}}}}}));
+    list.push_back(tool("list_assets",
+                        "Every loaded asset: path, id, loader, state, how many times it reloaded, and the last "
+                        "load or reload error.",
+                        {{"type", "object"}, {"properties", json::object()}}));
     list.push_back(tool("screenshot",
                         "Render the current state (without advancing simulation) and return it as a PNG. Needs a "
                         "GPU backend (--rhi metal). Optionally also write it to 'path'.",
@@ -413,6 +423,49 @@ json McpServer::call_tool(std::string_view name, const json& arguments) {
         engine_.services().get<Platform>().inject(
             {.type = down ? PlatformEvent::Type::key_down : PlatformEvent::Type::key_up, .key = key});
         return json_result({{"key", key_name}, {"down", down}, {"delivered", "with the next frame"}});
+    }
+
+    if (name == "reload") {
+        std::optional<std::string> path;
+        if (arguments.contains("path")) {
+            path = require_string(arguments, "path");
+        }
+        const std::vector<ReloadResult> results =
+            engine_.hot_reload(path ? std::optional<std::string_view>(*path) : std::nullopt);
+        if (path && results.size() == 1 && !results[0].reloaded && results[0].error &&
+            results[0].error->code == ErrorCode::asset_not_found) {
+            throw ToolError{*results[0].error};  // not a loaded asset: a usage error, with a did-you-mean
+        }
+        json out = json::array();
+        for (const ReloadResult& r : results) {
+            json entry = {{"path", r.path.generic_string()}, {"id", r.id.to_string()}, {"reloaded", r.reloaded}};
+            if (r.error) {
+                entry["error"] = r.error->to_string();
+            }
+            out.push_back(std::move(entry));
+        }
+        return json_result({{"reloaded", out}});
+    }
+
+    if (name == "list_assets") {
+        json assets = json::array();
+        for (const AssetInfo& a : engine_.services().get<AssetServer>().list()) {
+            json entry = {{"path", a.path.generic_string()},
+                          {"id", a.id.to_string()},
+                          {"loader", a.loader},
+                          {"state", a.state == AssetState::loaded   ? "loaded"
+                                    : a.state == AssetState::failed ? "failed"
+                                                                    : "loading"},
+                          {"reloads", a.reloads}};
+            if (a.error) {
+                entry["error"] = a.error->to_string();
+            }
+            if (a.reload_error) {
+                entry["reload_error"] = a.reload_error->to_string();
+            }
+            assets.push_back(std::move(entry));
+        }
+        return json_result({{"assets", assets}});
     }
 
     if (name == "screenshot") {

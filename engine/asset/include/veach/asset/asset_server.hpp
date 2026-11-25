@@ -18,6 +18,7 @@
 #include <veach/platform/fs.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -34,6 +35,25 @@ struct AssetMeta {
     std::uint32_t version = 1;
     std::string id;      ///< AssetId as a UUID string. Never edit by hand.
     std::string loader;  ///< Loader that imports the asset, e.g. "luau-script".
+};
+
+/// One asset, as list() reports it.
+struct AssetInfo {
+    AssetId id;
+    fs::Path path;
+    std::string loader;
+    AssetState state = AssetState::loading;
+    std::uint32_t reloads = 0;          ///< successful reloads so far
+    std::optional<Error> error;         ///< the initial load's error
+    std::optional<Error> reload_error;  ///< the last reload's error, cleared by the next successful one
+};
+
+/// What one reload did.
+struct ReloadResult {
+    AssetId id;
+    fs::Path path;
+    bool reloaded = false;  ///< the new data is in place (listeners may still have failed: see error)
+    std::optional<Error> error;
 };
 
 /// Registers AssetMeta reflection. Imported by the engine.
@@ -77,6 +97,19 @@ public:
     [[nodiscard]] const fs::Path& root() const { return root_; }
     [[nodiscard]] std::size_t count() const { return entries_.size(); }
 
+    // ---- hot reload (docs/specs/hot-reload/spec.md)
+
+    /// Reloads the asset at `path` now, changed or not. The id and every handle stay the same; pointers from
+    /// get() are invalid afterwards, so keep handles, not pointers. If loading fails, the old data stays.
+    ReloadResult reload(std::string_view path);
+    /// Reloads every loaded asset whose file changed (write time or size) since it was last read.
+    std::vector<ReloadResult> reload_changed();
+    /// Called after an asset's new data is in place, e.g. to re-run a script. A failure is reported in the
+    /// ReloadResult and logged; the new data stays.
+    using ReloadListener = std::function<Result<>(AssetId id, AssetTypeKey type, const void* data)>;
+    void on_reloaded(ReloadListener listener) { listeners_.push_back(std::move(listener)); }
+    [[nodiscard]] std::vector<AssetInfo> list() const;
+
     /// Reads `<path>.meta`, creating it with a fresh id if it does not exist.
     [[nodiscard]] Result<AssetMeta> read_or_create_meta(const fs::Path& relative_path, std::string_view loader_name);
 
@@ -87,7 +120,13 @@ private:
         AssetState state = AssetState::loading;
         std::shared_ptr<const void> data;
         std::optional<Error> error;
+        const AssetLoader* loader = nullptr;
+        std::optional<fs::FileStamp> stamp;  ///< the file as last read
+        std::uint32_t reloads = 0;
+        std::optional<Error> reload_error;
     };
+
+    ReloadResult reload_entry(AssetId id, Entry& entry);
 
     AssetId load_erased(std::string_view path, AssetTypeKey type);
     [[nodiscard]] const void* get_erased(AssetId id, AssetTypeKey type) const;
@@ -99,6 +138,7 @@ private:
     std::vector<std::unique_ptr<AssetLoader>> loaders_;
     std::unordered_map<AssetId, Entry> entries_;
     std::unordered_map<std::string, AssetId> by_path_;
+    std::vector<ReloadListener> listeners_;
 };
 
 }  // namespace veach

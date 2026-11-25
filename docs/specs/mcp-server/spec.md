@@ -49,6 +49,8 @@ veach-lab --mcp --rhi metal                      # windowed: the app keeps runni
 | `set_component` | `entity`, `component`, `value` (any subset of fields) | the new value |
 | `spawn_entity` | `name?`, `components?: {Component: value}` | `{id, name, components}` |
 | `step_frames` | `count?` (default 1) | `{frame, fixed_step, elapsed, running}` |
+| `reload` | `path?` | `{reloaded: [{path, id, reloaded, error?}]}`: hot reload ([hot-reload](../hot-reload/spec.md)) |
+| `list_assets` | | `{assets: [{path, id, loader, state, reloads, error?, reload_error?}]}` |
 | `send_input` | `key` (a `veach::Key` name), `down` | `{key, down, delivered}`; the event drives input actions on the next frame ([input](../input/spec.md)) |
 | `screenshot` | `path?` (also write the PNG there) | image content (PNG) and a text note |
 | `render_graph_plan` | | the last compiled plan as text (`RenderGraph::describe`) |

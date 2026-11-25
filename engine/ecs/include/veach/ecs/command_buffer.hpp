@@ -62,6 +62,8 @@ public:
     void discard();
 
     [[nodiscard]] std::size_t size() const { return commands_.size(); }
+    /// Ids of the entities this buffer spawns, in recording order.
+    [[nodiscard]] std::vector<ecs::entity_t> spawned() const;
     [[nodiscard]] bool empty() const { return commands_.empty(); }
 
 private:

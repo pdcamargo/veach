@@ -19,6 +19,10 @@
       "default": false,
       "type": "boolean"
     },
+    "hot_reload": {
+      "default": true,
+      "type": "boolean"
+    },
     "input": {
       "additionalProperties": {
         "items": {

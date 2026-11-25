@@ -4,8 +4,10 @@
   python3 tests/mcp/test_mcp_lab.py --lab <veach-lab> protocol
   python3 tests/mcp/test_mcp_lab.py --lab <veach-lab> --imgdiff <veach> --golden <png> --out <png> golden
   python3 tests/mcp/test_mcp_lab.py --lab <veach-lab> fly
+  python3 tests/mcp/test_mcp_lab.py --lab <veach-lab> reload
 
-`protocol` and `fly` (the input spec's fly camera, input.AC5) run on the null RHI anywhere. `golden` needs Metal 3 + ray tracing; on other GPUs it prints
+`protocol`, `fly` (the input spec's fly camera, input.AC5) and `reload` (hot reload, reload.AC5) run on the
+null RHI anywhere. `golden` needs Metal 3 + ray tracing; on other GPUs it prints
 VEACH_GPU_UNAVAILABLE (CTest: skipped) unless VEACH_REQUIRE_GPU=1, which makes that a failure.
 """
 
@@ -15,8 +17,10 @@ import argparse
 import base64
 import json
 import os
+import pathlib
 import subprocess
 import sys
+import tempfile
 import threading
 
 
@@ -148,6 +152,54 @@ def fly(lab: str) -> None:
     check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
 
 
+COUNTER_SCRIPT = '''--!strict
+local veach = require("@veach")
+local Counter = veach.component("Counter", {{ value = 0 }})
+veach.spawn("counter"):set(Counter, {{ value = 0 }})
+veach.system("Count", "Simulation", veach.query(Counter), function(e, c)
+	e:set(Counter, {{ value = c.value + {step} }})
+end)
+'''
+
+
+def reload(lab: str) -> None:
+    with tempfile.TemporaryDirectory(prefix="veach-reload-") as tmp:
+        project = pathlib.Path(tmp)
+        (project / "veach.project.json").write_text('{"name": "reload"}\n')
+        script = project / "main.luau"
+        script.write_text(COUNTER_SCRIPT.format(step=1))
+        client = McpClient([lab, "--mcp", "--headless", "--project", str(project), "--script", "main.luau"])
+        client.initialize()
+
+        def value() -> float:
+            return client.call_json("get_component", entity="counter", component="Counter")["value"]
+
+        client.call_json("step_frames", count=2)
+        check(value() == 2, "[reload.AC5] v1 counts by 1")
+
+        script.write_text(COUNTER_SCRIPT.format(step=10) + "-- edited\n")
+        result = client.call_json("reload")["reloaded"]
+        check(len(result) == 1 and result[0]["path"] == "main.luau" and result[0]["reloaded"]
+              and "error" not in result[0], f"[reload.AC5] reload picks up the edited script ({result})")
+        client.call_json("step_frames", count=1)
+        check(value() == 10, "[reload.AC5] after the reload the script runs fresh: a new counter, counting by 10")
+
+        script.write_text(COUNTER_SCRIPT.format(step=10) + "error('broken edit')\n")
+        result = client.call_json("reload", path="main.luau")["reloaded"]
+        check(not result[0]["reloaded"] or "error" in result[0], "[reload.AC5] a broken edit is reported")
+        check("broken edit" in result[0].get("error", ""), "[reload.AC5] the error says why")
+        assets = {a["path"]: a for a in client.call_json("list_assets")["assets"]}
+        check(assets["main.luau"]["reloads"] == 2 and "broken edit" in assets["main.luau"].get("reload_error", ""),
+              f"[reload.AC5] list_assets shows the reloads and the last error ({assets['main.luau']})")
+        client.call_json("step_frames", count=1)
+        check(value() == 20, "[reload.AC5] the previous version keeps running")
+
+        missing = client.call("reload", path="mian.luau")
+        check(missing.get("isError") and "Did you mean 'main.luau'?" in missing["content"][0]["text"],
+              "[reload.AC5] an unknown path is an error with a suggestion")
+        client.close()
+
+
 def golden(lab: str, imgdiff: str, golden_path: str, out: str, rhi: str) -> None:
     client = McpClient([lab, "--mcp", "--headless", "--rhi", rhi])
     try:
@@ -182,12 +234,14 @@ def main() -> int:
     parser.add_argument("--golden")
     parser.add_argument("--out")
     parser.add_argument("--rhi", default="metal")
-    parser.add_argument("mode", choices=["protocol", "golden", "fly"])
+    parser.add_argument("mode", choices=["protocol", "golden", "fly", "reload"])
     args = parser.parse_args()
     if args.mode == "protocol":
         protocol(args.lab)
     elif args.mode == "fly":
         fly(args.lab)
+    elif args.mode == "reload":
+        reload(args.lab)
     else:
         golden(args.lab, args.imgdiff, args.golden, args.out, args.rhi)
     return 0

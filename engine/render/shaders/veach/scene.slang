@@ -8,7 +8,7 @@ import veach.material;
 import veach.materials_generated;  // evaluateSurface(kind, c), evaluateAlpha(kind, c)
 import veach.random;
 
-/// Mirrors render::InstanceRecord: 128 bytes per TLAS instance.
+/// Mirrors render::InstanceRecord: 160 bytes per instance.
 struct InstanceRecord {
     DescriptorHandle<StructuredBuffer<float>> vertices;  ///< 12 floats per vertex: position, normal, tangent, uv
     DescriptorHandle<StructuredBuffer<uint>> indices;
@@ -17,6 +17,13 @@ struct InstanceRecord {
     uint flags;                                         ///< instance_has_alpha
     float4 object_to_world[3];  ///< rows of a 3x4 matrix
     float4 normal_to_world[3];  ///< rows of the inverse transpose
+    // Meshlets (ADR 0037): 8 uints per meshlet (offsets, counts, slot, lod, parent, flags), a mesh vertex index
+    // per meshlet vertex, 3 local vertex indices packed per triangle.
+    DescriptorHandle<StructuredBuffer<uint>> meshlets;
+    DescriptorHandle<StructuredBuffer<uint>> meshlet_vertices;
+    DescriptorHandle<StructuredBuffer<uint>> meshlet_triangles;
+    uint meshlet_count;
+    uint pad;
 };
 
 static const uint instance_has_alpha = 1;  ///< some slot is alpha-masked or blended
@@ -99,12 +106,50 @@ struct TriangleHit {
     bool front;  ///< the ray hit the side the vertex winding faces
 };
 
-/// The surface at barycentrics (u, v) of a triangle, seen from `view_origin`.
+/// A triangle by its mesh vertex indices and material slot: what a ray hit (index buffer) or a visibility-buffer
+/// pixel (meshlet) names.
+struct TriangleRef {
+    uint3 vertices;
+    uint slot;
+};
+
+TriangleRef triangle_of(InstanceRecord inst, uint primitive) {
+    TriangleRef t;
+    t.vertices = uint3(vertex_index(inst, primitive * 3), vertex_index(inst, primitive * 3 + 1),
+                       vertex_index(inst, primitive * 3 + 2));
+    t.slot = slot_of(inst, primitive);
+    return t;
+}
+
+TriangleRef meshlet_triangle(InstanceRecord inst, uint meshlet, uint triangle) {
+    const uint vertex_offset = nonuniform(inst.meshlets)[meshlet * 8];
+    const uint triangle_offset = nonuniform(inst.meshlets)[meshlet * 8 + 1];
+    const uint packed = nonuniform(inst.meshlet_triangles)[triangle_offset + triangle];
+    TriangleRef t;
+    t.vertices = uint3(nonuniform(inst.meshlet_vertices)[vertex_offset + (packed & 0xFFu)],
+                       nonuniform(inst.meshlet_vertices)[vertex_offset + ((packed >> 8) & 0xFFu)],
+                       nonuniform(inst.meshlet_vertices)[vertex_offset + ((packed >> 16) & 0xFFu)]);
+    t.slot = nonuniform(inst.meshlets)[meshlet * 8 + 4];
+    return t;
+}
+
+/// Object-space positions of a triangle's corners.
+float3x3 triangle_positions(InstanceRecord inst, TriangleRef t) {
+    return float3x3(fetch(inst, t.vertices.x).position, fetch(inst, t.vertices.y).position,
+                    fetch(inst, t.vertices.z).position);
+}
+
 TriangleHit surface_at(uint instance_index, uint primitive, float2 bary, float3 view_origin) {
     const InstanceRecord inst = veach_scene.instances[instance_index];
-    const Corner c0 = fetch(inst, vertex_index(inst, primitive * 3));
-    const Corner c1 = fetch(inst, vertex_index(inst, primitive * 3 + 1));
-    const Corner c2 = fetch(inst, vertex_index(inst, primitive * 3 + 2));
+    return surface_of(inst, triangle_of(inst, primitive), bary, view_origin);
+}
+
+/// The surface at barycentrics (u, v) of a triangle, seen from `view_origin`. UV gradients are zero (mip 0); the
+/// real-time renderer sets them from neighboring pixels.
+TriangleHit surface_of(InstanceRecord inst, TriangleRef tri, float2 bary, float3 view_origin) {
+    const Corner c0 = fetch(inst, tri.vertices.x);
+    const Corner c1 = fetch(inst, tri.vertices.y);
+    const Corner c2 = fetch(inst, tri.vertices.z);
     const float3 w = float3(1.0 - bary.x - bary.y, bary.x, bary.y);
     const float3 p0 = to_world(inst.object_to_world, c0.position, 1.0);
     const float3 p1 = to_world(inst.object_to_world, c1.position, 1.0);
@@ -119,6 +164,8 @@ TriangleHit surface_at(uint instance_index, uint primitive, float2 bary, float3 
     const float4 t = c0.tangent * w.x + c1.tangent * w.y + c2.tangent * w.z;
     hit.surface.tangent = float4(to_world(inst.object_to_world, t.xyz, 0.0), t.w);
     hit.surface.uv = c0.uv * w.x + c1.uv * w.y + c2.uv * w.z;
+    hit.surface.uv_dx = float2(0.0, 0.0);
+    hit.surface.uv_dy = float2(0.0, 0.0);
     // Every surface is two-sided for the path tracer; `front` remembers which side was hit (emission is one-sided).
     hit.front = dot(geometric, hit.surface.view) >= 0.0;
     if (!hit.front) {
@@ -127,7 +174,7 @@ TriangleHit surface_at(uint instance_index, uint primitive, float2 bary, float3 
     }
     hit.surface.geometric_normal = geometric;
     hit.surface.normal = normal;
-    hit.material = veach_scene.materials[inst.material_base + slot_of(inst, primitive)];
+    hit.material = veach_scene.materials[inst.material_base + tri.slot];
     return hit;
 }
 

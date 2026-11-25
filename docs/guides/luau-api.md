@@ -164,7 +164,9 @@ C++ components tagged `veach::Scriptable` (all fields Luau-representable). The e
 
 - `Window` (`title`, `width`, `height`, `mode: "windowed" | "fullscreen"`, `vsync`)
 - `Transform` (`translation: vector`, `rotation: { x, y, z, w }` quaternion, `scale: vector`)
-- `Camera` (`fov_y` radians, `near_plane` meters, `active`, `ev100` exposure); see [render-views](../specs/render-views/spec.md)
+- `Camera` (`fov_y` radians, `near_plane` meters, `active`, `ev100` exposure, or 0 to derive it from `aperture`
+  f-number, `shutter` seconds and `iso`); see [render-views](../specs/render-views/spec.md) and
+  [ADR 0038](../adr/0038-exposure-and-tonemapping.md)
 - `SceneInstance` (`path` of a glTF asset): spawns the scene as children
 - `DirectionalLight` (`color`, `illuminance` lux), `PointLight` (`color`, `intensity` cd), `SpotLight` (`color`,
   `intensity`, `inner_angle`, `outer_angle`)

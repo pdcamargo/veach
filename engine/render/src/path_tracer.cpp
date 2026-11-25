@@ -41,8 +41,13 @@ struct InstanceRecord {
     std::uint32_t flags = 0;
     std::array<math::vec4, 3> object_to_world{};
     std::array<math::vec4, 3> normal_to_world{};
+    rhi::DescriptorHandle meshlets;
+    rhi::DescriptorHandle meshlet_vertices;
+    rhi::DescriptorHandle meshlet_triangles;
+    std::uint32_t meshlet_count = 0;
+    std::uint32_t pad = 0;
 };
-static_assert(sizeof(InstanceRecord) == 128);
+static_assert(sizeof(InstanceRecord) == 160);
 
 /// Mirrors LightRecord.
 struct LightRecord {
@@ -70,7 +75,6 @@ struct alignas(16) PathTraceParams {
     math::mat4 inverse_view_projection;
     math::vec4 camera_position_exposure;
     math::vec4 sky_bounces;
-    rhi::DescriptorHandle output;
     rhi::DescriptorHandle accumulation;
     rhi::DescriptorHandle scene;
     rhi::DescriptorHandle instances;
@@ -89,14 +93,27 @@ struct alignas(16) PathTraceParams {
 static_assert(rhi::parameters_match<PathTraceParams>(
     veach_render_shaders::layout::path_tracer,
     {VEACH_PARAM(PathTraceParams, inverse_view_projection), VEACH_PARAM(PathTraceParams, camera_position_exposure),
-     VEACH_PARAM(PathTraceParams, sky_bounces), VEACH_PARAM(PathTraceParams, output),
-     VEACH_PARAM(PathTraceParams, accumulation), VEACH_PARAM(PathTraceParams, scene),
-     VEACH_PARAM(PathTraceParams, instances), VEACH_PARAM(PathTraceParams, materials),
-     VEACH_PARAM(PathTraceParams, lights), VEACH_PARAM(PathTraceParams, emissive), VEACH_PARAM(PathTraceParams, size),
+     VEACH_PARAM(PathTraceParams, sky_bounces), VEACH_PARAM(PathTraceParams, accumulation),
+     VEACH_PARAM(PathTraceParams, scene), VEACH_PARAM(PathTraceParams, instances),
+     VEACH_PARAM(PathTraceParams, materials), VEACH_PARAM(PathTraceParams, lights),
+     VEACH_PARAM(PathTraceParams, emissive), VEACH_PARAM(PathTraceParams, size),
      VEACH_PARAM(PathTraceParams, sample_index), VEACH_PARAM(PathTraceParams, samples_per_frame),
      VEACH_PARAM(PathTraceParams, light_count), VEACH_PARAM(PathTraceParams, emissive_count),
      VEACH_PARAM(PathTraceParams, emissive_total_weight), VEACH_PARAM(PathTraceParams, mode),
      VEACH_PARAM(PathTraceParams, diagnostics)}));
+
+/// Mirrors Params in shaders/display.slang.
+struct alignas(16) DisplayParams {
+    rhi::DescriptorHandle radiance;
+    rhi::DescriptorHandle output;
+    std::array<std::uint32_t, 2> size{};
+    float exposure = 1.0f;
+    std::uint32_t tonemap = 1;
+};
+static_assert(rhi::parameters_match<DisplayParams>(
+    veach_render_shaders::layout::display,
+    {VEACH_PARAM(DisplayParams, radiance), VEACH_PARAM(DisplayParams, output), VEACH_PARAM(DisplayParams, size),
+     VEACH_PARAM(DisplayParams, exposure), VEACH_PARAM(DisplayParams, tonemap)}));
 
 float luminance(math::vec3 c) {
     return 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z;  // GLM_FORCE_XYZW_ONLY
@@ -145,6 +162,10 @@ struct PathTracerFeature::Impl {
         rhi::BufferHandle vertices;
         rhi::BufferHandle indices;
         rhi::BufferHandle slots;
+        rhi::BufferHandle meshlets;  ///< ADR 0037: Meshlet records, 8 uints each
+        rhi::BufferHandle meshlet_vertices;
+        rhi::BufferHandle meshlet_triangles;
+        std::uint32_t meshlet_count = 0;
         rhi::AccelHandle blas;
         bool built = false;
     };
@@ -158,6 +179,7 @@ struct PathTracerFeature::Impl {
     AssetServer& assets;
     rhi::Device* device = nullptr;
     rhi::PipelineHandle pipeline;
+    rhi::PipelineHandle display_pipeline;
     rhi::SamplerHandle sampler;
     std::unordered_map<AssetId, GpuMesh> meshes;
     std::unordered_map<AssetId, GpuTexture> textures;
@@ -217,6 +239,7 @@ struct PathTracerFeature::Impl {
         destroy_if(tlas);
         destroy_if(accumulation);
         destroy_if(pipeline);
+        destroy_if(display_pipeline);
         destroy_if(sampler);
     }
     Impl(const Impl&) = delete;
@@ -235,6 +258,9 @@ struct PathTracerFeature::Impl {
         destroy_if(m.vertices);
         destroy_if(m.indices);
         destroy_if(m.slots);
+        destroy_if(m.meshlets);
+        destroy_if(m.meshlet_vertices);
+        destroy_if(m.meshlet_triangles);
         destroy_if(m.blas);
     }
     /// Reports what the counters in `r` added since the last check. The frame it holds must have completed.
@@ -248,7 +274,6 @@ struct PathTracerFeature::Impl {
             const std::uint32_t nonfinite = counters[1] - seen[1];
             seen = {counters[0], counters[1]};
             if (lost != 0) {
-                log::warn("render", "DEBUG totals: wrong count {}, negative mean {}", counters[2], counters[3]);
                 log::error("render",
                            Error{ErrorCode::render_history_lost,
                                  std::format("{} path-traced pixels read back something other than the accumulation "
@@ -306,13 +331,30 @@ struct PathTracerFeature::Impl {
         auto slots =
             device->create_buffer({.size = source->triangle_slots.size() * 4, .debug_name = "mesh slots", .stride = 4},
                                   bytes_of(source->triangle_slots));
-        if (!vertices || !indices || !slots) {
+        // Never empty buffers: a mesh without meshlets (an old cook) still gets valid handles.
+        const auto or_one = [](std::size_t size) {
+            return std::max<std::size_t>(size, 16);
+        };
+        auto meshlets = device->create_buffer(
+            {.size = or_one(source->meshlets.size() * sizeof(Meshlet)), .debug_name = "meshlets", .stride = 4},
+            bytes_of(source->meshlets));
+        auto meshlet_vertices = device->create_buffer(
+            {.size = or_one(source->meshlet_vertices.size() * 4), .debug_name = "meshlet vertices", .stride = 4},
+            bytes_of(source->meshlet_vertices));
+        auto meshlet_triangles = device->create_buffer(
+            {.size = or_one(source->meshlet_triangles.size() * 4), .debug_name = "meshlet triangles", .stride = 4},
+            bytes_of(source->meshlet_triangles));
+        if (!vertices || !indices || !slots || !meshlets || !meshlet_vertices || !meshlet_triangles) {
             report("mesh buffers", Error{ErrorCode::rhi_gpu_error, "path tracer: cannot create mesh buffers", {}});
             return nullptr;
         }
         gpu.vertices = *vertices;
         gpu.indices = *indices;
         gpu.slots = *slots;
+        gpu.meshlets = *meshlets;
+        gpu.meshlet_vertices = *meshlet_vertices;
+        gpu.meshlet_triangles = *meshlet_triangles;
+        gpu.meshlet_count = static_cast<std::uint32_t>(source->meshlets.size());
         auto blas =
             device->create_blas({.vertices = gpu.vertices,
                                  .vertex_count = static_cast<std::uint32_t>(source->vertices.size()),
@@ -462,6 +504,11 @@ Result<> PathTracerFeature::prepare(rhi::Device& device) {
         return std::unexpected(pipeline.error());
     }
     s.pipeline = *pipeline;
+    auto display = device.create_compute_pipeline({&veach_render_shaders::display(), "display", {8, 8, 1}, "display"});
+    if (!display) {
+        return std::unexpected(display.error());
+    }
+    s.display_pipeline = *display;
     auto sampler = device.create_sampler({rhi::Filter::linear, rhi::AddressMode::repeat});
     if (!sampler) {
         return std::unexpected(sampler.error());
@@ -522,6 +569,10 @@ void PathTracerFeature::record(RenderGraph& graph, const FrameContext& frame) {
         inst.vertices = s.device->descriptor(mesh->vertices);
         inst.indices = s.device->descriptor(mesh->indices);
         inst.slots = s.device->descriptor(mesh->slots);
+        inst.meshlets = s.device->descriptor(mesh->meshlets);
+        inst.meshlet_vertices = s.device->descriptor(mesh->meshlet_vertices);
+        inst.meshlet_triangles = s.device->descriptor(mesh->meshlet_triangles);
+        inst.meshlet_count = mesh->meshlet_count;
         inst.material_base = static_cast<std::uint32_t>(materials.size());
         for (std::uint32_t slot = 0; slot < mesh->source->slot_count; ++slot) {
             materials.push_back(slot < draw.materials.size() ? s.record_of(draw.materials[slot])
@@ -604,8 +655,9 @@ void PathTracerFeature::record(RenderGraph& graph, const FrameContext& frame) {
     const auto [width, height] = std::pair{frame.width, frame.height};
     if (!s.accumulation.is_valid() || s.width != width || s.height != height) {
         s.destroy_if(s.accumulation);
-        auto texture = s.device->create_texture(
-            {width, height, rhi::Format::rgba32_float, rhi::TextureUsage::storage, "path tracer accumulation"});
+        auto texture = s.device->create_texture({width, height, rhi::Format::rgba32_float,
+                                                 rhi::TextureUsage::storage | rhi::TextureUsage::sampled,
+                                                 "path tracer accumulation"});
         if (!texture) {
             s.report("accumulation", texture.error());
             return;
@@ -709,7 +761,7 @@ void PathTracerFeature::record(RenderGraph& graph, const FrameContext& frame) {
     }
     const GraphResource accumulation =
         graph.import(s.accumulation, "path tracer accumulation",
-                     s.accumulation_written ? rhi::ResourceState::shader_write : rhi::ResourceState::undefined);
+                     s.accumulation_written ? rhi::ResourceState::shader_read : rhi::ResourceState::undefined);
     s.accumulation_written = true;
     // The counters: this slot's last frame has completed (begin_frame waited for it), so its readback is ready.
     const rhi::FrameInfo info = s.device->current_frame();
@@ -751,12 +803,10 @@ void PathTracerFeature::record(RenderGraph& graph, const FrameContext& frame) {
             }
             b.write(accumulation, rhi::ResourceState::shader_write);
             b.write(diagnostics, rhi::ResourceState::shader_write);
-            b.write(frame.scene_color, rhi::ResourceState::shader_write);
         },
-        [params, pipeline = s.pipeline, tlas, accumulation, color = frame.scene_color, instance_buffer, material_buffer,
-         light_buffer, emissive_buffer, diagnostics](PassContext& ctx) mutable {
+        [params, pipeline = s.pipeline, tlas, accumulation, instance_buffer, material_buffer, light_buffer,
+         emissive_buffer, diagnostics](PassContext& ctx) mutable {
             params.diagnostics = ctx.device.descriptor(ctx.buffer(diagnostics), rhi::View::storage);
-            params.output = ctx.device.descriptor(ctx.texture(color), rhi::View::storage);
             params.accumulation = ctx.device.descriptor(ctx.texture(accumulation), rhi::View::storage);
             params.scene = ctx.device.descriptor(ctx.accel(tlas));
             params.instances = ctx.device.descriptor(instance_buffer);
@@ -766,6 +816,26 @@ void PathTracerFeature::record(RenderGraph& graph, const FrameContext& frame) {
             ctx.cmd.set_pipeline(pipeline);
             ctx.cmd.set_parameters(params);
             ctx.cmd.dispatch((params.size[0] + 7) / 8, (params.size[1] + 7) / 8);
+        });
+
+    // The accumulation is the image: exposure and AgX turn it into scene_color (ADR 0038). The AO debug view is
+    // shown as is.
+    DisplayParams display{};
+    display.size = {width, height};
+    display.exposure = view->exposure;
+    display.tonemap = settings.mode == path_tracer_mode::ao ? 0u : 1u;
+    graph.add_compute_pass(
+        "display",
+        [&](PassBuilder& b) {
+            b.read(accumulation);
+            b.write(frame.scene_color, rhi::ResourceState::shader_write);
+        },
+        [display, pipeline = s.display_pipeline, accumulation, color = frame.scene_color](PassContext& ctx) mutable {
+            display.radiance = ctx.device.descriptor(ctx.texture(accumulation));
+            display.output = ctx.device.descriptor(ctx.texture(color), rhi::View::storage);
+            ctx.cmd.set_pipeline(pipeline);
+            ctx.cmd.set_parameters(display);
+            ctx.cmd.dispatch((display.size[0] + 7) / 8, (display.size[1] + 7) / 8);
         });
 
     const GraphResource readback =

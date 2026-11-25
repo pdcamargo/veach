@@ -9,6 +9,7 @@ veach_add_engine_library(render
     PCH <flecs.h>)
 
 veach_add_shader(veach_render shaders/present.slang ENTRIES vs_main:vertex fs_main:fragment)
+veach_add_shader(veach_render shaders/display.slang ENTRIES display:compute)
 # The reference path tracer with StandardMaterial only. Apps with their own materials compile their own copy
 # (veach_add_path_tracer); this one also anchors the C++ parameter layout check (path_tracer.cpp).
 veach_add_shader(veach_render shaders/path_tracer.slang ENTRIES trace_pixels:compute

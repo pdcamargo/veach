@@ -28,17 +28,8 @@ float3 emission_of(TriangleHit hit) {
     return evaluateSurface(hit.material.kind, ctx).emission;
 }
 
-/// A punctual light, picked uniformly: delta, so no MIS. Returns radiance x f x cos / pdf, and the shadow ray.
-float3 sample_punctual(float3 p, Frame frame, Brdf b, float3 v_local, float p_punctual, inout Rng rng,
-                       out float3 l, out float distance) {
-    l = float3(0.0, 0.0, 1.0);
-    distance = 0.0;
-    if (veach_scene.light_count == 0) {
-        return float3(0.0, 0.0, 0.0);
-    }
-    const uint index = min(uint(rng.next() * float(veach_scene.light_count)), veach_scene.light_count - 1);
-    const float select = p_punctual / float(veach_scene.light_count);
-    const LightRecord light = veach_scene.lights[index];
+/// What a punctual light delivers at p, on a surface facing it (lux), and the direction and distance to it.
+float3 punctual_irradiance(LightRecord light, float3 p, out float3 l, out float distance) {
     float3 irradiance = light.radiance.xyz;
     if (light.kind == light_directional) {
         l = -light.direction.xyz;
@@ -54,9 +45,38 @@ float3 sample_punctual(float3 p, Frame frame, Brdf b, float3 v_local, float p_pu
             irradiance *= falloff * falloff;  // KHR_lights_punctual
         }
     }
+    return irradiance;
+}
+
+/// A punctual light, picked uniformly: delta, so no MIS. Returns radiance x f x cos / pdf, and the shadow ray.
+float3 sample_punctual(float3 p, Frame frame, Brdf b, float3 v_local, float p_punctual, inout Rng rng,
+                       out float3 l, out float distance) {
+    l = float3(0.0, 0.0, 1.0);
+    distance = 0.0;
+    if (veach_scene.light_count == 0) {
+        return float3(0.0, 0.0, 0.0);
+    }
+    const uint index = min(uint(rng.next() * float(veach_scene.light_count)), veach_scene.light_count - 1);
+    const float select = p_punctual / float(veach_scene.light_count);
+    const float3 irradiance = punctual_irradiance(veach_scene.lights[index], p, l, distance);
     float bsdf_pdf;
     const float3 f = brdf_eval(b, v_local, frame.to_local(l), bsdf_pdf);
     return irradiance * f / select;
+}
+
+/// The emissive triangle whose CDF interval holds u (binary search).
+uint pick_emissive(float u) {
+    uint lo = 0;
+    uint hi = veach_scene.emissive_count - 1;
+    while (lo < hi) {
+        const uint mid = (lo + hi) / 2;
+        if (veach_scene.emissive[mid].cdf < u) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    return lo;
 }
 
 /// One light sample, MIS-weighted for emissive triangles. Returns radiance x f x cos / pdf. There is one
@@ -69,18 +89,7 @@ float3 sample_light(float3 p, float3 geometric, Frame frame, Brdf b, float3 v_lo
     float distance = 0.0;
     if (pick < p_emissive) {
         // Emissive triangle: binary search the CDF, then a uniform point on it.
-        const float u = rng.next();
-        uint lo = 0;
-        uint hi = veach_scene.emissive_count - 1;
-        while (lo < hi) {
-            const uint mid = (lo + hi) / 2;
-            if (veach_scene.emissive[mid].cdf < u) {
-                lo = mid + 1;
-            } else {
-                hi = mid;
-            }
-        }
-        const EmissiveTriangle tri = veach_scene.emissive[lo];
+        const EmissiveTriangle tri = veach_scene.emissive[pick_emissive(rng.next())];
         const float su = sqrt(rng.next());
         const float2 bary = float2(1.0 - su, rng.next() * su);
         const TriangleHit light = surface_at(tri.instance, tri.primitive, bary, p);
@@ -103,4 +112,51 @@ float3 sample_light(float3 p, float3 geometric, Frame frame, Brdf b, float3 v_lo
         return float3(0.0, 0.0, 0.0);
     }
     return contribution;
+}
+
+// ---- the real-time renderer's direct light (ADR 0037) ----------------------------------------------------
+
+/// Every punctual light, exactly, each with one shadow ray (hard shadows).
+float3 direct_punctual(float3 p, float3 geometric, Frame frame, Brdf b, float3 v_local, inout Rng rng) {
+    float3 sum = float3(0.0, 0.0, 0.0);
+    for (uint i = 0; i < veach_scene.light_count; ++i) {
+        float3 l;
+        float distance;
+        const float3 irradiance = punctual_irradiance(veach_scene.lights[i], p, l, distance);
+        float bsdf_pdf;
+        const float3 c = irradiance * brdf_eval(b, v_local, frame.to_local(l), bsdf_pdf);
+        if (any(c > 0.0) && visible(offset_origin(p, geometric, l), l, distance * 0.999, rng)) {
+            sum += c;
+        }
+    }
+    return sum;
+}
+
+/// One sample of the emissive triangles (area x emission weight, a uniform point on the triangle) with a shadow
+/// ray: light sampling only, so unbiased without MIS. Average several for less noise.
+float3 direct_emissive_sample(float3 p, float3 geometric, Frame frame, Brdf b, float3 v_local, inout Rng rng) {
+    if (veach_scene.emissive_count == 0 || veach_scene.emissive_total_weight <= 0.0) {
+        return float3(0.0, 0.0, 0.0);
+    }
+    const EmissiveTriangle tri = veach_scene.emissive[pick_emissive(rng.next())];
+    const float su = sqrt(rng.next());
+    const float2 bary = float2(1.0 - su, rng.next() * su);
+    const TriangleHit light = surface_at(tri.instance, tri.primitive, bary, p);
+    const float3 to_light = light.surface.position - p;
+    const float distance = length(to_light);
+    const float3 l = to_light / distance;
+    const float cos_light = dot(light.surface.geometric_normal, -l);
+    const float3 le = emission_of(light);
+    // emissive_light_pdf includes the path tracer's choice between punctual and emissive; here it is certain.
+    const float pdf = emissive_light_pdf(light.material, light.area, distance, cos_light) /
+                      emissive_selection_probability();
+    if (pdf <= 0.0 || all(le <= 0.0)) {
+        return float3(0.0, 0.0, 0.0);
+    }
+    float bsdf_pdf;
+    const float3 c = le * brdf_eval(b, v_local, frame.to_local(l), bsdf_pdf) / pdf;
+    if (all(c <= 0.0) || !visible(offset_origin(p, geometric, l), l, distance * 0.999, rng)) {
+        return float3(0.0, 0.0, 0.0);
+    }
+    return c;
 }

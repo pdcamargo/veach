@@ -120,7 +120,9 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   "GlowMaterial"}`. Renderers call `evaluateSurface(kind, context)` and never read material records directly
   ([ADR 0033](../adr/0033-material-model.md)).
 - **Lights:** `DirectionalLight` (lux), `PointLight` and `SpotLight` (candela), shining down −Z, and emissive
-  surfaces (nits). `Camera.ev100` sets exposure ([ADR 0034](../adr/0034-lights-and-reference-path-tracer.md)).
+  surfaces (nits). `Camera.ev100` sets exposure, or derives it from `aperture`, `shutter` and `iso` when 0; a
+  display pass applies it and the AgX tonemapper to the linear radiance renderers produce
+  ([ADR 0038](../adr/0038-exposure-and-tonemapping.md)).
 - **The reference path tracer** renders a camera that has a `PathTracer { samples_per_frame, max_bounces, sky,
   mode }`. It accumulates while nothing changes and restarts on any change. The app adds it with
   `render::PathTracerFeature(<ns>::path_tracer(), <ns>::material_kinds, assets)`. Example:

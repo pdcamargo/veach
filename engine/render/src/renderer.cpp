@@ -131,7 +131,7 @@ Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device) {
             view.near_plane = camera.near_plane;
             view.width = width;
             view.height = height;
-            view.exposure = 1.0f / (1.2f * std::exp2(camera.ev100));
+            view.exposure = 1.0f / (1.2f * std::exp2(ev100_of(camera)));
             if (const PathTracer* settings = e.try_get<PathTracer>()) {
                 view.path_tracer = *settings;
             }
@@ -432,6 +432,9 @@ RenderModule::RenderModule(World& world) {
         .member(&Camera::near_plane, "near_plane")
         .member(&Camera::active, "active")
         .member(&Camera::ev100, "ev100")
+        .member(&Camera::aperture, "aperture")
+        .member(&Camera::shutter, "shutter")
+        .member(&Camera::iso, "iso")
         .add<Scriptable>();
     world.component<AssetId>().member(&AssetId::hi, "hi").member(&AssetId::lo, "lo");
     world.component<SceneInstance>().member(&SceneInstance::path, "path").add<Scriptable>();
@@ -467,3 +470,14 @@ RenderModule::RenderModule(World& world) {
 }
 
 }  // namespace veach::render
+
+namespace veach {
+
+float ev100_of(const Camera& camera) {
+    if (camera.ev100 != 0.0f || camera.shutter <= 0.0f || camera.iso <= 0.0f) {
+        return camera.ev100;
+    }
+    return std::log2(camera.aperture * camera.aperture / camera.shutter * 100.0f / camera.iso);
+}
+
+}  // namespace veach

@@ -78,6 +78,9 @@ export type Camera = {
 	near_plane: number,
 	active: boolean,
 	ev100: number,
+	aperture: number,
+	shutter: number,
+	iso: number,
 }
 export type DirectionalLight = {
 	color: vector,

@@ -17,8 +17,7 @@ struct Params {
     float4x4 inverse_view_projection;
     float4 camera_position_exposure;  ///< xyz, w = exposure scale (1 / (1.2 * 2^ev100))
     float4 sky_bounces;               ///< xyz sky radiance (nits), w = max bounces
-    DescriptorHandle<RWTexture2D<float4>> output;        ///< scene color (rgba8, sRGB-encoded values)
-    DescriptorHandle<RWTexture2D<float4>> accumulation;  ///< rgba32f running mean of linear radiance
+    DescriptorHandle<RWTexture2D<float4>> accumulation;  ///< rgba32f running mean of radiance (nits), w = samples
     DescriptorHandle<RaytracingAccelerationStructure> scene;
     DescriptorHandle<StructuredBuffer<InstanceRecord>> instances;
     DescriptorHandle<StructuredBuffer<MaterialRecord>> materials;
@@ -121,11 +120,6 @@ bool finite(float3 v) {
     return all(exponent != 0x7f800000u);
 }
 
-float linear_to_srgb(float c) {
-    c = saturate(c);
-    return c <= 0.0031308 ? c * 12.92 : 1.055 * pow(c, 1.0 / 2.4) - 0.055;
-}
-
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void trace_pixels(uint3 id : SV_DispatchThreadID) {
@@ -171,16 +165,10 @@ void trace_pixels(uint3 id : SV_DispatchThreadID) {
     }
     if (lost != 0) {
         InterlockedAdd(params.diagnostics[0], lost);
-        const float4 st = params.accumulation[id.xy];
-        if (st.w != n) { InterlockedAdd(params.diagnostics[2], 1); }
-        if (any(st.xyz < 0.0)) { InterlockedAdd(params.diagnostics[3], 1); }
     }
     if (nonfinite != 0) {
         InterlockedAdd(params.diagnostics[1], nonfinite);
     }
     const float3 mean = (previous * n + sum) / (n + k);
-    params.accumulation[id.xy] = float4(mean, n + k);
-    const float3 exposed = mean * params.camera_position_exposure.w;
-    params.output[id.xy] = float4(linear_to_srgb(exposed.r), linear_to_srgb(exposed.g), linear_to_srgb(exposed.b), 1.0);
+    params.accumulation[id.xy] = float4(mean, n + k);  // the display pass shows it (ADR 0038)
 }
-

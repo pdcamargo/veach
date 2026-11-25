@@ -8,8 +8,8 @@
 //   };
 //
 // Materials describe surfaces; renderers own light transport. Material
-// functions are pure and sample textures at an explicit LOD (no derivatives:
-// they run in compute and ray-query shaders).
+// functions are pure and sample textures with explicit gradients (SurfaceInput's
+// uv_dx/uv_dy; zero samples mip 0): they run in compute and ray-query shaders.
 
 import veach.bindless;  // every DescriptorHandle dereference is checked in debug builds (ADR 0039)
 
@@ -20,6 +20,8 @@ struct SurfaceInput {
     float3 normal;            ///< interpolated vertex normal, same side as geometric_normal
     float4 tangent;           ///< xyz, w = bitangent sign
     float2 uv;
+    float2 uv_dx;             ///< UV change to the next pixel in x and y (texture filtering); 0 = sample mip 0
+    float2 uv_dy;
     float3 view;              ///< towards the viewer
 };
 
@@ -73,12 +75,21 @@ float4 sampleTexture(DescriptorHandle<Texture2D<float4>> texture, DescriptorHand
     return nonuniform(texture)->SampleLevel(nonuniform(sampler), uv, 0.0);
 }
 
+/// Filtered by the surface's UV gradients (the real-time renderer); mip 0 when they are zero (the path tracer).
+float4 sampleTexture(DescriptorHandle<Texture2D<float4>> texture, DescriptorHandle<SamplerState> sampler,
+                     SurfaceInput s) {
+    if (all(s.uv_dx == 0.0) && all(s.uv_dy == 0.0)) {
+        return sampleTexture(texture, sampler, s.uv);
+    }
+    return nonuniform(texture)->SampleGrad(nonuniform(sampler), s.uv, s.uv_dx, s.uv_dy);
+}
+
 // ---- the defaults: glTF metallic-roughness. Public, so overrides can extend them. ------------------------
 
 float4 standardBaseColor(MaterialContext c) {
     float4 color = c.record.base_color;
     if ((c.record.flags & material_has_base_color_texture) != 0) {
-        color *= sampleTexture(c.record.base_color_texture, c.record.sampler, c.surface.uv);
+        color *= sampleTexture(c.record.base_color_texture, c.record.sampler, c.surface);
     }
     return color;
 }
@@ -94,7 +105,7 @@ float3 standardNormal(MaterialContext c) {
     }
     t = normalize(t);
     const float3 b = cross(n, t) * (c.surface.tangent.w < 0.0 ? -1.0 : 1.0);
-    float3 m = sampleTexture(c.record.normal_texture, c.record.sampler, c.surface.uv).xyz * 2.0 - 1.0;
+    float3 m = sampleTexture(c.record.normal_texture, c.record.sampler, c.surface).xyz * 2.0 - 1.0;
     m.xy *= c.record.normal_scale;
     const float3 shading = normalize(m.x * t + m.y * b + m.z * n);
     // A normal map must not tip the shading normal below the surface the viewer sees.
@@ -104,7 +115,7 @@ float3 standardNormal(MaterialContext c) {
 float2 standardMetallicRoughness(MaterialContext c) {
     float2 mr = float2(c.record.emission_metallic.w, c.record.roughness);
     if ((c.record.flags & material_has_metallic_roughness_texture) != 0) {
-        const float4 s = sampleTexture(c.record.metallic_roughness_texture, c.record.sampler, c.surface.uv);
+        const float4 s = sampleTexture(c.record.metallic_roughness_texture, c.record.sampler, c.surface);
         mr *= float2(s.b, s.g);
     }
     return mr;
@@ -113,7 +124,7 @@ float2 standardMetallicRoughness(MaterialContext c) {
 float3 standardEmission(MaterialContext c) {
     float3 e = c.record.emission_metallic.xyz;
     if ((c.record.flags & material_has_emissive_texture) != 0) {
-        e *= sampleTexture(c.record.emissive_texture, c.record.sampler, c.surface.uv).rgb;
+        e *= sampleTexture(c.record.emissive_texture, c.record.sampler, c.surface).rgb;
     }
     return e;
 }

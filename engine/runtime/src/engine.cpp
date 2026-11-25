@@ -386,11 +386,19 @@ bool Engine::frame() {
         last_frame_time_ = now;
         steps = fixed_.advance(frame_delta);
     }
+    // Recordings name the primary window 0: the platform's own window ids differ between runs and backends.
+    const auto primary_window = [&]() -> std::uint32_t {
+        const WindowPlatformState* state = world_->entity("primary_window").try_get<WindowPlatformState>();
+        return state != nullptr ? state->id : 0u;
+    };
     const ReplayFrame* replayed = nullptr;
     if (replay_ && frame_ < replay_->frames.size()) {
         replayed = &replay_->frames[frame_];
         steps = replayed->steps;
-        for (const PlatformEvent& e : replayed->events) {
+        for (PlatformEvent e : replayed->events) {
+            if (e.window == 0) {
+                e.window = primary_window();
+            }
             platform_->inject(e);
         }
     }
@@ -424,7 +432,13 @@ bool Engine::frame() {
     if (recorder_ || replayed != nullptr) {
         StateHash state = simulation_hash(*world_);
         if (recorder_) {
-            recorder_->write({frame_, steps, platform_->applied_events(), state});
+            std::vector<PlatformEvent> events = platform_->applied_events();
+            for (PlatformEvent& e : events) {
+                if (e.window == primary_window()) {
+                    e.window = 0;
+                }
+            }
+            recorder_->write({frame_, steps, std::move(events), state});
         }
         if (replayed != nullptr && state.total != replayed->state.total) {
             std::string component = "(none recorded)";

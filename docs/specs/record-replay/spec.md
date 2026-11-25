@@ -25,7 +25,9 @@ and the per-frame hash proves it was repeated. Roadmap: VISION item 3 (agents in
 
 - `--record PATH` writes a JSON Lines file: a header (`format`, engine version, project name, script, seed,
   fixed step), then one line per frame: `{frame, steps, events, state}`. Events are the applied
-  `PlatformEvent`s (type, window, key, width, height); quit and close requests end the recording.
+  `PlatformEvent`s (type, window, key, width, height); quit and close requests end the recording. The primary
+  window is recorded as window 0, because the platform's window ids differ between runs and between SDL and
+  headless.
 - `--replay PATH` takes the seed and the script from the header (a different `--script` or `--seed` is an
   error, `replay.invalid`), runs exactly the recorded frames (fewer with `--frames`), applies each frame's
   events and steps, and ignores the OS's input and resize events (it still honors quit and close). Headless or

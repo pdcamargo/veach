@@ -216,7 +216,8 @@ def replay_windowed(lab: str) -> None:
         spun = re.findall(r"spinner turned ([\d.]+) rad", out)
         replayed = subprocess.run([lab, "--headless", "--replay", recording], capture_output=True, text=True)
         rout = replayed.stdout + replayed.stderr
-        check(replayed.returncode == 0, f"[replay.AC4] the headless replay matches every frame: {rout[-300:]}")
+        errors = [line for line in rout.splitlines() if " error " in line]
+        check(replayed.returncode == 0, f"[replay.AC4] the headless replay matches every frame: {errors}")
         check(spun and spun == re.findall(r"spinner turned ([\d.]+) rad", rout),
               f"[replay.AC4] the spinner turned as far in the replay ({spun})")
 

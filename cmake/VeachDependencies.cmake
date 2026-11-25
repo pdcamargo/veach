@@ -175,3 +175,13 @@ CPMAddPackage(
     EXCLUDE_FROM_ALL YES
     OPTIONS "FASTGLTF_DOWNLOAD_SIMDJSON ON" "FASTGLTF_DOWNLOAD_SIMDUTF ON" "FASTGLTF_ENABLE_TESTS OFF" "FASTGLTF_ENABLE_EXAMPLES OFF"
             "FASTGLTF_ENABLE_DOCS OFF")
+
+# meshoptimizer (MIT): meshlets at cook time for the real-time renderer (ADR 0037).
+CPMAddPackage(
+    NAME meshoptimizer
+    VERSION 1.3
+    URL https://github.com/zeux/meshoptimizer/archive/refs/tags/v1.3.tar.gz
+    URL_HASH SHA256=ca4f47d451201593904b9e3067fa54b65db94bc34ab5173864950862b748a145
+    SYSTEM YES
+    EXCLUDE_FROM_ALL YES
+    OPTIONS "MESHOPT_BUILD_SHARED_LIBS OFF" "MESHOPT_INSTALL OFF")

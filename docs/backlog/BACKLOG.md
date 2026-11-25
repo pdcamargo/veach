@@ -4,14 +4,16 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 
 ## Now
 
+- **VCH-056** Real-time renderer v0 — *render* — Visibility buffer over cook-time meshlets (meshoptimizer), shaded by the shared Slang materials; direct light from every light type with ray-traced hard shadows; an ambient + RT AO stopgap until Candela; physical exposure and AgX; per-pass GPU timings; a direct-lighting comparison against the path tracer. [spec](../specs/realtime-renderer-v0/spec.md)
+- **VCH-057** Lost accumulation history on Metal — *render* — Path-traced pixels in aligned 4x4 tiles sometimes read back something other than what the previous frame wrote (dark tiles that fade slowly). `render.history_lost` detects it and fails the run. Seen only while another process held several GB of memory; reproduction and checks so far in the item's notes below.
 ## Next
 
-- **VCH-055** Sponza golden — *render* — Add Khronos's Sponza next to FlightHelmet. Waiting on the owner: its files are under the CRYENGINE Limited License Agreement, which the agent may not accept on their behalf (AGENTS.md). [spec](../specs/first-real-scene/spec.md)
 - **VCH-005** `Behavior` component — *script* — `veach.behavior(Component, { on_update = function(self, dt) ... end })` sugar for per-entity scripts, run internally as an ordinary Simulation system with batched dispatch. No separate update path.
 - **VCH-009** Runtime shader compilation — *render* — Build-time Slang → metallib/DXIL exists ([ADR 0026](../adr/0026-shader-compilation.md)). Add libslang at run time for shader hot reload, and a pipeline cache.
 
 ## Later
 
+- **VCH-058** Release packaging for Windows — *process* — `veach_deploy_d3d12` copies WARP's `d3d10warp.dll` next to every Windows executable, which is right for CI and development, but WARP's license allows testing only and forbids redistribution. A release package must leave it out, and must meet the Agility SDK's redistribution terms (THIRD_PARTY_NOTICES).
 - **VCH-048** MCP over HTTP — *agents* — Streamable HTTP transport next to stdio, so several clients can attach to one running app (an editor session). Same tools. [spec](../specs/mcp-server/spec.md)
 - **VCH-049** Per-pass GPU timings — *render* — Timestamp queries per render-graph pass (Metal counter sample buffers, DX12 timestamp queries); `gpu_timings` returns them. Today it reports the whole frame.
 - **VCH-008** Richer script components — *script* — Nested tables and arrays in script components (explicit scalar, entity and optional types exist). Let `veach types` include an app's own modules (today it emits engine types only).
@@ -45,6 +47,7 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 
 ## Blocked
 
+- **VCH-055** Intel Sponza — *render* — Intel's Sponza (GPU Research Samples, "Sponza Base Scene") for goldens and benchmarks. Its page says CC BY, but the bundled `credits_license.txt` opens with "For personal use and educational use. Limited commercial use for marketing and print purposes." The repository is public, so committing it is redistribution: waiting on the owner. Used locally (not committed) for benchmarks meanwhile. Bistro (CC BY 4.0) is in `apps/lab/assets/bistro/`.
 - **VCH-050** DX12 on real hardware — *rhi* — Run the DX12 goldens and a long frames-in-flight soak on a physical DXR 1.1 GPU (vendor drivers, real timings), and present to a real display: on the hosted runner about one `Present` in 60 fails with `E_INVALIDARG`, with or without a resize, and no debug layer explains it; the windowed test tolerates exactly that, only under `VEACH_CI_HOSTED_WINDOWS=1`. Blocked: no Windows GPU machine or runner ([ADR 0030](../adr/0030-windows-verified-in-hosted-ci.md)). Unblocked by a paid GPU runner or a Windows machine registered as a runner.
 
 ## Done

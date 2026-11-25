@@ -6,6 +6,7 @@ add_executable(veach-tests
     gpu_texture_tests.cpp
     lifecycle_tests.cpp
     platform_tests.cpp
+    realtime_tests.cpp
     render_tests.cpp
     rhi_tests.cpp
     hot_reload_tests.cpp

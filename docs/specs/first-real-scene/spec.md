@@ -98,8 +98,9 @@ struct GlowMaterial : IMaterial {
 
 ## Open questions
 
-- Sponza: its files are under the CRYENGINE Limited License Agreement, which needs the owner's acceptance.
-  FlightHelmet (CC0) stands in until then (VCH-055).
+- Sponza: the CRYENGINE-licensed Khronos version is out (owner's decision). Intel's Sponza waits on a license
+  question (VCH-055); Amazon Lumberyard Bistro (CC BY 4.0) is in `apps/lab/assets/bistro/`. FlightHelmet (CC0)
+  carries the goldens of this spec.
 
 ## Links
 

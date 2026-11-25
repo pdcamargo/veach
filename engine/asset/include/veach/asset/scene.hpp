@@ -29,15 +29,49 @@ struct MeshVertex {
 };
 static_assert(sizeof(MeshVertex) == 48);
 
+inline constexpr std::uint32_t meshlet_max_vertices = 64;
+inline constexpr std::uint32_t meshlet_max_triangles = 124;
+inline constexpr std::uint32_t meshlet_no_parent = 0xFFFFFFFFu;
+
+/// A cluster of at most 64 vertices and 124 triangles from one material slot (ADR 0037). `lod`, `parent` and
+/// the bounds' `error` are what Tessera's cluster hierarchy fills; in v0 every meshlet is level 0 and a root.
+struct Meshlet {
+    std::uint32_t vertex_offset = 0;    ///< into MeshAsset::meshlet_vertices
+    std::uint32_t triangle_offset = 0;  ///< into MeshAsset::meshlet_triangles
+    std::uint32_t vertex_count = 0;
+    std::uint32_t triangle_count = 0;
+    std::uint32_t slot = 0;
+    std::uint32_t lod = 0;
+    std::uint32_t parent = meshlet_no_parent;
+    std::uint32_t flags = 0;
+};
+static_assert(sizeof(Meshlet) == 32);
+
+struct MeshletBounds {
+    std::array<float, 4> sphere{};  ///< center xyz, radius (object space)
+    std::array<float, 4> cone{};    ///< normal cone axis xyz, cutoff (cosine; >= 1 means no cone)
+    float error = 0.0f;             ///< simplification error of this level; 0 at level 0
+    std::array<float, 3> pad{};
+};
+static_assert(sizeof(MeshletBounds) == 48);
+
 /// All primitives of one glTF mesh. Each triangle names its material slot (the primitive it came from).
 struct MeshAsset {
     std::vector<MeshVertex> vertices;
-    std::vector<std::uint32_t> indices;         ///< 3 per triangle
+    std::vector<std::uint32_t> indices;         ///< 3 per triangle (ray tracing builds its BLAS from these)
     std::vector<std::uint32_t> triangle_slots;  ///< 1 per triangle
     std::uint32_t slot_count = 0;
     math::vec3 bounds_min{0.0f};
     math::vec3 bounds_max{0.0f};
+    // Meshlets (ADR 0037): every triangle exactly once, grouped by slot.
+    std::vector<Meshlet> meshlets;
+    std::vector<std::uint32_t> meshlet_vertices;   ///< a mesh vertex index per meshlet vertex
+    std::vector<std::uint32_t> meshlet_triangles;  ///< per triangle: 3 meshlet-local vertex indices, a byte each
+    std::vector<MeshletBounds> meshlet_bounds;     ///< one per meshlet
 };
+
+/// Splits `mesh`'s triangles into meshlets (meshoptimizer), slot by slot. Deterministic.
+void build_meshlets(MeshAsset& mesh);
 
 enum class AlphaMode : std::uint8_t { opaque, mask, blend };
 

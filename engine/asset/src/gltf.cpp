@@ -24,9 +24,9 @@ namespace veach {
 
 namespace {
 
-constexpr std::uint32_t cooker_version = 2;        ///< bump when cooked data changes, to invalidate every cache entry
+constexpr std::uint32_t cooker_version = 3;        ///< bump when cooked data changes, to invalidate every cache entry
 constexpr std::uint32_t vmesh_magic = 0x48534D56;  // "VMSH"
-constexpr std::uint32_t vmesh_version = 1;
+constexpr std::uint32_t vmesh_version = 2;  // 2: meshlets
 
 /// FNV-1a, 64 bits: a cache key, not a security boundary.
 struct Fnv64 {
@@ -198,6 +198,7 @@ Result<MeshAsset> build_mesh(const fastgltf::Asset& asset, const fastgltf::Mesh&
     }
     mesh.slot_count = static_cast<std::uint32_t>(gltf_mesh.primitives.size());
     generate_tangents(mesh, needs_tangent);
+    build_meshlets(mesh);
     return mesh;
 }
 
@@ -206,23 +207,30 @@ std::string write_vmesh(const MeshAsset& mesh) {
     const auto put = [&](const void* data, std::size_t size) {
         out.append(static_cast<const char*>(data), size);
     };
-    const std::array<std::uint32_t, 6> header{vmesh_magic,
+    const std::array<std::uint32_t, 9> header{vmesh_magic,
                                               vmesh_version,
                                               static_cast<std::uint32_t>(mesh.vertices.size()),
                                               static_cast<std::uint32_t>(mesh.indices.size()),
                                               static_cast<std::uint32_t>(mesh.triangle_slots.size()),
-                                              mesh.slot_count};
+                                              mesh.slot_count,
+                                              static_cast<std::uint32_t>(mesh.meshlets.size()),
+                                              static_cast<std::uint32_t>(mesh.meshlet_vertices.size()),
+                                              static_cast<std::uint32_t>(mesh.meshlet_triangles.size())};
     put(header.data(), sizeof(header));
     put(&mesh.bounds_min, sizeof(math::vec3));
     put(&mesh.bounds_max, sizeof(math::vec3));
     put(mesh.vertices.data(), mesh.vertices.size() * sizeof(MeshVertex));
     put(mesh.indices.data(), mesh.indices.size() * 4);
     put(mesh.triangle_slots.data(), mesh.triangle_slots.size() * 4);
+    put(mesh.meshlets.data(), mesh.meshlets.size() * sizeof(Meshlet));
+    put(mesh.meshlet_vertices.data(), mesh.meshlet_vertices.size() * 4);
+    put(mesh.meshlet_triangles.data(), mesh.meshlet_triangles.size() * 4);
+    put(mesh.meshlet_bounds.data(), mesh.meshlet_bounds.size() * sizeof(MeshletBounds));
     return out;
 }
 
 std::optional<MeshAsset> read_vmesh(std::string_view in) {
-    std::array<std::uint32_t, 6> header{};
+    std::array<std::uint32_t, 9> header{};
     if (in.size() < sizeof(header) + 24) {
         return std::nullopt;
     }
@@ -235,8 +243,14 @@ std::optional<MeshAsset> read_vmesh(std::string_view in) {
     mesh.indices.resize(header[3]);
     mesh.triangle_slots.resize(header[4]);
     mesh.slot_count = header[5];
+    mesh.meshlets.resize(header[6]);
+    mesh.meshlet_vertices.resize(header[7]);
+    mesh.meshlet_triangles.resize(header[8]);
+    mesh.meshlet_bounds.resize(header[6]);
     const std::size_t needed = sizeof(header) + 24 + mesh.vertices.size() * sizeof(MeshVertex) +
-                               mesh.indices.size() * 4 + mesh.triangle_slots.size() * 4;
+                               mesh.indices.size() * 4 + mesh.triangle_slots.size() * 4 +
+                               mesh.meshlets.size() * (sizeof(Meshlet) + sizeof(MeshletBounds)) +
+                               mesh.meshlet_vertices.size() * 4 + mesh.meshlet_triangles.size() * 4;
     if (in.size() != needed) {
         return std::nullopt;
     }
@@ -250,6 +264,10 @@ std::optional<MeshAsset> read_vmesh(std::string_view in) {
     get(mesh.vertices.data(), mesh.vertices.size() * sizeof(MeshVertex));
     get(mesh.indices.data(), mesh.indices.size() * 4);
     get(mesh.triangle_slots.data(), mesh.triangle_slots.size() * 4);
+    get(mesh.meshlets.data(), mesh.meshlets.size() * sizeof(Meshlet));
+    get(mesh.meshlet_vertices.data(), mesh.meshlet_vertices.size() * 4);
+    get(mesh.meshlet_triangles.data(), mesh.meshlet_triangles.size() * 4);
+    get(mesh.meshlet_bounds.data(), mesh.meshlet_bounds.size() * sizeof(MeshletBounds));
     return mesh;
 }
 

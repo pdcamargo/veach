@@ -9,7 +9,6 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 
 ## Next
 
-- **VCH-003** MCP server — *agents* — Expose the running engine to agents over MCP. Tools: `query_entities`, `get_component`/`set_component` (through reflection and the CommandBuffer), `step_frames`, `screenshot`, `gpu_timings`, `load_scene`, and a sandboxed transactional `eval` of Luau in the live world (`ScriptRuntime::execute_source`). Builds on Flecs REST and the reflection walker.
 - **VCH-004** Hot reload — *asset* — File watcher in the platform layer. Reload changed assets in place behind the same `Handle<T>`. Re-execute changed scripts, replacing their systems (systems are named, so this is a swap).
 - **VCH-005** `Behavior` component — *script* — `veach.behavior(Component, { on_update = function(self, dt) ... end })` sugar for per-entity scripts, run internally as an ordinary Simulation system with batched dispatch. No separate update path.
 - **VCH-006** Input in Luau and data-driven bindings — *script* — `veach.input.pressed("jump")`, `down`, `released`; action bindings in `veach.project.json` (`"input": {"jump": ["space", "w"]}`), reflected and schema-validated.
@@ -20,6 +19,8 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 
 ## Later
 
+- **VCH-048** MCP over HTTP — *agents* — Streamable HTTP transport next to stdio, so several clients can attach to one running app (an editor session). Same tools. [spec](../specs/mcp-server/spec.md)
+- **VCH-049** Per-pass GPU timings — *render* — Timestamp queries per render-graph pass (Metal counter sample buffers, DX12 timestamp queries); `gpu_timings` returns them. Today it reports the whole frame.
 - **VCH-008** Richer script components — *script* — Nested tables and arrays in script components (explicit scalar, entity and optional types exist). Let `veach types` include an app's own modules (today it emits engine types only).
 - **VCH-014** Record/replay — *runtime* — Record seed, input and script command logs; replay a run bit-for-bit. Depends on the determinism rules (fixed step, seeded RNG, no wall clock in simulation).
 - **VCH-015** Job system — *core* — enkiTS or Taskflow (decide by ADR), with Flecs worker threads hooked into it. Everything is single-threaded until this lands.
@@ -34,7 +35,7 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 - **VCH-024** Extendable materials — *render* — Materials as Slang modules implementing interfaces with default implementations, so users override only `evalAlbedo`, `evalEmission`, `displaceVertex`, and so on (like Bevy's `ExtendedMaterial`).
 - **VCH-025** glTF import — *asset* — fastgltf loader, meshoptimizer processing, meshes and materials as assets with `.meta` import settings.
 - **VCH-026** Texture pipeline — *asset* — KTX2 with BC7 (and ASTC where useful), mip generation, import settings in `.meta`.
-- **VCH-027** Scenes and prefabs — *asset* — Flecs Script scenes/prefabs as assets; `load_scene`. [ADR](../adr/0007-asset-formats-and-identity.md)
+- **VCH-027** Scenes and prefabs — *asset* — Flecs Script scenes/prefabs as assets; `load_scene`, also as an MCP tool. [ADR](../adr/0007-asset-formats-and-identity.md)
 - **VCH-028** Physics with Box3D — *physics* — Integrate Erin Catto's Box3D (MIT, C17, alpha, cross-platform deterministic). Steps in Simulation at the fixed 60 Hz.
 - **VCH-029** Audio — *audio* — Pick a library by ADR; spatial audio fed from transforms.
 - **VCH-030** UI — *ui* — In-game UI. Approach to be decided by ADR.
@@ -52,6 +53,7 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 
 ## Done
 
+- **VCH-003** MCP server v0 — *agents* — `--mcp` serves MCP over stdio: `query_entities`, `get_component`, `set_component`, `spawn_entity`, `step_frames`, `screenshot` (PNG, headless or windowed), `render_graph_plan`, `gpu_timings`, sandboxed transactional `eval`. Schemas come from reflection; errors carry codes and did-you-mean hints. A test drives the lab through MCP to a golden. `load_scene` moves to VCH-027. [spec](../specs/mcp-server/spec.md)
 - **VCH-041** Parameter-block layout checks — *render* — Each shader's parameter block is reflected (Slang, HLSL layout) into `<ns>::layout::<stem>`. `static_assert(rhi::parameters_match<T>(...))` compares names, order, offsets and sizes at compile time. The shader build rejects `float3`/3-row matrices. The hygiene check requires a layout check for every shader with parameters. [ADR 0024](../adr/0024-resource-binding-model.md)
 
 - **VCH-045** Frames in flight — *rhi* — N frames in flight (default 2) on a shared `SubmissionTracker`: monotonic submission ids, per-slot fences, per-frame TLAS instance buffers, and fence-tracked retirement for `destroy()` (absorbs VCH-042). Pooled transients sync with their previous frame (`Barrier::discard`). [ADR 0029](../adr/0029-frame-and-sync-model.md)

@@ -13,6 +13,7 @@
 
 #include <array>
 #include <format>
+#include <utility>
 
 namespace veach::render {
 
@@ -81,7 +82,22 @@ void Renderer::set_surface(rhi::SurfaceId surface, std::uint32_t width, std::uin
 }
 
 void Renderer::request_screenshot(std::filesystem::path path) {
-    screenshot_ = std::move(path);
+    request_capture([path = std::move(path)](Result<Image> image) {
+        if (!image) {
+            log::error("render", image.error());
+            return;
+        }
+        if (auto written = write_png(path, image->width, image->height, image->rgba); !written) {
+            log::error("render",
+                       Error{ErrorCode::render_screenshot_failed, written.error().message, written.error().hint});
+            return;
+        }
+        log::info("render", "screenshot written to {} ({}x{})", path.generic_string(), image->width, image->height);
+    });
+}
+
+void Renderer::request_capture(CaptureCallback done) {
+    capture_ = std::move(done);
 }
 
 void Renderer::extract(const World& world) {
@@ -208,7 +224,7 @@ void Renderer::render() {
         }
     }
 
-    const bool capture = screenshot_.has_value();
+    const bool capture = static_cast<bool>(capture_);
     if (capture) {
         const std::uint64_t size = std::uint64_t{width} * height * 4;
         if (!readback_.is_valid() || readback_size_ < size) {
@@ -218,8 +234,7 @@ void Renderer::render() {
             auto buffer =
                 device_.create_buffer({size, rhi::BufferUsage::copy_dst, rhi::MemoryType::readback, "screenshot"});
             if (!buffer) {
-                log::error("render", buffer.error());
-                screenshot_.reset();
+                std::exchange(capture_, {})(std::unexpected(buffer.error()));
                 return;
             }
             readback_ = *buffer;
@@ -255,28 +270,25 @@ void Renderer::render() {
 
     if (capture) {
         device_.wait(submission);
-        write_screenshot(width, height);
+        finish_capture(width, height);
     }
 }
 
-void Renderer::write_screenshot(std::uint32_t width, std::uint32_t height) {
-    const std::filesystem::path path = *screenshot_;
-    screenshot_.reset();
+void Renderer::finish_capture(std::uint32_t width, std::uint32_t height) {
+    CaptureCallback done = std::exchange(capture_, {});
     if (!device_.capabilities().gpu) {
-        log::error("render", Error{ErrorCode::render_screenshot_failed, "the null RHI draws nothing to capture",
-                                   "Pass --rhi metal (macOS) to render on the GPU."});
+        done(make_error(ErrorCode::render_screenshot_failed, "the null RHI draws nothing to capture",
+                        "Pass --rhi metal (macOS) to render on the GPU."));
         return;
     }
     const auto* pixels = static_cast<const std::uint8_t*>(device_.map(readback_));
     if (!pixels) {
-        log::error("render", Error{ErrorCode::render_screenshot_failed, "the readback buffer is not mappable", {}});
+        done(make_error(ErrorCode::render_screenshot_failed, "the readback buffer is not mappable"));
         return;
     }
-    if (auto written = write_png(path, width, height, {pixels, std::size_t{width} * height * 4}); !written) {
-        log::error("render", Error{ErrorCode::render_screenshot_failed, written.error().message, written.error().hint});
-        return;
-    }
-    log::info("render", "screenshot written to {} ({}x{})", path.generic_string(), width, height);
+    Image image{width, height, {}};
+    image.rgba.assign(pixels, pixels + std::size_t{width} * height * 4);
+    done(std::move(image));
 }
 
 RenderModule::RenderModule(World& world) {

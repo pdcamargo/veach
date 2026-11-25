@@ -37,10 +37,25 @@ clang-format -i <files>                                  # LLVM 23; a Claude hoo
 ```
 
 Every app takes `--headless --window --frames N --seed N --log-format human|json --log-level L --project P
---script S --rhi null|metal|dx12 --rest --wait-for-profiler --screenshot PATH --write-types PATH --help`.
+--script S --rhi null|metal|dx12 --rest --wait-for-profiler --screenshot PATH --write-types PATH --mcp --help`.
 **Exit code 0 means nothing was logged at error level**, GPU validation and GPU errors included. Verify
 your work headless with `--frames` and check the exit code and log. Profiling: [docs/guides/profiling.md](docs/guides/profiling.md).
 Building details: [docs/guides/building.md](docs/guides/building.md).
+
+## Driving the engine over MCP
+
+`--mcp` turns any Veach app into an MCP server on stdio ([spec](docs/specs/mcp-server/spec.md)): query and edit
+components, spawn entities, step frames, take screenshots, read the render-graph plan and run Luau in the live
+world. The repo's [.mcp.json](.mcp.json) registers the lab as `veach-lab` (headless, Metal), so Claude Code
+offers it once the debug build exists; approve it when asked, or check with `claude mcp list`. To add it by hand
+or with other flags:
+
+```sh
+claude mcp add veach-lab -- build/debug/apps/lab/veach-lab --mcp --headless --rhi metal
+```
+
+Headless sessions are deterministic: nothing moves until you call `step_frames`. Drop `--headless` to poke at a
+running window. Look at screenshots you take; a successful call is not a correct image.
 
 ## Rules that are easy to get wrong
 

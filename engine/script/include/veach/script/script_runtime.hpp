@@ -15,7 +15,9 @@
 
 #include <memory>
 #include <span>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace veach {
 
@@ -34,6 +36,9 @@ public:
 
     /// Runs Luau source directly (tests, tools, future MCP eval). Same transaction rules.
     [[nodiscard]] Result<> execute_source(std::string_view source, std::string_view chunk_name);
+
+    /// Like execute_source, and returns the chunk's return values as strings (tostring). Used by MCP `eval`.
+    [[nodiscard]] Result<std::vector<std::string>> evaluate(std::string_view source, std::string_view chunk_name);
 
     /// Removes every script system from the world. Call before the world is destroyed.
     void shutdown();

@@ -205,3 +205,30 @@ captures the last frame. The message says which of these was missing, or why the
 
 For example, a pass reads a transient texture that no earlier pass writes. The message names the pass and the
 resource. `RenderGraph::describe()` (logged at debug level) shows the compiled order and barriers.
+
+## ecs.unknown_component
+
+**A component name does not name a reflected component.**
+
+Used by tools (MCP `get_component`, `set_component`, `query_entities`). Names are the component's short name
+(`Window`, `TriangleDemo`) or its full path (`veach::platform::Window`). The hint suggests the closest one;
+`tools/list` shows them all in the schema's `enum`.
+
+## ecs.unknown_entity
+
+**An entity id or path does not name a live entity.**
+
+Entities are addressed by numeric id (from `query_entities` or `spawn_entity`) or by path (`primary_window`,
+`lab::spinner`). The entity may have been despawned.
+
+## mcp.unknown_tool
+
+**An MCP client called a tool that does not exist.**
+
+The hint suggests the closest tool name; `tools/list` returns every tool with its schema.
+
+## mcp.invalid_arguments
+
+**An MCP tool call has missing or ill-typed arguments.**
+
+The message names the argument. Each tool's `inputSchema` (from `tools/list`) describes the expected arguments.

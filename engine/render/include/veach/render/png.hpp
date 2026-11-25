@@ -20,5 +20,7 @@ struct Image {
 [[nodiscard]] Result<> write_png(const std::filesystem::path& path, std::uint32_t width, std::uint32_t height,
                                  std::span<const std::uint8_t> rgba);
 [[nodiscard]] Result<Image> read_png(const std::filesystem::path& path);
+/// PNG file bytes in memory (for MCP screenshots).
+[[nodiscard]] std::vector<std::uint8_t> encode_png(const Image& image);
 
 }  // namespace veach::render

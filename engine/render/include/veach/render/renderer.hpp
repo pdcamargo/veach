@@ -14,6 +14,7 @@
 
 #include <veach/core/error.hpp>
 #include <veach/ecs/flecs.hpp>
+#include <veach/render/png.hpp>
 #include <veach/render/render_graph.hpp>
 #include <veach/rhi/rhi.hpp>
 
@@ -95,6 +96,9 @@ public:
     void set_surface(rhi::SurfaceId surface, std::uint32_t width, std::uint32_t height);
     /// Capture the next rendered frame's scene color to a PNG file.
     void request_screenshot(std::filesystem::path path);
+    /// Capture the next rendered frame's scene color and hand it to `done` (after the GPU finished it).
+    using CaptureCallback = std::function<void(Result<Image>)>;
+    void request_capture(CaptureCallback done);
 
     /// Extract phase: rebuilds RenderWorld by running every extractor in registration order.
     void extract(const World& world);
@@ -114,7 +118,7 @@ private:
 
     Result<> ensure_targets(std::uint32_t width, std::uint32_t height);
     Result<> ensure_present_pipeline();
-    void write_screenshot(std::uint32_t width, std::uint32_t height);
+    void finish_capture(std::uint32_t width, std::uint32_t height);
 
     rhi::Device& device_;
     RenderWorld render_world_;
@@ -135,7 +139,7 @@ private:
     rhi::PipelineHandle present_pipeline_;
     rhi::SamplerHandle present_sampler_;
 
-    std::optional<std::filesystem::path> screenshot_;
+    CaptureCallback capture_;
     rhi::BufferHandle readback_;
     std::uint64_t readback_size_ = 0;
 

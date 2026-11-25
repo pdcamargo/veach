@@ -14,3 +14,4 @@ acceptance criteria (`[area.ACn] ...`) → status Implemented.
 | [Asset system core](asset-system-core/spec.md) | asset | Implemented |
 | [Platform and windows](platform-and-windows/spec.md) | platform | Implemented |
 | [First light: RHI v0, render graph v0, golden images](first-light/spec.md) | render | Implemented (GPU CI pending, VCH-044) |
+| [MCP server v0](mcp-server/spec.md) | runtime | Implemented |

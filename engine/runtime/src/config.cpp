@@ -31,12 +31,14 @@ struct CliOverrides {
     bool wait_for_profiler = false;
     std::optional<std::string> screenshot;
     std::optional<std::string> write_types;
+    bool mcp = false;
 };
 
 const std::vector<std::string>& known_flags() {
     static const std::vector<std::string> flags{
-        "--help",      "--headless", "--window", "--frames", "--seed", "--log-format",
-        "--log-level", "--project",  "--script", "--rhi",    "--rest",
+        "--help",       "--headless",          "--window",     "--frames",      "--seed",
+        "--log-format", "--log-level",         "--project",    "--script",      "--rhi",
+        "--rest",       "--wait-for-profiler", "--screenshot", "--write-types", "--mcp",
     };
     return flags;
 }
@@ -87,6 +89,8 @@ Result<CliOverrides> parse_args(std::span<const std::string_view> args) {
             cli.headless = false;
         } else if (flag == "--rest") {
             cli.rest = true;
+        } else if (flag == "--mcp") {
+            cli.mcp = true;
         } else if (flag == "--wait-for-profiler") {
             cli.wait_for_profiler = true;
         } else if (flag == "--frames" || flag == "--seed") {
@@ -215,6 +219,7 @@ Result<EngineConfig> resolve_config(const AppInfo& app, std::span<const std::str
     config.app = app;
     config.show_help = cli->help;
     config.wait_for_profiler = cli->wait_for_profiler;
+    config.mcp = cli->mcp;
     if (cli->screenshot) {
         config.screenshot = std::filesystem::absolute(*cli->screenshot);
     }
@@ -305,6 +310,8 @@ Core flags (every Veach app accepts these; they override veach.project.json):
   --wait-for-profiler     Profile builds: wait (up to 30 s) for a Tracy capture to connect before init.
   --screenshot PATH       Write the last frame as a PNG (needs --frames N and --rhi metal). Works headless.
   --write-types PATH      Write this app's veach.d.luau (engine + app modules) and exit.
+  --mcp                   Serve the Model Context Protocol on stdio for agents (logs go to stderr).
+                          Headless, frames advance only through the step_frames tool.
   --help                  Show this text.
 
 Exit code: 0 when the run logged no errors, 1 otherwise.

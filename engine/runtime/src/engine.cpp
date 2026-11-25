@@ -1,4 +1,5 @@
 #include <veach/runtime/engine.hpp>
+#include <veach/runtime/mcp_server.hpp>
 
 #include <veach/asset/asset_server.hpp>
 #include <veach/core/log.hpp>
@@ -20,6 +21,7 @@
 #include <csignal>
 #include <cstdio>
 #include <format>
+#include <iostream>
 #include <thread>
 
 namespace veach {
@@ -119,8 +121,10 @@ Result<> Engine::init() {
     auto step = run_step(
         "core",
         [&]() -> Result<std::string> {
-            log::configure(
-                {.format = project.log_format, .min_level = project.log_level, .console = config_.log_to_console});
+            log::configure({.format = project.log_format,
+                            .min_level = project.log_level,
+                            .console = config_.log_to_console,
+                            .console_stderr = config_.mcp});
             error_sink_ = log::add_sink([this](const log::Record& r) {
                 if (r.level == log::Level::error) {
                     ++errors_;
@@ -329,7 +333,7 @@ void Engine::run_phase(PhaseId phase, double delta) {
 bool Engine::frame() {
     VEACH_ZONE("frame");
     const ProjectConfig& project = config_.project;
-    const bool unpaced = project.headless && project.frames > 0;
+    const bool unpaced = project.headless && (project.frames > 0 || config_.mcp);
 
     double frame_delta = fixed_delta_seconds;
     std::uint32_t steps = 1;
@@ -384,6 +388,24 @@ bool Engine::frame() {
     return !world_->should_quit();
 }
 
+bool Engine::step(std::uint64_t count) {
+    for (std::uint64_t i = 0; i < count; ++i) {
+        if (!frame()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void Engine::render_frame() {
+    VEACH_ZONE("render frame");
+    world_->frame_begin(static_cast<float>(fixed_delta_seconds));
+    run_phase(PhaseId::pre_extract, fixed_delta_seconds);
+    run_phase(PhaseId::extract, fixed_delta_seconds);
+    run_phase(PhaseId::render, fixed_delta_seconds);
+    world_->frame_end();
+}
+
 void Engine::shutdown() {
     if (steps_.empty()) {
         return;
@@ -432,7 +454,12 @@ int Engine::run() {
         shutdown();
         return 1;
     }
-    while (frame()) {
+    if (config_.mcp) {
+        McpServer server(*this);
+        server.run(std::cin, std::cout);
+    } else {
+        while (frame()) {
+        }
     }
     const std::uint64_t errors = errors_.load();
     shutdown();

@@ -9,7 +9,7 @@ headless runs that verify their own work.
 
 > **Status:** first light. The engine runs Luau gameplay scripts, renders through a Metal RHI and a render graph,
 > and draws its first image twice: rasterized, and ray traced with ray queries against a TLAS. Golden-image tests
-> keep both honest. See the [roadmap](docs/VISION.md#roadmap) and [backlog](docs/backlog/BACKLOG.md).
+> keep both honest. Agents can drive any app over MCP (`--mcp`). See the [roadmap](docs/VISION.md#roadmap) and [backlog](docs/backlog/BACKLOG.md).
 
 ## Quick start
 

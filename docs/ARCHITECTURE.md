@@ -53,7 +53,7 @@ flowchart BT
     script["script: Luau VM, @veach bindings, type generator"]
     rhi["rhi: Device, CommandList, bindless handles; null, metal, dx12 stub"]
     render["render: Renderer, RenderGraph, features, extraction"]
-    runtime["runtime: Engine, config, main loop"]
+    runtime["runtime: Engine, config, main loop, MCP server"]
     ecs --> core
     platform --> ecs
     asset --> platform

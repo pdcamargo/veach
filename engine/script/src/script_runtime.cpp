@@ -787,7 +787,7 @@ struct ScriptRuntime::Impl {
         cmd.apply();
     }
 
-    Result<> execute(const ScriptAsset& script) {
+    Result<> execute(const ScriptAsset& script, std::vector<std::string>* returns = nullptr) {
         VEACH_ZONE_TEXT("script.execute", script.chunk_name.data(), script.chunk_name.size());
         if (loading) {
             return make_error(ErrorCode::internal, "scripts cannot load other scripts while loading");
@@ -806,9 +806,19 @@ struct ScriptRuntime::Impl {
         CommandBuffer cmd(world);
         active = &cmd;
         loading = true;
-        const int status = lua_pcall(T, 0, 0, 0);
+        const int status = lua_pcall(T, 0, returns ? LUA_MULTRET : 0, 0);
         loading = false;
         active = nullptr;
+
+        if (status == LUA_OK && returns) {
+            for (int i = 1, n = lua_gettop(T); i <= n; ++i) {
+                std::size_t len = 0;
+                const char* text = luaL_tolstring(T, i, &len);  // pushes; honours __tostring
+                returns->emplace_back(text, len);
+                lua_pop(T, 1);
+            }
+            lua_settop(T, 0);
+        }
 
         if (status != LUA_OK) {
             std::string message = lua_tostring(T, -1) ? lua_tostring(T, -1) : "unknown error";
@@ -869,6 +879,18 @@ Result<> ScriptRuntime::execute_source(std::string_view source, std::string_view
         return std::unexpected(script.error());
     }
     return impl_->execute(*script);
+}
+
+Result<std::vector<std::string>> ScriptRuntime::evaluate(std::string_view source, std::string_view chunk_name) {
+    auto script = compile_script(source, chunk_name);
+    if (!script) {
+        return std::unexpected(script.error());
+    }
+    std::vector<std::string> returns;
+    if (auto executed = impl_->execute(*script, &returns); !executed) {
+        return std::unexpected(executed.error());
+    }
+    return returns;
 }
 
 void ScriptRuntime::shutdown() {

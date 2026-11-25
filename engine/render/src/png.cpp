@@ -38,6 +38,19 @@ Result<> write_png(const std::filesystem::path& path, std::uint32_t width, std::
     return {};
 }
 
+std::vector<std::uint8_t> encode_png(const Image& image) {
+    std::vector<std::uint8_t> out;
+    stbi_write_png_to_func(
+        [](void* context, void* data, int size) {
+            auto* bytes = static_cast<std::vector<std::uint8_t>*>(context);
+            const auto* begin = static_cast<const std::uint8_t*>(data);
+            bytes->insert(bytes->end(), begin, begin + size);
+        },
+        &out, static_cast<int>(image.width), static_cast<int>(image.height), 4, image.rgba.data(),
+        static_cast<int>(image.width * 4));
+    return out;
+}
+
 Result<Image> read_png(const std::filesystem::path& path) {
     int w = 0;
     int h = 0;

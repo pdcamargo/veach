@@ -30,7 +30,8 @@ struct Record {
 struct Config {
     Format format = Format::human;
     Level min_level = Level::info;
-    bool console = true;  ///< Write to stdout.
+    bool console = true;          ///< Write to the console.
+    bool console_stderr = false;  ///< stderr instead of stdout (MCP mode: stdout carries the protocol).
 };
 
 using Sink = std::function<void(const Record&)>;

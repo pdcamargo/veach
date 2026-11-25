@@ -49,6 +49,7 @@ struct EngineConfig {
     bool wait_for_profiler = false;     ///< --wait-for-profiler: block in init until Tracy connects.
     std::filesystem::path screenshot;   ///< --screenshot: PNG of the last frame (needs --frames and a GPU RHI)
     std::filesystem::path write_types;  ///< --write-types: write this app's veach.d.luau and exit
+    bool mcp = false;                   ///< --mcp: serve the Model Context Protocol on stdio (logs go to stderr)
 };
 
 /// Registers ProjectConfig and the types it uses, for JSON loading and schemas.

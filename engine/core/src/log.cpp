@@ -118,9 +118,10 @@ void write(Level level, std::string_view category, std::string_view message, std
     };
     if (s.config.console) {
         const std::string line = format_record(record, s.config.format);
-        std::fwrite(line.data(), 1, line.size(), stdout);
-        std::fputc('\n', stdout);
-        std::fflush(stdout);
+        std::FILE* out = s.config.console_stderr ? stderr : stdout;
+        std::fwrite(line.data(), 1, line.size(), out);
+        std::fputc('\n', out);
+        std::fflush(out);
     }
     for (const auto& [id, sink] : s.sinks) {
         sink(record);

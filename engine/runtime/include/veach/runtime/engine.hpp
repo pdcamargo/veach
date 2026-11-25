@@ -72,6 +72,10 @@ public:
     [[nodiscard]] Result<> start();
     /// Runs one frame. Returns false once the app should stop.
     bool frame();
+    /// Runs `count` frames (stops early if the app quits). Returns false once the app should stop.
+    bool step(std::uint64_t count);
+    /// Runs only PreExtract, Extract and Render: draws the current state without advancing simulation.
+    void render_frame();
     void shutdown();
 
     [[nodiscard]] World& world();

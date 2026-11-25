@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "veach-lab": {
+      "command": "build/debug/apps/lab/veach-lab",
+      "args": ["--mcp", "--headless", "--rhi", "metal"]
+    }
+  }
+}

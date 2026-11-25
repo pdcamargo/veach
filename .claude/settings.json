@@ -47,7 +47,8 @@
       "Bash(mkdir:*)",
       "Edit",
       "Write",
-      "Read"
+      "Read",
+      "mcp__veach-lab"
     ],
     "deny": [
       "Bash(git push --force:*)",

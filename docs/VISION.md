@@ -57,7 +57,7 @@ In rough order (details and ids in [backlog/BACKLOG.md](backlog/BACKLOG.md)):
    extraction boundary, CI on macOS and Windows.
 2. First light (done, except cameras): Metal RHI resources and swapchain, render graph, Slang pipeline,
    golden-image tests, a ray-traced first image.
-3. Agents in the loop: MCP server (`query_entities`, `get/set_component`, `step_frames`, `screenshot`,
+3. Agents in the loop (MCP server v0 done): MCP server (`query_entities`, `get/set_component`, `step_frames`, `screenshot`,
    `gpu_timings`, `load_scene`, sandboxed transactional `eval`), hot reload, record/replay.
 4. Content: glTF (fastgltf, meshoptimizer), KTX2/BC7 textures, Flecs Script scenes and prefabs, extendable
    materials.

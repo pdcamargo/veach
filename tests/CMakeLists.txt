@@ -56,6 +56,20 @@ if(Python3_FOUND)
     add_test(NAME "repo: hygiene (backlog ids, veach names in apps, CLAUDE.md)"
         COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/scripts/check_repo.py"
         WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
+    # MCP server (docs/specs/mcp-server/spec.md): the lab app driven purely over stdio.
+    add_test(NAME "mcp: tools over stdio (null RHI)"
+        COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
+                --lab $<TARGET_FILE:veach-lab> protocol
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
+    if(APPLE)
+        add_test(NAME "mcp: golden through MCP (GPU)"
+            COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
+                    --lab $<TARGET_FILE:veach-lab> --imgdiff $<TARGET_FILE:veach-cli>
+                    --golden "${PROJECT_SOURCE_DIR}/tests/golden/triangle_raytraced.png"
+                    --out "${CMAKE_CURRENT_BINARY_DIR}/mcp/triangle.png" golden
+            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
+        set_tests_properties("mcp: golden through MCP (GPU)" PROPERTIES SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE")
+    endif()
 endif()
 
 # Golden images (first light). Metal only; skipped on GPUs without Metal 3 / ray tracing.

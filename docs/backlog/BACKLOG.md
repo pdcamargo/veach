@@ -47,6 +47,9 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 - **VCH-036** Gamepads — *platform* — SDL gamepad events into `Input` and actions.
 - **VCH-037** Window polish — *platform* — Exclusive fullscreen, pixel-size and DPI fields, multi-monitor placement.
 - **VCH-038** Blocking clang-tidy in CI — *process* — Make the `.clang-tidy` baseline clean, then run `run-clang-tidy` as a required CI job.
+- **VCH-041** Validate parameter-block layouts — *render* — Compare each C++ parameter struct with Slang's `-reflection-json` offsets in a test, instead of hand-written `static_assert`s. [ADR](../adr/0024-resource-binding-model.md)
+- **VCH-042** Deferred resource destruction — *rhi* — A fence-tagged free list instead of waiting for GPU idle when destroying resources (and, on DX12, descriptor slots). [ADR](../adr/0025-sync-and-barrier-model.md)
+- **VCH-043** Drop the MSL `RayDesc` patch — *render* — Remove `cmake/patch_msl.cmake` once Slang's Metal target emits `RayDesc` (reported against 2026.22). [ADR](../adr/0026-shader-compilation.md)
 - **VCH-039** Windows ASan in CI — *process* — MSVC `/fsanitize=address` job (MSVC has no UBSan).
 
 ## Done

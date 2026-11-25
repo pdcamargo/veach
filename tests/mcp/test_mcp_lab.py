@@ -3,8 +3,9 @@
 
   python3 tests/mcp/test_mcp_lab.py --lab <veach-lab> protocol
   python3 tests/mcp/test_mcp_lab.py --lab <veach-lab> --imgdiff <veach> --golden <png> --out <png> golden
+  python3 tests/mcp/test_mcp_lab.py --lab <veach-lab> fly
 
-`protocol` runs on the null RHI anywhere. `golden` needs Metal 3 + ray tracing; on other GPUs it prints
+`protocol` and `fly` (the input spec's fly camera, input.AC5) run on the null RHI anywhere. `golden` needs Metal 3 + ray tracing; on other GPUs it prints
 VEACH_GPU_UNAVAILABLE (CTest: skipped) unless VEACH_REQUIRE_GPU=1, which makes that a failure.
 """
 
@@ -120,6 +121,33 @@ def protocol(lab: str) -> None:
     check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
 
 
+def fly(lab: str) -> None:
+    client = McpClient([lab, "--mcp", "--headless", "--script", "scripts/fly_camera.luau"])
+    client.initialize()
+
+    def translation() -> list[float]:
+        return client.call_json("get_component", entity="camera", component="Transform")["translation"]
+
+    start = translation()
+    client.call_json("send_input", key="w", down=True)
+    client.call_json("step_frames", count=30)
+    client.call_json("send_input", key="w", down=False)
+    moved = translation()
+    check(abs(moved[2] - (start[2] - 1.0)) < 1e-3 and abs(moved[0] - start[0]) < 1e-6,
+          f"[input.AC5] holding w for 30 frames flies 1 m forward ({start} -> {moved})")
+
+    client.call_json("send_input", key="left", down=True)
+    client.call_json("step_frames", count=30)
+    yaw = client.call_json("get_component", entity="camera", component="FlyCamera")["yaw"]
+    check(abs(yaw - 0.75) < 1e-3, f"[input.AC5] holding left for 30 frames turns 0.75 rad (yaw {yaw})")
+
+    bad = client.call("send_input", key="spcae", down=True)
+    text = bad["content"][0]["text"]
+    check(bad.get("isError") and "[input.unknown_key]" in text and "Did you mean 'space'?" in text,
+          "[input.AC5] send_input rejects an unknown key with a suggestion")
+    check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
+
+
 def golden(lab: str, imgdiff: str, golden_path: str, out: str, rhi: str) -> None:
     client = McpClient([lab, "--mcp", "--headless", "--rhi", rhi])
     try:
@@ -154,10 +182,12 @@ def main() -> int:
     parser.add_argument("--golden")
     parser.add_argument("--out")
     parser.add_argument("--rhi", default="metal")
-    parser.add_argument("mode", choices=["protocol", "golden"])
+    parser.add_argument("mode", choices=["protocol", "golden", "fly"])
     args = parser.parse_args()
     if args.mode == "protocol":
         protocol(args.lab)
+    elif args.mode == "fly":
+        fly(args.lab)
     else:
         golden(args.lab, args.imgdiff, args.golden, args.out, args.rhi)
     return 0

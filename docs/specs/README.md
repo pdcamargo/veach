@@ -18,3 +18,4 @@ acceptance criteria (`[area.ACn] ...`) → status Implemented.
 | [DX12 backend](dx12-backend/spec.md) | rhi | Implemented (WARP in CI) |
 | [Views and cameras](render-views/spec.md) | render | Implemented |
 | [Transforms and hierarchy](transforms/spec.md) | ecs | Implemented |
+| [Input actions in Luau](input/spec.md) | script | Implemented |

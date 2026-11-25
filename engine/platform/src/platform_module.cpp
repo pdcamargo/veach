@@ -22,6 +22,7 @@ constexpr const char* actions_scope = "veach::actions";
 void handle_events(World& world, Platform& platform) {
     std::vector<PlatformEvent> events;
     platform.poll_events(events);
+    platform.take_injected(events);
 
     Input& input = world.get_mut<Input>();
     input.begin_frame();
@@ -73,14 +74,16 @@ void handle_events(World& world, Platform& platform) {
 }
 
 const InputAction* find_action(const World& world, std::string_view name) {
-    const std::string path = std::string(actions_scope) + "::" + std::string(name);
-    const Entity e = world.lookup(path.c_str());
+    const Entity e = world.lookup(action_path(name).c_str());
     return e ? e.try_get<InputAction>() : nullptr;
 }
 
 }  // namespace
 
 void Input::set_key(Key key, bool is_down) {
+    if (key == Key::unknown) {
+        return;  // an untranslated key; recording it would trip every action whose unused slot is `unknown`
+    }
     const auto index = static_cast<std::size_t>(key);
     const std::uint64_t bit = std::uint64_t{1} << (index % 64);
     std::uint64_t& word = down[index / 64];
@@ -94,9 +97,12 @@ void Input::set_key(Key key, bool is_down) {
     }
 }
 
+std::string action_path(std::string_view name) {
+    return std::string(actions_scope) + "::" + std::string(name);
+}
+
 Entity bind_action(World& world, std::string_view name, Key primary, Key secondary) {
-    const std::string path = std::string(actions_scope) + "::" + std::string(name);
-    Entity e = world.entity(path.c_str());
+    Entity e = world.entity(action_path(name).c_str());
     e.set<InputAction>({.primary = primary, .secondary = secondary});
     return e;
 }

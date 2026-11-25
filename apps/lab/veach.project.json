@@ -6,5 +6,41 @@
     "title": "Veach Lab",
     "width": 1280,
     "height": 720
+  },
+  "input": {
+    "move_forward": [
+      "w"
+    ],
+    "move_back": [
+      "s"
+    ],
+    "move_left": [
+      "a"
+    ],
+    "move_right": [
+      "d"
+    ],
+    "move_up": [
+      "e"
+    ],
+    "move_down": [
+      "q"
+    ],
+    "turn_left": [
+      "left"
+    ],
+    "turn_right": [
+      "right"
+    ],
+    "look_up": [
+      "up"
+    ],
+    "look_down": [
+      "down"
+    ],
+    "sprint": [
+      "left_shift",
+      "right_shift"
+    ]
   }
 }

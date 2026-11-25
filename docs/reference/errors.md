@@ -88,6 +88,22 @@ SDL could not start (usually: no display). Run with `--headless` in CI, over SSH
 
 The OS refused to create the window. Check the size in `veach.project.json`, or run `--headless`.
 
+## input.unknown_action
+
+**A script or tool named an input action that is not bound.**
+
+Actions come from `"input"` in `veach.project.json` (or `veach::bind_action` in C++). The hint suggests the
+closest bound action. Add the action to the project file, or fix the name. See
+[input](../specs/input/spec.md).
+
+## input.unknown_key
+
+**An input binding or injected event names a key that does not exist.**
+
+Key names are the constants of `veach::Key`: `a`–`z`, `digit0`–`digit9`, `space`, `enter`, `escape`, `tab`,
+`backspace`, the arrows `left`/`right`/`up`/`down`, `left_shift`, `right_ctrl`…, `f1`–`f12`, and the mouse
+buttons `mouse_left`, `mouse_right`, `mouse_middle`. The hint suggests the closest one.
+
 ## asset.not_found
 
 **An asset path does not exist.**

@@ -53,6 +53,16 @@ export type QuatApi = {
 
 export type SpawnOptions = { name: string?, parent: Entity? }
 
+--- Input actions, bound in veach.project.json ("input": { "jump": ["space"] }). An unknown name is an error.
+--- pressed/released hold for the whole frame: read them in a per-frame phase ("Input") to act once.
+export type InputApi = {
+	read down: (action: string) -> boolean,
+	read pressed: (action: string) -> boolean,
+	read released: (action: string) -> boolean,
+	--- -1, 0 or 1: `axis("move_back", "move_forward")`.
+	read axis: (negative: string, positive: string) -> number,
+}
+
 export type TimeApi = {
 	--- Current frame number, starting at 1.
 	read frame: () -> number,
@@ -110,6 +120,7 @@ export type Veach = {
 	--- current invocation succeeds.
 	read spawn: ((name: string?) -> Entity) & ((options: SpawnOptions) -> Entity),
 	read quat: QuatApi,
+	read input: InputApi,
 	read log: LogApi,
 	read time: TimeApi,
 	read components: {

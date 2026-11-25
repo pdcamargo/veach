@@ -3,6 +3,7 @@
 #include <veach/core/suggest.hpp>
 #include <veach/ecs/components.hpp>
 #include <veach/ecs/json.hpp>
+#include <veach/ecs/reflection.hpp>
 #include <veach/platform/fs.hpp>
 #include <veach/platform/platform_module.hpp>
 
@@ -171,7 +172,47 @@ Result<CliOverrides> parse_args(std::span<const std::string_view> args) {
     return cli;
 }
 
+/// "input": { "<action>": ["<key>", "<key>"?] }. Key names are veach::Key's constants.
+Result<> parse_input(const World& world, const nlohmann::json& input, const std::string& context,
+                     std::vector<ActionBinding>& out) {
+    if (!input.is_object()) {
+        return make_error(ErrorCode::data_type_mismatch, std::format("{}: 'input' must be an object", context),
+                          R"(Map each action to its keys: "input": { "jump": ["space"] }.)");
+    }
+    const ecs::entity_t key_type = world.id<Key>();
+    for (const auto& [action, keys] : input.items()) {
+        if (!keys.is_array() || keys.empty() || keys.size() > 2) {
+            return make_error(ErrorCode::data_type_mismatch,
+                              std::format("{}: input.{} must be an array of one or two key names", context, action),
+                              std::format(R"(For example "{}": ["space", "w"].)", action));
+        }
+        ActionBinding binding{.action = action};
+        for (std::size_t i = 0; i < keys.size(); ++i) {
+            Key& key = i == 0 ? binding.primary : binding.secondary;
+            const std::string name = keys[i].is_string() ? keys[i].get<std::string>() : keys[i].dump();
+            if (!keys[i].is_string() || name == "unknown" || !write_enum(world, key_type, &key, name)) {
+                return make_error(ErrorCode::input_unknown_key,
+                                  std::format("{}: input.{}: unknown key '{}'", context, action, name),
+                                  did_you_mean(name, enum_constants(world, key_type)));
+            }
+        }
+        out.push_back(std::move(binding));
+    }
+    return {};
+}
+
 }  // namespace
+
+nlohmann::json input_schema(const World& world) {
+    std::vector<std::string> keys = enum_constants(world, world.id<Key>());
+    std::erase(keys, "unknown");
+    return {
+        {"type", "object"},
+        {"description", "Input actions: each action name maps to one or two keys (docs/specs/input/spec.md)."},
+        {"additionalProperties", {{"type", "array"}, {"minItems", 1}, {"maxItems", 2}, {"items", {{"enum", keys}}}}},
+        {"default", nlohmann::json::object()},
+    };
+}
 
 void register_config_types(World& world) {
     world.import<CoreModule>();
@@ -207,7 +248,15 @@ Result<> load_project_file(const std::filesystem::path& file, ProjectConfig& con
     }
     World world;
     register_config_types(world);
-    return from_json(world, config, json, file.filename().generic_string());
+    const std::string context = file.filename().generic_string();
+    if (json.is_object() && json.contains("input")) {
+        config.input.clear();
+        if (auto parsed = parse_input(world, json["input"], context, config.input); !parsed) {
+            return parsed;
+        }
+        json.erase("input");
+    }
+    return from_json(world, config, json, context);
 }
 
 Result<EngineConfig> resolve_config(const AppInfo& app, std::span<const std::string_view> args) {

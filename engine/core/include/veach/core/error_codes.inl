@@ -28,6 +28,9 @@ VEACH_ERROR(ecs_unknown_phase, "ecs.unknown_phase", "A system was attached to a 
 
 VEACH_ERROR(platform_init_failed, "platform.init_failed", "The platform backend failed to initialize")
 VEACH_ERROR(platform_window_failed, "platform.window_failed", "The OS window could not be created")
+VEACH_ERROR(input_unknown_action, "input.unknown_action", "A script or tool named an input action that is not bound")
+VEACH_ERROR(input_unknown_key, "input.unknown_key",
+            "An input binding or injected event names a key that does not exist")
 
 VEACH_ERROR(asset_not_found, "asset.not_found", "An asset path does not exist")
 VEACH_ERROR(asset_no_loader, "asset.no_loader", "No loader is registered for an asset's file extension")

@@ -180,6 +180,9 @@ Result<> Engine::init() {
                           "Flecs REST API on http://localhost:27750 (explorer: https://www.flecs.dev/explorer)");
             }
             world_->entity("primary_window").set<Window>(project.window).add<PrimaryWindow>();
+            for (const ActionBinding& binding : project.input) {
+                bind_action(*world_, binding.action, binding.primary, binding.secondary);
+            }
             sync_windows(*world_);
             return std::format("flecs {}.{}.{}, seed {}", FLECS_VERSION_MAJOR, FLECS_VERSION_MINOR, FLECS_VERSION_PATCH,
                                project.seed);

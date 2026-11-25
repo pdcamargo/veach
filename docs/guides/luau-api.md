@@ -111,6 +111,24 @@ components appear when the current invocation succeeds. With a `parent`, the ent
 
 Entities compare with `==`, print as `Entity(<id> '<name>')` and `typeof(e) == "Entity"`.
 
+### `veach.input`
+
+Actions, never keys. Bind them in `veach.project.json` (one or two keys or mouse buttons each; names are
+`veach::Key` constants, and the schema lists them):
+
+```json
+"input": { "jump": ["space"], "move_forward": ["w", "up"], "fire": ["mouse_left"] }
+```
+
+| Function | Result |
+|---|---|
+| `down(action) -> boolean` | Held this frame. |
+| `pressed(action) -> boolean` / `released(action)` | Went down / up this frame (true for the whole frame: read them in `"Input"` to act once). |
+| `axis(negative, positive) -> number` | −1, 0 or 1 from two held actions. |
+
+An unknown action raises `input.unknown_action` with a suggestion. The lab's `scripts/fly_camera.luau` is a
+complete example. Agents press keys with the MCP tool `send_input`. Spec: [input](../specs/input/spec.md).
+
 ### `veach.quat`
 
 Quaternions are `{ x, y, z, w }` tables (the `rotation` field of `Transform`). These helpers use glm, so they

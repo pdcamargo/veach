@@ -183,6 +183,18 @@ void SdlPlatform::poll_events(std::vector<PlatformEvent>& out) {
                                    .key = translate_scancode(event.key.scancode)});
                 }
                 break;
+            case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            case SDL_EVENT_MOUSE_BUTTON_UP: {
+                const Key button = event.button.button == SDL_BUTTON_LEFT     ? Key::mouse_left
+                                   : event.button.button == SDL_BUTTON_RIGHT  ? Key::mouse_right
+                                   : event.button.button == SDL_BUTTON_MIDDLE ? Key::mouse_middle
+                                                                              : Key::unknown;
+                out.push_back({.type = event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ? PlatformEvent::Type::key_down
+                                                                                 : PlatformEvent::Type::key_up,
+                               .window = event.button.windowID,
+                               .key = button});
+                break;
+            }
             default: break;
         }
     }

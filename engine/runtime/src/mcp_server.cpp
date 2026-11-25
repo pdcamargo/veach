@@ -6,6 +6,8 @@
 #include <veach/ecs/components.hpp>
 #include <veach/ecs/json.hpp>
 #include <veach/ecs/reflection.hpp>
+#include <veach/platform/input.hpp>
+#include <veach/platform/platform.hpp>
 #include <veach/render/png.hpp>
 #include <veach/render/renderer.hpp>
 #include <veach/rhi/rhi.hpp>
@@ -233,6 +235,16 @@ json McpServer::tools() const {
         "this tool, one fixed 1/60 s step per frame, so they are deterministic.",
         {{"type", "object"},
          {"properties", {{"count", {{"type", "integer"}, {"minimum", 1}, {"maximum", 100000}, {"default", 1}}}}}}));
+    std::vector<std::string> keys = enum_constants(world, world.id<Key>());
+    std::erase(keys, "unknown");
+    list.push_back(
+        tool("send_input",
+             "Press or release a key or mouse button as if the OS had sent it. It is delivered with the "
+             "next frame (step_frames), where it drives the input actions bound in veach.project.json "
+             "(entities under veach::actions).",
+             {{"type", "object"},
+              {"properties", {{"key", {{"type", "string"}, {"enum", keys}}}, {"down", {{"type", "boolean"}}}}},
+              {"required", {"key", "down"}}}));
     list.push_back(tool("screenshot",
                         "Render the current state (without advancing simulation) and return it as a PNG. Needs a "
                         "GPU backend (--rhi metal). Optionally also write it to 'path'.",
@@ -384,6 +396,23 @@ json McpServer::call_tool(std::string_view name, const json& arguments) {
         const Time& time = world.get<Time>();
         return json_result(
             {{"frame", time.frame}, {"fixed_step", time.fixed_step}, {"elapsed", time.elapsed}, {"running", running}});
+    }
+
+    if (name == "send_input") {
+        const std::string key_name = require_string(arguments, "key");
+        if (!arguments.contains("down") || !arguments["down"].is_boolean()) {
+            fail(ErrorCode::mcp_invalid_arguments, "'down' must be a boolean");
+        }
+        Key key = Key::unknown;
+        if (key_name == "unknown" || !write_enum(world, world.id<Key>(), &key, key_name)) {
+            std::vector<std::string> keys = enum_constants(world, world.id<Key>());
+            std::erase(keys, "unknown");
+            fail(ErrorCode::input_unknown_key, std::format("unknown key '{}'", key_name), did_you_mean(key_name, keys));
+        }
+        const bool down = arguments["down"].get<bool>();
+        engine_.services().get<Platform>().inject(
+            {.type = down ? PlatformEvent::Type::key_down : PlatformEvent::Type::key_up, .key = key});
+        return json_result({{"key", key_name}, {"down", down}, {"delivered", "with the next frame"}});
     }
 
     if (name == "screenshot") {

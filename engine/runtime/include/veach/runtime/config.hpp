@@ -7,6 +7,9 @@
 #include <veach/core/error.hpp>
 #include <veach/core/log.hpp>
 #include <veach/ecs/flecs.hpp>
+
+#include <nlohmann/json_fwd.hpp>
+#include <veach/platform/input.hpp>
 #include <veach/platform/window.hpp>
 #include <veach/rhi/rhi.hpp>
 
@@ -15,12 +18,20 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace veach {
 
 inline constexpr std::string_view project_file_name = "veach.project.json";
 
 /// Contents of veach.project.json. Reflected: the schema is generated from this.
+/// One action from "input" in veach.project.json: `"jump": ["space", "w"]` (docs/specs/input/spec.md).
+struct ActionBinding {
+    std::string action;
+    Key primary = Key::unknown;
+    Key secondary = Key::unknown;
+};
+
 struct ProjectConfig {
     std::string name = "untitled";
     std::string script;  ///< Startup script, relative to the project directory. Empty: none.
@@ -33,6 +44,9 @@ struct ProjectConfig {
     rhi::Backend rhi = rhi::Backend::null;
     std::uint32_t frames_in_flight = 2;  ///< How far the CPU may run ahead of the GPU (ADR 0029).
     bool rest = false;                   ///< Serve the Flecs REST API / explorer on port 27750.
+    /// "input": action -> one or two keys. Not a reflected member (reflection has no maps yet): parsed and
+    /// schema-described by hand, see input_schema().
+    std::vector<ActionBinding> input;
 };
 
 struct AppInfo {
@@ -54,6 +68,8 @@ struct EngineConfig {
 
 /// Registers ProjectConfig and the types it uses, for JSON loading and schemas.
 void register_config_types(World& world);
+/// The JSON Schema of the "input" object, for the generated veach.project.schema.json.
+[[nodiscard]] nlohmann::json input_schema(const World& world);
 
 /// argv (without the program name) -> project file -> CLI overrides.
 [[nodiscard]] Result<EngineConfig> resolve_config(const AppInfo& app, std::span<const std::string_view> args);

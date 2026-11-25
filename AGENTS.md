@@ -57,7 +57,8 @@ or with other flags:
 claude mcp add veach-lab -- build/debug/apps/lab/veach-lab --mcp --headless --rhi metal
 ```
 
-Headless sessions are deterministic: nothing moves until you call `step_frames`. Drop `--headless` to poke at a
+Headless sessions are deterministic: nothing moves until you call `step_frames`. Press keys with `send_input`
+(they drive the actions bound in `veach.project.json`). Drop `--headless` to poke at a
 running window. Look at screenshots you take; a successful call is not a correct image.
 
 ## Rules that are easy to get wrong

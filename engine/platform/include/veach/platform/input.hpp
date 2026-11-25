@@ -25,9 +25,11 @@ enum class Key : std::uint8_t {
     left, right, up, down,
     left_shift, right_shift, left_ctrl, right_ctrl, left_alt, right_alt,
     f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12,
+    mouse_left, mouse_right, mouse_middle,  ///< mouse buttons bind like keys
 };
 // clang-format on
-inline constexpr std::size_t key_count = static_cast<std::size_t>(Key::f12) + 1;
+inline constexpr std::size_t key_count = static_cast<std::size_t>(Key::mouse_middle) + 1;
+static_assert(key_count <= 128, "Input keeps two 64-bit words per state");
 
 /// Singleton. Keyboard state for the current frame.
 struct Input {
@@ -61,6 +63,9 @@ struct InputAction {
     bool pressed = false;
     bool released = false;
 };
+
+/// The path of action `name`'s entity: veach::actions::<name>.
+[[nodiscard]] std::string action_path(std::string_view name);
 
 /// Creates or rebinds the action entity `name`.
 Entity bind_action(World& world, std::string_view name, Key primary, Key secondary = Key::unknown);

@@ -122,6 +122,9 @@ int command_schemas(const std::vector<std::string_view>& args) {
         };
         doc.update(s);
         doc["properties"]["$schema"] = {{"type", "string"}};
+        if (type == world.id<veach::ProjectConfig>()) {
+            doc["properties"]["input"] = veach::input_schema(world);  // not a reflected member (no maps yet)
+        }
         return doc.dump(2) + "\n";
     };
 

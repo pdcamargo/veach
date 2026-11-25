@@ -7,6 +7,7 @@ add_executable(veach-tests
     platform_tests.cpp
     render_tests.cpp
     rhi_tests.cpp
+    input_tests.cpp
     script_tests.cpp
     transform_tests.cpp)
 if(WIN32)
@@ -65,6 +66,11 @@ if(Python3_FOUND)
     add_test(NAME "mcp: tools over stdio (null RHI)"
         COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
                 --lab $<TARGET_FILE:veach-lab> protocol
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
+    # input.AC5: the lab's fly camera script, driven only through MCP send_input.
+    add_test(NAME "mcp: fly camera through send_input (null RHI)"
+        COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
+                --lab $<TARGET_FILE:veach-lab> fly
         WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
     if(APPLE)
         add_test(NAME "mcp: golden through MCP (GPU)"

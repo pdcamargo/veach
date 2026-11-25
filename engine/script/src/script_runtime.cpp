@@ -9,6 +9,7 @@
 #include <veach/ecs/components.hpp>
 #include <veach/ecs/phases.hpp>
 #include <veach/ecs/reflection.hpp>
+#include <veach/platform/input.hpp>
 
 #include "marshal.hpp"
 
@@ -30,9 +31,9 @@ namespace {
 using script::entity_tag;
 constexpr std::size_t max_query_components = 4;
 
-constexpr std::array<std::string_view, 15> api_function_names{
+constexpr std::array<std::string_view, 16> api_function_names{
     "component", "query", "system", "spawn", "log",    "time",     "components", "f32",
-    "f64",       "i32",   "u32",    "vec3",  "entity", "optional", "quat",
+    "f64",       "i32",   "u32",    "vec3",  "entity", "optional", "quat",       "input",
 };
 
 /// Explicit field types: veach.f32(...) and friends return a marker the
@@ -511,6 +512,43 @@ struct ScriptRuntime::Impl {
         return 1;
     }
 
+    // ---- bindings: veach.input (actions bound in veach.project.json; scripts never see raw keys) ----
+
+    static const InputAction& check_action(lua_State* S, int index) {
+        Impl& rt = self(S);
+        const std::string name = luaL_checkstring(S, index);
+        const Entity e = rt.world.lookup(action_path(name).c_str());
+        const InputAction* action = e ? e.try_get<InputAction>() : nullptr;
+        if (!action) {
+            std::vector<std::string> names;
+            rt.world.each([&](Entity a, const InputAction&) { names.emplace_back(a.name().c_str()); });
+            std::string hint = did_you_mean(name, names);
+            hint += std::format("{}Actions are bound under \"input\" in veach.project.json.", hint.empty() ? "" : " ");
+            raise(S, ErrorCode::input_unknown_action, std::format("no input action '{}'", name), hint);
+        }
+        return *action;
+    }
+
+    static int input_down(lua_State* S) {
+        lua_pushboolean(S, check_action(S, 1).down ? 1 : 0);
+        return 1;
+    }
+    static int input_pressed(lua_State* S) {
+        lua_pushboolean(S, check_action(S, 1).pressed ? 1 : 0);
+        return 1;
+    }
+    static int input_released(lua_State* S) {
+        lua_pushboolean(S, check_action(S, 1).released ? 1 : 0);
+        return 1;
+    }
+    /// -1, 0 or 1 from two held actions: axis("move_back", "move_forward").
+    static int input_axis(lua_State* S) {
+        const bool negative = check_action(S, 1).down;
+        const bool positive = check_action(S, 2).down;
+        lua_pushnumber(S, (positive ? 1.0 : 0.0) - (negative ? 1.0 : 0.0));
+        return 1;
+    }
+
     // ---- bindings: veach.quat (glm underneath, so results match C++ exactly) ----
 
     static math::quat check_quat(lua_State* S, int index) {
@@ -826,6 +864,20 @@ struct ScriptRuntime::Impl {
         }
         lua_setreadonly(L, -1, 1);
         lua_setfield(L, -2, "quat");
+
+        constexpr std::array<std::pair<const char*, lua_CFunction>, 4> input_functions{{
+            {"down", input_down},
+            {"pressed", input_pressed},
+            {"released", input_released},
+            {"axis", input_axis},
+        }};
+        lua_createtable(L, 0, static_cast<int>(input_functions.size()));
+        for (const auto& [fn_name, fn] : input_functions) {
+            push_function(fn, fn_name);
+            lua_setfield(L, -2, fn_name);
+        }
+        lua_setreadonly(L, -1, 1);
+        lua_setfield(L, -2, "input");
 
         lua_createtable(L, 0, 3);
         push_function(api_time_frame, "frame");

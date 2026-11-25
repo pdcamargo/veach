@@ -10,7 +10,6 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 
 - **VCH-004** Hot reload — *asset* — File watcher in the platform layer. Reload changed assets in place behind the same `Handle<T>`. Re-execute changed scripts, replacing their systems (systems are named, so this is a swap).
 - **VCH-005** `Behavior` component — *script* — `veach.behavior(Component, { on_update = function(self, dt) ... end })` sugar for per-entity scripts, run internally as an ordinary Simulation system with batched dispatch. No separate update path.
-- **VCH-006** Input in Luau and data-driven bindings — *script* — `veach.input.pressed("jump")`, `down`, `released`; action bindings in `veach.project.json` (`"input": {"jump": ["space", "w"]}`), reflected and schema-validated.
 - **VCH-009** Runtime shader compilation — *render* — Build-time Slang → metallib/DXIL exists ([ADR 0026](../adr/0026-shader-compilation.md)). Add libslang at run time for shader hot reload, and a pipeline cache.
 
 ## Later
@@ -52,6 +51,7 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 
 ## Done
 
+- **VCH-006** Input actions in Luau — *script* — `"input"` bindings in `veach.project.json` (keys and mouse buttons, schema-validated), `veach.input.down/pressed/released/axis`, platform-level injection and the MCP tool `send_input`. The lab's fly camera is a script, tested end to end over MCP. Mouse motion and gamepads are later. [spec](../specs/input/spec.md)
 - **VCH-007** Transforms and hierarchy — *ecs* — `GlobalTransform` (added with every `Transform`), cascade propagation over ChildOf per fixed step and before extraction, `veach.spawn{ parent = e }`, `e:parent()`, `e:children()`, `veach.quat` helpers; cameras read `GlobalTransform`. [spec](../specs/transforms/spec.md)
 - **VCH-012** DX12 backend — *rhi* — `Dx12Device` on the Agility SDK 1.620: SM 6.6 descriptor heaps, enhanced barriers, root constants, graphics and compute pipelines, DXR 1.1 BLAS/TLAS build and refit, readback, flip-model swapchain. Every shared golden passes on WARP in hosted CI at the default tolerance, plus a 300-frame soak and MCP on DX12. [spec](../specs/dx12-backend/spec.md), [ADR 0031](../adr/0031-dx12-on-warp-in-ci.md)
 - **VCH-002** Windows bring-up — *platform* — A windowed run on the hosted Windows runner: SDL window, HWND to the RHI, DX12 swapchain present and resize, clean exit. Real-display presentation is VCH-050.

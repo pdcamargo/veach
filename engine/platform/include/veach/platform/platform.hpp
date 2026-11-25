@@ -46,6 +46,17 @@ public:
 
     /// Appends all pending OS events to `out`.
     virtual void poll_events(std::vector<PlatformEvent>& out) = 0;
+
+    /// Queues an event as if the OS had sent it (tests, MCP `send_input`). Delivered with the next poll.
+    void inject(const PlatformEvent& event) { injected_.push_back(event); }
+    /// Moves the injected events to `out`, after the OS ones.
+    void take_injected(std::vector<PlatformEvent>& out) {
+        out.insert(out.end(), injected_.begin(), injected_.end());
+        injected_.clear();
+    }
+
+private:
+    std::vector<PlatformEvent> injected_;
 };
 
 [[nodiscard]] Result<std::unique_ptr<Platform>> create_platform(PlatformBackend backend);

@@ -105,9 +105,9 @@ running window. Look at screenshots you take; a successful call is not a correct
    affected docs **in the same commit**.
 5. Before pushing: `tools/scripts/pre-push.sh`. It runs the build, every test with GPU goldens required on macOS,
    the hygiene check and clang-format, and is installed as a hook with `git config core.hooksPath tools/githooks`.
-   Then push and check CI (`gh run list`). The `macOS GPU` job runs on a self-hosted Mac
-   ([docs/guides/ci-runners.md](docs/guides/ci-runners.md)); it may stay queued while that Mac sleeps. Docs-only
-   pushes skip the build jobs.
+   Then push and check CI (`gh run list`). CI has no real Apple GPU, so this gate is what verifies Metal
+   ([ADR 0036](docs/adr/0036-no-self-hosted-gpu-runner.md)): never push around it. Docs-only pushes skip the
+   build jobs.
 
 How to add a module, component, system, Luau binding, loader, error code or engine subsystem:
 [docs/guides/extending.md](docs/guides/extending.md).

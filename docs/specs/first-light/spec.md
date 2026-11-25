@@ -1,6 +1,6 @@
 # First light: RHI v0, render graph v0, golden images
 
-**Status:** Implemented (macOS). GPU golden tests in CI wait on a runner with a real Apple GPU (VCH-044).
+**Status:** Implemented (macOS). Metal goldens run in the pre-push gate, not in CI ([ADR 0036](../../adr/0036-no-self-hosted-gpu-runner.md)).
 **Area:** render
 **Owner:** dev lead
 
@@ -97,13 +97,13 @@ cmake --build --preset debug --target update-goldens      # regenerate goldens o
 ## Open questions
 
 - **CI GPU.** GitHub's hosted macOS runners expose an "Apple Paravirtual device" (no Metal 3, no ray tracing,
-  tier-1 argument buffers), so the GPU goldens skip there. Running them on every push needs a runner with a
-  real Apple GPU (VCH-044). This needs the product owner's decision.
+  tier-1 argument buffers), so the GPU goldens skip there. Decided: the pre-push gate runs them on a real Mac
+  ([ADR 0036](../../adr/0036-no-self-hosted-gpu-runner.md)).
 
 ## Links
 
 - ADRs: [0009 RHI](../../adr/0009-rhi-design.md), [0024 binding](../../adr/0024-resource-binding-model.md),
   [0025 barriers](../../adr/0025-sync-and-barrier-model.md), [0026 shaders](../../adr/0026-shader-compilation.md)
-- Backlog: VCH-010, VCH-013 (done), VCH-012, VCH-041, VCH-042, VCH-043, VCH-044
+- Backlog: VCH-010, VCH-013 (done), VCH-012, VCH-041, VCH-042, VCH-043, VCH-044 (won't do, ADR 0036)
 - Guide: [rendering](../../guides/rendering.md)
 - Code: `engine/rhi/`, `engine/render/`, `apps/lab/src/triangle_feature.cpp`, `apps/lab/shaders/`, `tests/golden/`

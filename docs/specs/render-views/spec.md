@@ -62,7 +62,7 @@ struct RenderView {  // engine/render/include/veach/render/renderer.hpp
   there are no views and `FrameContext::view` is null.
 - **views.AC3**: `golden: triangle (camera, raster)` and `golden: triangle (camera, raytraced)` both match
   `tests/golden/triangle_camera.png`, the triangle seen through a perspective camera set from Luau. They run on
-  Metal (self-hosted) and DX12 (WARP, hosted).
+  Metal (pre-push gate) and DX12 (WARP, hosted CI).
 - **views.AC4**: Without a camera, the existing goldens pass unchanged: features keep their NDC behavior.
 
 Tests: `[views.AC1]`, `[views.AC2]` in `tests/render_tests.cpp`; the camera goldens in `tests/CMakeLists.txt`

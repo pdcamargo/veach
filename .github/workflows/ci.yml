@@ -56,29 +56,6 @@ jobs:
           pip install clang-format==23.1.5
           git ls-files '*.cpp' '*.hpp' '*.h' '*.mm' '*.inl' | xargs clang-format --dry-run --Werror
 
-  gpu:
-    # Real-GPU golden images on the self-hosted Mac (docs/guides/ci-runners.md, VCH-044).
-    # Never on pull_request: a self-hosted runner must not run code from forks.
-    # When the Mac is asleep or off the job stays queued (GitHub keeps it up to 24 h) instead of failing.
-    name: macOS GPU (Metal goldens, self-hosted)
-    needs: changes
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.changes.outputs.code == 'true'
-    runs-on: [self-hosted, macOS, ARM64, gpu-metal]
-    permissions:
-      contents: read
-    env:
-      VEACH_REQUIRE_GPU: "1"  # a skipped golden is a failure here
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          lfs: true
-      - name: Configure
-        run: cmake --preset debug
-      - name: Build
-        run: cmake --build --preset debug
-      - name: Test (everything, GPU goldens required)
-        run: ctest --preset debug
-
   build:
     name: ${{ matrix.name }}
     needs: changes
@@ -125,6 +102,6 @@ jobs:
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}
       # Metal goldens report SKIPPED on hosted macOS (a paravirtual GPU without Metal 3 / ray tracing; the
-      # self-hosted gpu job runs them). Windows runs the DX12 goldens on WARP and requires them to pass.
+      # pre-push gate runs them on a real Mac, ADR 0036). Windows runs the DX12 goldens on WARP and requires them.
       - name: Test (unit, hello world, luau-analyze, generated files, goldens, hygiene)
         run: ctest --preset ${{ matrix.preset }}

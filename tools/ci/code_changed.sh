@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Prints "code=true" if anything other than docs changed since the last commit on main whose hosted CI jobs
-# passed, else "code=false" (ADR 0030). Docs are docs/, *.md and LICENSE. The self-hosted GPU job is ignored
-# when looking for that commit: it may sit queued for hours. Any doubt (no green run, history not fetched,
-# manual dispatch) means code=true.
+# passed, else "code=false" (ADR 0030). Docs are docs/, *.md and LICENSE. Any doubt (no green run, history not
+# fetched, manual dispatch) means code=true.
 #
 #   tools/ci/code_changed.sh [<event>] [<pull request base sha>]      # needs gh (GH_TOKEN) and full history
 set -euo pipefail
@@ -16,7 +15,8 @@ if [ "$event" = workflow_dispatch ]; then
 fi
 
 if [ "$event" != pull_request ]; then
-    # A run counts by its hosted jobs alone: its queued GPU job keeps the run itself "in progress" for hours.
+    # A run counts by its jobs' results, not its own status: runs before ADR 0036 list a self-hosted GPU job that
+    # never left the queue, so it is ignored.
     # Never the run asking (its lint may already be green while its builds are not even listed yet), and only
     # runs that list their Windows job (or, when it was skipped, the unexpanded matrix).
     for run in $(gh run list --workflow ci.yml --branch main --event push --limit 30 \

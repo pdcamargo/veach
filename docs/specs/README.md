@@ -13,7 +13,7 @@ acceptance criteria (`[area.ACn] ...`) → status Implemented.
 | [Scripting: Luau API v0](scripting-luau-api-v0/spec.md) | script | Implemented |
 | [Asset system core](asset-system-core/spec.md) | asset | Implemented |
 | [Platform and windows](platform-and-windows/spec.md) | platform | Implemented |
-| [First light: RHI v0, render graph v0, golden images](first-light/spec.md) | render | Implemented (GPU CI pending, VCH-044) |
+| [First light: RHI v0, render graph v0, golden images](first-light/spec.md) | render | Implemented |
 | [MCP server v0](mcp-server/spec.md) | runtime | Implemented |
 | [DX12 backend](dx12-backend/spec.md) | rhi | Implemented (WARP in CI) |
 | [Views and cameras](render-views/spec.md) | render | Implemented |

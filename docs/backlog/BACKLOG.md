@@ -4,8 +4,6 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 
 ## Now
 
-- **VCH-044** GPU runner for CI — *process* — Self-hosted Mac runner (decided 2026-11-25): separate non-admin user, no secrets, push to main and manual dispatch only, `VEACH_REQUIRE_GPU=1`. Script and guide in [ci-runners](../guides/ci-runners.md). Done once the `macOS GPU` job passes on `main`.
-
 ## Next
 
 - **VCH-055** Sponza golden — *render* — Add Khronos's Sponza next to FlightHelmet. Waiting on the owner: its files are under the CRYENGINE Limited License Agreement, which the agent may not accept on their behalf (AGENTS.md). [spec](../specs/first-real-scene/spec.md)
@@ -51,6 +49,7 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 
 ## Done
 
+- **VCH-044** GPU runner for CI — *process* — Won't do (2026-11-25): no self-hosted runner; the pre-push gate runs the Metal goldens on a real Mac. [ADR](../adr/0036-no-self-hosted-gpu-runner.md)
 - **VCH-054** Reference path tracer — *render* — Progressive, unbiased: GGX + Lambert, NEE to punctual lights and emissive triangles with MIS, alpha by continuing opaque rays (ADR 0035), PCG per pixel and sample; restarts on any change. MCP `path_trace`. Cornell box and FlightHelmet goldens on Metal and DX12/WARP. [ADR](../adr/0034-lights-and-reference-path-tracer.md)
 - **VCH-053** Lights — *render* — `DirectionalLight` (lux), `PointLight`/`SpotLight` (cd) from components or glTF `KHR_lights_punctual`, emissive surfaces (nits), `Camera.ev100`. [ADR](../adr/0034-lights-and-reference-path-tracer.md)
 - **VCH-052** Materials v0 — *render* — `IMaterial` with overridable defaults (Slang `override`), generated `evaluateSurface`/`evaluateAlpha` dispatch, `veach_add_material()`; the lab's `GlowMaterial` overrides only `evalEmission`. [ADR](../adr/0033-material-model.md)

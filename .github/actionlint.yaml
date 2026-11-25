@@ -1,5 +1,0 @@
-self-hosted-runner:
-  # tools/ci/macos-runner/setup.sh registers the Mac GPU runner with this label (docs/guides/ci-runners.md).
-  labels:
-    - gpu-metal
-    - gpu-dx12

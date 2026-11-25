@@ -11,7 +11,7 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | #    | Title                                                                    | Status   |
 |------|--------------------------------------------------------------------------|----------|
 | 0001 | [Language and build system](0001-language-and-build-system.md)           | Accepted |
-| 0002 | [Target platforms and hardware](0002-target-platforms-and-hardware.md)   | Accepted (CI line superseded by 0030) |
+| 0002 | [Target platforms and hardware](0002-target-platforms-and-hardware.md)   | Accepted (CI line superseded by 0030 and 0036) |
 | 0003 | [Shaders in Slang](0003-shaders-slang.md)                                | Accepted |
 | 0004 | [ECS: Flecs v4](0004-ecs-flecs-v4.md)                                    | Accepted |
 | 0005 | [Flecs barrel, not a wrapper](0005-flecs-barrel-not-wrapper.md)          | Accepted |
@@ -39,9 +39,10 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0027 | [Image I/O and perceptual comparison](0027-image-io-and-comparison.md)    | Accepted |
 | 0028 | [One shared set of golden images across backends](0028-golden-images-across-backends.md) | Accepted (Windows runner part superseded by 0030) |
 | 0029 | [Frame and synchronization model](0029-frame-and-sync-model.md)          | Accepted |
-| 0030 | [Windows is verified only through GitHub-hosted CI](0030-windows-verified-in-hosted-ci.md) | Accepted |
+| 0030 | [Windows is verified only through GitHub-hosted CI](0030-windows-verified-in-hosted-ci.md) | Accepted (Metal runner superseded by 0036) |
 | 0031 | [DX12 is verified on WARP in hosted CI, on a pinned Agility SDK](0031-dx12-on-warp-in-ci.md) | Accepted |
 | 0032 | [glTF import and cooked runtime formats](0032-asset-import-and-cooking.md) | Accepted |
 | 0033 | [Material model: Slang interfaces with overridable defaults](0033-material-model.md) | Accepted |
 | 0034 | [Lights in physical units, and a reference path tracer](0034-lights-and-reference-path-tracer.md) | Accepted (alpha part superseded by 0035) |
 | 0035 | [Alpha testing by continuing opaque rays](0035-alpha-by-continuing-opaque-rays.md) | Accepted |
+| 0036 | [No self-hosted GPU runner; real-GPU tests are gated before push](0036-no-self-hosted-gpu-runner.md) | Accepted |

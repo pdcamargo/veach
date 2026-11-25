@@ -4,6 +4,10 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 
 ## Now
 
+- **VCH-051** glTF import and cooking — *asset* — fastgltf import into MeshAsset/TextureAsset (KTX2, BC7)/MaterialAsset/SceneAsset with derived sub-asset ids, a cook cache, and `SceneInstance`. [spec](../specs/first-real-scene/spec.md), [ADR](../adr/0032-asset-import-and-cooking.md)
+- **VCH-052** Materials v0 — *render* — `IMaterial` with overridable defaults, generated `evaluateSurface` dispatch, `veach_add_material()`, the lab's `GlowMaterial`. [ADR](../adr/0033-material-model.md)
+- **VCH-053** Lights — *render* — `DirectionalLight` (lux), `PointLight`/`SpotLight` (cd), emissive surfaces (nits), `Camera.ev100`. [ADR](../adr/0034-lights-and-reference-path-tracer.md)
+- **VCH-054** Reference path tracer — *render* — Progressive, NEE + MIS, deterministic RNG; MCP `path_trace`; Cornell box and FlightHelmet goldens on Metal and WARP. [ADR](../adr/0034-lights-and-reference-path-tracer.md)
 - **VCH-044** GPU runner for CI — *process* — Self-hosted Mac runner (decided 2026-11-25): separate non-admin user, no secrets, push to main and manual dispatch only, `VEACH_REQUIRE_GPU=1`. Script and guide in [ci-runners](../guides/ci-runners.md). Done once the `macOS GPU` job passes on `main`.
 
 ## Next

@@ -41,3 +41,6 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0029 | [Frame and synchronization model](0029-frame-and-sync-model.md)          | Accepted |
 | 0030 | [Windows is verified only through GitHub-hosted CI](0030-windows-verified-in-hosted-ci.md) | Accepted |
 | 0031 | [DX12 is verified on WARP in hosted CI, on a pinned Agility SDK](0031-dx12-on-warp-in-ci.md) | Accepted |
+| 0032 | [glTF import and cooked runtime formats](0032-asset-import-and-cooking.md) | Accepted |
+| 0033 | [Material model: Slang interfaces with overridable defaults](0033-material-model.md) | Accepted |
+| 0034 | [Lights in physical units, and a reference path tracer](0034-lights-and-reference-path-tracer.md) | Accepted |

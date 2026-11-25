@@ -4,7 +4,7 @@ Date: 2026-11-25
 
 ## Status
 
-Accepted.
+Accepted. History feedback superseded by [0045](0045-temporal-implementation-amendments.md).
 
 ## Context
 

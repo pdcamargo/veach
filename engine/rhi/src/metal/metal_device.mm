@@ -14,6 +14,7 @@
 #include <veach/core/log.hpp>
 
 #import <Metal/Metal.h>
+#import <MetalFX/MetalFX.h>
 #import <QuartzCore/CAMetalLayer.h>
 
 #include <array>
@@ -24,6 +25,7 @@
 #include <map>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace veach::rhi {
@@ -94,19 +96,18 @@ constexpr std::uint32_t timing_samples_per_buffer = 4096;
 constexpr std::uint32_t timing_buffers_per_frame = 8;
 constexpr std::uint32_t timing_samples_per_frame = timing_samples_per_buffer * timing_buffers_per_frame;
 
-MTLResourceUsage usage_for(ResourceState state) {
-    return is_write(state) ? (MTLResourceUsageRead | MTLResourceUsageWrite) : MTLResourceUsageRead;
-}
-
 struct MetalBuffer {
     id<MTLBuffer> buffer;
     BufferDesc desc;
+    bool gpu_written = false;  ///< some pass wrote it: passes must name it (hazard tracking), see resident_untracked()
 };
 
 struct MetalTexture {
     id<MTLTexture> texture;
     TextureDesc desc;
     bool drawable = false;  ///< a swapchain image; not owned
+    bool gpu_written = false;
+    std::shared_ptr<std::atomic<bool>> uploaded;  ///< set when its initial-data blit completed; null: none
 };
 
 struct MetalPipeline {
@@ -161,6 +162,7 @@ public:
     void pop_debug_group() override { [buffer_ popDebugGroup]; }
     void begin_timing(std::string_view name) override;
     void end_timing() override;
+    void temporal_scale(TemporalScalerId scaler, const TemporalScale& frame) override;
 
     [[nodiscard]] id<MTLCommandBuffer> buffer() const { return buffer_; }
     void end_encoder();
@@ -178,6 +180,11 @@ private:
     void write_instances(MetalAccel& tlas, std::span<const TlasInstance> instances);
     void encode_accel(AccelHandle handle, bool refit);
     void use_one(id<MTLResource> resource, ResourceState state);
+    /// Makes the resources use() collected resident, in one call per usage (a scene pass declares thousands).
+    void flush_uses();
+    std::vector<__unsafe_unretained id<MTLResource>> pending_reads_;  ///< owned by the device's slots
+    std::vector<__unsafe_unretained id<MTLResource>> pending_writes_;
+    std::unordered_set<const void*> pending_seen_;
 
     MetalDevice& device_;
     id<MTLCommandBuffer> buffer_;
@@ -201,12 +208,26 @@ public:
     MetalDevice(id<MTLDevice> device, bool validation, std::uint32_t frames_in_flight)
         : device_(device), validation_(validation), state_(std::make_shared<CompletionState>(frames_in_flight)) {
         queue_ = [device newCommandQueue];
+        // One residency set holds every allocation (macOS 15+): passes then name only what the GPU writes, instead
+        // of making thousands of scene resources resident per encoder (resident_untracked()).
+        if (@available(macOS 15.0, *)) {
+            MTLResidencySetDescriptor* d = [MTLResidencySetDescriptor new];
+            d.label = @"veach";
+            d.initialCapacity = 4096;
+            NSError* error = nil;
+            id<MTLResidencySet> set = [device newResidencySetWithDescriptor:d error:&error];
+            if (set != nil) {
+                [queue_ addResidencySet:set];
+                residency_ = set;
+            }
+        }
         caps_.device_name = device.name.UTF8String;
         caps_.gpu = true;
         caps_.hardware_ray_tracing = device.supportsRaytracing;
         caps_.bindless =
             [device supportsFamily:MTLGPUFamilyMetal3] && device.argumentBuffersSupport == MTLArgumentBuffersTier2;
         caps_.mesh_shaders = [device supportsFamily:MTLGPUFamilyApple7] || [device supportsFamily:MTLGPUFamilyMac2];
+        caps_.temporal_upscaler = [MTLFXTemporalScalerDescriptor supportsDevice:device];
         create_null_resources();
         create_timing_buffers(frames_in_flight);
     }
@@ -345,6 +366,7 @@ public:
         if (!initial.empty()) {
             std::memcpy(buffer.contents, initial.data(), std::min<std::size_t>(initial.size(), desc.size));
         }
+        make_resident(buffer);
         return buffers_.insert({buffer, desc});
     }
 
@@ -386,19 +408,22 @@ public:
         if (!desc.debug_name.empty()) {
             texture.label = ns(desc.debug_name);
         }
+        std::shared_ptr<std::atomic<bool>> uploaded;
         if (!mips.empty()) {
             if (mips.size() != levels) {
                 return make_error(ErrorCode::internal, std::format("create_texture '{}': {} mip levels, data for {}",
                                                                    desc.debug_name, levels, mips.size()));
             }
-            upload(texture, desc, mips);
+            uploaded = upload(texture, desc, mips);
         }
-        return textures_.insert({texture, desc, false});
+        make_resident(texture);
+        return textures_.insert({texture, desc, false, false, uploaded});
     }
 
     /// Private textures are filled by a blit from a shared staging buffer, committed now: the queue runs in
     /// order, so every later submission sees the data. The command buffer keeps the staging buffer alive.
-    void upload(id<MTLTexture> texture, const TextureDesc& desc, std::span<const std::span<const std::byte>> mips) {
+    std::shared_ptr<std::atomic<bool>> upload(id<MTLTexture> texture, const TextureDesc& desc,
+                                              std::span<const std::span<const std::byte>> mips) {
         std::size_t total = 0;
         for (const auto& mip : mips) {
             total += mip.size();
@@ -426,7 +451,12 @@ public:
             offset += mips[level].size();
         }
         [blit endEncoding];
+        auto done = std::make_shared<std::atomic<bool>>(false);
+        [commands addCompletedHandler:^(id<MTLCommandBuffer>) {
+          done->store(true);
+        }];
         [commands commit];
+        return done;
     }
 
     [[nodiscard]] Result<SamplerHandle> create_sampler(const SamplerDesc& desc) override {
@@ -553,6 +583,7 @@ public:
         if (!name.empty()) {
             accel.accel.label = ns(name);
         }
+        make_resident(accel.accel);
         return accels_.insert(std::move(accel));
     }
 
@@ -611,11 +642,82 @@ public:
         return make_accel(d, std::move(accel), desc.debug_name);
     }
 
-    void destroy(BufferHandle h) override { retire(buffers_, h); }
-    void destroy(TextureHandle h) override { retire(textures_, h); }
+    void destroy(BufferHandle h) override {
+        if (MetalBuffer* b = buffers_.get(h)) {
+            forget(b->buffer);
+        }
+        retire(buffers_, h);
+    }
+    void destroy(TextureHandle h) override {
+        if (MetalTexture* t = textures_.get(h); t && !t->drawable) {
+            forget(t->texture);
+        }
+        retire(textures_, h);
+    }
     void destroy(SamplerHandle h) override { retire(samplers_, h); }
     void destroy(PipelineHandle h) override { retire(pipelines_, h); }
-    void destroy(AccelHandle h) override { retire(accels_, h); }
+    void destroy(AccelHandle h) override {
+        if (MetalAccel* a = accels_.get(h)) {
+            forget(a->accel);
+        }
+        retire(accels_, h);
+    }
+
+    // ---- the residency set (macOS 15+)
+    void make_resident(id<MTLAllocation> allocation) {
+        if (@available(macOS 15.0, *)) {
+            if (residency_ != nil && allocation != nil) {
+                [static_cast<id<MTLResidencySet>>(residency_) addAllocation:allocation];
+                residency_dirty_ = true;
+            }
+        }
+    }
+    void forget(id<MTLAllocation> allocation) {
+        if (@available(macOS 15.0, *)) {
+            if (residency_ != nil && allocation != nil) {
+                [static_cast<id<MTLResidencySet>>(residency_) removeAllocation:allocation];
+                residency_dirty_ = true;
+            }
+        }
+    }
+    void commit_residency() {
+        if (@available(macOS 15.0, *)) {
+            if (residency_dirty_) {
+                [static_cast<id<MTLResidencySet>>(residency_) commit];
+                residency_dirty_ = false;
+            }
+        }
+    }
+    /// Whether a pass may leave `r` unnamed: it is resident through the set and no hazard needs tracking. True for
+    /// a BLAS (only reached through its TLAS, which passes name and whose build waits for the BLAS's), and for
+    /// buffers and textures no pass has written (a texture also once its upload completed). A write marks the
+    /// resource: from then on every pass that touches it names it. Without a residency set, never.
+    bool resident_untracked(ResourceRef r, bool writes) {
+        if (residency_ == nil) {
+            return false;
+        }
+        switch (r.kind) {
+            case ResourceKind::buffer:
+                if (MetalBuffer* b = buffers_.get(BufferHandle{r.index, r.generation})) {
+                    b->gpu_written = b->gpu_written || writes;
+                    return !b->gpu_written;
+                }
+                return false;
+            case ResourceKind::texture:
+                if (MetalTexture* t = textures_.get(TextureHandle{r.index, r.generation})) {
+                    t->gpu_written = t->gpu_written || writes;
+                    return !t->gpu_written && !t->drawable && (!t->uploaded || t->uploaded->load());
+                }
+                return false;
+            case ResourceKind::acceleration_structure:
+                if (MetalAccel* a = accels_.get(AccelHandle{r.index, r.generation})) {
+                    return !a->tlas && !writes;
+                }
+                return false;
+            default: return false;
+        }
+    }
+    [[nodiscard]] bool has_residency_set() const { return residency_ != nil; }
 
     /// The handle dies now; the Objective-C object (kept alive by the closure) once the GPU is done with it.
     template <class Map, class H>
@@ -716,7 +818,9 @@ public:
         s->image = textures_.insert({s->drawable.texture,
                                      {static_cast<std::uint32_t>(size.width), static_cast<std::uint32_t>(size.height),
                                       surface_format, TextureUsage::color_target, "swapchain"},
-                                     true});
+                                     true,
+                                     true,
+                                     nullptr});
         return s->image;
     }
 
@@ -740,6 +844,7 @@ public:
     SubmissionId submit(std::unique_ptr<CommandList> commands, SurfaceId present) override {
         auto* list = static_cast<MetalCommandList*>(commands.get());
         list->end_encoder();
+        commit_residency();
         id<MTLCommandBuffer> buffer = list->buffer();
         if (MetalSurface* s = surface(present); s && s->drawable) {
             [buffer presentDrawable:s->drawable];
@@ -803,6 +908,40 @@ public:
         std::erase_if(in_flight_, [done](const auto& entry) { return entry.first <= done; });
     }
 
+    // ---- MetalFX's temporal scaler (ADR 0043)
+    [[nodiscard]] Result<TemporalScalerId> create_temporal_scaler(const TemporalScalerDesc& desc) override {
+        if (!caps_.temporal_upscaler) {
+            return Device::create_temporal_scaler(desc);
+        }
+        MTLFXTemporalScalerDescriptor* d = [MTLFXTemporalScalerDescriptor new];
+        d.colorTextureFormat = to_mtl(desc.color);
+        d.depthTextureFormat = to_mtl(desc.depth);
+        d.motionTextureFormat = to_mtl(desc.motion);
+        d.outputTextureFormat = to_mtl(desc.output);
+        d.inputWidth = desc.input_width;
+        d.inputHeight = desc.input_height;
+        d.outputWidth = desc.output_width;
+        d.outputHeight = desc.output_height;
+        id<MTLFXTemporalScaler> scaler = [d newTemporalScalerWithDevice:device_];
+        if (scaler == nil) {
+            return make_error(ErrorCode::rhi_gpu_error,
+                              std::format("MetalFX refused a {}x{} -> {}x{} temporal scaler", desc.input_width,
+                                          desc.input_height, desc.output_width, desc.output_height),
+                              "Check the formats and that the output is at most 3 times the input per axis.");
+        }
+        scalers_.push_back(scaler);
+        return TemporalScalerId{static_cast<std::uint32_t>(scalers_.size())};
+    }
+    void destroy_temporal_scaler(TemporalScalerId which) override {
+        if (which.is_valid() && which.value <= scalers_.size()) {
+            wait_idle();  // rare (a resize): the scaler may still be encoded in a frame in flight
+            scalers_[which.value - 1] = nil;
+        }
+    }
+    id<MTLFXTemporalScaler> scaler(TemporalScalerId which) {
+        return which.is_valid() && which.value <= scalers_.size() ? scalers_[which.value - 1] : nil;
+    }
+
     // Used by MetalCommandList.
     MetalBuffer* buffer(BufferHandle h) { return buffers_.get(h); }
     MetalTexture* texture(TextureHandle h) { return textures_.get(h); }
@@ -846,6 +985,9 @@ private:
     SlotMap<MetalAccel, AccelHandle> accels_;
     std::unordered_map<const ShaderLibrary*, id<MTLLibrary>> libraries_;
     std::vector<MetalSurface> surfaces_;
+    std::vector<id<MTLFXTemporalScaler>> scalers_;  ///< TemporalScalerId - 1; nil once destroyed
+    id residency_ = nil;  ///< id<MTLResidencySet> on macOS 15+: every allocation, attached to the queue
+    bool residency_dirty_ = false;
     std::shared_ptr<CompletionState> state_;
     std::map<std::uint64_t, id<MTLCommandBuffer>> in_flight_;
     std::vector<std::vector<id<MTLCounterSampleBuffer>>> timing_buffers_;  ///< [slot][i]; empty when unsupported
@@ -858,6 +1000,9 @@ private:
 // ---- MetalCommandList -----------------------------------------------------------
 
 void MetalCommandList::end_encoder() {
+    pending_reads_.clear();
+    pending_writes_.clear();
+    pending_seen_.clear();
     if (render_) {
         [render_ endEncoding];
         render_ = nil;
@@ -945,6 +1090,7 @@ void MetalCommandList::set_parameters(const void* data, std::size_t size) {
 
 void MetalCommandList::draw(std::uint32_t vertex_count, std::uint32_t instance_count, std::uint32_t first_vertex) {
     VEACH_ASSERT(render_ != nil, "draw() outside a render pass");
+    flush_uses();
     [render_ drawPrimitives:MTLPrimitiveTypeTriangle
                 vertexStart:first_vertex
                 vertexCount:vertex_count
@@ -953,6 +1099,7 @@ void MetalCommandList::draw(std::uint32_t vertex_count, std::uint32_t instance_c
 
 void MetalCommandList::dispatch(std::uint32_t x, std::uint32_t y, std::uint32_t z) {
     VEACH_ASSERT(compute_ != nil, "dispatch() outside a compute pass");
+    flush_uses();
     [compute_ dispatchThreadgroups:MTLSizeMake(x, y, z) threadsPerThreadgroup:threads_per_group_];
 }
 
@@ -1079,6 +1226,27 @@ void MetalCommandList::copy_buffer(BufferHandle src, BufferHandle dst, std::uint
     [blit endEncoding];
 }
 
+void MetalCommandList::temporal_scale(TemporalScalerId which, const TemporalScale& frame) {
+    end_encoder();  // MetalFX encodes its own passes into the command buffer
+    id<MTLFXTemporalScaler> scaler = device_.scaler(which);
+    MetalTexture* color = device_.texture(frame.color);
+    MetalTexture* depth = device_.texture(frame.depth);
+    MetalTexture* motion = device_.texture(frame.motion);
+    MetalTexture* output = device_.texture(frame.output);
+    VEACH_ASSERT(scaler != nil && color && depth && motion && output, "temporal_scale: invalid scaler or textures");
+    scaler.colorTexture = color->texture;
+    scaler.depthTexture = depth->texture;
+    scaler.motionTexture = motion->texture;
+    scaler.outputTexture = output->texture;
+    scaler.jitterOffsetX = frame.jitter_x;
+    scaler.jitterOffsetY = frame.jitter_y;
+    scaler.motionVectorScaleX = 1.0f;
+    scaler.motionVectorScaleY = 1.0f;
+    scaler.reset = frame.reset;
+    scaler.depthReversed = frame.depth_reversed;
+    [scaler encodeToCommandBuffer:buffer_];
+}
+
 void MetalCommandList::copy_texture_to_buffer(TextureHandle src, BufferHandle dst) {
     end_encoder();
     MetalTexture* t = device_.texture(src);
@@ -1101,24 +1269,42 @@ void MetalCommandList::copy_texture_to_buffer(TextureHandle src, BufferHandle ds
 }
 
 void MetalCommandList::use_one(id<MTLResource> resource, ResourceState state) {
-    if (!resource) {
+    if (!resource || (!render_ && !compute_) || !pending_seen_.insert((__bridge const void*)resource).second) {
         return;
     }
-    if (render_) {
-        [render_ useResource:resource usage:usage_for(state) stages:MTLRenderStageVertex | MTLRenderStageFragment];
-    } else if (compute_) {
-        [compute_ useResource:resource usage:usage_for(state)];
-    }
+    (is_write(state) ? pending_writes_ : pending_reads_).push_back(resource);
+}
+
+void MetalCommandList::flush_uses() {
+    const auto flush = [&](std::vector<__unsafe_unretained id<MTLResource>>& list, MTLResourceUsage usage) {
+        if (list.empty()) {
+            return;
+        }
+        if (render_) {
+            [render_ useResources:list.data()
+                            count:list.size()
+                            usage:usage
+                           stages:MTLRenderStageVertex | MTLRenderStageFragment];
+        } else if (compute_) {
+            [compute_ useResources:list.data() count:list.size() usage:usage];
+        }
+        list.clear();
+    };
+    flush(pending_reads_, MTLResourceUsageRead);
+    flush(pending_writes_, MTLResourceUsageRead | MTLResourceUsageWrite);
 }
 
 void MetalCommandList::use(ResourceRef ref, ResourceState state) {
+    if (device_.resident_untracked(ref, is_write(state))) {
+        return;
+    }
     if (state == ResourceState::color_target || state == ResourceState::depth_write ||
         state == ResourceState::present || state == ResourceState::copy_src || state == ResourceState::copy_dst ||
         state == ResourceState::accel_build) {
         return;  // attachments, blits and builds name their resources explicitly
     }
     use_one(device_.resource(ref), state);
-    if (ref.kind == ResourceKind::acceleration_structure) {
+    if (ref.kind == ResourceKind::acceleration_structure && !device_.has_residency_set()) {
         // A TLAS is only traversable if every BLAS it references is resident too.
         if (MetalAccel* tlas = device_.accel(AccelHandle{ref.index, ref.generation}); tlas && tlas->tlas) {
             for (const AccelHandle blas : tlas->blases) {

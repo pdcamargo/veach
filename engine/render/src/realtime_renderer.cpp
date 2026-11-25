@@ -183,6 +183,8 @@ struct RealtimeRenderer::Impl {
         std::uint32_t output_height = 0;
         UpscalerMode mode = UpscalerMode::none;  ///< resolved: temporal or none
         Persistent visibility;
+        Persistent depth;                                   ///< MetalFX only: it reads the visibility pass's depth
+        rhi::TemporalScalerId scaler;                       ///< MetalFX's temporal scaler, for these sizes
         std::array<std::array<Persistent, 7>, 2> surfaces;  ///< ping-pong: this frame's and last frame's
         Persistent radiance;
         std::array<Persistent, 2> upscaled;                ///< output resolution, ping-pong (TAAU history)
@@ -225,6 +227,7 @@ struct RealtimeRenderer::Impl {
     std::unordered_map<std::uint64_t, ViewState> views;
     std::uint32_t frame = 0;  ///< seeds the random numbers
     std::vector<rhi::BufferHandle> frame_buffers;
+    bool warned_metalfx = false;
 
     ~Impl() {
         if (device == nullptr) {
@@ -268,6 +271,11 @@ struct RealtimeRenderer::Impl {
     }
     void destroy(ViewState& v) {
         destroy(v.visibility);
+        destroy(v.depth);
+        if (v.scaler.is_valid()) {
+            device->destroy_temporal_scaler(v.scaler);
+            v.scaler = {};
+        }
         for (auto& set : v.surfaces) {
             for (Persistent& p : set) {
                 destroy(p);
@@ -348,9 +356,22 @@ struct RealtimeRenderer::Impl {
             ok = ok && create(b, reservoirs, "reservoirs");
         }
         if (mode != UpscalerMode::none) {
+            // MetalFX writes its output as a render target; TAAU as storage.
+            const auto usage = mode == UpscalerMode::metalfx ? rw_usage | rhi::TextureUsage::color_target : rw_usage;
             for (Persistent& p : v.upscaled) {
-                ok = ok && create(p, {ow, oh, rhi::Format::rgba16_float, rw_usage, "upscaled"});
+                ok = ok && create(p, {ow, oh, rhi::Format::rgba16_float, usage, "upscaled"});
             }
+        }
+        if (ok && mode == UpscalerMode::metalfx) {
+            ok = create(v.depth, {rw, rh, rhi::Format::depth32_float,
+                                  rhi::TextureUsage::depth_target | rhi::TextureUsage::sampled, "visibility depth"});
+            auto scaler = device->create_temporal_scaler(
+                {.input_width = rw, .input_height = rh, .output_width = ow, .output_height = oh});
+            if (!scaler) {
+                log::error("render", scaler.error());
+                return false;
+            }
+            v.scaler = *scaler;
         }
         return ok;
     }
@@ -424,8 +445,20 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     s.release_frame_buffers();  // last frame's: their submission is made, so destroy() waits for the GPU
     const RealtimeLighting& lighting = view.realtime;
 
-    // Resolution and upscaler (ADR 0040, ADR 0043). MetalFX comes later: every upscaler is TAAU for now.
-    const UpscalerMode mode = view.upscaling.mode == UpscalerMode::none ? UpscalerMode::none : UpscalerMode::temporal;
+    // Resolution and upscaler (ADR 0040, ADR 0043): automatic is MetalFX where the device has it, else TAAU.
+    const bool metalfx_available = s.device->capabilities().temporal_upscaler;
+    UpscalerMode mode = view.upscaling.mode;
+    if (mode == UpscalerMode::automatic) {
+        mode = metalfx_available ? UpscalerMode::metalfx : UpscalerMode::temporal;
+    } else if (mode == UpscalerMode::metalfx && !metalfx_available) {
+        if (!s.warned_metalfx) {
+            log::warn("render",
+                      "this device has no MetalFX temporal scaler; using Veach's own (Upscaling.mode = "
+                      "\"temporal\")");
+            s.warned_metalfx = true;
+        }
+        mode = UpscalerMode::temporal;
+    }
     const float scale = mode == UpscalerMode::none ? 1.0f : std::clamp(view.upscaling.render_scale, 0.5f, 1.0f);
     const std::uint32_t ow = frame.width;
     const std::uint32_t oh = frame.height;
@@ -567,8 +600,12 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     v.previous_position = view.position;
 
     const GraphResource visibility = s.import(graph, v.visibility, "visibility");
-    const GraphResource depth =
-        graph.create_texture({rw, rh, rhi::Format::depth32_float, rhi::TextureUsage::depth_target, "visibility depth"});
+    // Depth lives only in the visibility pass, unless MetalFX reads it afterwards.
+    const GraphResource depth = mode == UpscalerMode::metalfx
+                                    ? s.import(graph, v.depth, "visibility depth")
+                                    : graph.create_texture({rw, rh, rhi::Format::depth32_float,
+                                                            rhi::TextureUsage::depth_target, "visibility depth"});
+    v.depth.written = v.depth.handle.is_valid();
     std::array<GraphResource, 7> current_targets{};
     std::array<GraphResource, 5> previous_targets{};
     for (std::size_t i = 0; i < surfaces.size(); ++i) {
@@ -764,7 +801,33 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     const bool image = lighting.view == RealtimeView::final || lighting.view == RealtimeView::noisy;
     GraphResource shown = accumulating ? accumulation : lit;
     std::array<std::uint32_t, 2> shown_size{rw, rh};
-    if (mode != UpscalerMode::none && image) {
+    if (mode == UpscalerMode::metalfx && image) {
+        // MetalFX keeps its own history; one output texture is enough. Its jitter is ours (the sample's offset from
+        // the pixel center, +y down): against a native-resolution TAA image of FlightHelmet that measured mean FLIP
+        // 0.0131, the opposite sign 0.0138.
+        Persistent& out = v.upscaled[0];
+        const GraphResource out_resource = s.import(graph, out, "upscaled");
+        out.written = true;
+        const rhi::CommandList::TemporalScale metalfx_frame{.color = lit_handle,
+                                                            .depth = v.depth.handle,
+                                                            .motion = surfaces[6].handle,
+                                                            .output = out.handle,
+                                                            .jitter_x = jitter.x,
+                                                            .jitter_y = jitter.y,
+                                                            .reset = !v.history,
+                                                            .depth_reversed = true};
+        graph.add_transfer_pass(
+            "metalfx",
+            [&](PassBuilder& b) {
+                b.read(lit);
+                b.read(depth);
+                b.read(current_targets[6]);
+                b.write(out_resource, rhi::ResourceState::shader_write);
+            },
+            [metalfx_frame, scaler = v.scaler](PassContext& ctx) { ctx.cmd.temporal_scale(scaler, metalfx_frame); });
+        shown = out_resource;
+        shown_size = {ow, oh};
+    } else if (mode == UpscalerMode::temporal && image) {
         Persistent& out = v.upscaled[current];
         Persistent& history = v.upscaled[previous];
         const GraphResource out_resource = s.import(graph, out, "upscaled");

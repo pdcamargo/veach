@@ -69,6 +69,12 @@ struct SurfaceId {
     [[nodiscard]] constexpr bool is_valid() const { return value != 0; }
 };
 
+/// A vendor temporal upscaler (MetalFX's temporal scaler, ADR 0043). Not a GPU resource of its own for barriers.
+struct TemporalScalerId {
+    std::uint32_t value = 0;
+    [[nodiscard]] constexpr bool is_valid() const { return value != 0; }
+};
+
 // ---- formats and usage --------------------------------------------------------
 
 enum class Format : std::uint8_t {

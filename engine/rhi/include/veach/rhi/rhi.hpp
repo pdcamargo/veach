@@ -30,6 +30,19 @@ struct Capabilities {
     bool hardware_ray_tracing = false;
     bool bindless = false;  ///< Metal 3 resource IDs / SM 6.6 descriptor heaps
     bool mesh_shaders = false;
+    bool temporal_upscaler = false;  ///< create_temporal_scaler works (MetalFX on Apple GPUs, ADR 0043)
+};
+
+/// A temporal upscaler's fixed configuration: sizes and the formats of what it reads and writes (ADR 0043).
+struct TemporalScalerDesc {
+    std::uint32_t input_width = 0;
+    std::uint32_t input_height = 0;
+    std::uint32_t output_width = 0;
+    std::uint32_t output_height = 0;
+    Format color = Format::rgba16_float;
+    Format depth = Format::depth32_float;
+    Format motion = Format::rgba16_float;
+    Format output = Format::rgba16_float;
 };
 
 /// GPU time of one timed region of a frame (a render-graph pass): CommandList::begin_timing/end_timing.
@@ -88,6 +101,12 @@ public:
     virtual void destroy(SamplerHandle sampler) = 0;
     virtual void destroy(PipelineHandle pipeline) = 0;
     virtual void destroy(AccelHandle accel) = 0;
+
+    /// A vendor temporal upscaler (ADR 0043): rhi.backend_unavailable where capabilities().temporal_upscaler is
+    /// false. Its textures need TextureUsage::sampled (inputs, the depth target too) and color_target | storage
+    /// (output).
+    [[nodiscard]] virtual Result<TemporalScalerId> create_temporal_scaler(const TemporalScalerDesc& desc);
+    virtual void destroy_temporal_scaler(TemporalScalerId scaler);
 
     /// Host pointer for upload/readback buffers (persistently mapped), nullptr otherwise.
     [[nodiscard]] virtual void* map(BufferHandle buffer) = 0;

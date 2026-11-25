@@ -6,7 +6,8 @@
 
 Drives the lab over MCP (headless; the primary window is resized to --size after the script's own setup): steps
 --warmup frames, then steps one frame at a time and reads `gpu_timings` after each. Prints the median and 95th
-percentile of the frame's GPU time and the median of each pass. Run on a quiet machine: anything else using the
+percentile of the frame's GPU time (the device's, so it includes MetalFX, which per-pass timestamps cannot see)
+and the median of each pass. Run on a quiet machine: anything else using the
 GPU skews the numbers. A first run cooks the scene's textures (cached in .veach/cache afterwards).
 
 --breakdown times the shade pass again with one part left out at a time (the camera's RealtimeLighting: no AO
@@ -83,7 +84,8 @@ def measure(mcp: Mcp, scene: str, warmup: int, frames: int) -> tuple[list[float]
         timings = mcp.call("gpu_timings")
         if "passes_unavailable" in timings:
             raise RuntimeError(f"{scene}: no per-pass timings: {timings['passes_unavailable']}")
-        totals.append(sum(p["gpu_ms"] for p in timings["passes"]))
+        # The whole frame's GPU time: per-pass timestamps miss work a vendor library encodes itself (MetalFX).
+        totals.append(timings["last_frame_gpu_ms"] or sum(p["gpu_ms"] for p in timings["passes"]))
         for p in timings["passes"]:
             passes.setdefault(p["name"], []).append(p["gpu_ms"])
     return totals, passes

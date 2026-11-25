@@ -58,6 +58,20 @@ public:
     virtual void begin_timing(std::string_view name) = 0;
     virtual void end_timing() = 0;
 
+    /// One frame of a vendor temporal upscaler (Device::create_temporal_scaler, ADR 0043), outside any pass's
+    /// encoder: record it in a transfer pass. Backends without one never get here.
+    struct TemporalScale {
+        TextureHandle color;    ///< input resolution
+        TextureHandle depth;    ///< input resolution
+        TextureHandle motion;   ///< input resolution: xy = previous minus current position, input pixels
+        TextureHandle output;   ///< output resolution
+        float jitter_x = 0.0f;  ///< the frame's sample offset from the pixel center, input pixels
+        float jitter_y = 0.0f;
+        bool reset = false;          ///< drop history
+        bool depth_reversed = true;  ///< reverse-Z
+    };
+    virtual void temporal_scale(TemporalScalerId scaler, const TemporalScale& frame);
+
     template <class T>
     void set_parameters(const T& params) {
         static_assert(std::is_trivially_copyable_v<T> && sizeof(T) <= max_parameter_bytes);

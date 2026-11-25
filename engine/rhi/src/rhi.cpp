@@ -1,5 +1,8 @@
 #include <veach/rhi/rhi.hpp>
 
+#include <veach/core/assert.hpp>
+#include <veach/rhi/command_list.hpp>
+
 #include <format>
 
 #include "null/null_device.hpp"
@@ -19,6 +22,19 @@ std::string_view to_string(Backend backend) {
         case Backend::dx12: return "dx12";
     }
     return "?";
+}
+
+// Vendor temporal upscalers (ADR 0043): only backends that have one override these.
+Result<TemporalScalerId> Device::create_temporal_scaler(const TemporalScalerDesc&) {
+    return make_error(ErrorCode::rhi_backend_unavailable,
+                      std::format("the {} backend has no vendor temporal upscaler", to_string(backend())),
+                      "Use Veach's own upscaler (Upscaling.mode = \"temporal\").");
+}
+
+void Device::destroy_temporal_scaler(TemporalScalerId) {}
+
+void CommandList::temporal_scale(TemporalScalerId, const TemporalScale&) {
+    VEACH_ASSERT(false, "temporal_scale on a backend without a vendor temporal upscaler");
 }
 
 Result<std::unique_ptr<Device>> create_device(const DeviceDesc& desc) {

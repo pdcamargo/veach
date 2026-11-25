@@ -33,7 +33,7 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0021 | [Structured logging and errors](0021-structured-logging-and-errors.md)   | Accepted |
 | 0022 | [Reflection everywhere](0022-reflection-everywhere.md)                   | Accepted |
 | 0023 | [Leak checking with macOS `leaks`](0023-leak-checking-with-macos-leaks.md) | Accepted |
-| 0024 | [Resource binding model (bindless)](0024-resource-binding-model.md)      | Accepted |
+| 0024 | [Resource binding model (bindless)](0024-resource-binding-model.md)      | Accepted (Metal residency superseded by 0044) |
 | 0025 | [Synchronization and barrier model](0025-sync-and-barrier-model.md)      | Accepted (frames part superseded by 0029) |
 | 0026 | [Shader compilation](0026-shader-compilation.md)                         | Accepted |
 | 0027 | [Image I/O and perceptual comparison](0027-image-io-and-comparison.md)    | Accepted |
@@ -49,7 +49,9 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0037 | [The real-time renderer: a visibility buffer over cook-time meshlets](0037-realtime-renderer-visibility-buffer.md) | Accepted (one shading pass superseded by 0040, direct lighting by 0041) |
 | 0038 | [Physical camera exposure and the AgX tonemapper](0038-exposure-and-tonemapping.md) | Accepted (where exposure applies superseded by 0043) |
 | 0039 | [Null descriptors per kind, and validated bindless handles in debug builds](0039-null-descriptors-and-bindless-validation.md) | Accepted |
-| 0040 | [Temporal foundation: render resolution, jitter, surfaces, motion, history](0040-temporal-foundation.md) | Accepted |
+| 0040 | [Temporal foundation: render resolution, jitter, surfaces, motion, history](0040-temporal-foundation.md) | Accepted (history copies superseded by 0045) |
 | 0041 | [Direct lighting with ReSTIR DI](0041-restir-di.md)                      | Accepted |
-| 0042 | [The denoiser: our own, SVGF/ReLAX-style](0042-denoiser.md)              | Accepted |
+| 0042 | [The denoiser: our own, SVGF/ReLAX-style](0042-denoiser.md)              | Accepted (history feedback superseded by 0045) |
 | 0043 | [Upscaling: MetalFX on Apple GPUs, our own TAAU everywhere](0043-upscaling.md) | Accepted |
+| 0044 | [Metal residency through one residency set](0044-metal-residency-set.md) | Accepted |
+| 0045 | [Temporal renderer: ping-ponged history, the denoiser's history](0045-temporal-implementation-amendments.md) | Accepted |

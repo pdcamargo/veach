@@ -4,7 +4,7 @@ Date: 2026-11-25
 
 ## Status
 
-Accepted. Supersedes the "shading in one compute pass" part of [0037](0037-realtime-renderer-visibility-buffer.md).
+Accepted. Supersedes the "shading in one compute pass" part of [0037](0037-realtime-renderer-visibility-buffer.md). Copying history superseded by [0045](0045-temporal-implementation-amendments.md).
 
 ## Context
 

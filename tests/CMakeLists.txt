@@ -126,6 +126,16 @@ if(Python3_FOUND)
         set_tests_properties("mcp: per-pass gpu_timings (${_pt_rhi})" PROPERTIES
             SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE")
     endif()
+    if(APPLE)
+        # temporal.AC8: MetalFX's temporal scaler against Veach's TAAU on the same frames (ADR 0043).
+        add_test(NAME "mcp: MetalFX and TAAU agree (metal)"
+            COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
+                    --lab $<TARGET_FILE:veach-lab> --imgdiff $<TARGET_FILE:veach-cli>
+                    --out "${CMAKE_CURRENT_BINARY_DIR}/mcp/upscalers" upscalers
+            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
+        set_tests_properties("mcp: MetalFX and TAAU agree (metal)" PROPERTIES
+            SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" ENVIRONMENT "MTL_SHADER_VALIDATION=0")
+    endif()
     if(WIN32)
         add_test(NAME "mcp: golden through MCP (dx12)"
             COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"

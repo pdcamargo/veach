@@ -4,7 +4,7 @@ Date: 2026-11-24
 
 ## Status
 
-Accepted
+Accepted. "Residency" on Metal superseded by [0044](0044-metal-residency-set.md).
 
 ## Context
 

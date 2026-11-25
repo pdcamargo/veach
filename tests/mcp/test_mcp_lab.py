@@ -356,6 +356,31 @@ def gpu_timings(lab: str, rhi: str) -> None:
     check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
 
 
+def upscalers(lab: str, imgdiff: str, out_dir: str) -> None:
+    """temporal.AC8: MetalFX's temporal scaler and Veach's TAAU make the same image from the same frames."""
+    client = McpClient([lab, "--mcp", "--headless", "--rhi", "metal", "--script", "scripts/flight_helmet_realtime.luau"])
+    try:
+        client.initialize()
+    except RuntimeError as error:
+        if "rhi.backend_unavailable" in str(error) and os.environ.get("VEACH_REQUIRE_GPU") != "1":
+            print("VEACH_GPU_UNAVAILABLE: skipped (no Metal ray tracing)")
+            return
+        raise
+    os.makedirs(out_dir, exist_ok=True)
+    window = client.call_json("get_component", entity="primary_window", component="Window")
+    window.update(width=512, height=512)
+    client.call_json("set_component", entity="primary_window", component="Window", value=window)
+    images = {}
+    for mode in ("metalfx", "temporal"):
+        client.call_json("set_component", entity="camera", component="Upscaling", value={"mode": mode})
+        client.call_json("step_frames", count=40)
+        images[mode] = os.path.join(out_dir, f"{mode}.png")
+        client.call("screenshot", path=images[mode])
+    check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
+    mean = flip(imgdiff, images["temporal"], images["metalfx"])
+    check(mean <= 0.02, f"[temporal.AC8] MetalFX and TAAU agree within mean FLIP 0.02 (measured {mean:.4f})")
+
+
 def golden(lab: str, imgdiff: str, golden_path: str, out: str, rhi: str) -> None:
     client = McpClient([lab, "--mcp", "--headless", "--rhi", rhi])
     try:
@@ -391,7 +416,7 @@ def main() -> int:
     parser.add_argument("--out")
     parser.add_argument("--rhi", default="metal")
     parser.add_argument("mode", choices=["protocol", "golden", "fly", "reload", "path_trace", "gpu_timings", "replay",
-                                         "replay_windowed"])
+                                         "replay_windowed", "upscalers"])
     args = parser.parse_args()
     if args.mode == "protocol":
         protocol(args.lab)
@@ -405,6 +430,8 @@ def main() -> int:
         reload(args.lab)
     elif args.mode == "gpu_timings":
         gpu_timings(args.lab, args.rhi)
+    elif args.mode == "upscalers":
+        upscalers(args.lab, args.imgdiff, args.out)
     elif args.mode == "path_trace":
         path_trace(args.lab, args.imgdiff, args.golden, args.out, args.rhi)
     else:

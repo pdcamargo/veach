@@ -204,7 +204,15 @@ function(veach_realtime_tests rhi)
         set(suffix ", ${rhi}")
     endif()
     veach_golden_test("golden: cornell box (realtime${suffix})" cornell_box_realtime cornell_box_realtime ${rhi})
-    veach_golden_test("golden: flight helmet (realtime${suffix})" flight_helmet_realtime flight_helmet_realtime ${rhi})
+    set(helmet_limits "")
+    if(rhi STREQUAL "dx12")
+        # ADR 0028: WARP filters the helmet's minified BC7 textures (explicit gradients) a little differently from
+        # Apple GPUs, and its 4 AO rays per pixel then hit differently: measured mean 0.0108, 99.9th percentile
+        # 0.30, 2 pixels above 0.5 against the Metal golden (CI run 45666958341).
+        set(helmet_limits MAX_MEAN 0.02 MAX_P999 0.4 MAX_OUTLIERS 8)
+    endif()
+    veach_golden_test("golden: flight helmet (realtime${suffix})" flight_helmet_realtime flight_helmet_realtime ${rhi}
+        ${helmet_limits})
     veach_golden_test("golden: cornell box AO view (path traced${suffix})" cornell_box_ao cornell_box_ao ${rhi} FRAMES 4)
     veach_compare_test("rt.AC3: GlowMaterial renders the same in both renderers (${rhi})" glow_closeup ${rhi} 0.01
         SIZE 160x160 FRAMES 32 EMISSIVE 64)

@@ -1,6 +1,6 @@
 # Real-time renderer v0
 
-**Status:** Draft
+**Status:** Implemented (frame times pending)
 **Area:** render, asset, rhi
 **Owner:** dev lead
 
@@ -95,8 +95,24 @@ Candela replaces its ambient stopgap. Roadmap: VISION item 5.
 
 ## Results
 
-Filled in when implemented: per-scene frame times (1440p, M5 Max) with the per-pass split, and per-scene FLIP
-against the direct-only reference.
+**Direct lighting against the reference (rt.AC8),** `tools/bench/compare_direct.py`, 640x360: the real-time
+renderer (ambient stopgap off, the default 4 emissive light samples) against the path tracer in direct mode,
+1024 samples per pixel through pixel centers. Lower is closer.
+
+| Scene | Mean FLIP | 99.9th percentile | Pixels above 0.5 |
+|---|---|---|---|
+| Cornell box | 0.0784 | 0.851 | 4826 |
+| FlightHelmet | 0.0017 | 0.035 | 0 |
+| Sponza (Intel) | 0.0143 | 0.433 | 82 |
+| Bistro (exterior) | 0.0148 | 0.277 | 2 |
+
+The Cornell box's error is noise, not bias: its emitters are an area light and the glow block next to the walls,
+which 4 light samples per pixel resolve poorly. With more samples the error falls as noise does (0.029 at 64,
+0.019 at 256, 51 pixels above 0.5). Getting there found a bias in the light sampling both renderers share: the
+shadow ray kept its unpushed direction, so its end moved into close, oblique emitters (fixed in 445eb92; the
+path tracer's goldens changed with it). The denoiser (VCH-022) is what lowers the default-sample error.
+
+**Frame times at 1440p (rt.AC9):** pending a quiet machine; filled in with `tools/bench/frame_times.py`.
 
 ## Links
 

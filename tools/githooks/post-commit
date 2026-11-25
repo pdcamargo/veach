@@ -1,0 +1,4 @@
+#!/bin/sh
+# Git LFS hook (core.hooksPath replaces .git/hooks; see tools/githooks/pre-push).
+command -v git-lfs >/dev/null 2>&1 || exit 0
+exec git lfs post-commit "$@"

@@ -1,3 +1,7 @@
 #!/bin/sh
-# Runs the local gate (tools/scripts/pre-push.sh). Enable with: git config core.hooksPath tools/githooks
-exec sh "$(git rev-parse --show-toplevel)/tools/scripts/pre-push.sh"
+# Runs the local gate (tools/scripts/pre-push.sh), then Git LFS's own pre-push step, which uploads
+# LFS objects (golden images). core.hooksPath replaces .git/hooks, so LFS must be called from here.
+# Enable with: git config core.hooksPath tools/githooks
+command -v git-lfs >/dev/null 2>&1 || { echo >&2 "pre-push: git-lfs is required (brew install git-lfs)"; exit 2; }
+sh "$(git rev-parse --show-toplevel)/tools/scripts/pre-push.sh" </dev/null || exit $?
+exec git lfs pre-push "$@"

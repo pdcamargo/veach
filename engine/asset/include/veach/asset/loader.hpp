@@ -8,8 +8,10 @@
 #include <veach/core/ids.hpp>
 #include <veach/platform/fs.hpp>
 
+#include <cstdint>
 #include <memory>
 #include <span>
+#include <string>
 #include <string_view>
 
 namespace veach {
@@ -19,10 +21,20 @@ struct LoadContext {
     fs::Path path;  ///< Project-relative, '/'-separated.
     fs::Path absolute_path;
     std::string_view bytes;  ///< Whole file contents.
+    fs::Path cache_dir;      ///< <project>/.veach/cache/<id>: where an importer keeps cooked data (ADR 0032)
+    std::uint32_t max_texture_size = 0;  ///< from the .meta; 0 = no limit
 };
 
 /// Identifies an asset type without RTTI.
 using AssetTypeKey = const void*;
+
+/// An asset produced together with its parent (a glTF's meshes), registered in the AssetServer under
+/// `<path>#<key>` with the id AssetId::derive(parent id, key), and loadable through its own Handle<T>.
+struct SubAsset {
+    std::string key;  ///< e.g. "mesh/3"
+    AssetTypeKey type = nullptr;
+    std::shared_ptr<const void> data;
+};
 
 template <class T>
 AssetTypeKey asset_type_key() {
@@ -40,6 +52,8 @@ public:
     [[nodiscard]] virtual std::span<const std::string_view> extensions() const = 0;
     [[nodiscard]] virtual AssetTypeKey asset_type() const = 0;
     [[nodiscard]] virtual Result<std::shared_ptr<const void>> load_erased(const LoadContext& ctx) const = 0;
+    /// The sub-assets inside a loaded asset's data. Most assets have none.
+    [[nodiscard]] virtual std::span<const SubAsset> sub_assets(const void* /*data*/) const { return {}; }
 };
 
 /// Implement load() for one asset type T.

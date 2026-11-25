@@ -2,6 +2,8 @@
 #include <veach/runtime/mcp_server.hpp>
 
 #include <veach/asset/asset_server.hpp>
+#include <veach/asset/scene.hpp>
+#include <veach/asset/texture.hpp>
 #include <veach/core/log.hpp>
 #include <veach/core/profile.hpp>
 #include <veach/ecs/components.hpp>
@@ -197,6 +199,8 @@ Result<> Engine::init() {
         [&]() -> Result<std::string> {
             world_->import<AssetModule>();
             assets_ = std::make_unique<AssetServer>(*world_, config_.project_dir);
+            assets_->add_loader(std::make_unique<GltfLoader>());
+            assets_->add_loader(std::make_unique<Ktx2Loader>());
             services_.provide<AssetServer>(*assets_);
             return std::format("root '{}'", config_.project_dir.generic_string());
         },

@@ -18,7 +18,8 @@ AssetModule::AssetModule(World& world) {
     world.component<AssetMeta>()
         .member(&AssetMeta::version, "version")
         .member(&AssetMeta::id, "id")
-        .member(&AssetMeta::loader, "loader");
+        .member(&AssetMeta::loader, "loader")
+        .member(&AssetMeta::max_texture_size, "max_texture_size");
 }
 
 AssetServer::AssetServer(World& world, fs::Path root) : world_(world.c_ptr()), root_(std::move(root)) {}
@@ -120,7 +121,12 @@ AssetId AssetServer::load_erased(std::string_view path_text, AssetTypeKey type) 
     if (!bytes) {
         return fail(path, type, bytes.error());
     }
-    auto data = loader->load_erased(LoadContext{id, path, absolute, *bytes});
+    auto data = loader->load_erased(LoadContext{.id = id,
+                                                .path = path,
+                                                .absolute_path = absolute,
+                                                .bytes = *bytes,
+                                                .cache_dir = root_ / ".veach" / "cache" / id.to_string(),
+                                                .max_texture_size = meta->max_texture_size});
 
     Entry entry{.path = path, .type = type, .state = AssetState::loaded, .loader = loader, .stamp = stamp};
     if (data) {
@@ -133,7 +139,21 @@ AssetId AssetServer::load_erased(std::string_view path_text, AssetTypeKey type) 
     }
     entries_.insert_or_assign(id, std::move(entry));
     by_path_.emplace(key, id);
+    register_sub_assets(id, entries_.at(id));
     return id;
+}
+
+void AssetServer::register_sub_assets(AssetId parent, const Entry& entry) {
+    if (!entry.data || entry.loader == nullptr) {
+        return;
+    }
+    for (const SubAsset& sub : entry.loader->sub_assets(entry.data.get())) {
+        const AssetId id = AssetId::derive(parent, sub.key);
+        const fs::Path path = fs::Path(entry.path.generic_string() + "#" + sub.key);
+        entries_.insert_or_assign(id,
+                                  Entry{.path = path, .type = sub.type, .state = AssetState::loaded, .data = sub.data});
+        by_path_.insert_or_assign(path.generic_string(), id);
+    }
 }
 
 const void* AssetServer::get_erased(AssetId id, AssetTypeKey type) const {
@@ -165,8 +185,16 @@ ReloadResult AssetServer::reload_entry(AssetId id, Entry& entry) {
     const fs::Path absolute = root_ / entry.path;
     entry.stamp = fs::stamp(absolute);
     auto bytes = fs::read_file(absolute);
-    auto data = bytes ? entry.loader->load_erased(LoadContext{id, entry.path, absolute, *bytes})
-                      : Result<std::shared_ptr<const void>>(std::unexpected(bytes.error()));
+    auto meta = read_or_create_meta(entry.path, entry.loader->name());
+    auto data = !bytes ? Result<std::shared_ptr<const void>>(std::unexpected(bytes.error()))
+                : !meta
+                    ? Result<std::shared_ptr<const void>>(std::unexpected(meta.error()))
+                    : entry.loader->load_erased(LoadContext{.id = id,
+                                                            .path = entry.path,
+                                                            .absolute_path = absolute,
+                                                            .bytes = *bytes,
+                                                            .cache_dir = root_ / ".veach" / "cache" / id.to_string(),
+                                                            .max_texture_size = meta->max_texture_size});
     if (!data) {
         log::error("asset", Error{data.error().code, std::format("reloading '{}': {}", key, data.error().message),
                                   "The previous version stays in use until the file loads again."});
@@ -179,6 +207,7 @@ ReloadResult AssetServer::reload_entry(AssetId id, Entry& entry) {
     entry.error.reset();
     entry.reload_error.reset();
     ++entry.reloads;
+    register_sub_assets(id, entry);
     result.reloaded = true;
     log::info("asset", "reloaded '{}' (reload {})", key, entry.reloads);
     for (const ReloadListener& listener : listeners_) {
@@ -207,12 +236,17 @@ ReloadResult AssetServer::reload(std::string_view path_text) {
 }
 
 std::vector<ReloadResult> AssetServer::reload_changed() {
-    std::vector<ReloadResult> results;
+    // Collect first: a reload registers sub-assets, which may add paths (and rehash by_path_).
+    std::vector<AssetId> changed;
     for (const auto& [key, id] : by_path_) {
-        Entry& entry = entries_.at(id);
+        const Entry& entry = entries_.at(id);
         if (entry.loader != nullptr && fs::stamp(root_ / entry.path) != entry.stamp) {
-            results.push_back(reload_entry(id, entry));
+            changed.push_back(id);
         }
+    }
+    std::vector<ReloadResult> results;
+    for (const AssetId id : changed) {
+        results.push_back(reload_entry(id, entries_.at(id)));
     }
     return results;
 }

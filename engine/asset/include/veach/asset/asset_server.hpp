@@ -33,8 +33,9 @@ enum class AssetState : std::uint8_t { loading, loaded, failed };
 /// Contents of a `<asset>.meta` sidecar. Reflected; schema in schemas/asset.meta.schema.json.
 struct AssetMeta {
     std::uint32_t version = 1;
-    std::string id;      ///< AssetId as a UUID string. Never edit by hand.
-    std::string loader;  ///< Loader that imports the asset, e.g. "luau-script".
+    std::string id;                      ///< AssetId as a UUID string. Never edit by hand.
+    std::string loader;                  ///< Loader that imports the asset, e.g. "luau-script".
+    std::uint32_t max_texture_size = 0;  ///< Importers that cook textures halve them until they fit; 0 = no limit.
 };
 
 /// One asset, as list() reports it.
@@ -127,6 +128,8 @@ private:
     };
 
     ReloadResult reload_entry(AssetId id, Entry& entry);
+    /// Registers (or, on reload, swaps) the sub-assets of a freshly loaded asset.
+    void register_sub_assets(AssetId parent, const Entry& entry);
 
     AssetId load_erased(std::string_view path, AssetTypeKey type);
     [[nodiscard]] const void* get_erased(AssetId id, AssetTypeKey type) const;

@@ -16,3 +16,6 @@ trace*.csv
 
 # Claude Code: personal settings stay local; .claude/settings.json is shared
 .claude/settings.local.json
+
+# Cooked asset cache (ADR 0032): rebuilt from sources, never committed
+.veach/

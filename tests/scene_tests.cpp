@@ -2,11 +2,13 @@
 
 #include "support/test_support.hpp"
 
+#include <veach/asset/scene.hpp>
 #include <veach/asset/texture.hpp>
 
 #include <bc7decomp.h>
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
@@ -95,4 +97,80 @@ TEST_CASE("[scene.AC2] BC7 cooking keeps the image (PSNR >= 35 dB)") {
     CHECK(psnr >= 35.0);
     // Deterministic: cooking twice gives the same bytes (the cook cache relies on it).
     CHECK(cook_texture(image, {.srgb = false, .compress = true}).mips == cooked.mips);
+}
+
+namespace {
+
+/// An AssetServer on a temp copy of the lab's Cornell box, with the glTF and KTX2 loaders.
+struct CornellBox {
+    test::TempProject project{"cornell"};
+    World world;
+    std::unique_ptr<AssetServer> assets;
+    CornellBox() {
+        const auto dir = test::source_dir() / "apps/lab/assets/cornell_box";
+        for (const char* file : {"cornell_box.gltf", "cornell_box.bin"}) {
+            project.write(std::string("box/") + file, *fs::read_file(dir / file));
+        }
+        reopen();
+    }
+    void reopen() {
+        world = World();
+        world.import<CoreModule>();
+        world.import<AssetModule>();
+        assets = std::make_unique<AssetServer>(world, project.path());
+        assets->add_loader(std::make_unique<GltfLoader>());
+    }
+    const SceneAsset& load() {
+        auto scene = assets->wait(assets->load<SceneAsset>("box/cornell_box.gltf"));
+        REQUIRE_MESSAGE(scene.has_value(), (scene ? std::string() : scene.error().message));
+        return **scene;
+    }
+};
+
+}  // namespace
+
+TEST_CASE("[scene.AC1] glTF imports into scenes, meshes and materials with stable ids and a cook cache") {
+    // RFC 9562 name-based ids, checked against Python's uuid.uuid5.
+    CHECK(AssetId::derive(*AssetId::parse("6ba7b810-9dad-11d1-80b4-00c04fd430c8"), "mesh/3").to_string() ==
+          "63f0bac7-4de5-50de-8470-2097d5b50170");
+
+    CornellBox box;
+    const SceneAsset& first = box.load();
+    CHECK_FALSE(first.from_cache);
+    CHECK(first.nodes.size() == 5);
+    CHECK(first.meshes.size() == 4);
+    CHECK(first.materials.size() == 6);  // five, plus the default for primitives without one
+    CHECK(first.lights.size() == 1);
+    CHECK(first.lights[0].kind == LightKind::point);
+    const std::vector<AssetId> meshes = first.meshes;
+
+    const MeshAsset* walls = box.assets->get(Handle<MeshAsset>{first.meshes[0]});
+    REQUIRE(walls != nullptr);
+    CHECK(walls->slot_count == 3);  // white, red, green
+    CHECK(walls->indices.size() == 5 * 6);
+    CHECK(walls->triangle_slots.size() == 10);
+    // Tangents were generated: unit length and perpendicular to the normal.
+    const MeshVertex& v = walls->vertices[0];
+    CHECK(std::abs(v.tangent[0] * v.normal[0] + v.tangent[1] * v.normal[1] + v.tangent[2] * v.normal[2]) < 1e-5f);
+
+    const auto glow = std::ranges::find_if(first.materials, [&](AssetId id) {
+        const MaterialAsset* m = box.assets->get(Handle<MaterialAsset>{id});
+        return m != nullptr && m->name == "glow";
+    });
+    REQUIRE(glow != first.materials.end());
+    const MaterialAsset* glow_material = box.assets->get(Handle<MaterialAsset>{*glow});
+    CHECK(glow_material->kind == "GlowMaterial");
+    CHECK(glow_material->emissive_strength == doctest::Approx(3.0f));
+
+    // A second import (a fresh server) reuses the cooked data and derives the same ids.
+    box.reopen();
+    const SceneAsset& second = box.load();
+    CHECK(second.from_cache);
+    CHECK(second.meshes == meshes);
+    // Deleting the cache only costs a re-cook.
+    std::filesystem::remove_all(box.project.path() / ".veach");
+    box.reopen();
+    const SceneAsset& third = box.load();
+    CHECK_FALSE(third.from_cache);
+    CHECK(third.meshes == meshes);
 }

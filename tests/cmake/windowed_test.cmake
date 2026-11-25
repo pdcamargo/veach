@@ -18,7 +18,9 @@ foreach(required "RHI surface 1 created" "resizing the window to 960x540" "shutd
     endif()
 endforeach()
 
-string(REGEX MATCHALL "[^\n]*\\] error [^\n]*" errors "${output}")
+# CMake lists split on ";", which log lines may contain.
+string(REPLACE ";" "," lines "${output}")
+string(REGEX MATCHALL "[^\n]*\\] error [^\n]*" errors "${lines}")
 set(tolerated 0)
 foreach(line IN LISTS errors)
     if(line MATCHES "DXGI: Present failed \\(HRESULT 0x80070057\\)")

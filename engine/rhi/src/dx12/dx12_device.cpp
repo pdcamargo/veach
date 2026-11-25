@@ -333,17 +333,17 @@ std::string present_diagnostics(const Dx12Surface& s) {
     if (FAILED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&queue)))) {
         return out + "; the DXGI debug layer is not installed";
     }
-    const UINT64 count = queue->GetNumStoredMessages(DXGI_DEBUG_ALL);
+    const UINT64 count = queue->GetNumStoredMessages(DXGI_DEBUG_DXGI);
     for (UINT64 i = 0; i < count; ++i) {
         SIZE_T size = 0;
-        queue->GetMessage(DXGI_DEBUG_ALL, i, nullptr, &size);
+        queue->GetMessage(DXGI_DEBUG_DXGI, i, nullptr, &size);
         std::vector<std::byte> storage(size);
         auto* message = reinterpret_cast<DXGI_INFO_QUEUE_MESSAGE*>(storage.data());
-        if (SUCCEEDED(queue->GetMessage(DXGI_DEBUG_ALL, i, message, &size))) {
+        if (SUCCEEDED(queue->GetMessage(DXGI_DEBUG_DXGI, i, message, &size))) {
             out += std::format("; DXGI: {}", message->pDescription);
         }
     }
-    queue->ClearStoredMessages(DXGI_DEBUG_ALL);
+    queue->ClearStoredMessages(DXGI_DEBUG_DXGI);
     return out;
 }
 

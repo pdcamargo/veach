@@ -10,3 +10,5 @@
 - [rendering.md](rendering.md): render features, shaders (Slang), the render graph, screenshots and golden images.
 
 See also: [../reference/errors.md](../reference/errors.md) (every error code), [../ARCHITECTURE.md](../ARCHITECTURE.md), [../adr/](../adr/), [../specs/](../specs/).
+- [dx12-port.md](dx12-port.md): the DX12 backend handoff: what is decided, what DX12 resists, the order of work and the test for each step.
+- [ci-runners.md](ci-runners.md): self-hosted GPU runners (Mac now, Windows next): setup, rules, teardown.

@@ -394,7 +394,9 @@ public:
 
     /// Closes the list and hands its recorder back; called once, by Dx12Device::submit.
     std::unique_ptr<Recorder> finish() {
-        recorder_->list->Close();
+        if (const HRESULT hr = recorder_->list->Close(); FAILED(hr)) {
+            log::error("rhi", gpu_error("closing a command list (an invalid command was recorded)", hr).error());
+        }
         return std::move(recorder_);
     }
 
@@ -1066,7 +1068,10 @@ private:
             return make_error(ErrorCode::rhi_gpu_error, "D3D12: no command list for an upload");
         }
         recorder->list->CopyBufferRegion(destination, 0, staging->Get(), 0, data.size());
-        recorder->list->Close();
+        if (const HRESULT hr = recorder->list->Close(); FAILED(hr)) {
+            give_back(std::move(recorder));
+            return gpu_error("recording a buffer upload", hr);
+        }
         static_cast<void>(execute(std::move(recorder)));
         tracker_.retire([keep = std::move(*staging)] {});
         return {};
@@ -1135,11 +1140,16 @@ private:
             from.pResource = staging->Get();
             from.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
             from.PlacedFootprint = footprints[level];
-            list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+            // The footprint covers whole 4x4 blocks; the box is the real texel size (it may end mid-block at an edge).
+            const D3D12_BOX box{0, 0, 0, mip_size(desc.width, level), mip_size(desc.height, level), 1};
+            list->CopyTextureRegion(&to, 0, 0, 0, &from, &box);
         }
         transition(D3D12_BARRIER_SYNC_COPY, D3D12_BARRIER_ACCESS_COPY_DEST, D3D12_BARRIER_LAYOUT_COPY_DEST,
                    D3D12_BARRIER_SYNC_NONE, D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_LAYOUT_SHADER_RESOURCE);
-        list->Close();
+        if (const HRESULT hr = list->Close(); FAILED(hr)) {
+            give_back(std::move(recorder));
+            return gpu_error(std::format("recording the upload of '{}'", desc.debug_name), hr);
+        }
         static_cast<void>(execute(std::move(recorder)));
         tracker_.retire([keep = std::move(*staging)] {});
         return {};
@@ -1557,8 +1567,10 @@ void Dx12CommandList::copy_texture_to_buffer(TextureHandle src, BufferHandle dst
     to.pResource = target;
     to.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
     to.PlacedFootprint.Footprint.Format = to_dxgi(t->desc.format);
-    to.PlacedFootprint.Footprint.Width = t->desc.width;
-    to.PlacedFootprint.Footprint.Height = t->desc.height;
+    // Block-compressed footprints are whole blocks.
+    const std::uint32_t block = is_block_compressed(t->desc.format) ? 4 : 1;
+    to.PlacedFootprint.Footprint.Width = (t->desc.width + block - 1) / block * block;
+    to.PlacedFootprint.Footprint.Height = (t->desc.height + block - 1) / block * block;
     to.PlacedFootprint.Footprint.Depth = 1;
     to.PlacedFootprint.Footprint.RowPitch = pitch;
     recorder_->list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);

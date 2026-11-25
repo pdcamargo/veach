@@ -52,8 +52,10 @@ local Window = veach.components.Window
 - **platform.AC4** — Manual check, macOS (no display in CI): `veach-lab --window --log-level debug` opens a
   1280×720 "Veach Lab" window and logs `native window handle is valid: CAMetalLayer=...`. Verified 2026-11-24
   on an Apple M5 Max, also with `--rhi metal`. A 214 s windowed run stopped by SIGINT shut down cleanly with
-  exit 0, after 12,870 fixed steps (60.0 Hz). Still to confirm by hand: clicking the close button. The
-  close-request → quit logic itself is covered by platform.AC2.
+  exit 0, after 12,870 fixed steps (60.0 Hz). Clicking the title-bar close button logs
+  `primary window closed, quitting`, runs the Shutdown phase, shuts down in reverse order and exits 0.
+  Verified the same day with desktop automation. SDL also sends its quit event when the last window closes,
+  which is harmless: both paths call `world.quit()`.
 - **platform.AC5** — `--headless` runs use the headless backend (`init platform (headless)`) and never call SDL.
 
 ## Out of scope

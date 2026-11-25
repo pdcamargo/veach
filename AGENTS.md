@@ -34,7 +34,7 @@ clang-format -i <files>                                  # LLVM 23; a Claude hoo
 ```
 
 Every app takes `--headless --window --frames N --seed N --log-format human|json --log-level L --project P
---script S --rhi null|metal|dx12 --rest --help`. **Exit code 0 means nothing was logged at error level.** Verify
+--script S --rhi null|metal|dx12 --rest --wait-for-profiler --help`. **Exit code 0 means nothing was logged at error level.** Verify
 your work headless with `--frames` and check the exit code and log. Profiling: [docs/guides/profiling.md](docs/guides/profiling.md).
 Building details: [docs/guides/building.md](docs/guides/building.md).
 

@@ -28,6 +28,7 @@ struct CliOverrides {
     std::optional<rhi::Backend> rhi;
     bool rest = false;
     bool help = false;
+    bool wait_for_profiler = false;
 };
 
 const std::vector<std::string>& known_flags() {
@@ -84,6 +85,8 @@ Result<CliOverrides> parse_args(std::span<const std::string_view> args) {
             cli.headless = false;
         } else if (flag == "--rest") {
             cli.rest = true;
+        } else if (flag == "--wait-for-profiler") {
+            cli.wait_for_profiler = true;
         } else if (flag == "--frames" || flag == "--seed") {
             auto v = value();
             if (!v) {
@@ -202,6 +205,7 @@ Result<EngineConfig> resolve_config(const AppInfo& app, std::span<const std::str
     EngineConfig config;
     config.app = app;
     config.show_help = cli->help;
+    config.wait_for_profiler = cli->wait_for_profiler;
 
     namespace stdfs = std::filesystem;
     if (cli->project) {
@@ -268,6 +272,7 @@ Core flags (every Veach app accepts these; they override veach.project.json):
   --script PATH           Startup Luau script, relative to the project directory.
   --rhi null|metal|dx12   GPU backend (default: null).
   --rest                  Serve the Flecs explorer API on http://localhost:27750.
+  --wait-for-profiler     Profile builds: wait (up to 30 s) for a Tracy capture to connect before init.
   --help                  Show this text.
 
 Exit code: 0 when the run logged no errors, 1 otherwise.

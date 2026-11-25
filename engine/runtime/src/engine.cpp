@@ -32,6 +32,37 @@ extern "C" void on_interrupt(int /*signal*/) {
 
 constexpr const char* engine_version = "0.1.0";
 
+/// Lets agents capture complete traces of short headless runs: start the app
+/// with --wait-for-profiler, then start tracy-capture (docs/guides/profiling.md).
+Result<> wait_for_profiler() {
+#if VEACH_PROFILER_ENABLED
+    log::info("engine", "waiting for a Tracy capture to connect on localhost (up to 30 s)");
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (!TracyIsConnected) {
+        if (std::chrono::steady_clock::now() > deadline) {
+            return make_error(ErrorCode::engine_init_failed, "no Tracy capture connected within 30 s",
+                              "Start tracy-capture after the app, e.g. tracy-capture -o trace.tracy -f");
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    log::info("engine", "Tracy connected");
+    return {};
+#else
+    log::warn("engine", "--wait-for-profiler ignored: this build has no Tracy (use the 'profile' preset)");
+    return {};
+#endif
+}
+
+/// The Tracy server fetches zone names lazily; give it a moment before the
+/// process exits so the capture is complete (TRACY_NO_EXIT is unreliable here).
+void linger_for_profiler() {
+#if VEACH_PROFILER_ENABLED
+    if (TracyIsConnected) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+#endif
+}
+
 }  // namespace
 
 Engine::Engine(AppInfo app, int argc, const char* const* argv) {
@@ -90,6 +121,11 @@ Result<> Engine::init() {
                     ++errors_;
                 }
             });
+            if (config_.wait_for_profiler) {
+                if (auto connected = wait_for_profiler(); !connected) {
+                    return std::unexpected(connected.error());
+                }
+            }
             return std::format("veach {}, {} logs, project '{}'", engine_version,
                                project.log_format == log::Format::json ? "json" : "human",
                                config_.project_dir.generic_string());
@@ -342,6 +378,9 @@ void Engine::shutdown() {
         step.teardown();
     }
     std::signal(SIGINT, SIG_DFL);
+    if (config_.wait_for_profiler) {
+        linger_for_profiler();
+    }
 }
 
 int Engine::run() {

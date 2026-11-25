@@ -43,17 +43,25 @@ Add zones with `VEACH_ZONE("literal")`, or `VEACH_ZONE_TEXT("literal", text, siz
 
    (`brew install tracy` also works, but only if it installs v0.15.0.)
 
-2. Start the capture, then run the app. `TRACY_NO_EXIT=1` makes the app wait at exit until all
-   data has been sent, so short `--frames` runs are captured completely:
+2. Start the app with `--wait-for-profiler`, **then** the capture. The app blocks in init (up to 30 s)
+   until a capture connects, so short `--frames` runs are recorded from the first zone. At exit it lingers
+   500 ms so the capture can fetch zone names. Without that, every name in the CSV is `???`.
+   (`TRACY_NO_EXIT=1` did not keep the client alive in our tests on macOS, and `tracy-capture` only connects
+   to a client that is already listening. That is why the order matters.)
 
    ```sh
-   build/tracy-capture/tracy-capture -o trace.tracy -f &          # -f overwrites an existing file
-   TRACY_NO_EXIT=1 build/profile/apps/lab/veach-lab --headless --frames 600
+   build/profile/apps/lab/veach-lab --headless --frames 600 --wait-for-profiler &
+   sleep 1
+   build/tracy-capture/tracy-capture -o trace.tracy -f      # -f overwrites; exits when the app disconnects
    wait
    ```
 
    `tracy-capture` options (from its usage text): `-o output.tracy [-a address] [-p port] [-f] [-s seconds] [-m memlimit]`.
    It connects to `127.0.0.1:8086` by default.
+
+   Verified on 2026-11-24 (Apple M5 Max, `profile` preset, 600 headless frames of the lab): `frame` mean
+   ≈ 4.4 µs, `fixed step` ≈ 1.8 µs, `script.system` (the hello-world Greet system) ≈ 0.84 µs per run.
+   `Engine::init` includes the time spent waiting for the capture to connect.
 
 3. Export to CSV and read it as text:
 

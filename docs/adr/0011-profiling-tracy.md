@@ -28,9 +28,13 @@ Performance is a feature ([VISION.md](../VISION.md)). Claims about performance, 
 
 **Headless capture**, detailed in [guides/profiling.md](../guides/profiling.md):
 
-1. Start `tracy-capture -o trace.tracy` (it waits for a client).
-2. Run the app with `TRACY_NO_EXIT=1` so a short `--frames N` run flushes its data before exiting.
+1. Start the app with `--wait-for-profiler`. In profile builds it blocks in init (up to 30 s) until a capture
+   connects, and at exit it lingers 500 ms so the server can fetch zone names.
+2. Then start `tracy-capture -o trace.tracy -f`. It only connects to a client that is already listening.
 3. Run `tracy-csvexport trace.tracy` to get per-zone statistics as CSV text.
+
+(Corrected during the bootstrap, before anything depended on it: the original recipe relied on
+`TRACY_NO_EXIT=1`, which did not keep the client alive in testing on macOS, so zone names were lost.)
 
 The tools must be the same Tracy version as the client (0.15.0).
 

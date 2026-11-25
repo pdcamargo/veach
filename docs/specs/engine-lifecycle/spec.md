@@ -22,7 +22,8 @@ record/replay (VCH-014) and the MCP server (VCH-003) possible.
 - MUST log every init and shutdown step (category `engine`, `init <step> (<detail>)` / `shutdown <step>`).
 - MUST resolve configuration before init: CLI flags override `veach.project.json`, which overrides defaults.
 - MUST accept the core flags in every app: `--headless`, `--window`, `--frames N`, `--seed N`,
-  `--log-format human|json`, `--project <path>`, plus `--log-level`, `--script`, `--rhi`, `--rest`, `--help`.
+  `--log-format human|json`, `--project <path>`, plus `--log-level`, `--script`, `--rhi`, `--rest`,
+  `--wait-for-profiler`, `--help`.
 - MUST reject unknown flags with a suggestion, and invalid or conflicting values with the accepted ones.
 - MUST run exactly one fixed simulation step per frame in headless runs, unpaced, so runs are deterministic.
 - MUST run the Startup phase once before the first frame and the Shutdown phase once before teardown.

@@ -44,7 +44,8 @@ struct EngineConfig {
     std::filesystem::path project_dir;
     ProjectConfig project;
     bool show_help = false;
-    bool log_to_console = true;  ///< Tests turn this off and capture logs with a sink.
+    bool log_to_console = true;      ///< Tests turn this off and capture logs with a sink.
+    bool wait_for_profiler = false;  ///< --wait-for-profiler: block in init until Tracy connects.
 };
 
 /// Registers ProjectConfig and the types it uses, for JSON loading and schemas.

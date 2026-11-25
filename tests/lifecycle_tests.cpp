@@ -86,6 +86,10 @@ TEST_CASE("[lifecycle.AC4] CLI flags override the project file") {
     CHECK(config->project.seed == 7);
     CHECK(config->project.headless);
     CHECK(config->project.log_format == log::Format::json);
+    CHECK_FALSE(config->wait_for_profiler);
+
+    const std::vector<std::string_view> profiling{"--wait-for-profiler"};
+    CHECK(resolve_config({.name = "t"}, profiling)->wait_for_profiler);
 }
 
 TEST_CASE("[lifecycle.AC5] bad flags and bad project files explain the fix") {

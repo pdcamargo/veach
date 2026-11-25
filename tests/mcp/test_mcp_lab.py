@@ -157,6 +157,21 @@ def fly(lab: str) -> None:
           "[input.AC5] send_input rejects an unknown key with a suggestion")
     check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
 
+    # The lab's C++ FreeCamera on a real-time scene: still without input (the golden's view), flies with it.
+    client = McpClient([lab, "--mcp", "--headless", "--script", "scripts/cornell_box_realtime.luau"])
+    client.initialize()
+    start = client.call_json("get_component", entity="camera", component="Transform")
+    client.call_json("step_frames", count=30)
+    check(client.call_json("get_component", entity="camera", component="Transform") == start,
+          "FreeCamera leaves the camera exactly where the scene put it until a key is held")
+    client.call_json("send_input", key="w", down=True)
+    client.call_json("step_frames", count=30)
+    client.call_json("send_input", key="w", down=False)
+    moved = client.call_json("get_component", entity="camera", component="Transform")["translation"]
+    check(abs(moved[2] - (start["translation"][2] - 0.5)) < 1e-3,
+          f"FreeCamera: holding w for 30 frames at 1 m/s flies 0.5 m forward ({start['translation']} -> {moved})")
+    client.close()  # exits 1: the null RHI has no ray tracing for the scene renderer, which it logs as an error
+
 
 def replay(lab: str) -> None:
     """Record and replay (docs/specs/record-replay/spec.md)."""

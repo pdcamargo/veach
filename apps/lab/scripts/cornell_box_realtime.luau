@@ -2,6 +2,7 @@
 -- The Cornell box through the real-time renderer (docs/specs/realtime-renderer-v0/spec.md, rt.AC2).
 -- Golden image: tests/golden/cornell_box_realtime.png (256x256, 4 emissive light samples per pixel).
 -- Run: veach-lab --rhi metal --headless --frames 3 --script scripts/cornell_box_realtime.luau --screenshot out.png
+-- Fly: W/A/S/D to move, Q/E down and up, the arrow keys to turn and look, shift to go faster (FreeCamera).
 local veach = require("@veach")
 
 veach.spawn("cornell box"):set(veach.components.SceneInstance, { path = "assets/cornell_box/cornell_box.gltf" })
@@ -13,6 +14,7 @@ camera:set(veach.components.Transform, {
 	scale = vector.one,
 })
 camera:set(veach.components.Camera, { fov_y = math.rad(40), near_plane = 0.1, active = true, ev100 = 0 })
+camera:set(veach.components.FreeCamera, { speed = 1, turn_speed = 1 })
 
 -- Square, small: the golden runs on WARP too.
 veach.system("CornellBoxSize", "Startup", veach.query(veach.components.Window), function(e, w)

@@ -3,6 +3,7 @@
 -- scene.AC6): textured and normal-mapped, lit by a directional key light and a warm spot.
 -- Golden image: tests/golden/flight_helmet_realtime.png (256x256; rt.AC2 in docs/specs/realtime-renderer-v0/spec.md).
 -- Run: veach-lab --rhi metal --headless --frames 3 --script scripts/flight_helmet_realtime.luau --screenshot out.png
+-- Fly: W/A/S/D to move, Q/E down and up, the arrow keys to turn and look, shift to go faster (FreeCamera).
 local veach = require("@veach")
 local quat = veach.quat
 local c = veach.components
@@ -17,6 +18,7 @@ camera:set(c.Transform, {
 })
 camera:set(c.Camera, { fov_y = math.rad(35), near_plane = 0.05, active = true, ev100 = 0 })
 camera:set(c.RealtimeLighting, { emissive_samples = 4, ambient = true, sky = vector.create(0.12, 0.13, 0.15), ao_rays = 4, ao_radius = 0.5 })
+camera:set(c.FreeCamera, { speed = 0.5, turn_speed = 1 })
 
 -- Lights shine down their -Z: look_rotation points it.
 local key = veach.spawn("key light")

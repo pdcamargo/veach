@@ -177,6 +177,10 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   pixels whose accumulation reads back wrong (`render.history_lost`) and NaN or infinite samples
   (`render.nonfinite_samples`).
 - **GPU timings:** `tools/bench/frame_times.py` reports the frame and each pass over MCP (`gpu_timings`).
+- **Looking around:** the lab's real-time scenes (`cornell_box_realtime`, `flight_helmet_realtime`, `sponza`,
+  `bistro`) put the lab's `FreeCamera` on their camera, so a windowed run flies with W/A/S/D, Q/E, the arrows and
+  shift: `veach-lab --rhi metal --window --script scripts/bistro.luau`. It moves the camera only while a key is
+  held, so goldens and benchmarks keep the scene's view.
 
 ## Screenshots and golden images
 

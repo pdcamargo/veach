@@ -5,6 +5,7 @@
 #include "dx12_device.hpp"
 
 #include "../slot_map.hpp"
+#include "../surface_validation.hpp"
 
 #include <veach/core/assert.hpp>
 #include <veach/core/log.hpp>
@@ -309,6 +310,13 @@ struct Dx12Accel {
     bool tlas = false;
 };
 
+/// A flip-model swapchain; its buffers are ordinary textures (state: present) for the render graph.
+struct Dx12Surface {
+    ComPtr<IDXGISwapChain3> swapchain;
+    std::vector<TextureHandle> images;
+    bool vsync = true;
+};
+
 class Dx12Device;
 
 class Dx12CommandList final : public CommandList {
@@ -367,8 +375,9 @@ private:
 
 class Dx12Device final : public Device {
 public:
-    Dx12Device(ComPtr<ID3D12Device10> device, Capabilities caps, bool validation, std::uint32_t frames_in_flight)
-        : device_(std::move(device)), caps_(std::move(caps)), tracker_(frames_in_flight) {
+    Dx12Device(ComPtr<IDXGIFactory6> factory, ComPtr<ID3D12Device10> device, Capabilities caps, bool validation,
+               std::uint32_t frames_in_flight)
+        : factory_(std::move(factory)), device_(std::move(device)), caps_(std::move(caps)), tracker_(frames_in_flight) {
         if (validation && SUCCEEDED(device_.As(&info_queue_))) {
             // Clearing with a color other than the resource's optimized one is only a hint; targets have none.
             std::array<D3D12_MESSAGE_ID, 1> deny{D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE};
@@ -737,12 +746,78 @@ public:
         const Dx12Accel* a = accels_.get(h);
         return {a ? a->srv : 0u};
     }
-    [[nodiscard]] Result<SurfaceId> create_surface(const NativeWindowHandle&, const SurfaceDesc&) override {
-        return stub("create_surface");
+    // ---- surfaces: flip-model swapchains on the HWND
+
+    [[nodiscard]] Result<SurfaceId> create_surface(const NativeWindowHandle& window, const SurfaceDesc& desc) override {
+        if (auto valid = validate_surface_handle(window); !valid) {
+            return std::unexpected(valid.error());
+        }
+        if (window.kind != NativeWindowHandle::Kind::win32) {
+            return make_error(ErrorCode::rhi_invalid_surface, "the DX12 backend needs an HWND surface");
+        }
+        auto* hwnd = static_cast<HWND>(window.hwnd);
+        DXGI_SWAP_CHAIN_DESC1 d{};
+        d.Width = desc.width;
+        d.Height = desc.height;
+        d.Format = to_dxgi(surface_format);
+        d.SampleDesc.Count = 1;
+        d.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        d.BufferCount = tracker_.frames_in_flight() + 1;
+        d.Scaling = DXGI_SCALING_STRETCH;
+        d.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+        d.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
+        ComPtr<IDXGISwapChain1> swapchain;
+        if (const HRESULT hr = factory_->CreateSwapChainForHwnd(queue_.Get(), hwnd, &d, nullptr, nullptr, &swapchain);
+            FAILED(hr)) {
+            return make_error(ErrorCode::rhi_invalid_surface,
+                              std::format("DXGI: creating the swapchain failed ({})", hresult(hr)));
+        }
+        factory_->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER);  // fullscreen is the Window component's job
+        Dx12Surface surface;
+        swapchain.As(&surface.swapchain);
+        surface.vsync = desc.vsync;
+        if (auto images = wrap_images(surface); !images) {
+            return std::unexpected(images.error());
+        }
+        surfaces_.push_back(std::move(surface));
+        return SurfaceId{static_cast<std::uint32_t>(surfaces_.size())};
     }
-    void resize_surface(SurfaceId, std::uint32_t, std::uint32_t) override {}
-    [[nodiscard]] Result<TextureHandle> acquire_image(SurfaceId) override { return stub("acquire_image"); }
-    void destroy_surface(SurfaceId) override {}
+
+    void resize_surface(SurfaceId id, std::uint32_t width, std::uint32_t height) override {
+        Dx12Surface* s = surface(id);
+        if (s == nullptr || !s->swapchain) {
+            return;
+        }
+        wait_idle();  // ResizeBuffers needs every reference to the old buffers gone, the GPU's included
+        release_images(*s);
+        if (const HRESULT hr = s->swapchain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0); FAILED(hr)) {
+            log::error("rhi", Error{ErrorCode::rhi_invalid_surface,
+                                    std::format("DXGI: resizing the swapchain to {}x{} failed ({})", width, height,
+                                                hresult(hr)),
+                                    {}});
+            return;
+        }
+        if (auto images = wrap_images(*s); !images) {
+            log::error("rhi", images.error());
+        }
+    }
+
+    [[nodiscard]] Result<TextureHandle> acquire_image(SurfaceId id) override {
+        Dx12Surface* s = surface(id);
+        if (s == nullptr || !s->swapchain || s->images.empty()) {
+            return make_error(ErrorCode::rhi_invalid_surface, "unknown surface");
+        }
+        // Flip model: the next image is known now; the queue waits for it to come back from the compositor.
+        return s->images.at(s->swapchain->GetCurrentBackBufferIndex());
+    }
+
+    void destroy_surface(SurfaceId id) override {
+        if (Dx12Surface* s = surface(id)) {
+            wait_idle();
+            release_images(*s);
+            s->swapchain.Reset();
+        }
+    }
 
     // ---- work
 
@@ -761,10 +836,10 @@ public:
         return list;
     }
 
-    SubmissionId submit(std::unique_ptr<CommandList> commands, SurfaceId /*present*/) override {
+    SubmissionId submit(std::unique_ptr<CommandList> commands, SurfaceId present) override {
         auto* list = static_cast<Dx12CommandList*>(commands.get());
         list->pop_debug_group();
-        const SubmissionId submission = execute(list->finish());
+        const SubmissionId submission = execute(list->finish(), surface(present));
         poll();
         return submission;
     }
@@ -854,10 +929,21 @@ public:
     }
 
 private:
-    /// Executes a closed list and signals the fence with its new SubmissionId.
-    SubmissionId execute(std::unique_ptr<Recorder> recorder) {
+    /// Executes a closed list, presents `present` if given, and signals the fence with a new SubmissionId.
+    SubmissionId execute(std::unique_ptr<Recorder> recorder, Dx12Surface* present = nullptr) {
         std::array<ID3D12CommandList*, 1> lists{recorder->list.Get()};
         queue_->ExecuteCommandLists(static_cast<UINT>(lists.size()), lists.data());
+        if (present != nullptr && present->swapchain) {
+            if (const HRESULT hr = present->swapchain->Present(present->vsync ? 1 : 0, 0); FAILED(hr)) {
+                if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
+                    report_device_removed();
+                } else {
+                    log::error("rhi", Error{ErrorCode::rhi_invalid_surface,
+                                            std::format("DXGI: Present failed ({})", hresult(hr)),
+                                            {}});
+                }
+            }
+        }
         const SubmissionId submission = tracker_.next_submission();
         queue_->Signal(fence_.Get(), submission.value);
         recorder->last_use = submission.value;
@@ -1057,9 +1143,43 @@ private:
         }
     }
 
-    static std::unexpected<Error> stub(std::string_view what) {
-        return make_error(ErrorCode::rhi_not_implemented, std::format("DX12: {} is not implemented yet", what),
-                          "The DX12 backend is being built step by step (docs/guides/dx12-port.md, VCH-012).");
+    Dx12Surface* surface(SurfaceId id) {
+        return id.is_valid() && id.value <= surfaces_.size() ? &surfaces_[id.value - 1] : nullptr;
+    }
+
+    /// Registers the swapchain's buffers as textures with RTVs. They start in PRESENT, as the graph imports them.
+    Result<> wrap_images(Dx12Surface& s) {
+        DXGI_SWAP_CHAIN_DESC1 d{};
+        s.swapchain->GetDesc1(&d);
+        for (UINT i = 0; i < d.BufferCount; ++i) {
+            Dx12Texture image;
+            if (const HRESULT hr = s.swapchain->GetBuffer(i, IID_PPV_ARGS(&image.resource)); FAILED(hr)) {
+                return gpu_error("getting a swapchain buffer", hr);
+            }
+            set_name(image.resource.Get(), "swapchain");
+            image.desc = {d.Width, d.Height, surface_format, TextureUsage::color_target, "swapchain"};
+            image.rtv = rtv_heap_.allocate();
+            if (image.rtv == 0) {
+                return heap_full("RTV", rtv_heap_.capacity());
+            }
+            D3D12_RENDER_TARGET_VIEW_DESC rtv{};
+            rtv.Format = d.Format;
+            rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+            device_->CreateRenderTargetView(image.resource.Get(), &rtv, rtv_heap_.cpu(image.rtv));
+            s.images.push_back(textures_.insert(std::move(image)));
+        }
+        return {};
+    }
+
+    /// Only after wait_idle(): the GPU no longer uses the images, so their slots are freed at once.
+    void release_images(Dx12Surface& s) {
+        for (const TextureHandle h : s.images) {
+            if (const Dx12Texture* t = textures_.get(h)) {
+                free_descriptors(*t);
+            }
+            textures_.erase(h);
+        }
+        s.images.clear();
     }
 
     /// Reads the fence: marks finished submissions complete and runs the releases that are now safe.
@@ -1113,6 +1233,7 @@ private:
         return recorder;
     }
 
+    ComPtr<IDXGIFactory6> factory_;
     ComPtr<ID3D12Device10> device_;
     ComPtr<ID3D12InfoQueue1> info_queue_;
     DWORD callback_cookie_ = 0;
@@ -1130,6 +1251,7 @@ private:
     SlotMap<Dx12Sampler, SamplerHandle> samplers_;
     SlotMap<Dx12Pipeline, PipelineHandle> pipelines_;
     SlotMap<Dx12Accel, AccelHandle> accels_;
+    std::vector<Dx12Surface> surfaces_;
     ComPtr<ID3D12RootSignature> root_signature_;
     bool device_removed_reported_ = false;
 };
@@ -1439,8 +1561,8 @@ Result<std::unique_ptr<Device>> create_dx12_device(const DeviceDesc& desc) {
     }
     log_runtime(chosen->device.Get(), warp);
 
-    auto device = std::make_unique<Dx12Device>(std::move(chosen->device), std::move(chosen->caps), desc.validation,
-                                               desc.frames_in_flight);
+    auto device = std::make_unique<Dx12Device>(std::move(factory), std::move(chosen->device), std::move(chosen->caps),
+                                               desc.validation, desc.frames_in_flight);
     if (auto ready = device->init(); !ready) {
         return std::unexpected(ready.error());
     }

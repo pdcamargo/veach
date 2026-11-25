@@ -116,6 +116,12 @@ elseif(WIN32)
     add_test(NAME "dx12: ray-traced soak"
         COMMAND veach-lab --rhi dx12 --headless --frames 300 --script scripts/triangle_raytraced.luau)
     set_tests_properties("dx12: ray-traced soak" PROPERTIES TIMEOUT 900)
+    # A window, a swapchain, present and a resize on frame 10 (dx12.AC8, VCH-002), on the runner's desktop.
+    add_test(NAME "lab: windowed DX12 run"
+        COMMAND veach-lab --window --rhi dx12 --frames 30 --script scripts/window_resize.luau --log-level debug)
+    set_tests_properties("lab: windowed DX12 run" PROPERTIES
+        PASS_REGULAR_EXPRESSION "RHI surface 1 created.*resizing the window to 960x540.*shutdown core"
+        FAIL_REGULAR_EXPRESSION "\\] error ")
 endif()
 # Same triangle, two renderers: the committed goldens must agree with each other (no GPU needed).
 add_test(NAME "golden: raster and ray-traced goldens agree"

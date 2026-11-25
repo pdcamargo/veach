@@ -22,8 +22,10 @@ import argparse
 import pathlib
 import re
 import subprocess
+import struct
 import sys
 import uuid
+import zlib
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 LAB_PROJECT = ROOT / "apps" / "lab"
@@ -38,6 +40,46 @@ def variant(script: pathlib.Path, suffix: str, size: tuple[int, int], extra: str
     meta.write_text('{\n  "id": "%s",\n  "loader": "luau-script",\n  "max_texture_size": 0,\n  "version": 1\n}\n'
                     % uuid.uuid4(), encoding="utf-8")
     return out
+
+
+def mean_luminance(png: pathlib.Path) -> float:
+    """Mean linear luminance of an 8-bit RGB(A) PNG (what screenshots write), decoded from sRGB."""
+    data = png.read_bytes()
+    pos, idat, width, height, channels = 8, b"", 0, 0, 4
+    while pos < len(data):
+        length, kind = struct.unpack(">I4s", data[pos:pos + 8])
+        chunk = data[pos + 8:pos + 8 + length]
+        pos += 12 + length
+        if kind == b"IHDR":
+            width, height, _, color = struct.unpack(">IIBB", chunk[:10])
+            channels = 4 if color == 6 else 3
+        elif kind == b"IDAT":
+            idat += chunk
+    raw = zlib.decompress(idat)
+    stride = width * channels
+    linear = [v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4 for v in (i / 255.0 for i in range(256))]
+    total, previous, i = 0.0, bytearray(stride), 0
+    for _ in range(height):
+        kind, line = raw[i], bytearray(raw[i + 1:i + 1 + stride])
+        i += 1 + stride
+        for x in range(stride):
+            a = line[x - channels] if x >= channels else 0
+            b = previous[x]
+            c = previous[x - channels] if x >= channels else 0
+            if kind == 1:
+                line[x] = (line[x] + a) & 255
+            elif kind == 2:
+                line[x] = (line[x] + b) & 255
+            elif kind == 3:
+                line[x] = (line[x] + (a + b) // 2) & 255
+            elif kind == 4:
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                line[x] = (line[x] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        for x in range(0, stride, channels):
+            total += 0.2126 * linear[line[x]] + 0.7152 * linear[line[x + 1]] + 0.0722 * linear[line[x + 2]]
+        previous = line
+    return total / (width * height)
 
 
 def render(lab: pathlib.Path, rhi: str, script: pathlib.Path, frames: int, out: pathlib.Path) -> None:
@@ -58,6 +100,13 @@ def main() -> int:
     parser.add_argument("--frames", type=int, default=64, help="path tracer frames (samples = frames x spf)")
     parser.add_argument("--spf", type=int, default=16, help="path tracer samples per frame")
     parser.add_argument("--candidates", type=int, default=16, help="ReSTIR DI's initial candidates per pixel")
+    parser.add_argument("--final", action="store_true",
+                        help="the final image instead: denoised, after --realtime-frames of warm-up (temporal.AC6)")
+    parser.add_argument("--upscaler", default="none", choices=["none", "automatic", "temporal", "metalfx"],
+                        help="with --final: none compares full-resolution pixel centers like v0; an upscaler compares "
+                             "its anti-aliased image with an anti-aliased reference")
+    parser.add_argument("--max-luminance-error", type=float, default=None,
+                        help="fail if the mean luminance differs from the reference's by more than this fraction")
     parser.add_argument("--no-reuse", action="store_true",
                         help="no temporal or spatial reservoir reuse: independent frames converge faster when averaged")
     parser.add_argument("--realtime-frames", type=int, default=1,
@@ -75,9 +124,10 @@ def main() -> int:
     args.out.mkdir(parents=True, exist_ok=True)
 
     failed = False
-    print(f"| Scene | Mean FLIP | 99.9th percentile | Pixels above 0.5 |  ({args.size}, reference "
+    print(f"| Scene | Mean FLIP | 99.9th percentile | Pixels above 0.5 | Mean luminance |  ({args.size}, reference "
           f"{args.frames * args.spf} spp, real time {args.candidates} candidates, {args.realtime_frames} frames)")
-    print("|---|---|---|---|")
+    print("|---|---|---|---|---|")
+    view = "final" if args.final else "accumulated" if args.realtime_frames > 1 else "noisy"
     for scene in args.scenes:
         scene = scene.resolve()
         name = scene.stem + (f"_{args.label}" if args.label else "")
@@ -85,14 +135,18 @@ def main() -> int:
                            "camera:remove(veach.components.PathTracer)\n"
                            "camera:set(veach.components.RealtimeLighting, { light_candidates = "
                            f"{args.candidates}, ambient = false, sky = vector.zero, ao_rays = 0, ao_radius = 1, "
-                           f"denoise = false, view = \"{'accumulated' if args.realtime_frames > 1 else 'noisy'}\", "
+                           f"denoise = {'true' if args.final else 'false'}, view = \"{view}\", "
                            f"temporal_reuse = {'false' if args.no_reuse else 'true'}, "
                            f"spatial_samples = {0 if args.no_reuse else 4} }})\n"
-                           # Full resolution through pixel centers like the reference: no jitter, no upscaler.
-                           "camera:set(veach.components.Upscaling, { mode = \"none\", render_scale = 1 })")
+                           # Full resolution through pixel centers like the reference: no jitter, no upscaler (or,
+                           # for the final image, the default upscaler against an anti-aliased reference).
+                           + (f"camera:set(veach.components.Upscaling, {{ mode = \"{args.upscaler}\" }})"
+                              if args.final and args.upscaler != "none" else
+                              "camera:set(veach.components.Upscaling, { mode = \"none\", render_scale = 1 })"))
         reference = variant(scene, f"{args.label}reference", size, args.extra + "\n"
                             "camera:set(veach.components.PathTracer, { samples_per_frame = "
-                            f"{args.spf}, max_bounces = 1, sky = vector.zero, mode = 1, jitter = false }})")
+                            f"{args.spf}, max_bounces = 1, sky = vector.zero, mode = 1, "
+                            f"jitter = {'true' if args.final and args.upscaler != 'none' else 'false'} }})")
         try:
             rt_png = args.out / f"{name}.realtime.png"
             pt_png = args.out / f"{name}.reference.png"
@@ -106,9 +160,14 @@ def main() -> int:
             if not match:
                 raise RuntimeError(f"{scene.name}: unexpected imgdiff output: {diff.strip()}")
             mean, p999, outliers = float(match[1]), float(match[2]), int(match[3])
-            print(f"| {name} | {mean:.4f} | {p999:.3f} | {outliers} |")
+            luminance = mean_luminance(rt_png) / max(mean_luminance(pt_png), 1e-9) - 1.0
+            print(f"| {name} | {mean:.4f} | {p999:.3f} | {outliers} | {luminance:+.2%} |")
             if args.max_mean is not None and mean > args.max_mean:
                 print(f"compare_direct: {name}: mean FLIP {mean:.4f} exceeds {args.max_mean}", file=sys.stderr)
+                failed = True
+            if args.max_luminance_error is not None and abs(luminance) > args.max_luminance_error:
+                print(f"compare_direct: {name}: mean luminance off by {luminance:+.2%}, more than "
+                      f"{args.max_luminance_error:.0%}", file=sys.stderr)
                 failed = True
         except RuntimeError as error:
             print(f"compare_direct: {error}", file=sys.stderr)

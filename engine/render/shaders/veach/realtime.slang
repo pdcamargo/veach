@@ -107,6 +107,8 @@ struct RealtimeFrame {
     DescriptorHandle<RWTexture2D<float4>> atrous_specular1_out;
     DescriptorHandle<Texture2D<float4>> denoised;          ///< remodulated, exposed: the upscaler's input
     DescriptorHandle<RWTexture2D<float4>> denoised_out;
+    DescriptorHandle<RWStructuredBuffer<uint>> counters;   ///< [0] direct-light shadow rays, [1] lit pixels (temporal.AC5)
+    DescriptorHandle<Texture2D<float4>> unused0;
 
     uint2 render_size;
     uint frame;  ///< seeds the random numbers

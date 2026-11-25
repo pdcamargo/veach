@@ -20,7 +20,8 @@ struct Params {
     DescriptorHandle<SamplerState> linear_clamp;
     uint2 render_size;
     uint2 output_size;
-    float2 jitter;  ///< this frame's sample offset from the render pixel center, render pixels
+    float2 jitter;  ///< this frame's projection jitter, render pixels: each render pixel's sample sits at its
+                    ///< center minus it (the jitter shifts the image by +jitter)
     uint reset;     ///< 1: no history this frame
     uint pad;
 };
@@ -72,7 +73,7 @@ void taau(uint3 id : SV_DispatchThreadID) {
     }
     const float2 uv = (float2(id.xy) + 0.5) / float2(params.output_size);
     const float2 r = uv * float2(params.render_size);  // this output pixel's center, in render pixels
-    const int2 nearest = int2(floor(r - params.jitter));
+    const int2 nearest = int2(floor(r + params.jitter));
 
     // The current frame around this pixel: Gaussian reconstruction, neighborhood moments, nearest surface.
     float3 sum = float3(0.0, 0.0, 0.0);
@@ -85,7 +86,7 @@ void taau(uint3 id : SV_DispatchThreadID) {
         for (int x = -1; x <= 1; ++x) {
             const int2 q = clamp(nearest + int2(x, y), int2(0, 0), int2(params.render_size) - 1);
             const float3 c = params.color.Load(int3(q, 0)).rgb;
-            const float2 d = float2(q) + 0.5 + params.jitter - r;
+            const float2 d = float2(q) + 0.5 - params.jitter - r;
             const float w = exp(-2.29 * dot(d, d));
             const float tone = 1.0 / (1.0 + luma(c));  // luminance weighting keeps fireflies from spreading
             sum += c * w * tone;
@@ -123,7 +124,10 @@ void taau(uint3 id : SV_DispatchThreadID) {
         const float3 unit = abs(to_clip / extent);
         const float ratio = max(unit.x, max(unit.y, unit.z));
         const float3 clipped = from_ycocg(ratio > 1.0 ? mean + to_clip / ratio : y);
-        const float alpha = max(0.04, 1.0 / (samples + 1.0));
+        // Moving history is resampled every frame, which blurs it: weigh the current frame more the faster the
+        // surface moves (a quarter more per 4 output pixels, at most 0.25).
+        const float speed = length(motion.xy * float2(params.output_size) / float2(params.render_size));
+        const float alpha = max(max(0.04, 1.0 / (samples + 1.0)), min(speed / 16.0, 0.25));
         const float w_current = alpha / (1.0 + luma(current));
         const float w_history = (1.0 - alpha) / (1.0 + luma(clipped));
         result = (current * w_current + clipped * w_history) / (w_current + w_history);

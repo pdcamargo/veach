@@ -11,6 +11,7 @@ struct History {
     int2 base;       ///< the top-left tap, previous-frame pixels
     float4 weights;  ///< per tap, zero where invalid, summing to 1 when valid
     bool valid;      ///< some tap holds the same surface
+    bool fallback;   ///< valid only through the 3x3: this point was hidden, the same surface next to it was not
 };
 
 /// The pixel containing the previous position of `pixel`'s center: the center of the 3x3 neighborhood.
@@ -30,6 +31,7 @@ History history_of(uint2 pixel, float4 motion) {
     const float4 valid = float4(float(bits & 1u), float((bits >> 1) & 1u), float((bits >> 2) & 1u), float((bits >> 3) & 1u));
     const float sum = dot(bilinear, valid);
     h.valid = sum > 1e-3;
+    h.fallback = false;
     h.weights = h.valid ? bilinear * valid / sum : float4(0.0, 0.0, 0.0, 0.0);
     if (!h.valid) {
         const uint neighbors = uint(motion.z + 0.5);
@@ -45,6 +47,7 @@ History history_of(uint2 pixel, float4 motion) {
             }
         }
         h.weights = h.valid ? float4(1.0, 0.0, 0.0, 0.0) : float4(0.0, 0.0, 0.0, 0.0);
+        h.fallback = h.valid;
     }
     return h;
 }

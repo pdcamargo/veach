@@ -60,7 +60,8 @@ enum class RealtimeView : std::uint8_t {
     final,        ///< the image
     noisy,        ///< lighting before the denoiser
     motion,       ///< motion vectors: |x|, |y| in red and green (4 render pixels = full)
-    history,      ///< green where last frame's surface was found, red where it was disoccluded, blue for no geometry
+    history,      ///< green: last frame's surface found; yellow: disoccluded, history borrowed from the same surface
+                  ///< next to it; red: none; blue: no geometry
     accumulated,  ///< lighting before the denoiser, averaged over frames while nothing changes (bias checks)
 };
 

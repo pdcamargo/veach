@@ -100,6 +100,8 @@ struct alignas(16) RealtimeFrame {
     /// (write, read), the a-trous ping-pong (diffuse 0, 1, specular 0, 1: read, write each), the denoised image (read,
     /// write).
     std::array<rhi::DescriptorHandle, 23> denoiser;
+    rhi::DescriptorHandle counters;  ///< [0] direct-light shadow rays, [1] lit pixels (temporal.AC5)
+    rhi::DescriptorHandle unused0;
     std::array<std::uint32_t, 2> render_size{};
     std::uint32_t frame = 0;
     std::uint32_t flags = 0;
@@ -124,8 +126,8 @@ static_assert(offsetof(RealtimeFrame, surfaces) == 368);
 static_assert(offsetof(RealtimeFrame, previous) == 480);
 static_assert(offsetof(RealtimeFrame, alias) == 536);
 static_assert(offsetof(RealtimeFrame, denoiser) == 600);
-static_assert(offsetof(RealtimeFrame, render_size) == 784);
-static_assert(sizeof(RealtimeFrame) == 864);
+static_assert(offsetof(RealtimeFrame, render_size) == 800);
+static_assert(sizeof(RealtimeFrame) == 880);
 
 /// Mirrors PackedReservoir in shaders/veach/realtime.slang (ADR 0041).
 struct PackedReservoir {
@@ -228,6 +230,12 @@ struct RealtimeRenderer::Impl {
     std::uint32_t frame = 0;  ///< seeds the random numbers
     std::vector<rhi::BufferHandle> frame_buffers;
     bool warned_metalfx = false;
+    /// temporal.AC5: shadow rays and lit pixels, counted on the GPU, copied each frame into that frame slot's
+    /// readback buffer; the totals are logged at shutdown.
+    rhi::BufferHandle counters;
+    std::vector<rhi::BufferHandle> counter_readbacks;
+    std::size_t counted_slot = 0;
+    bool counted = false;
 
     ~Impl() {
         if (device == nullptr) {
@@ -235,6 +243,21 @@ struct RealtimeRenderer::Impl {
         }
         device->wait_idle();
         release_frame_buffers();
+        if (counted) {
+            if (const auto* totals = static_cast<const std::uint32_t*>(device->map(counter_readbacks[counted_slot]));
+                totals != nullptr && totals[1] > 0) {
+                log::info("render", "real-time direct light: {:.3f} shadow rays per lit pixel ({} rays, {} pixels)",
+                          static_cast<double>(totals[0]) / totals[1], totals[0], totals[1]);
+            }
+        }
+        for (rhi::BufferHandle* b : {&counters}) {
+            if (b->is_valid()) {
+                device->destroy(*b);
+            }
+        }
+        for (rhi::BufferHandle& b : counter_readbacks) {
+            device->destroy(b);
+        }
         for (auto& [id, v] : views) {
             destroy(v);
         }
@@ -435,6 +458,26 @@ Result<> RealtimeRenderer::prepare(rhi::Device& device, const SceneShaders& shad
         return std::unexpected(sampler.error());
     }
     s.linear_clamp = *sampler;
+    const std::array<std::uint32_t, 4> zeros{};
+    auto counters = device.create_buffer({.size = sizeof(zeros),
+                                          .usage = rhi::BufferUsage::storage | rhi::BufferUsage::copy_src,
+                                          .debug_name = "real-time counters",
+                                          .stride = sizeof(std::uint32_t)},
+                                         std::as_bytes(std::span(zeros)));
+    if (!counters) {
+        return std::unexpected(counters.error());
+    }
+    s.counters = *counters;
+    for (std::uint32_t i = 0; i < device.frames_in_flight(); ++i) {
+        auto readback = device.create_buffer({.size = sizeof(zeros),
+                                              .usage = rhi::BufferUsage::copy_dst,
+                                              .memory = rhi::MemoryType::readback,
+                                              .debug_name = "real-time counters readback"});
+        if (!readback) {
+            return std::unexpected(readback.error());
+        }
+        s.counter_readbacks.push_back(*readback);
+    }
     return {};
 }
 
@@ -559,6 +602,8 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     rw_pair(v.atrous_specular[0], 17);
     rw_pair(v.atrous_specular[1], 19);
     rw_pair(v.denoised, 21);
+    f.counters = device.descriptor(s.counters, rhi::View::storage);
+    f.unused0 = device.null_descriptor(rhi::DescriptorKind::texture);
     f.render_size = {rw, rh};
     f.frame = s.frame++;
     // The denoiser runs for the final image; its history is valid only if it ran last frame too (ADR 0042).
@@ -621,6 +666,8 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     const GraphResource final_reservoirs = s.import(graph, v.final_reservoirs[current], "reservoirs");
     const GraphResource previous_reservoirs = s.import(graph, v.final_reservoirs[previous], "reservoirs (last frame)");
     const GraphResource accumulation = s.import(graph, v.accumulation, "accumulation");
+    const GraphResource counters = graph.import(
+        s.counters, "real-time counters", s.counted ? rhi::ResourceState::copy_src : rhi::ResourceState::undefined);
     const GraphResource noisy_diffuse = s.import(graph, v.noisy_diffuse, "noisy diffuse");
     const GraphResource noisy_specular = s.import(graph, v.noisy_specular, "noisy specular");
     v.noisy_diffuse.written = true;
@@ -715,10 +762,25 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
             b.read(r);
         }
         b.read(final_reservoirs);
+        b.write(counters, rhi::ResourceState::shader_write);
         b.write(radiance, rhi::ResourceState::shader_write);
         b.write(noisy_diffuse, rhi::ResourceState::shader_write);
         b.write(noisy_specular, rhi::ResourceState::shader_write);
     });
+    // The counters into this frame slot's readback (the totals are logged at shutdown).
+    s.counted_slot = s.device->current_frame().slot % s.counter_readbacks.size();
+    s.counted = true;
+    const GraphResource counter_readback =
+        graph.import(s.counter_readbacks[s.counted_slot], "real-time counters readback", rhi::ResourceState::undefined);
+    graph.add_transfer_pass(
+        "real-time counters",
+        [&](PassBuilder& b) {
+            b.read(counters, rhi::ResourceState::copy_src);
+            b.write(counter_readback, rhi::ResourceState::copy_dst);
+        },
+        [source = s.counters, target = s.counter_readbacks[s.counted_slot]](PassContext& ctx) {
+            ctx.cmd.copy_buffer(source, target, 2 * sizeof(std::uint32_t));
+        });
     if (accumulating) {
         dispatch("accumulate", s.accumulate_pipeline, [&](PassBuilder& b) {
             b.read(radiance);

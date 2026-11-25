@@ -135,6 +135,28 @@ if(Python3_FOUND)
             WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
         set_tests_properties("mcp: MetalFX and TAAU agree (metal)" PROPERTIES
             SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" ENVIRONMENT "MTL_SHADER_VALIDATION=0")
+        # temporal.AC4: ReSTIR DI is unbiased: 256 undenoised frames averaged match the path tracer's direct light
+        # (Bistro is measured in the spec: too slow for a debug build).
+        add_test(NAME "temporal.AC4: ReSTIR DI converges to the direct-light reference (metal)"
+            COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/bench/compare_direct.py" --rhi metal
+                    --lab $<TARGET_FILE:veach-lab> --imgdiff $<TARGET_FILE:veach-cli>
+                    --out "${CMAKE_CURRENT_BINARY_DIR}/compare/unbiased" --size 320x180 --frames 32 --spf 16
+                    --realtime-frames 256 --max-mean 0.02 --max-luminance-error 0.02
+                    "${PROJECT_SOURCE_DIR}/apps/lab/scripts/cornell_box.luau"
+                    "${PROJECT_SOURCE_DIR}/apps/lab/scripts/flight_helmet.luau")
+        set_tests_properties("temporal.AC4: ReSTIR DI converges to the direct-light reference (metal)" PROPERTIES
+            SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable")
+        # The temporal renderer's acceptance criteria (docs/specs/temporal-direct-lighting/spec.md), read from its
+        # debug views and images over MCP. Shader validation is off, as for goldens (it varies ray queries).
+        foreach(_temporal motion stability ghosting)
+            add_test(NAME "mcp: temporal ${_temporal} (metal)"
+                COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
+                        --lab $<TARGET_FILE:veach-lab> --imgdiff $<TARGET_FILE:veach-cli>
+                        --out "${CMAKE_CURRENT_BINARY_DIR}/mcp/temporal_${_temporal}" temporal_${_temporal}
+                WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
+            set_tests_properties("mcp: temporal ${_temporal} (metal)" PROPERTIES
+                SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" ENVIRONMENT "MTL_SHADER_VALIDATION=0" TIMEOUT 600)
+        endforeach()
     endif()
     if(WIN32)
         add_test(NAME "mcp: golden through MCP (dx12)"

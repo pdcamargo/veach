@@ -78,7 +78,9 @@ void surface(uint3 id: SV_DispatchThreadID) {
     const float3 p1 = to_world(inst.object_to_world, corners[1], 1.0);
     const float3 p2 = to_world(inst.object_to_world, corners[2], 1.0);
     const float3 origin = f.camera_position.xyz;
-    const float2 pixel = float2(id.xy) + 0.5 + f.jitter.xy;  // the sample the visibility pass rasterized
+    // The visibility pass sampled this pixel's center through the jittered projection: the same ray, through the
+    // jittered inverse. (In unjittered pixels the sample sits at the center minus the jitter.)
+    const float2 pixel = float2(id.xy) + 0.5;
     const float2 bary = plane_barycentrics(origin, camera_ray(f, pixel), p0, p1, p2);
     TriangleHit hit = surface_of(inst, tri, bary, origin);
     // UV gradients from the neighboring pixels' rays on the same plane (no quad derivatives in compute).
@@ -253,8 +255,10 @@ void shade(uint3 id: SV_DispatchThreadID) {
         return;
     }
     if (f.view == view_history) {
-        const bool valid = history_of(id.xy, f.motion.Load(int3(id.xy, 0))).valid;
-        f.radiance_out[id.xy] = float4(valid ? 0.0 : 1.0, valid ? 1.0 : 0.0, s.valid ? 0.0 : 1.0, 1.0);
+        // Green: this point's history; yellow: only the same surface's next to it (a disocclusion within a pixel
+        // of history); red: none.
+        const History h = history_of(id.xy, f.motion.Load(int3(id.xy, 0)));
+        f.radiance_out[id.xy] = float4(!h.valid || h.fallback ? 1.0 : 0.0, h.valid ? 1.0 : 0.0, s.valid ? 0.0 : 1.0, 1.0);
         return;
     }
     if (!s.valid) {
@@ -275,9 +279,17 @@ void shade(uint3 id: SV_DispatchThreadID) {
         float3 l;
         float distance;
         contribution_lobes(r, d, f.light_count, cd, cs, l, distance);
-        if (r.W > 0.0 && (any(cd > 0.0) || any(cs > 0.0)) && light_visible(d.p, d.g, l, distance, rng)) {
+        const bool traced = r.W > 0.0 && (any(cd > 0.0) || any(cs > 0.0));
+        if (traced && light_visible(d.p, d.g, l, distance, rng)) {
             diffuse += cd * r.W;
             specular += cs * r.W;
+        }
+        // Counted per wave, one atomic each: the shadow rays direct light traced, and the pixels it lit.
+        const uint rays = WaveActiveCountBits(traced);
+        const uint pixels = WaveActiveCountBits(true);
+        if (WaveIsFirstLane()) {
+            InterlockedAdd(f.counters[0], rays);
+            InterlockedAdd(f.counters[1], pixels);
         }
         // STOPGAP until Candela (VCH-017): constant sky light on the diffuse lobe, darkened by short-range
         // ray-traced AO. A black sky contributes nothing, so its AO rays are skipped.
@@ -421,12 +433,19 @@ void denoise_variance(uint3 id: SV_DispatchThreadID) {
     const int2 p = int2(id.xy);
     const float4 d = f.diffuse_history.Load(int3(p, 0));
     const float4 s = f.specular_history.Load(int3(p, 0));
+    if (f.position.Load(int3(p, 0)).w <= 0.0) {  // no geometry: nothing to filter
+        f.atrous_diffuse0_out[id.xy] = float4(0.0, 0.0, 0.0, 0.0);
+        f.atrous_specular0_out[id.xy] = float4(0.0, 0.0, 0.0, 0.0);
+        return;
+    }
     float2 variance;
     if (min(d.a, s.a) < 4.0) {
         variance = spatial_variance(f, p, f.normal.Load(int3(p, 0)).xyz);  // too little history for moments
     } else {
+        // The moments give the input's variance; what the spatial filter must tell apart is the accumulated mean's,
+        // which shrinks with the frames in it (as in ReLAX): long-converged pixels keep their detail.
         const float4 m = f.moments.Load(int3(p, 0));
-        variance = max(float2(m.y - m.x * m.x, m.w - m.z * m.z), 0.0);
+        variance = max(float2(m.y - m.x * m.x, m.w - m.z * m.z), 0.0) / float2(d.a, s.a);
     }
     f.atrous_diffuse0_out[id.xy] = float4(d.rgb, variance.x);
     f.atrous_specular0_out[id.xy] = float4(s.rgb, variance.y);

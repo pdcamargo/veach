@@ -19,11 +19,11 @@ namespace veach::detail {
 #ifdef NDEBUG
 #define VEACH_ASSERT(cond, ...) static_cast<void>(sizeof(!(cond)))  // unevaluated: keeps variables "used"
 #else
-#define VEACH_ASSERT(cond, ...)                                                               \
-    do {                                                                                      \
-        if (!(cond)) [[unlikely]] {                                                           \
-            ::veach::detail::panic(std::format("assertion '" #cond "' failed: " __VA_ARGS__), \
-                                   std::source_location::current());                          \
-        }                                                                                     \
+#define VEACH_ASSERT(cond, ...)                                                                               \
+    do {                                                                                                      \
+        if (!(cond)) [[unlikely]] {                                                                           \
+            ::veach::detail::panic(std::format("assertion '{}' failed: {}", #cond, std::format(__VA_ARGS__)), \
+                                   std::source_location::current());                                          \
+        }                                                                                                     \
     } while (false)
 #endif

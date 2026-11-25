@@ -148,3 +148,30 @@ CPMAddPackage(
     DOWNLOAD_ONLY YES)
 add_library(veach_flip INTERFACE)
 target_include_directories(veach_flip SYSTEM INTERFACE "${flip_SOURCE_DIR}/src/cpp")
+
+# bc7enc (richgel999/bc7enc_rdo, MIT): BC7 encoding when cooking textures, and its decoder for tests
+# (docs/adr/0032-asset-import-and-cooking.md). Only bc7enc.cpp and bc7decomp.cpp are built.
+CPMAddPackage(
+    NAME bc7enc
+    VERSION 0.0.0-b943862
+    URL https://github.com/richgel999/bc7enc_rdo/archive/b9438627eef73a1157e84201b6fa6eb2ffd6d9f0.tar.gz
+    URL_HASH SHA256=bbb33d1dbb6178a3a2c044956c3cc0b8ea9fc2f2903824379dd86f87d53b64c6
+    DOWNLOAD_ONLY YES)
+add_library(veach_bc7enc STATIC "${bc7enc_SOURCE_DIR}/bc7enc.cpp" "${bc7enc_SOURCE_DIR}/bc7decomp.cpp")
+target_include_directories(veach_bc7enc SYSTEM PUBLIC "${bc7enc_SOURCE_DIR}")
+set_target_properties(veach_bc7enc PROPERTIES FOLDER "third_party")
+
+# fastgltf (MIT): glTF 2.0 import (ADR 0032). Its CMake fetches simdjson 5.1.0 and simdutf 9.3.3 and checks
+# their SHA256. find_package is disabled for both, so a copy installed on the machine (Homebrew) is never used
+# instead of the pinned one.
+set(CMAKE_DISABLE_FIND_PACKAGE_simdjson ON)
+set(CMAKE_DISABLE_FIND_PACKAGE_simdutf ON)
+CPMAddPackage(
+    NAME fastgltf
+    VERSION 1.0.1
+    URL https://github.com/spnda/fastgltf/archive/refs/tags/v1.0.1.tar.gz
+    URL_HASH SHA256=8399c5ed2cd90d0aef0704e65c02be59f866a9baf56bdc310cb647a6744ead94
+    SYSTEM YES
+    EXCLUDE_FROM_ALL YES
+    OPTIONS "FASTGLTF_DOWNLOAD_SIMDJSON ON" "FASTGLTF_DOWNLOAD_SIMDUTF ON" "FASTGLTF_ENABLE_TESTS OFF" "FASTGLTF_ENABLE_EXAMPLES OFF"
+            "FASTGLTF_ENABLE_DOCS OFF")

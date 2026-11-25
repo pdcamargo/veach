@@ -3,7 +3,7 @@ veach_add_engine_library(render
         src/png.cpp
         src/render_graph.cpp
         src/renderer.cpp
-    PUBLIC_DEPS veach::ecs veach::rhi
+    PUBLIC_DEPS veach::ecs veach::rhi veach::asset
     PRIVATE_DEPS veach_stb
     PCH <flecs.h>)
 

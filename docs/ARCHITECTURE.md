@@ -61,6 +61,7 @@ flowchart BT
     rhi --> platform
     render --> rhi
     render --> ecs
+    render --> asset
     runtime --> script
     runtime --> render
 ```

@@ -9,9 +9,7 @@
 #pragma warning(push, 0)
 #endif
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#define STB_IMAGE_IMPLEMENTATION
-#define STBI_ONLY_PNG
-#include <stb_image.h>
+#include <stb_image.h>  // implemented once, in engine/asset/src/stb_image.cpp
 #include <stb_image_write.h>
 #if defined(__clang__)
 #pragma clang diagnostic pop

@@ -14,6 +14,7 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 
 ## Later
 
+- **VCH-063** Opacity micromaps on DX12 — *render* — DXR 1.2 / SM 6.9 micromaps baked from alpha textures for alpha-tested BLASes, DX12 only (Metal has no equivalent). Our pinned Agility SDK 1.620.2 and WARP 1.0.22 support them, but WARP's software timings say nothing: measure on DX12 hardware first (blocked with VCH-050). [ADR](../adr/0048-alpha-tested-visibility-rays.md)
 - **VCH-058** Release packaging for Windows — *process* — `veach_deploy_d3d12` copies WARP's `d3d10warp.dll` next to every Windows executable, which is right for CI and development, but WARP's license allows testing only and forbids redistribution. A release package must leave it out, and must meet the Agility SDK's redistribution terms (THIRD_PARTY_NOTICES).
 - **VCH-048** MCP over HTTP — *agents* — Streamable HTTP transport next to stdio, so several clients can attach to one running app (an editor session). Same tools. [spec](../specs/mcp-server/spec.md)
 - **VCH-008** Richer script components — *script* — Nested tables and arrays in script components (explicit scalar, entity and optional types exist). Let `veach types` include an app's own modules (today it emits engine types only).

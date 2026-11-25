@@ -232,7 +232,8 @@ struct TlasInstance {
     std::uint32_t blas_index = 0;  ///< index into TlasDesc::blases
     std::uint32_t instance_id = 0;
     std::uint8_t mask = 0xFF;
-    /// False: the BLAS's non-opaque geometry reports candidate hits (alpha testing in a ray query loop).
+    /// False: every triangle of the instance is a candidate hit for queries that do not force opacity (alpha testing
+    /// in a ray query loop); Metal's NonOpaque option, D3D12's FORCE_NON_OPAQUE.
     bool opaque = true;
 };
 

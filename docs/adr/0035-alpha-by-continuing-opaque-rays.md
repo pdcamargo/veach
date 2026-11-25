@@ -4,7 +4,7 @@ Date: 2026-11-25
 
 ## Status
 
-Accepted. Supersedes the "Alpha" bullet of [ADR 0034](0034-lights-and-reference-path-tracer.md).
+Accepted. Supersedes the "Alpha" bullet of [ADR 0034](0034-lights-and-reference-path-tracer.md). Visibility rays superseded by [0048](0048-alpha-tested-visibility-rays.md).
 
 ## Context
 

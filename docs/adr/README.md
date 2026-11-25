@@ -44,7 +44,7 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0032 | [glTF import and cooked runtime formats](0032-asset-import-and-cooking.md) | Accepted |
 | 0033 | [Material model: Slang interfaces with overridable defaults](0033-material-model.md) | Accepted |
 | 0034 | [Lights in physical units, and a reference path tracer](0034-lights-and-reference-path-tracer.md) | Accepted (alpha part superseded by 0035) |
-| 0035 | [Alpha testing by continuing opaque rays](0035-alpha-by-continuing-opaque-rays.md) | Accepted |
+| 0035 | [Alpha testing by continuing opaque rays](0035-alpha-by-continuing-opaque-rays.md) | Accepted (visibility rays superseded by 0048) |
 | 0036 | [No self-hosted GPU runner; real-GPU tests are gated before push](0036-no-self-hosted-gpu-runner.md) | Accepted |
 | 0037 | [The real-time renderer: a visibility buffer over cook-time meshlets](0037-realtime-renderer-visibility-buffer.md) | Accepted (one shading pass superseded by 0040, direct lighting by 0041) |
 | 0038 | [Physical camera exposure and the AgX tonemapper](0038-exposure-and-tonemapping.md) | Accepted (where exposure applies superseded by 0043) |
@@ -57,3 +57,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0045 | [Temporal renderer: ping-ponged history, the denoiser's history](0045-temporal-implementation-amendments.md) | Accepted |
 | 0046 | [Directional lights are evaluated exactly, beside ReSTIR DI](0046-exact-directional-lights.md) | Accepted |
 | 0047 | [Image accuracy against recorded baselines with explicit tolerances](0047-image-tolerance-policy.md) | Accepted |
+| 0048 | [Visibility rays test alpha-tested triangles as candidates in one traversal](0048-alpha-tested-visibility-rays.md) | Accepted |

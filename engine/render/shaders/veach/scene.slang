@@ -280,40 +280,38 @@ float3 offset_origin(float3 p, float3 geometric, float3 direction) {
     return p + geometric * (dot(geometric, direction) >= 0.0 ? 1e-3 : -1e-3);
 }
 
-/// Whether nothing covers the segment. Opaque instances first, with a trace that ends at the first hit it finds
-/// (any occluder will do); then the alpha-tested ones, closest hit first and continuing past transparent texels.
-/// One query object for both: with two, Metal's results varied from run to run.
+/// Whether nothing covers the segment (ADR 0048). Opaque instances first, with a query that ends at the first hit
+/// it finds; then the alpha-tested ones in one traversal that tests each candidate's coverage and ends at the first
+/// covered texel. Rays that need the closest hit (trace()) force everything opaque and continue past transparent
+/// texels instead.
 bool visible(float3 from, float3 to_direction, float distance, inout Rng rng) {
     const bool skip_alpha = (veach_scene.debug_skip & debug_skip_alpha) != 0;
-    const bool any_alpha = !skip_alpha && (veach_scene.flags & scene_has_alpha) != 0;
     RayDesc ray;
     ray.Origin = from;
     ray.Direction = to_direction;
     ray.TMin = 0.0;
     ray.TMax = distance;
-    RayQuery<RAY_FLAG_FORCE_OPAQUE> query;
-    query.TraceRayInline(veach_scene.tlas, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,
-                         skip_alpha ? 0xFF : instance_mask_opaque, ray);
-    while (query.Proceed()) {
+    RayQuery<RAY_FLAG_FORCE_OPAQUE> opaque;
+    opaque.TraceRayInline(veach_scene.tlas, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,
+                          skip_alpha ? 0xFF : instance_mask_opaque, ray);
+    while (opaque.Proceed()) {
     }
-    if (query.CommittedStatus() == COMMITTED_TRIANGLE_HIT) {
+    if (opaque.CommittedStatus() == COMMITTED_TRIANGLE_HIT) {
         return false;
     }
-    for (uint layer = 0; any_alpha && layer < 16; ++layer) {
-        query.TraceRayInline(veach_scene.tlas, RAY_FLAG_NONE, instance_mask_alpha, ray);
-        while (query.Proceed()) {
-        }
-        if (query.CommittedStatus() != COMMITTED_TRIANGLE_HIT) {
-            return true;
-        }
-        const uint instance = query.CommittedInstanceIndex();
-        const float t = query.CommittedRayT();
-        if (covered(instance, query.CommittedPrimitiveIndex(), query.CommittedTriangleBarycentrics(), rng)) {
-            return false;
-        }
-        ray.TMin = t * (1.0 + 1e-5) + 1e-5;
+    if (skip_alpha || (veach_scene.flags & scene_has_alpha) == 0) {
+        return true;
     }
-    return true;
+    RayQuery<RAY_FLAG_NONE> alpha;
+    alpha.TraceRayInline(veach_scene.tlas, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, instance_mask_alpha, ray);
+    while (alpha.Proceed()) {
+        if (alpha.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE &&
+            covered(alpha.CandidateInstanceIndex(), alpha.CandidatePrimitiveIndex(),
+                    alpha.CandidateTriangleBarycentrics(), rng)) {
+            alpha.CommitNonOpaqueTriangleHit();
+        }
+    }
+    return alpha.CommittedStatus() != COMMITTED_TRIANGLE_HIT;
 }
 
 /// Whether the light at `distance` along `l` reaches surface point p (geometric normal g); `distance` >= 1e29 means

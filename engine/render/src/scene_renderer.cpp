@@ -589,6 +589,7 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
         draws.push_back(&draw);
         rhi::TlasInstance t;
         t.mask = (inst.flags & instance_has_alpha) != 0 ? instance_mask_alpha : instance_mask_opaque;
+        t.opaque = (inst.flags & instance_has_alpha) == 0;  // alpha-tested: candidates for visibility rays (ADR 0048)
         const auto rows = inst.object_to_world;
         for (std::size_t r = 0; r < 3; ++r) {
             t.transform.at(r) = {rows.at(r).x, rows.at(r).y, rows.at(r).z, rows.at(r).w};

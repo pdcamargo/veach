@@ -17,3 +17,4 @@ acceptance criteria (`[area.ACn] ...`) → status Implemented.
 | [MCP server v0](mcp-server/spec.md) | runtime | Implemented |
 | [DX12 backend](dx12-backend/spec.md) | rhi | Implemented (WARP in CI) |
 | [Views and cameras](render-views/spec.md) | render | Implemented |
+| [Transforms and hierarchy](transforms/spec.md) | ecs | Implemented |

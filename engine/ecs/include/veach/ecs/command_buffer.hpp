@@ -31,7 +31,8 @@ public:
 
     /// Reserves an entity id immediately so callers can keep writing to it. The
     /// entity has no components (and no name) until apply(); discard() deletes it.
-    Entity spawn(std::string name = {});
+    /// A valid `parent` makes it a child (ChildOf); its name is then scoped to the parent.
+    Entity spawn(std::string name = {}, ecs::entity_t parent = 0);
     void despawn(Entity entity);
 
     /// Records a write of a type-erased value. `value` must point to a valid
@@ -67,6 +68,7 @@ private:
     struct Spawn {
         ecs::entity_t entity;
         std::string name;
+        ecs::entity_t parent;
     };
     struct Despawn {
         ecs::entity_t entity;

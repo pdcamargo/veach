@@ -7,7 +7,8 @@ add_executable(veach-tests
     platform_tests.cpp
     render_tests.cpp
     rhi_tests.cpp
-    script_tests.cpp)
+    script_tests.cpp
+    transform_tests.cpp)
 if(WIN32)
     target_sources(veach-tests PRIVATE dx12_tests.cpp)  # DX12 on WARP in hosted CI (ADR 0031)
 endif()

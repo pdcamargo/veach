@@ -9,7 +9,7 @@ We match glTF so imported assets never need conversion.
 | Handedness | right-handed |
 | Up | **+Y** (`veach::math::world_up`) |
 | Forward | cameras and objects look down **−Z** (`veach::math::world_forward`); +X is right (`world_right`) |
-| Transforms | `veach::Transform`: translation, rotation (quaternion, glTF `x, y, z, w`), scale; world = T · R · S |
+| Transforms | `veach::Transform`: translation, rotation (quaternion, glTF `x, y, z, w`), scale, relative to the parent (`ChildOf`); `GlobalTransform` = parent's · T · R · S, written only by TransformPropagation |
 | Units | meters, seconds, **radians** |
 | Matrices | glm, column-major, column vectors: `v' = M * v` |
 | Depth | **reverse-Z**: near → 1, far/infinity → 0, clip depth in [0, 1]. Use `veach::math::perspective_reverse_z(fov_y, aspect, near)`, never `glm::perspective` |

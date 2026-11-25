@@ -60,11 +60,11 @@ Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device) {
             if (!camera.active) {
                 return;
             }
-            // The camera's pose without scale: a scaled camera would skew its view.
+            // The camera's world pose without scale: a scaled camera would skew its view.
             math::mat4 world_from_camera(1.0f);
-            if (const Transform* transform = e.try_get<Transform>()) {
-                world_from_camera = math::mat4_cast(math::normalize(transform->rotation));
-                world_from_camera[3] = math::vec4(transform->translation, 1.0f);
+            if (const GlobalTransform* global = e.try_get<GlobalTransform>()) {
+                world_from_camera = math::mat4_cast(global->rotation());
+                world_from_camera[3] = math::vec4(global->translation(), 1.0f);
             }
             RenderView view;
             view.view = math::inverse(world_from_camera);

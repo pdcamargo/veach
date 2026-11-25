@@ -89,10 +89,12 @@ System names are global: a duplicate fails with `script.duplicate_system`.
 
 The component values passed to `fn` are **copies**. To change a component, write it back with `entity:set`.
 
-### `veach.spawn(name?) -> Entity`
+### `veach.spawn(name?) -> Entity` / `veach.spawn({ name = ..., parent = e }) -> Entity`
 
-Spawns an entity. Its id is valid immediately (so you can call `:set` on it); its name and
-components appear when the current invocation succeeds.
+Spawns an entity. Its id is valid immediately (so you can call `:set` on it); its name, parent and
+components appear when the current invocation succeeds. With a `parent`, the entity is its child (its
+`Transform` is relative to the parent, and its name is scoped to it: `rig::eye`). See
+[transforms](../specs/transforms/spec.md).
 
 ### `Entity` methods
 
@@ -104,8 +106,25 @@ components appear when the current invocation succeeds.
 | `e:has(C) -> boolean` | Whether the entity has the component now. |
 | `e:remove(C)` | Records a removal. |
 | `e:despawn()` | Records a deletion. |
+| `e:parent() -> Entity?` | The parent, or `nil` at the root. Reads the world now. |
+| `e:children() -> { Entity }` | The children, in id order. Reads the world now. |
 
 Entities compare with `==`, print as `Entity(<id> '<name>')` and `typeof(e) == "Entity"`.
+
+### `veach.quat`
+
+Quaternions are `{ x, y, z, w }` tables (the `rotation` field of `Transform`). These helpers use glm, so they
+match C++ exactly. Conventions: right-handed, +Y up, −Z forward, radians.
+
+| Function | Result |
+|---|---|
+| `identity()` | No rotation. |
+| `from_axis_angle(axis: vector, angle)` | `angle` radians about `axis` (counter-clockwise looking down the axis). |
+| `from_euler(yaw, pitch, roll?)` | Yaw about +Y, then pitch about the turned +X (positive looks up), then roll. |
+| `mul(a, b)` | `a * b`: rotates by `b` first, then by `a`. |
+| `rotate(q, v: vector) -> vector` | `v` rotated by `q`. `rotate(q, vector.create(0, 0, -1))` is where `q` looks. |
+| `inverse(q)`, `normalize(q)` | |
+| `look_rotation(forward: vector, up: vector?)` | The rotation that turns −Z to `forward`, keeping +Y close to `up`. |
 
 ### `veach.log.debug / info / warn / error(message: string)`
 

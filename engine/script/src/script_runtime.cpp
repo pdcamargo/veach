@@ -30,9 +30,9 @@ namespace {
 using script::entity_tag;
 constexpr std::size_t max_query_components = 4;
 
-constexpr std::array<std::string_view, 14> api_function_names{
-    "component", "query", "system", "spawn", "log",  "time",   "components",
-    "f32",       "f64",   "i32",    "u32",   "vec3", "entity", "optional",
+constexpr std::array<std::string_view, 15> api_function_names{
+    "component", "query", "system", "spawn", "log",    "time",     "components", "f32",
+    "f64",       "i32",   "u32",    "vec3",  "entity", "optional", "quat",
 };
 
 /// Explicit field types: veach.f32(...) and friends return a marker the
@@ -483,13 +483,107 @@ struct ScriptRuntime::Impl {
         return 0;
     }
 
+    /// veach.spawn(name?) or veach.spawn({ name = ..., parent = entity }).
     static int api_spawn(lua_State* S) {
         Impl& rt = self(S);
         CommandBuffer& cmd = rt.require_active(S, "veach.spawn()");
-        const char* name = luaL_optstring(S, 1, "");
-        const Entity e = cmd.spawn(name);
+        std::string name;
+        ecs::entity_t parent = 0;
+        if (lua_istable(S, 1)) {
+            lua_getfield(S, 1, "name");
+            if (!lua_isnil(S, -1)) {
+                name = luaL_checkstring(S, -1);
+            }
+            lua_getfield(S, 1, "parent");
+            if (!lua_isnil(S, -1)) {
+                parent = check_entity(S, lua_gettop(S));
+                if (!ecs_is_alive(rt.world.c_ptr(), parent)) {
+                    raise(S, ErrorCode::script_invalid_value, "veach.spawn: the parent entity is not alive",
+                          "Spawn the parent first; a parent spawned in this same invocation is fine.");
+                }
+            }
+            lua_pop(S, 2);
+        } else {
+            name = luaL_optstring(S, 1, "");
+        }
+        const Entity e = cmd.spawn(std::move(name), parent);
         rt.push_entity(S, e.id());
         return 1;
+    }
+
+    // ---- bindings: veach.quat (glm underneath, so results match C++ exactly) ----
+
+    static math::quat check_quat(lua_State* S, int index) {
+        if (!lua_istable(S, index)) {
+            luaL_typeerror(S, index, "quat");
+        }
+        std::array<float, 4> xyzw{};
+        constexpr std::array<const char*, 4> keys{"x", "y", "z", "w"};
+        for (std::size_t i = 0; i < keys.size(); ++i) {
+            lua_getfield(S, index, keys[i]);
+            if (!lua_isnumber(S, -1)) {
+                raise(S, ErrorCode::script_invalid_value, std::format("a quat needs a number '{}'", keys[i]),
+                      "Quaternions are { x, y, z, w } tables; build them with veach.quat.*.");
+            }
+            xyzw[i] = static_cast<float>(lua_tonumber(S, -1));
+            lua_pop(S, 1);
+        }
+        return {xyzw[3], xyzw[0], xyzw[1], xyzw[2]};  // glm: (w, x, y, z)
+    }
+
+    static math::vec3 check_vector(lua_State* S, int index) {
+        const float* v = lua_tovector(S, index);
+        if (!v) {
+            luaL_typeerror(S, index, "vector");
+        }
+        return {v[0], v[1], v[2]};
+    }
+
+    static int push_quat(lua_State* S, const math::quat& q) {
+        lua_createtable(S, 0, 4);
+        lua_pushnumber(S, q.x);
+        lua_setfield(S, -2, "x");
+        lua_pushnumber(S, q.y);
+        lua_setfield(S, -2, "y");
+        lua_pushnumber(S, q.z);
+        lua_setfield(S, -2, "z");
+        lua_pushnumber(S, q.w);
+        lua_setfield(S, -2, "w");
+        return 1;
+    }
+
+    static int quat_identity(lua_State* S) { return push_quat(S, math::quat(1.0f, 0.0f, 0.0f, 0.0f)); }
+    static int quat_from_axis_angle(lua_State* S) {
+        const math::vec3 axis = check_vector(S, 1);
+        if (math::length(axis) == 0.0f) {
+            raise(S, ErrorCode::script_invalid_value, "veach.quat.from_axis_angle: the axis is zero");
+        }
+        return push_quat(S, math::angleAxis(static_cast<float>(luaL_checknumber(S, 2)), math::normalize(axis)));
+    }
+    static int quat_from_euler(lua_State* S) {
+        const auto yaw = static_cast<float>(luaL_checknumber(S, 1));
+        const auto pitch = static_cast<float>(luaL_checknumber(S, 2));
+        const auto roll = static_cast<float>(luaL_optnumber(S, 3, 0.0));
+        // Yaw about +Y, then pitch about the turned +X, then roll about the turned -Z: R = yaw * pitch * roll.
+        return push_quat(S, math::angleAxis(yaw, math::world_up) * math::angleAxis(pitch, math::world_right) *
+                                math::angleAxis(roll, math::vec3(0.0f, 0.0f, 1.0f)));
+    }
+    static int quat_mul(lua_State* S) { return push_quat(S, check_quat(S, 1) * check_quat(S, 2)); }
+    static int quat_rotate(lua_State* S) {
+        const math::vec3 v = check_quat(S, 1) * check_vector(S, 2);
+        lua_pushvector(S, v.x, v.y, v.z);
+        return 1;
+    }
+    static int quat_inverse(lua_State* S) { return push_quat(S, math::inverse(check_quat(S, 1))); }
+    static int quat_normalize(lua_State* S) { return push_quat(S, math::normalize(check_quat(S, 1))); }
+    static int quat_look_rotation(lua_State* S) {
+        const math::vec3 forward = check_vector(S, 1);
+        const math::vec3 up = lua_isnoneornil(S, 2) ? math::world_up : check_vector(S, 2);
+        if (math::length(forward) == 0.0f || math::length(math::cross(forward, up)) < 1e-6f) {
+            raise(S, ErrorCode::script_invalid_value, "veach.quat.look_rotation: forward is zero or parallel to up",
+                  "Pass another up vector when looking straight up or down.");
+        }
+        return push_quat(S, math::quatLookAtRH(math::normalize(forward), math::normalize(up)));
     }
 
     static int api_log(lua_State* S) {
@@ -592,6 +686,36 @@ struct ScriptRuntime::Impl {
         return 0;
     }
 
+    static int entity_parent(lua_State* S) {
+        Impl& rt = self(S);
+        const ecs::entity_t e = check_entity(S, 1);
+        const ecs::entity_t parent =
+            ecs_is_alive(rt.world.c_ptr(), e) ? ecs_get_target(rt.world.c_ptr(), e, EcsChildOf, 0) : 0;
+        if (parent == 0) {
+            lua_pushnil(S);
+        } else {
+            rt.push_entity(S, parent);
+        }
+        return 1;
+    }
+
+    /// The entity's children now, in id order (a child spawned this invocation appears once it is applied).
+    static int entity_children(lua_State* S) {
+        Impl& rt = self(S);
+        const ecs::entity_t e = check_entity(S, 1);
+        std::vector<ecs::entity_t> children;
+        if (ecs_is_alive(rt.world.c_ptr(), e)) {
+            rt.world.entity(e).children([&](Entity child) { children.push_back(child.id()); });
+        }
+        std::ranges::sort(children);
+        lua_createtable(S, static_cast<int>(children.size()), 0);
+        for (std::size_t i = 0; i < children.size(); ++i) {
+            rt.push_entity(S, children[i]);
+            lua_rawseti(S, -2, static_cast<int>(i + 1));
+        }
+        return 1;
+    }
+
     static int entity_tostring(lua_State* S) {
         Impl& rt = self(S);
         const ecs::entity_t e = check_entity(S, 1);
@@ -627,6 +751,10 @@ struct ScriptRuntime::Impl {
         lua_setfield(L, -2, "remove");
         push_function(entity_despawn, "despawn");
         lua_setfield(L, -2, "despawn");
+        push_function(entity_parent, "parent");
+        lua_setfield(L, -2, "parent");
+        push_function(entity_children, "children");
+        lua_setfield(L, -2, "children");
         lua_setreadonly(L, -1, 1);
         lua_setfield(L, -2, "__index");
         push_function(entity_tostring, "__tostring");
@@ -680,6 +808,24 @@ struct ScriptRuntime::Impl {
         }
         lua_setreadonly(L, -1, 1);
         lua_setfield(L, -2, "log");
+
+        constexpr std::array<std::pair<const char*, lua_CFunction>, 8> quat_functions{{
+            {"identity", quat_identity},
+            {"from_axis_angle", quat_from_axis_angle},
+            {"from_euler", quat_from_euler},
+            {"mul", quat_mul},
+            {"rotate", quat_rotate},
+            {"inverse", quat_inverse},
+            {"normalize", quat_normalize},
+            {"look_rotation", quat_look_rotation},
+        }};
+        lua_createtable(L, 0, static_cast<int>(quat_functions.size()));
+        for (const auto& [fn_name, fn] : quat_functions) {
+            lua_pushcfunction(L, fn, fn_name);
+            lua_setfield(L, -2, fn_name);
+        }
+        lua_setreadonly(L, -1, 1);
+        lua_setfield(L, -2, "quat");
 
         lua_createtable(L, 0, 3);
         push_function(api_time_frame, "frame");

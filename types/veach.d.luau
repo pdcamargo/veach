@@ -11,6 +11,10 @@ export type Entity = {
 	read has: <T>(self: Entity, component: Component<T>) -> boolean,
 	read remove: <T>(self: Entity, component: Component<T>) -> (),
 	read despawn: (self: Entity) -> (),
+	--- The parent (ChildOf), or nil at the root.
+	read parent: (self: Entity) -> Entity?,
+	--- The children, in id order. Reads the world now: children spawned in this invocation are not there yet.
+	read children: (self: Entity) -> { Entity },
 }
 
 --- A component handle. `defaults` holds the value new components start from.
@@ -31,6 +35,23 @@ export type LogApi = {
 	read warn: (message: string) -> (),
 	read error: (message: string) -> (),
 }
+
+--- Quaternion helpers over { x, y, z, w } tables (ADR 0010: right-handed, +Y up, -Z forward, radians).
+export type QuatApi = {
+	read identity: () -> quat,
+	read from_axis_angle: (axis: vector, angle: number) -> quat,
+	--- Yaw about +Y, then pitch about the turned +X, then roll about the turned -Z.
+	read from_euler: (yaw: number, pitch: number, roll: number?) -> quat,
+	--- a * b: rotates by b first, then by a.
+	read mul: (a: quat, b: quat) -> quat,
+	read rotate: (q: quat, v: vector) -> vector,
+	read inverse: (q: quat) -> quat,
+	read normalize: (q: quat) -> quat,
+	--- The rotation that turns -Z to `forward`, with +Y as close to `up` (default +Y) as possible.
+	read look_rotation: (forward: vector, up: vector?) -> quat,
+}
+
+export type SpawnOptions = { name: string?, parent: Entity? }
 
 export type TimeApi = {
 	--- Current frame number, starting at 1.
@@ -85,8 +106,10 @@ export type Veach = {
 	read query: QueryFn,
 	--- Registers a system. `fn` runs once per matching entity, every time the phase runs.
 	read system: <T...>(name: string, phase: Phase, query: Query<T...>, fn: (Entity, T...) -> ()) -> (),
-	--- Spawns an entity. It gets its components when the current invocation succeeds.
-	read spawn: (name: string?) -> Entity,
+	--- Spawns an entity, optionally as a child of `parent`. It gets its components (and its parent) when the
+	--- current invocation succeeds.
+	read spawn: ((name: string?) -> Entity) & ((options: SpawnOptions) -> Entity),
+	read quat: QuatApi,
 	read log: LogApi,
 	read time: TimeApi,
 	read components: {

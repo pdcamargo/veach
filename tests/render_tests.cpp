@@ -215,6 +215,7 @@ struct ViewFixture {
         world.component<Camera>();
     }
     const render::RenderWorld& extract() {
+        propagate_transforms(world);  // what the engine's TransformPropagation systems do every frame
         renderer.extract(world);
         return renderer.render_world();
     }

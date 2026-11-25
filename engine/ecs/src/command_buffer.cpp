@@ -10,9 +10,9 @@ CommandBuffer::~CommandBuffer() {
     discard();
 }
 
-Entity CommandBuffer::spawn(std::string name) {
+Entity CommandBuffer::spawn(std::string name, ecs::entity_t parent) {
     const Entity entity = world_.entity();
-    commands_.emplace_back(Spawn{entity.id(), std::move(name)});
+    commands_.emplace_back(Spawn{entity.id(), std::move(name), parent});
     return entity;
 }
 
@@ -55,6 +55,10 @@ void CommandBuffer::apply() {
         std::visit(
             [&]<class C>(C& c) {
                 if constexpr (std::is_same_v<C, Spawn>) {
+                    // Parent first: a child's name lives in its parent's scope, so it may repeat elsewhere.
+                    if (c.parent != 0 && ecs_is_alive(w, c.entity) && ecs_is_alive(w, c.parent)) {
+                        ecs_add_pair(w, c.entity, EcsChildOf, c.parent);
+                    }
                     if (!c.name.empty() && ecs_is_alive(w, c.entity)) {
                         ecs_set_name(w, c.entity, c.name.c_str());
                     }

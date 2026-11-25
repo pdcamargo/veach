@@ -59,6 +59,12 @@ void register_builtin_reflection(World& world) {
         .member(&math::vec4::y, "y")
         .member(&math::vec4::z, "z")
         .member(&math::vec4::w, "w");
+    // glm keeps a matrix's columns private, so its members are declared by offset: c0..c3, column-major.
+    world.component<math::mat4>("veach::math::mat4")
+        .member<math::vec4>("c0", 1, 0)
+        .member<math::vec4>("c1", 1, sizeof(math::vec4))
+        .member<math::vec4>("c2", 1, 2 * sizeof(math::vec4))
+        .member<math::vec4>("c3", 1, 3 * sizeof(math::vec4));
     world.component<math::quat>("veach::math::quat")
         .member(&math::quat::x, "x")
         .member(&math::quat::y, "y")

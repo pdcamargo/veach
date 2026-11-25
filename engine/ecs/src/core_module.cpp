@@ -4,6 +4,23 @@
 
 namespace veach {
 
+namespace {
+
+void compose_global(const Transform& local, const GlobalTransform* parent, GlobalTransform& global) {
+    global.matrix = parent ? parent->matrix * local.matrix() : local.matrix();
+}
+
+}  // namespace
+
+void propagate_transforms(World& world) {
+    world.query_builder<const Transform, const GlobalTransform*, GlobalTransform>()
+        .term_at(1)
+        .parent()
+        .cascade()
+        .build()
+        .each(compose_global);
+}
+
 CoreModule::CoreModule(World& world) {
     world.module<CoreModule>("veach::core");
 
@@ -25,11 +42,26 @@ CoreModule::CoreModule(World& world) {
         .add(flecs::Singleton);
 
     world.component<Rng>().member(&Rng::state, "state").member(&Rng::increment, "increment");
+    world.component<GlobalTransform>().member(&GlobalTransform::matrix, "matrix");
     world.component<Transform>()
         .member(&Transform::translation, "translation")
         .member(&Transform::rotation, "rotation")
         .member(&Transform::scale, "scale")
+        .add(flecs::With, world.id<GlobalTransform>())  // every Transform gets a GlobalTransform
         .add<Scriptable>();
+
+    // Parents before children (cascade over ChildOf). Per fixed step for gameplay, and again before
+    // extraction so poses written in per-frame phases reach the renderer the same frame.
+    for (const PhaseId phase : {PhaseId::transform_propagation, PhaseId::pre_extract}) {
+        world
+            .system<const Transform, const GlobalTransform*, GlobalTransform>(
+                phase == PhaseId::pre_extract ? "TransformPropagationBeforeExtract" : "TransformPropagation")
+            .kind(phase_entity(world, phase))
+            .term_at(1)
+            .parent()
+            .cascade()
+            .each(compose_global);
+    }
     world.component<Random>().member(&Random::seed, "seed").member(&Random::rng, "rng").add(flecs::Singleton);
 }
 

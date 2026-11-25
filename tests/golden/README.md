@@ -1,3 +1,11 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:d3ff0ea1d5de1af58b89722deeec7f01cb4a5d23e9e7225e95b552ae57f704c3
-size 431
+# Golden images
+
+Reference images for `golden: ...` CTest tests (docs/guides/rendering.md). They are stored in Git LFS.
+
+- One shared set for all backends ([ADR 0028](../../docs/adr/0028-golden-images-across-backends.md)):
+  `<scene>.png`, regenerated on Metal with `cmake --build --preset debug --target update-goldens`.
+- Per-backend overrides (`<scene>.<backend>.png`) only with an entry below.
+
+## Per-backend overrides
+
+None.

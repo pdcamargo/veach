@@ -38,6 +38,7 @@
 *.ttf    filter=lfs diff=lfs merge=lfs -text
 *.otf    filter=lfs diff=lfs merge=lfs -text
 # Golden images for image-comparison tests
-tests/golden/** filter=lfs diff=lfs merge=lfs -text
+tests/golden/**/*.png filter=lfs diff=lfs merge=lfs -text
+tests/golden/**/*.exr filter=lfs diff=lfs merge=lfs -text
 # Profiler captures
 *.tracy  filter=lfs diff=lfs merge=lfs -text

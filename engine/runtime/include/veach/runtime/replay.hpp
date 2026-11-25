@@ -33,11 +33,18 @@ struct StateHash {
     std::map<std::string, std::uint64_t> components;
 };
 
+/// A world edit made over MCP while recording (set_component, spawn_entity, eval), replayed through the same tool.
+struct ReplayEdit {
+    std::string tool;
+    std::string arguments;  ///< the tool's arguments, JSON
+};
+
 struct ReplayFrame {
     std::uint64_t frame = 0;
     std::uint32_t steps = 0;
     std::vector<PlatformEvent> events;
     StateHash state;
+    std::vector<ReplayEdit> edits;  ///< applied before the frame's events and steps
 };
 
 struct ReplayLog {

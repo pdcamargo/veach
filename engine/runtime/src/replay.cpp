@@ -102,11 +102,18 @@ void ReplayRecorder::write(const ReplayFrame& frame) {
     for (const auto& [name, hash] : frame.state.components) {
         components[name] = std::format("{:016x}", hash);
     }
-    const nlohmann::json line = {{"frame", frame.frame},
-                                 {"steps", frame.steps},
-                                 {"events", std::move(events)},
-                                 {"state", std::format("{:016x}", frame.state.total)},
-                                 {"components", std::move(components)}};
+    nlohmann::json line = {{"frame", frame.frame},
+                           {"steps", frame.steps},
+                           {"events", std::move(events)},
+                           {"state", std::format("{:016x}", frame.state.total)},
+                           {"components", std::move(components)}};
+    if (!frame.edits.empty()) {
+        nlohmann::json edits = nlohmann::json::array();
+        for (const ReplayEdit& e : frame.edits) {
+            edits.push_back({{"tool", e.tool}, {"arguments", nlohmann::json::parse(e.arguments)}});
+        }
+        line["edits"] = std::move(edits);
+    }
     out_ << line.dump() << '\n';
     out_.flush();  // a crash still leaves the frames before it
 }
@@ -150,6 +157,11 @@ Result<ReplayLog> read_replay(const std::filesystem::path& path) {
                 event.width = e.at("width").get<std::uint32_t>();
                 event.height = e.at("height").get<std::uint32_t>();
                 frame.events.push_back(event);
+            }
+            if (line.contains("edits")) {
+                for (const nlohmann::json& e : line.at("edits")) {
+                    frame.edits.push_back({e.at("tool").get<std::string>(), e.at("arguments").dump()});
+                }
             }
             frame.state.total = hex(line.at("state"));
             for (const auto& [name, hash] : line.at("components").items()) {

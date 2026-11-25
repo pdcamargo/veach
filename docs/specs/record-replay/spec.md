@@ -37,11 +37,11 @@ and the per-frame hash proves it was repeated. Roadmap: VISION item 3 (agents in
   per-component hashes, recorded alongside), and the replay stops: exit code 1.
 - A file from another engine version, another fixed step or a malformed line is `replay.invalid`, with the fix.
 - Hot reload is off while recording or replaying: a changed script would make the run unrepeatable.
+- World edits made over MCP while recording (`set_component`, `spawn_entity`, `eval`) are recorded with the next
+  frame (`edits`: the tool and its arguments) and replayed through the same tools before that frame's events and
+  steps. A recording without edits reads as before.
 
 **Out of scope**
-- World edits made over MCP (`set_component`, `spawn`, `eval`) during a recording: they are not inputs to the
-  platform, so they are not recorded and a replay of such a session diverges (and says so). Recording them is a
-  follow-up (command logs).
 - Rendering and GPU state: replay repeats simulation; images follow from it.
 
 ## Acceptance criteria
@@ -53,8 +53,10 @@ and the per-frame hash proves it was repeated. Roadmap: VISION item 3 (agents in
   frame with `replay.diverged`, naming the component.
 - **replay.AC4**: A windowed recording, whose frames ran a varying number of fixed steps, replays headless to
   the same final state.
+- **replay.AC5**: A recording made over MCP with `set_component`, `spawn_entity` and `eval` between frames records
+  those edits and replays headless to the same state every frame: the same camera and the same spawned entities.
 
-Tests: `replay: fly camera recorded over MCP replays headless (null RHI)` (AC1-AC3) and `replay: a windowed
+Tests: `replay: fly camera recorded over MCP replays headless (null RHI)` (AC1-AC3, AC5) and `replay: a windowed
 recording replays headless` (AC4), in `tests/mcp/test_mcp_lab.py`.
 
 ## Links

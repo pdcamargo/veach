@@ -405,6 +405,7 @@ json McpServer::call_tool(std::string_view name, const json& arguments) {
             cmd.set(target, w.component, w.value->ptr);
         }
         cmd.apply();
+        engine_.record_edit(std::string(name), arguments.dump());  // a recording repeats it (record-replay spec)
         if (name == "spawn_entity") {
             return json_result({{"id", target.id()},
                                 {"name", arguments.value("name", "")},
@@ -625,6 +626,7 @@ json McpServer::call_tool(std::string_view name, const json& arguments) {
             r["isError"] = true;
             return r;
         }
+        engine_.record_edit("eval", arguments.dump());
         out["returns"] = *result;
         return json_result(out);
     }

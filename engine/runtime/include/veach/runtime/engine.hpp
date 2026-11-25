@@ -75,6 +75,9 @@ public:
     [[nodiscard]] Result<> start();
     /// Runs one frame. Returns false once the app should stop.
     bool frame();
+    /// While recording: an MCP world edit (set_component, spawn_entity, eval) to repeat before the next frame on
+    /// replay (docs/specs/record-replay/spec.md). Does nothing otherwise.
+    void record_edit(std::string tool, std::string arguments);
     /// Runs `count` frames (stops early if the app quits). Returns false once the app should stop.
     bool step(std::uint64_t count);
     /// Runs only PreExtract, Extract and Render: draws the current state without advancing simulation.
@@ -125,6 +128,7 @@ private:
     rhi::SurfaceId surface_;
     std::uint32_t error_sink_ = 0;
     std::optional<ReplayRecorder> recorder_;  ///< --record (docs/specs/record-replay/spec.md)
+    std::vector<ReplayEdit> pending_edits_;   ///< MCP edits since the last recorded frame
     std::optional<ReplayLog> replay_;         ///< --replay
 };
 

@@ -379,6 +379,12 @@ void Engine::run_phase(PhaseId phase, double delta) {
     phases_.run(*world_, phase, static_cast<float>(delta));
 }
 
+void Engine::record_edit(std::string tool, std::string arguments) {
+    if (recorder_) {
+        pending_edits_.push_back({std::move(tool), std::move(arguments)});
+    }
+}
+
 bool Engine::frame() {
     VEACH_ZONE("frame");
     const ProjectConfig& project = config_.project;
@@ -401,6 +407,23 @@ bool Engine::frame() {
     if (replay_ && frame_ < replay_->frames.size()) {
         replayed = &replay_->frames[frame_];
         steps = replayed->steps;
+        // The MCP edits made before this frame while recording, through the same tools.
+        if (!replayed->edits.empty()) {
+            McpServer server(*this);
+            for (const ReplayEdit& edit : replayed->edits) {
+                const nlohmann::json response = server.handle(
+                    {{"jsonrpc", "2.0"},
+                     {"id", 1},
+                     {"method", "tools/call"},
+                     {"params", {{"name", edit.tool}, {"arguments", nlohmann::json::parse(edit.arguments)}}}});
+                if (response.contains("error") || response.at("result").value("isError", false)) {
+                    log::error("engine", Error{ErrorCode::replay_invalid,
+                                               std::format("frame {}: the recorded edit '{}' failed: {}", frame_,
+                                                           edit.tool, response.dump()),
+                                               "Replay with the project and assets the recording was made with."});
+                }
+            }
+        }
         for (PlatformEvent e : replayed->events) {
             if (e.window == 0) {
                 e.window = primary_window();
@@ -444,7 +467,8 @@ bool Engine::frame() {
                     e.window = 0;
                 }
             }
-            recorder_->write({frame_, steps, std::move(events), state});
+            recorder_->write({frame_, steps, std::move(events), state, std::move(pending_edits_)});
+            pending_edits_.clear();
         }
         if (replayed != nullptr && state.total != replayed->state.total) {
             std::string component = "(none recorded)";

@@ -224,6 +224,36 @@ def replay(lab: str) -> None:
               re.search(r"first in \S*(FlyCamera|Transform|InputAction|Input)", out) is not None,
               f"[replay.AC3] a replay that differs stops at the first wrong frame, naming the component: {out[-400:]}")
 
+        # replay.AC5: MCP world edits are part of the recording: set_component, spawn_entity and eval between frames.
+        edited = os.path.join(tmp, "edits.vreplay")
+        client = McpClient([lab, "--mcp", "--headless", "--script", "scripts/triangle_fly.luau", "--record", edited])
+        client.initialize()
+        client.call_json("step_frames", count=3)
+        client.call_json("set_component", entity="camera", component="Transform",
+                         value={"translation": [0.5, 0.25, 2.0]})
+        client.call_json("spawn_entity", name="marker", components={"Transform": {"translation": [1, 2, 3]}})
+        client.call_json("step_frames", count=3)
+        client.call_json("eval", source="local veach = require('@veach')\n"
+                                        "veach.spawn('from eval'):set(veach.components.Transform, "
+                                        "{ translation = vector.create(4, 5, 6), rotation = veach.quat.identity(), "
+                                        "scale = vector.one })")
+        client.call_json("send_input", key="w", down=True)
+        client.call_json("step_frames", count=10)
+        recorded = [client.call_json("get_component", entity=name, component="Transform")
+                    for name in ("camera", "marker", "from eval")]
+        check(client.close() == 0, "[replay.AC5] the recording with edits exits 0")
+        with open(edited, encoding="utf-8") as f:
+            edit_lines = [json.loads(line) for line in f.read().splitlines()[1:]]
+        tools = [e["tool"] for line in edit_lines for e in line.get("edits", [])]
+        check(tools == ["set_component", "spawn_entity", "eval"], f"[replay.AC5] the edits are recorded: {tools}")
+        client = McpClient([lab, "--mcp", "--headless", "--replay", edited])
+        client.initialize()
+        client.call_json("step_frames", count=16)
+        replayed = [client.call_json("get_component", entity=name, component="Transform")
+                    for name in ("camera", "marker", "from eval")]
+        check(replayed == recorded, "[replay.AC5] the replay repeats the edits: the same camera and entities")
+        check(client.close() == 0, "[replay.AC5] every frame's state matches (no replay.diverged)")
+
 
 def replay_windowed(lab: str) -> None:
     """[replay.AC4] A windowed recording (frames of varying fixed steps) replays headless to the same state."""

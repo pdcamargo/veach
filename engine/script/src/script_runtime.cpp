@@ -10,6 +10,8 @@
 #include <veach/ecs/phases.hpp>
 #include <veach/ecs/reflection.hpp>
 
+#include "marshal.hpp"
+
 #include <lua.h>
 #include <lualib.h>
 
@@ -55,6 +57,9 @@ struct ComponentInfo {
     std::vector<FieldInfo> fields;
     bool script_defined = false;
     void* defaults = nullptr;  ///< Owned default value (ecs_ptr_new), copied before each set.
+    const script::TypePlan* plan = nullptr;
+    std::size_t size = 0;
+    int table_ref = 0;  ///< The one Component table scripts see for this component.
 };
 
 struct ScriptSystem {
@@ -65,38 +70,7 @@ struct ScriptSystem {
     ecs::entity_t entity = 0;
 };
 
-/// Raises a Luau error carrying a Veach error code. Never returns.
-[[noreturn]] void raise(lua_State* L, ErrorCode code, const std::string& message, const std::string& hint = {}) {
-    const Error error{code, message, hint};
-    luaL_error(L, "%s", error.to_string().c_str());
-}
-
-const char* kind_label(ValueKind kind) {
-    switch (kind) {
-        case ValueKind::boolean: return "boolean";
-        case ValueKind::integer:
-        case ValueKind::number: return "number";
-        case ValueKind::string: return "string";
-        case ValueKind::vec3: return "vector";
-        case ValueKind::enumeration: return "string (enum constant)";
-        case ValueKind::structure: return "table";
-        case ValueKind::unsupported: return "unsupported";
-    }
-    return "?";
-}
-
-/// Frees a temporary component value even when a Luau error unwinds the stack.
-struct TempValue {
-    TempValue(const World& w, ecs::entity_t t) : world(w), type(t), ptr(ecs_ptr_new(w.c_ptr(), t)) {}
-    const World& world;
-    ecs::entity_t type;
-    void* ptr;
-    ~TempValue() { ecs_ptr_free(world.c_ptr(), type, ptr); }
-    TempValue(const TempValue&) = delete;
-    TempValue& operator=(const TempValue&) = delete;
-    TempValue(TempValue&&) = delete;
-    TempValue& operator=(TempValue&&) = delete;
-};
+using script::raise;
 
 }  // namespace
 
@@ -113,8 +87,10 @@ struct ScriptRuntime::Impl {
     int entity_metatable_ref = 0;
     int veach_ref = 0;
     int components_ref = 0;
+    script::Marshal marshal;
+    std::unordered_map<const void*, ComponentInfo*> by_table;  ///< Component table identity -> info.
 
-    explicit Impl(World& w) : world(w.c_ptr()) {}
+    explicit Impl(World& w) : world(w.c_ptr()), marshal(world) {}
 
     static Impl& self(lua_State* L) { return *static_cast<Impl*>(lua_tolightuserdata(L, lua_upvalueindex(1))); }
 
@@ -123,131 +99,12 @@ struct ScriptRuntime::Impl {
         lua_pushcclosure(L, fn, name, 1);
     }
 
-    // ---- values -------------------------------------------------------------
-
-    void push_value(lua_State* S, ecs::entity_t type, const void* ptr) {
-        switch (value_kind(world, type)) {
-            case ValueKind::boolean: lua_pushboolean(S, *static_cast<const bool*>(ptr) ? 1 : 0); return;
-            case ValueKind::integer:
-            case ValueKind::number: lua_pushnumber(S, read_number(world, type, ptr)); return;
-            case ValueKind::string: {
-                const auto& s = *static_cast<const std::string*>(ptr);
-                lua_pushlstring(S, s.data(), s.size());
-                return;
-            }
-            case ValueKind::vec3: {
-                const auto& v = *static_cast<const math::vec3*>(ptr);
-                lua_pushvector(S, v.x, v.y, v.z);
-                return;
-            }
-            case ValueKind::enumeration: {
-                const auto name = read_enum(world, type, ptr);
-                lua_pushstring(S, name ? name->c_str() : "");
-                return;
-            }
-            case ValueKind::structure: {
-                const auto fields = struct_fields(world, type);
-                lua_createtable(S, 0, static_cast<int>(fields.size()));
-                for (const FieldInfo& f : fields) {
-                    if (f.kind == ValueKind::unsupported) {
-                        continue;
-                    }
-                    push_value(S, f.type, static_cast<const char*>(ptr) + f.offset);
-                    lua_setfield(S, -2, f.name.c_str());
-                }
-                return;
-            }
-            case ValueKind::unsupported: lua_pushnil(S); return;
-        }
-    }
-
-    /// Writes the Luau value at `index` into `ptr`. Raises script.invalid_value on mismatch.
-    void read_value(lua_State* S, int index, ecs::entity_t type, void* ptr, const std::string& path) {
-        const ValueKind kind = value_kind(world, type);
-        const auto mismatch = [&] {
-            raise(S, ErrorCode::script_invalid_value,
-                  std::format("'{}' expects a {}, got {}", path, kind_label(kind), luaL_typename(S, index)));
-        };
-        switch (kind) {
-            case ValueKind::boolean:
-                if (!lua_isboolean(S, index)) {
-                    mismatch();
-                }
-                *static_cast<bool*>(ptr) = lua_toboolean(S, index) != 0;
-                return;
-            case ValueKind::integer:
-            case ValueKind::number:
-                if (lua_type(S, index) != LUA_TNUMBER) {
-                    mismatch();
-                }
-                write_number(world, type, ptr, lua_tonumber(S, index));
-                return;
-            case ValueKind::string: {
-                if (lua_type(S, index) != LUA_TSTRING) {
-                    mismatch();
-                }
-                std::size_t len = 0;
-                const char* s = lua_tolstring(S, index, &len);
-                static_cast<std::string*>(ptr)->assign(s, len);
-                return;
-            }
-            case ValueKind::vec3: {
-                const float* v = lua_tovector(S, index);
-                if (!v) {
-                    mismatch();
-                }
-                *static_cast<math::vec3*>(ptr) = math::vec3(v[0], v[1], v[2]);
-                return;
-            }
-            case ValueKind::enumeration: {
-                if (lua_type(S, index) != LUA_TSTRING) {
-                    mismatch();
-                }
-                const char* name = lua_tostring(S, index);
-                if (!write_enum(world, type, ptr, name)) {
-                    raise(S, ErrorCode::script_invalid_value, std::format("'{}' has no constant '{}'", path, name),
-                          did_you_mean(name, enum_constants(world, type)));
-                }
-                return;
-            }
-            case ValueKind::structure: {
-                if (!lua_istable(S, index)) {
-                    mismatch();
-                }
-                const int table = lua_absindex(S, index);
-                const auto fields = struct_fields(world, type);
-                lua_pushnil(S);
-                while (lua_next(S, table) != 0) {
-                    if (lua_type(S, -2) != LUA_TSTRING) {
-                        raise(S, ErrorCode::script_invalid_value, std::format("'{}' has a non-string key", path));
-                    }
-                    const std::string key = lua_tostring(S, -2);
-                    const auto it = std::ranges::find_if(fields, [&](const FieldInfo& f) { return f.name == key; });
-                    if (it == fields.end()) {
-                        std::vector<std::string> names;
-                        for (const FieldInfo& f : fields) {
-                            names.push_back(f.name);
-                        }
-                        raise(S, ErrorCode::script_invalid_value, std::format("unknown field '{}' in {}", key, path),
-                              did_you_mean(key, names));
-                    }
-                    read_value(S, -1, it->type, static_cast<char*>(ptr) + it->offset, path + "." + key);
-                    lua_pop(S, 1);
-                }
-                return;
-            }
-            case ValueKind::unsupported:
-                raise(S, ErrorCode::script_unsupported_field, std::format("'{}' cannot be written from Luau", path));
-        }
-    }
-
     // ---- entities and components ---------------------------------------------
 
     void push_entity(lua_State* S, ecs::entity_t id) {
-        auto* data = static_cast<std::uint64_t*>(lua_newuserdatatagged(S, sizeof(std::uint64_t), entity_tag));
+        auto* data =
+            static_cast<std::uint64_t*>(lua_newuserdatataggedwithmetatable(S, sizeof(std::uint64_t), entity_tag));
         *data = id;
-        lua_getref(S, entity_metatable_ref);
-        lua_setmetatable(S, -2);
     }
 
     static ecs::entity_t check_entity(lua_State* S, int index) {
@@ -261,6 +118,9 @@ struct ScriptRuntime::Impl {
     const ComponentInfo& check_component(lua_State* S, int index) {
         if (!lua_istable(S, index)) {
             luaL_typeerror(S, index, "Component");
+        }
+        if (const auto it = by_table.find(lua_topointer(S, index)); it != by_table.end()) {
+            return *it->second;  // fast path: the canonical table
         }
         lua_getfield(S, index, "name");
         if (lua_type(S, -1) != LUA_TSTRING) {
@@ -295,14 +155,23 @@ struct ScriptRuntime::Impl {
         }
     }
 
-    /// Pushes a Component table: { name = ..., defaults = ... }.
-    void push_component_table(lua_State* S, const ComponentInfo& info) {
-        lua_createtable(S, 0, 2);
-        lua_pushstring(S, info.name.c_str());
-        lua_setfield(S, -2, "name");
-        push_value(S, info.id, info.defaults);
-        lua_setfield(S, -2, "defaults");
-        lua_setreadonly(S, -1, 1);
+    /// Pushes the component's canonical table { name = ..., defaults = ... },
+    /// creating it on first use. Identity lookups make check_component O(1).
+    void push_component_table(lua_State* S, ComponentInfo& info) {
+        if (info.table_ref == 0) {
+            info.plan = &marshal.plan(info.id);
+            info.size = static_cast<std::size_t>(ecs_get_type_info(world.c_ptr(), info.id)->size);
+            lua_createtable(L, 0, 2);
+            lua_pushstring(L, info.name.c_str());
+            lua_setfield(L, -2, "name");
+            marshal.push(L, *info.plan, info.defaults);
+            lua_setfield(L, -2, "defaults");
+            lua_setreadonly(L, -1, 1);
+            by_table.emplace(lua_topointer(L, -1), &info);
+            info.table_ref = lua_ref(L, -1);
+            lua_pop(L, 1);
+        }
+        lua_getref(S, info.table_ref);
     }
 
     /// Picks up C++ components tagged Scriptable that modules registered since the last call.
@@ -333,7 +202,7 @@ struct ScriptRuntime::Impl {
 
         lua_getref(L, components_ref);
         lua_setreadonly(L, -1, 0);
-        for (const auto& [name, info] : components) {
+        for (auto& [name, info] : components) {
             if (!info->script_defined) {
                 push_component_table(L, *info);
                 lua_setfield(L, -2, name.c_str());
@@ -382,7 +251,7 @@ struct ScriptRuntime::Impl {
         std::ranges::sort(fields, {}, &NewField::name);
 
         if (const auto it = rt.components.find(name); it != rt.components.end()) {
-            const ComponentInfo& existing = *it->second;
+            ComponentInfo& existing = *it->second;
             bool same = existing.script_defined && existing.fields.size() == fields.size();
             for (std::size_t i = 0; same && i < fields.size(); ++i) {
                 same = existing.fields[i].name == fields[i].name && existing.fields[i].type == fields[i].type;
@@ -411,10 +280,10 @@ struct ScriptRuntime::Impl {
         info->fields = struct_fields(rt.world, component.id());
         info->script_defined = true;
         info->defaults = ecs_ptr_new(rt.world.c_ptr(), component.id());
-        rt.read_value(S, 2, info->id, info->defaults, name);
+        rt.marshal.read(S, 2, rt.marshal.plan(info->id), info->defaults, script::Path{nullptr, name});
         log::debug("script", "component '{}' defined ({} fields)", name, fields.size());
 
-        const ComponentInfo& ref = *info;
+        ComponentInfo& ref = *info;
         rt.components.emplace(name, std::move(info));
         rt.push_component_table(S, ref);
         return 1;
@@ -544,7 +413,7 @@ struct ScriptRuntime::Impl {
         if (!ptr) {
             lua_pushnil(S);
         } else {
-            rt.push_value(S, c.id, ptr);
+            rt.marshal.push(S, *c.plan, ptr);
         }
         return 1;
     }
@@ -554,10 +423,20 @@ struct ScriptRuntime::Impl {
         const ecs::entity_t e = check_entity(S, 1);
         const ComponentInfo& c = rt.check_component(S, 2);
         CommandBuffer& cmd = rt.require_active(S, "Entity:set()");
-        TempValue value(rt.world, c.id);
-        ecs_ptr_copy(rt.world.c_ptr(), c.id, value.ptr, c.defaults);
-        rt.read_value(S, 3, c.id, value.ptr, c.name);
-        cmd.set(rt.world.entity(e), c.id, value.ptr);
+        void* value = cmd.emplace(rt.world.entity(e), c.id);
+        // If reading raises (a Luau error unwinds as a C++ exception), drop the half-filled command.
+        struct Rollback {
+            CommandBuffer& cmd;
+            bool armed = true;
+            ~Rollback() {
+                if (armed) {
+                    cmd.pop_back();
+                }
+            }
+        } rollback{cmd};
+        ecs_ptr_copy(rt.world.c_ptr(), c.id, value, c.defaults);
+        rt.marshal.read(S, 3, *c.plan, value, script::Path{nullptr, c.name});
+        rollback.armed = false;
         return 0;
     }
 
@@ -629,7 +508,7 @@ struct ScriptRuntime::Impl {
         lua_setfield(L, -2, "__type");
         lua_setreadonly(L, -1, 1);
         entity_metatable_ref = lua_ref(L, -1);
-        lua_pop(L, 1);
+        lua_setuserdatametatable(L, entity_tag);  // pops; new Entity userdata get it for free
 
         // The @veach module.
         lua_createtable(L, 0, static_cast<int>(api_function_names.size()));
@@ -720,19 +599,26 @@ struct ScriptRuntime::Impl {
             lua_newtable(L);
         }
 
+        // One pass per matched table: columns are walked with precomputed plans,
+        // and the whole result is handed to Luau in a single call below.
+        const std::size_t count = system.components.size();
         int row = 0;
         while (it.next()) {
-            for (const auto i : it) {
+            std::array<const char*, max_query_components> base{};
+            std::array<std::size_t, max_query_components> stride{};
+            for (std::size_t k = 0; k < count; ++k) {
+                const auto field = static_cast<std::int8_t>(k);
+                const std::size_t size = system.components[k]->size;
+                base[k] = static_cast<const char*>(ecs_field_w_size(it.c_ptr(), size, field));
+                stride[k] = ecs_field_is_self(it.c_ptr(), field) ? size : 0;
+            }
+            const std::size_t rows = it.count();
+            for (std::size_t i = 0; i < rows; ++i) {
                 ++row;
                 push_entity(L, it.entity(i).id());
                 lua_rawseti(L, entities, row);
-                for (std::size_t k = 0; k < system.components.size(); ++k) {
-                    const auto field = static_cast<std::int8_t>(k);
-                    const ecs::entity_t type = system.components[k]->id;
-                    const auto size = static_cast<std::size_t>(ecs_get_type_info(world.c_ptr(), type)->size);
-                    const char* base = static_cast<const char*>(ecs_field_w_size(it.c_ptr(), size, field));
-                    const std::size_t offset = ecs_field_is_self(it.c_ptr(), field) ? i * size : 0;
-                    push_value(L, type, base + offset);
+                for (std::size_t k = 0; k < count; ++k) {
+                    marshal.push(L, *system.components[k]->plan, base[k] + i * stride[k]);
                     lua_rawseti(L, entities + 1 + static_cast<int>(k), row);
                 }
             }

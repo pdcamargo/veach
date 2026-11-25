@@ -49,3 +49,9 @@ if(Python3_FOUND)
         COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/scripts/check_repo.py"
         WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
 endif()
+
+# Benchmarks: built with the tests, run by hand (not part of ctest).
+add_executable(veach-bench-script bench/script_bench.cpp)
+target_link_libraries(veach-bench-script PRIVATE veach::veach)
+set_target_properties(veach-bench-script PROPERTIES FOLDER "tests")
+veach_apply_warnings(veach-bench-script)

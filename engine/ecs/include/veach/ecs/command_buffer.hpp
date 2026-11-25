@@ -39,6 +39,13 @@ public:
     void set(Entity entity, ecs::entity_t component, const void* value);
     void remove(Entity entity, ecs::entity_t component);
 
+    /// Records a write and returns its default-constructed value, owned by the
+    /// buffer, for the caller to fill in place (avoids a temporary + copy).
+    [[nodiscard]] void* emplace(Entity entity, ecs::entity_t component);
+    /// Drops the most recently recorded command (e.g. an emplace whose value
+    /// could not be filled). Spawns are not dropped this way.
+    void pop_back();
+
     template <class T>
     void set(Entity entity, const T& value) {
         set(entity, world_.id<T>(), &value);

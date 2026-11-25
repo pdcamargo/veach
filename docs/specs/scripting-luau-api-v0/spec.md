@@ -53,6 +53,26 @@ end)
 veach.spawn("greeter"):set(Greeting, { text = "Hello from Luau" })
 ```
 
+## Performance
+
+The call model is one C++→Luau call per system run. That call carries the whole query result (all matched
+tables), and a Luau-side dispatcher loops over the rows and calls `fn(entity, a, b, ...)`. There is never one
+C++→Luau call per entity. Rows are marshalled with cached per-type plans (`engine/script/src/marshal.cpp`).
+
+Measured 2026-11-24 with `build/release/tests/veach-bench-script` (Apple M5 Max, release build). One system
+over `Pos` and `Vel` (each one `vector` field):
+
+| System body | 10k entities | 100k entities | per entity |
+|---|---|---|---|
+| empty `fn` (marshal + dispatch only) | 0.82 ms | 9.2 ms | ~92 ns |
+| read both components | 0.90 ms | 10.1 ms | ~101 ns |
+| `e:set(Pos, ...)` every row | 1.63 ms | 17.9 ms | ~179 ns |
+
+Before the marshal plans (bootstrap version, which rebuilt reflection data per value): 22.0 ms read-only and
+38.4 ms read-write at 100k. The remaining cost is allocation: one Entity userdata and one table per component
+per row, every run. Reusing them across runs is VCH-035. It changes semantics (row values become views that are
+only valid during the call), so it needs its own decision.
+
 ## Acceptance criteria
 
 - **script.AC1** — `apps/lab/scripts/hello.luau` logs `Hello from Luau — frame N` once per frame for 3 frames and

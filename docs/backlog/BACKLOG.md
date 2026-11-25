@@ -43,7 +43,7 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 - **VCH-032** Asset id index — *asset* — Scan `.meta` files at startup to resolve ids to paths; `load_by_id`; detect moved and renamed files.
 - **VCH-033** Editor — *editor* — Built on the same reflection, MCP and command-buffer machinery agents use.
 - **VCH-034** Luau native codegen and script budgets — *script* — Enable Luau.CodeGen where supported; interrupt callbacks for runaway scripts, with per-invocation time budgets.
-- **VCH-035** Script dispatch allocations — *script* — Reuse entity userdata and row tables across frames. Measure with Tracy before and after.
+- **VCH-035** Script dispatch allocations — *script* — Batch building is ~92 ns/entity (9.2 ms at 100k, M5 Max), almost all of it allocating an Entity userdata and a row table per component. Reuse them across runs (row values become views valid during the call). Measure with `veach-bench-script` before and after. [spec](../specs/scripting-luau-api-v0/spec.md)
 - **VCH-036** Gamepads — *platform* — SDL gamepad events into `Input` and actions.
 - **VCH-037** Window polish — *platform* — Exclusive fullscreen, pixel-size and DPI fields, multi-monitor placement.
 - **VCH-038** Blocking clang-tidy in CI — *process* — Make the `.clang-tidy` baseline clean, then run `run-clang-tidy` as a required CI job.

@@ -29,6 +29,22 @@ void CommandBuffer::set(Entity entity, ecs::entity_t component, const void* valu
     commands_.emplace_back(Set{entity.id(), component, copy});
 }
 
+void* CommandBuffer::emplace(Entity entity, ecs::entity_t component) {
+    VEACH_ASSERT(ecs_get_type_info(world_.c_ptr(), component) != nullptr, "emplace() on a component without data");
+    void* value = ecs_ptr_new(world_.c_ptr(), component);
+    commands_.emplace_back(Set{entity.id(), component, value});
+    return value;
+}
+
+void CommandBuffer::pop_back() {
+    VEACH_ASSERT(!commands_.empty() && !std::holds_alternative<Spawn>(commands_.back()),
+                 "pop_back() needs a non-spawn command");
+    if (auto* set = std::get_if<Set>(&commands_.back()); set && set->value) {
+        ecs_ptr_free(world_.c_ptr(), set->component, set->value);
+    }
+    commands_.pop_back();
+}
+
 void CommandBuffer::remove(Entity entity, ecs::entity_t component) {
     commands_.emplace_back(Remove{entity.id(), component});
 }

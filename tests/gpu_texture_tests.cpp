@@ -9,7 +9,6 @@
 #include <doctest/doctest.h>
 
 #include <array>
-#include <cstdlib>
 #include <numeric>
 #include <vector>
 
@@ -27,8 +26,7 @@ std::unique_ptr<rhi::Device> gpu_device() {
 #endif
     auto device = rhi::create_device({.backend = backend, .validation = true});
     if (!device || !(*device)->capabilities().gpu) {
-        const char* require = std::getenv("VEACH_REQUIRE_GPU");  // NOLINT(concurrency-mt-unsafe)
-        REQUIRE_MESSAGE((require == nullptr || std::string_view(require) != "1"),
+        REQUIRE_MESSAGE(!test::env_is_one("VEACH_REQUIRE_GPU"),
                         "VEACH_REQUIRE_GPU=1 but no GPU device: ", (device ? "null" : device.error().message));
         return nullptr;
     }

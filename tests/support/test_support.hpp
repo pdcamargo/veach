@@ -5,6 +5,7 @@
 
 #include <veach/veach.hpp>
 
+#include <cstdlib>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -123,6 +124,20 @@ inline EngineConfig headless_config(const std::filesystem::path& project_dir, st
 
 inline std::filesystem::path source_dir() {
     return VEACH_SOURCE_DIR;
+}
+
+/// True if the environment variable `name` is "1" (portable: MSVC deprecates std::getenv).
+inline bool env_is_one(const char* name) {
+#if defined(_MSC_VER)
+    char* value = nullptr;
+    std::size_t length = 0;
+    const bool one = _dupenv_s(&value, &length, name) == 0 && value != nullptr && std::string_view(value) == "1";
+    std::free(value);  // NOLINT(cppcoreguidelines-no-malloc)
+    return one;
+#else
+    const char* value = std::getenv(name);  // NOLINT(concurrency-mt-unsafe)
+    return value != nullptr && std::string_view(value) == "1";
+#endif
 }
 
 }  // namespace veach::test

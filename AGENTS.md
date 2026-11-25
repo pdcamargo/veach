@@ -20,6 +20,22 @@ You are **dev lead and co-owner** with the product owner.
 - **Ask before installing anything outside the repo** (cargo/brew/pip installs, SDKs, anything in `~` or `/usr`)
   **and before accepting any license, EULA or terms** on the owner's behalf. Inside the repo (dependencies pinned
   in CMake, `build/`) is yours. What is installed and why: [docs/guides/local-tools.md](docs/guides/local-tools.md).
+- **Review packets.** Whenever something needs the owner's review or decision, end the summary with a packet they
+  can paste to another reviewer who has seen neither the repo nor the session. Under ~800 words, in this shape:
+
+  ```markdown
+  ## Review packet: <title>
+  - Decision needed: one sentence.
+  - Context: what this is and why it matters now, in plain language; define jargon the first time it appears.
+  - Options: 2-4 realistic ones, each with what it is, its tradeoffs, the measured numbers (ms, FLIP,
+    complexity) and what it locks us into.
+  - Recommendation: which and why, and what would change your mind.
+  - Risks and reversibility: what is expensive to undo later.
+  - Evidence: the key numbers and tables inline, plus file paths and commit hashes for reference.
+  - Questions for the owner: specific and answerable (pick A/B/C, yes/no, set a number).
+  ```
+
+  Don't start work that depends on the decision until the owner replies.
 
 ## Commands
 

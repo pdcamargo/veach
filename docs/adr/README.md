@@ -56,3 +56,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0044 | [Metal residency through one residency set](0044-metal-residency-set.md) | Accepted |
 | 0045 | [Temporal renderer: ping-ponged history, the denoiser's history](0045-temporal-implementation-amendments.md) | Accepted |
 | 0046 | [Directional lights are evaluated exactly, beside ReSTIR DI](0046-exact-directional-lights.md) | Accepted |
+| 0047 | [Image accuracy against recorded baselines with explicit tolerances](0047-image-tolerance-policy.md) | Accepted |

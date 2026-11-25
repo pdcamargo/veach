@@ -146,6 +146,21 @@ if(Python3_FOUND)
                     "${PROJECT_SOURCE_DIR}/apps/lab/scripts/flight_helmet.luau")
         set_tests_properties("temporal.AC4: ReSTIR DI converges to the direct-light reference (metal)" PROPERTIES
             SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable")
+        # The image tolerance policy (ADR 0047): the denoised final image within baseline + max(0.001, 5%) FLIP and
+        # 2% luminance of the path tracer's direct light. Baselines: Cornell 0.0208, FlightHelmet 0.0018.
+        foreach(_tol "cornell_box:0.0218" "flight_helmet:0.0028")
+            string(REPLACE ":" ";" _tol "${_tol}")
+            list(GET _tol 0 _scene)
+            list(GET _tol 1 _limit)
+            add_test(NAME "tolerance: ${_scene} final image within ADR 0047 (metal)"
+                COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/bench/compare_direct.py" --rhi metal
+                        --lab $<TARGET_FILE:veach-lab> --imgdiff $<TARGET_FILE:veach-cli>
+                        --out "${CMAKE_CURRENT_BINARY_DIR}/compare/tolerance" --size 640x360 --frames 64 --spf 16
+                        --final --realtime-frames 64 --max-mean ${_limit} --max-luminance-error 0.02
+                        "${PROJECT_SOURCE_DIR}/apps/lab/scripts/${_scene}.luau")
+            set_tests_properties("tolerance: ${_scene} final image within ADR 0047 (metal)" PROPERTIES
+                SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable" ENVIRONMENT "MTL_SHADER_VALIDATION=0")
+        endforeach()
         # shadows.AC1-AC2: lights with a size match the path tracer, and their penumbrae show (soft-shadows spec).
         add_test(NAME "shadows: sized lights cast penumbrae that match the reference (metal)"
             COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/soft_shadows.py" --rhi metal

@@ -134,7 +134,7 @@ run in the pre-push gate.
 | AC3 resets | first frame, resize, upscaler change, cut: no history on that frame, all of it on the next | `mcp: temporal motion` |
 | AC4 unbiased | 256 undenoised frames (640x360): FLIP 0.0143 / 0.0017 / 0.0148, luminance -0.12% / -0.07% / +0.03% (Cornell, FlightHelmet, Bistro) | `temporal.AC4` (Cornell, FlightHelmet) |
 | AC5 rays | 0.98 ReSTIR shadow rays per lit pixel (plus one per directional light) | `mcp: temporal stability` |
-| AC6 no regression | below: Cornell and Sponza better than v0, FlightHelmet and Bistro within 0.0003 | `compare_direct.py --final` |
+| AC6 no regression | below: Cornell and Sponza better than v0, FlightHelmet and Bistro within 0.0003; superseded by the tolerance policy (ADR 0047), these are its baselines | `tolerance: ...` |
 | AC7 stability | 0.006 between consecutive frames | `mcp: temporal stability` |
 | AC8 upscalers | MetalFX against TAAU: FLIP 0.013 | `mcp: MetalFX and TAAU agree` |
 | AC9 goldens | Cornell box, FlightHelmet, TAAU after 32 frames, Metal and DX12 (WARP) | `golden: ... (realtime)` |

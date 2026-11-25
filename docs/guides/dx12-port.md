@@ -26,11 +26,10 @@ Read first: [ADR 0024](../adr/0024-resource-binding-model.md) (binding),
 
 ## Checking a change before CI
 
-You can't run Windows code on a Mac, but you can type-check it. With `clang-cl` (Homebrew LLVM) and
-[xwin](https://github.com/Jake-Shadle/xwin) (`cargo install xwin`, then `xwin --accept-license splat --output ~/.xwin`),
-compile a file with `-fsyntax-only` against `~/.xwin/crt/include`, `~/.xwin/sdk/include/{ucrt,um,shared,winrt}`
-and the Agility SDK's `build/native/include`. This catches most compile errors before a push. MSVC is still the
-judge: watch the Windows job.
+You can't run Windows code on a Mac, but you can type-check it: `tools/scripts/wincheck.sh <files>` runs
+`clang-cl -fsyntax-only` against the Windows headers in `~/.xwin` and the pinned Agility SDK headers. It needs
+xwin, a tool outside the repo ([local-tools](local-tools.md)). It catches most compile errors before a push; MSVC
+is still the judge, so watch the Windows job.
 
 ## Decisions already made
 

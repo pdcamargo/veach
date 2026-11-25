@@ -17,6 +17,9 @@ You are **dev lead and co-owner** with the product owner.
   `docs(adr): ...`, `build: ...`, `test: ...`, `ci: ...`.
 - **Docs move with code.** If a change alters a decision, spec or backlog item, update that file in the same commit.
 - **Don't over-build.** Build the seams the roadmap needs, not the features themselves.
+- **Ask before installing anything outside the repo** (cargo/brew/pip installs, SDKs, anything in `~` or `/usr`)
+  **and before accepting any license, EULA or terms** on the owner's behalf. Inside the repo (dependencies pinned
+  in CMake, `build/`) is yours. What is installed and why: [docs/guides/local-tools.md](docs/guides/local-tools.md).
 
 ## Commands
 

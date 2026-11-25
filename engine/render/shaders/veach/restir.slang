@@ -151,9 +151,12 @@ float target(Reservoir r, Domain d, uint light_count) {
 }
 
 /// One candidate from the alias table, and its source pdf (selection x 1/area for a triangle's point).
-Reservoir sample_light(RealtimeFrame f, Domain d, inout Rng rng, out float source_pdf) {
+/// A triangle candidate's radiance is a stand-in, the material's emissive weight (never zero where it emits): the
+/// material is evaluated only for the candidate RIS keeps (initial_reservoir). `bary` locates the point for that.
+Reservoir sample_light(RealtimeFrame f, Domain d, inout Rng rng, out float source_pdf, out float2 bary) {
     Reservoir c = empty_reservoir();
     source_pdf = 0.0;
+    bary = float2(0.0, 0.0);
     const uint count = f.light_count + f.emissive_count;
     if (count == 0) {
         return c;
@@ -177,18 +180,17 @@ Reservoir sample_light(RealtimeFrame f, Domain d, inout Rng rng, out float sourc
     }
     const EmissiveTriangle tri = veach_scene.emissive[index - f.light_count];
     const float su = sqrt(rng.next());
-    const float2 bary = float2(1.0 - su, rng.next() * su);
-    TriangleHit hit = surface_at(tri.instance, tri.primitive, bary, d.p);
-    if (hit.area <= 0.0) {
+    bary = float2(1.0 - su, rng.next() * su);
+    const float3 cross_edges = cross(tri.p1.xyz - tri.p0.xyz, tri.p2.xyz - tri.p0.xyz);
+    const float area = 0.5 * length(cross_edges);
+    if (area <= 0.0) {
         return c;
     }
-    const bool double_sided = (hit.material.flags & material_double_sided) != 0;
-    c.light = index | (double_sided ? light_double_sided : 0u);
-    c.position = hit.surface.position;
-    c.normal = hit.front ? hit.surface.geometric_normal : -hit.surface.geometric_normal;  // the front side's
-    hit.front = true;  // the front side's emission, whichever side p sees
-    c.radiance = emission_of(hit);
-    source_pdf = select / hit.area;
+    c.light = index | (tri.p1.w > 0.0 ? light_double_sided : 0u);
+    c.position = tri.p0.xyz * (1.0 - bary.x - bary.y) + tri.p1.xyz * bary.x + tri.p2.xyz * bary.y;
+    c.normal = cross_edges / (2.0 * area);  // the winding's side: the front
+    c.radiance = float3(tri.p0.w, tri.p0.w, tri.p0.w);
+    source_pdf = select / area;
     return c;
 }
 
@@ -229,18 +231,36 @@ Reservoir stream_result(Stream s, float confidence) {
     return r;
 }
 
-/// Initial candidates by RIS: `count` alias-table samples, one kept. Confidence 1.
+/// Initial candidates by RIS: `count` alias-table samples, one kept. Confidence 1. The target here uses triangles'
+/// stand-in radiance; the kept triangle's real emission is evaluated once at the end. W = w_sum / target(kept) is an
+/// unbiased contribution weight whatever the target, as long as it is nonzero wherever light arrives, so later reuse
+/// (which evaluates the real radiance) stays unbiased.
 Reservoir initial_reservoir(RealtimeFrame f, Domain d, uint count, inout Rng rng) {
     Stream s = empty_stream();
+    float2 kept_bary = float2(0.0, 0.0);
     for (uint i = 0; i < count; ++i) {
         float source_pdf;
-        const Reservoir c = sample_light(f, d, rng, source_pdf);
+        float2 bary;
+        const Reservoir c = sample_light(f, d, rng, source_pdf, bary);
         if (source_pdf > 0.0) {
             const float t = target(c, d, f.light_count);
-            stream_add(s, c, t / (source_pdf * float(count)), t, rng);
+            const float w = t / (source_pdf * float(count));
+            const Reservoir before = s.chosen;
+            stream_add(s, c, w, t, rng);
+            if (s.chosen.light != before.light || any(s.chosen.position != before.position)) {
+                kept_bary = bary;
+            }
         }
     }
-    return stream_result(s, 1.0);
+    Reservoir r = stream_result(s, 1.0);
+    const uint index = r.light & ~light_double_sided;
+    if (r.light != no_light && index >= f.light_count) {
+        const EmissiveTriangle tri = veach_scene.emissive[index - f.light_count];
+        TriangleHit hit = surface_at(tri.instance, tri.primitive, kept_bary, d.p);
+        hit.front = true;  // the front side's emission, whichever side p sees
+        r.radiance = emission_of(hit);
+    }
+    return r;
 }
 
 /// Pairwise MIS (confidence-weighted): combines the canonical reservoir (this pixel's own) with `k` others whose

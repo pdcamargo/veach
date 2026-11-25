@@ -173,9 +173,9 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   1. `visibility`: meshlet triangles into the visibility buffer (ADR 0037);
   2. `surface`: the G-buffer, analytic motion vectors and the disocclusion decision every temporal pass shares
      (`veach/temporal.slang`, ADR 0040, ADR 0045);
-  3. ReSTIR DI (ADR 0041): `light_candidates` (16) alias-table samples over every light, temporal and
-     `spatial_samples` (4) spatial reuse with pairwise MIS, then `shade` with one shadow ray per pixel, the
-     ambient stopgap and emission;
+  3. ReSTIR DI (ADR 0041): `light_candidates` (12) alias-table samples over point, spot and emissive lights,
+     temporal and `spatial_samples` (2) spatial reuse with pairwise MIS, then `shade` with one shadow ray per
+     pixel, plus one per directional light, evaluated exactly (ADR 0046), the ambient stopgap and emission;
   4. the denoiser (ADR 0042): demodulated diffuse and specular, temporal accumulation, variance, five a-trous
      iterations, remodulation;
   5. the upscaler (ADR 0043): MetalFX's temporal scaler where the device has it (`Upscaling.mode = "automatic"`),

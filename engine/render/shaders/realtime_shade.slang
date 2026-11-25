@@ -284,12 +284,36 @@ void shade(uint3 id: SV_DispatchThreadID) {
             diffuse += cd * r.W;
             specular += cs * r.W;
         }
-        // Counted per wave, one atomic each: the shadow rays direct light traced, and the pixels it lit.
+        // Directional lights are not in ReSTIR's table: each is evaluated exactly, with its own shadow ray (a sized
+        // one samples its disk), ADR 0046.
+        uint directional_rays = 0;
+        for (uint i = 0; i < f.light_count; ++i) {
+            const LightRecord light = veach_scene.lights[i];
+            if (light.kind != light_directional) {
+                continue;
+            }
+            float3 sun_l;
+            float sun_distance;
+            const float3 irradiance = punctual_irradiance_sample(light, d.p, rng, sun_l, sun_distance);
+            float3 fd;
+            float3 fs;
+            brdf_eval_lobes(d.b, d.v, d.frame.to_local(sun_l), fd, fs);
+            if (any(fd > 0.0) || any(fs > 0.0)) {
+                ++directional_rays;
+                if (light_visible(d.p, d.g, sun_l, sun_distance, rng)) {
+                    diffuse += irradiance * fd;
+                    specular += irradiance * fs;
+                }
+            }
+        }
+        // Counted per wave, one atomic each: ReSTIR's shadow rays, the pixels lit, the directional lights' rays.
         const uint rays = WaveActiveCountBits(traced);
         const uint pixels = WaveActiveCountBits(true);
+        const uint sun_rays = WaveActiveSum(directional_rays);
         if (WaveIsFirstLane()) {
             InterlockedAdd(f.counters[0], rays);
             InterlockedAdd(f.counters[1], pixels);
+            InterlockedAdd(f.counters[2], sun_rays);
         }
         // STOPGAP until Candela (VCH-017): constant sky light on the diffuse lobe, darkened by short-range
         // ray-traced AO. A black sky contributes nothing, so its AO rays are skipped.

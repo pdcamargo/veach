@@ -663,33 +663,22 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
             const float area = 0.5f * math::length(math::cross(corners[1] - corners[0], corners[2] - corners[0]));
             emitter_weights.push_back(area * m.emissive_weight);
             total += area * m.emissive_weight;
-            emitters.push_back({static_cast<std::uint32_t>(i), static_cast<std::uint32_t>(t), total, 0.0f});
+            emitters.push_back({static_cast<std::uint32_t>(i), static_cast<std::uint32_t>(t), total, 0.0f,
+                                math::vec4(corners[0], m.emissive_weight),
+                                math::vec4(corners[1], (m.flags & double_sided) != 0 ? 1.0f : 0.0f),
+                                math::vec4(corners[2], 0.0f)});
         }
     }
     for (EmissiveTriangle& e : emitters) {
         e.cdf /= total;
     }
-    // ReSTIR's candidates (ADR 0041): every light, by the power it sends into the scene. A directional light's is its
-    // illuminance over the scene's cross-section.
-    math::vec3 scene_min(std::numeric_limits<float>::max());
-    math::vec3 scene_max(std::numeric_limits<float>::lowest());
-    for (const MeshDraw* draw : draws) {
-        const MeshAsset& mesh = *s.meshes.at(draw->mesh).source;
-        for (int corner = 0; corner < 8; ++corner) {
-            const math::vec3 p((corner & 1) != 0 ? mesh.bounds_max.x : mesh.bounds_min.x,
-                               (corner & 2) != 0 ? mesh.bounds_max.y : mesh.bounds_min.y,
-                               (corner & 4) != 0 ? mesh.bounds_max.z : mesh.bounds_min.z);
-            const math::vec3 w(draw->world * math::vec4(p, 1.0f));
-            scene_min = math::min(scene_min, w);
-            scene_max = math::max(scene_max, w);
-        }
-    }
-    const float scene_radius = 0.5f * math::length(scene_max - scene_min);
+    // ReSTIR's candidates (ADR 0041): every light by the power it sends into the scene, except directional lights,
+    // which shading evaluates exactly (ADR 0046).
     std::vector<float> light_power;
     for (const RenderLight& l : frame.world.lights) {
         const float lum = luminance(l.radiance);
         switch (l.kind) {
-            case LightKind::directional: light_power.push_back(lum * pi * scene_radius * scene_radius); break;
+            case LightKind::directional: light_power.push_back(0.0f); break;  // evaluated exactly (ADR 0046)
             case LightKind::point: light_power.push_back(lum * 4.0f * pi); break;
             case LightKind::spot: light_power.push_back(lum * 2.0f * pi * (1.0f - l.cos_outer)); break;
         }

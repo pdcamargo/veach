@@ -4,7 +4,7 @@ Date: 2026-11-25
 
 ## Status
 
-Accepted. Supersedes the "direct lighting" part of [0037](0037-realtime-renderer-visibility-buffer.md).
+Accepted. Supersedes the "direct lighting" part of [0037](0037-realtime-renderer-visibility-buffer.md). Directional lights superseded by [0046](0046-exact-directional-lights.md).
 
 ## Context
 

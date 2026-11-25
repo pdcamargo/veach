@@ -66,8 +66,11 @@ struct EmissiveTriangle {
     std::uint32_t primitive = 0;
     float cdf = 0.0f;
     float pad = 0.0f;
+    math::vec4 p0{0.0f};  ///< world corners: w of p0 = emissive weight, w of p1 = 1 if double sided
+    math::vec4 p1{0.0f};
+    math::vec4 p2{0.0f};
 };
-static_assert(sizeof(EmissiveTriangle) == 16);
+static_assert(sizeof(EmissiveTriangle) == 64);
 
 /// Mirrors AliasEntry in shaders/veach/realtime.slang: ReSTIR's light table (ADR 0041).
 struct AliasEntry {

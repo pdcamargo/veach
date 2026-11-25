@@ -50,8 +50,9 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0038 | [Physical camera exposure and the AgX tonemapper](0038-exposure-and-tonemapping.md) | Accepted (where exposure applies superseded by 0043) |
 | 0039 | [Null descriptors per kind, and validated bindless handles in debug builds](0039-null-descriptors-and-bindless-validation.md) | Accepted |
 | 0040 | [Temporal foundation: render resolution, jitter, surfaces, motion, history](0040-temporal-foundation.md) | Accepted (history copies superseded by 0045) |
-| 0041 | [Direct lighting with ReSTIR DI](0041-restir-di.md)                      | Accepted |
+| 0041 | [Direct lighting with ReSTIR DI](0041-restir-di.md)                      | Accepted (directional lights superseded by 0046) |
 | 0042 | [The denoiser: our own, SVGF/ReLAX-style](0042-denoiser.md)              | Accepted (history feedback superseded by 0045) |
 | 0043 | [Upscaling: MetalFX on Apple GPUs, our own TAAU everywhere](0043-upscaling.md) | Accepted |
 | 0044 | [Metal residency through one residency set](0044-metal-residency-set.md) | Accepted |
 | 0045 | [Temporal renderer: ping-ponged history, the denoiser's history](0045-temporal-implementation-amendments.md) | Accepted |
+| 0046 | [Directional lights are evaluated exactly, beside ReSTIR DI](0046-exact-directional-lights.md) | Accepted |

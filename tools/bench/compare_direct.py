@@ -99,7 +99,7 @@ def main() -> int:
     parser.add_argument("--size", default="640x360")
     parser.add_argument("--frames", type=int, default=64, help="path tracer frames (samples = frames x spf)")
     parser.add_argument("--spf", type=int, default=16, help="path tracer samples per frame")
-    parser.add_argument("--candidates", type=int, default=16, help="ReSTIR DI's initial candidates per pixel")
+    parser.add_argument("--candidates", type=int, default=12, help="ReSTIR DI's initial candidates per pixel")
     parser.add_argument("--final", action="store_true",
                         help="the final image instead: denoised, after --realtime-frames of warm-up (temporal.AC6)")
     parser.add_argument("--upscaler", default="none", choices=["none", "automatic", "temporal", "metalfx"],
@@ -137,7 +137,7 @@ def main() -> int:
                            f"{args.candidates}, ambient = false, sky = vector.zero, ao_rays = 0, ao_radius = 1, "
                            f"denoise = {'true' if args.final else 'false'}, view = \"{view}\", "
                            f"temporal_reuse = {'false' if args.no_reuse else 'true'}, "
-                           f"spatial_samples = {0 if args.no_reuse else 4} }})\n"
+                           f"spatial_samples = {0 if args.no_reuse else 2} }})\n"
                            # Full resolution through pixel centers like the reference: no jitter, no upscaler (or,
                            # for the final image, the default upscaler against an anti-aliased reference).
                            + (f"camera:set(veach.components.Upscaling, {{ mode = \"{args.upscaler}\" }})"

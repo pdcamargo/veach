@@ -69,9 +69,9 @@ enum class RealtimeView : std::uint8_t {
 };
 
 struct RealtimeLighting {
-    std::uint32_t light_candidates = 16;  ///< ReSTIR DI's initial candidates per pixel, from every light (ADR 0041)
+    std::uint32_t light_candidates = 12;  ///< ReSTIR DI's initial candidates per pixel (ADR 0041, ADR 0046)
     bool temporal_reuse = true;           ///< reuse last frame's reservoirs
-    std::uint32_t spatial_samples = 4;    ///< neighbors' reservoirs reused per pixel, up to 8; 0 = none
+    std::uint32_t spatial_samples = 2;    ///< neighbors' reservoirs reused per pixel, up to 8; 0 = none
     bool denoise = true;                  ///< the denoiser (ADR 0042); off for the noisy view and bias checks
     // STOPGAP until Candela (VCH-017): sky light on diffuse surfaces, darkened by short-range ray-traced AO.
     // Candela replaces it; at most a short-range AO stays. Off for comparisons against direct light.

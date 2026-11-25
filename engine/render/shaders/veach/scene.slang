@@ -50,6 +50,11 @@ struct EmissiveTriangle {
     uint primitive;
     float cdf;  ///< inclusive running sum, normalized to 1
     float pad;
+    // World-space corners, so ReSTIR's candidates read one record (ADR 0046): w of p0 is the material's emissive
+    // weight, w of p1 is 1 if the material is double sided.
+    float4 p0;
+    float4 p1;
+    float4 p2;
 };
 
 /// What the scene functions read. Copied from the entry point's parameters.

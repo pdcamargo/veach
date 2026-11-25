@@ -246,8 +246,11 @@ struct RealtimeRenderer::Impl {
         if (counted) {
             if (const auto* totals = static_cast<const std::uint32_t*>(device->map(counter_readbacks[counted_slot]));
                 totals != nullptr && totals[1] > 0) {
-                log::info("render", "real-time direct light: {:.3f} shadow rays per lit pixel ({} rays, {} pixels)",
-                          static_cast<double>(totals[0]) / totals[1], totals[0], totals[1]);
+                log::info("render",
+                          "real-time direct light: {:.3f} shadow rays per lit pixel for ReSTIR's sample, {:.3f} for "
+                          "directional lights ({} pixels)",
+                          static_cast<double>(totals[0]) / totals[1], static_cast<double>(totals[2]) / totals[1],
+                          totals[1]);
             }
         }
         for (rhi::BufferHandle* b : {&counters}) {
@@ -779,7 +782,7 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
             b.write(counter_readback, rhi::ResourceState::copy_dst);
         },
         [source = s.counters, target = s.counter_readbacks[s.counted_slot]](PassContext& ctx) {
-            ctx.cmd.copy_buffer(source, target, 2 * sizeof(std::uint32_t));
+            ctx.cmd.copy_buffer(source, target, 3 * sizeof(std::uint32_t));
         });
     if (accumulating) {
         dispatch("accumulate", s.accumulate_pipeline, [&](PassBuilder& b) {

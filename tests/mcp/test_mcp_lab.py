@@ -584,7 +584,7 @@ def temporal_stability(lab: str, imgdiff: str, out_dir: str) -> None:
     check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
     rays = [line for line in client.stderr if "shadow rays per lit pixel" in line]
     per_pixel = float(rays[-1].split("direct light: ")[1].split()[0]) if rays else 99.0
-    check(per_pixel <= 1.05, f"[temporal.AC5] direct light traces {per_pixel:.3f} shadow rays per lit pixel (<= 1.05)")
+    check(per_pixel <= 1.05, f"[temporal.AC5] ReSTIR traces {per_pixel:.3f} shadow rays per lit pixel (<= 1.05)")
 
 
 def temporal_ghosting(lab: str, imgdiff: str, out_dir: str) -> None:

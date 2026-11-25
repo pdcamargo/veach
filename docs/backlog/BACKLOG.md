@@ -21,7 +21,7 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 
 ## Later
 
-- **VCH-008** Richer script components — *script* — Integer and entity-reference fields, nested tables, arrays. Let `veach types` include an app's own modules (today it emits engine types only).
+- **VCH-008** Richer script components — *script* — Nested tables and arrays in script components (explicit scalar, entity and optional types exist). Let `veach types` include an app's own modules (today it emits engine types only).
 - **VCH-014** Record/replay — *runtime* — Record seed, input and script command logs; replay a run bit-for-bit. Depends on the determinism rules (fixed step, seeded RNG, no wall clock in simulation).
 - **VCH-015** Job system — *core* — enkiTS or Taskflow (decide by ADR), with Flecs worker threads hooked into it. Everything is single-threaded until this lands.
 - **VCH-016** Tessera: virtualized geometry — *render* — Cluster hierarchies, visibility buffer, GPU culling, streaming. Our Nanite.

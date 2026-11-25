@@ -21,6 +21,9 @@ corrupt the world with, and cheap to call. Raw Flecs would be none of those.
 - MUST provide `veach.component(name, defaults)`: field types come from the defaults (boolean, number, string,
   vector). It creates a reflected runtime component with fields sorted by name. Redefining it identically is
   allowed; redefining it differently is `script.component_conflict`.
+- MUST also accept explicit field types where a default cannot express the type: `veach.f32/f64/i32/u32(default?)`,
+  `veach.vec3(default?)`, `veach.entity()` (`Entity?`) and `veach.optional(inner)` (`T?`). Each one type-checks as
+  the value it stores, so inference from the defaults table is unchanged and `luau-analyze` accepts both forms.
 - MUST provide `veach.query(A[, B, C, D])` and `veach.system(name, phase, query, fn(entity, a, b, ...))`.
 - MUST provide `veach.spawn(name?)` and Entity methods `id`, `get`, `set`, `has`, `remove`, `despawn`.
 - MUST provide `veach.log.{debug,info,warn,error}` and `veach.time.{frame,delta,elapsed}`.
@@ -84,12 +87,16 @@ only valid during the call), so it needs its own decision.
 - **script.AC5** — Systems over 1–4 components receive whole batches; vectors and strings round-trip.
 - **script.AC6** — Unknown components, phases, fields and modules produce errors with did-you-mean.
 - **script.AC7** — `veach.components.Window` is readable and writable from Luau, with enum values as strings.
+- **script.AC9** — Explicit field types store the declared storage type, start from their defaults (none:
+  zero/nil/absent), and round-trip through Luau. An entity field reads as nil once its target is despawned. A
+  default of the wrong type is `script.invalid_value`. `tests/scripts/typed_components.luau` passes
+  `luau-analyze` in strict mode.
 - **script.AC8** — Generated types cover every `@veach` binding and phase, and the committed
   `types/veach.d.luau` is up to date. `luau-analyze` passes on all scripts in `apps/` (CTest).
 
 ## Out of scope
 
-- Input (VCH-006), parent/child (VCH-007), `Behavior` (VCH-005), richer field types (VCH-008), hot reload (VCH-004),
+- Input (VCH-006), parent/child (VCH-007), `Behavior` (VCH-005), nested tables and arrays in fields (VCH-008), hot reload (VCH-004),
   native codegen and time budgets (VCH-034), MCP `eval` (VCH-003; it will use `ScriptRuntime::execute_source`).
 
 ## Open questions

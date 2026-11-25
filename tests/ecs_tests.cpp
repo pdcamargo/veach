@@ -156,6 +156,36 @@ TEST_CASE("[ecs.AC7] reflection-driven JSON reads data files and explains mistak
     CHECK(mismatch.error().code == ErrorCode::data_type_mismatch);
 }
 
+TEST_CASE("[ecs.AC7] entity references and optional fields round-trip through JSON") {
+    World world = make_world();
+    const ecs::entity_t opt_f32 = optional_type(world, world.id<float>());
+    CHECK(optional_type(world, world.id<float>()) == opt_f32);  // reused
+    CHECK(value_kind(world, opt_f32) == ValueKind::optional);
+    auto holder = world.component("Holder");
+    holder.member(flecs::Entity, "target").member(opt_f32, "shield");
+    const ecs::entity_t type = holder.id();
+    world.entity("level::player");
+
+    void* value = ecs_ptr_new(world.c_ptr(), type);
+    REQUIRE(
+        from_json(world, type, value, nlohmann::json::parse(R"({"target":"level::player","shield":2.5})"), "t.json"));
+    const nlohmann::json out = to_json(world, type, value);
+    CHECK(out["target"] == "level::player");
+    CHECK(out["shield"] == 2.5);
+
+    REQUIRE(from_json(world, type, value, nlohmann::json::parse(R"({"target":null,"shield":null})"), "t.json"));
+    CHECK(to_json(world, type, value) == nlohmann::json::parse(R"({"target":null,"shield":null})"));
+
+    auto missing = from_json(world, type, value, nlohmann::json::parse(R"({"target":"level::nobody"})"), "t.json");
+    REQUIRE_FALSE(missing.has_value());
+    CHECK(missing.error().code == ErrorCode::data_type_mismatch);
+
+    const nlohmann::json schema = json_schema(world, type);
+    CHECK(schema["properties"]["target"]["type"] == nlohmann::json::array({"string", "null"}));
+    CHECK(schema["properties"]["shield"]["anyOf"][1]["type"] == "null");
+    ecs_ptr_free(world.c_ptr(), type, value);
+}
+
 TEST_CASE("[ecs.AC8] JSON Schemas are generated from reflection") {
     World world = make_world();
     const Settings defaults;

@@ -64,6 +64,11 @@ std::string luau_type(const World& world, ecs::entity_t type) {
         case ValueKind::vec3: return "vector";
         case ValueKind::enumeration:
         case ValueKind::structure: return type_name(world, type);
+        case ValueKind::entity: return "Entity?";
+        case ValueKind::optional: {
+            const std::string inner = luau_type(world, optional_layout(world, type).value_type);
+            return inner.ends_with('?') ? inner : inner + "?";
+        }
         case ValueKind::unsupported: return "never";
     }
     return "never";
@@ -72,6 +77,10 @@ std::string luau_type(const World& world, ecs::entity_t type) {
 /// Collects named enum/struct types reachable from `type`, dependencies first.
 void collect(const World& world, ecs::entity_t type, std::vector<ecs::entity_t>& order, std::set<ecs::entity_t>& seen) {
     const ValueKind kind = value_kind(world, type);
+    if (kind == ValueKind::optional) {
+        collect(world, optional_layout(world, type).value_type, order, seen);
+        return;
+    }
     if ((kind != ValueKind::structure && kind != ValueKind::enumeration) || seen.contains(type)) {
         return;
     }
@@ -142,8 +151,20 @@ std::string generate_luau_types(const World& world) {
 
     out += R"(
 export type Veach = {
-	--- Defines a script component. Field types come from the defaults: boolean, number, string or vector.
+	--- Defines a script component. Each field's type comes from its default (boolean, number = f64,
+	--- string, vector = vec3) or from an explicit type: veach.f32(100), veach.entity(), veach.optional(...).
 	read component: <T>(name: string, defaults: T) -> Component<T>,
+	--- Explicit field types, for what a default value cannot express. Each one type-checks as the
+	--- value it stores, so `{ hp = veach.f32(100) }` is `{ hp: number }`.
+	read f32: (default: number?) -> number,
+	read f64: (default: number?) -> number,
+	read i32: (default: number?) -> number,
+	read u32: (default: number?) -> number,
+	read vec3: (default: vector?) -> vector,
+	--- An entity reference. Starts as nil (no entity); reads as nil once the entity is despawned.
+	read entity: () -> Entity?,
+	--- An optional field. Starts absent (nil).
+	read optional: <T>(inner: T) -> T?,
 	read query: QueryFn,
 	--- Registers a system. `fn` runs once per matching entity, every time the phase runs.
 	read system: <T...>(name: string, phase: Phase, query: Query<T...>, fn: (Entity, T...) -> ()) -> (),

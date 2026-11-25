@@ -29,6 +29,14 @@ struct FieldPlan {
     const TypePlan* type = nullptr;
 };
 
+/// Luau userdata tag for Entity values (8-byte payload: the entity id).
+inline constexpr int entity_tag = 1;
+
+/// Pushes an Entity userdata, or nil for 0 / dead entities.
+void push_entity(lua_State* L, const World& world, ecs::entity_t id);
+/// The entity id of the Entity userdata at `index`, or 0 if it is not one.
+[[nodiscard]] ecs::entity_t to_entity(lua_State* L, int index);
+
 struct TypePlan {
     ecs::entity_t id = 0;
     ValueKind kind = ValueKind::unsupported;
@@ -36,6 +44,9 @@ struct TypePlan {
     std::vector<FieldPlan> fields;                                ///< structure
     std::vector<std::pair<std::int64_t, std::string>> constants;  ///< enumeration (value, name)
     std::string name;                                             ///< for messages
+    const TypePlan* inner = nullptr;                              ///< optional: the wrapped value type
+    std::int32_t present_offset = 0;                              ///< optional
+    std::int32_t value_offset = 0;                                ///< optional
 };
 
 /// A field path built lazily, only when an error message needs it.

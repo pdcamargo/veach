@@ -26,6 +26,8 @@ std::string_view kind_name(ValueKind kind) {
         case ValueKind::vec3: return "an array of 3 numbers";
         case ValueKind::enumeration: return "one of the enum constants";
         case ValueKind::structure: return "an object";
+        case ValueKind::entity: return "an entity path string or null";
+        case ValueKind::optional: return "a value or null";
         case ValueKind::unsupported: return "an unsupported type";
     }
     return "?";
@@ -126,6 +128,34 @@ Result<> assign(const World& world, ecs::entity_t type, void* ptr, const nlohman
             }
             return {};
         }
+        case ValueKind::entity: {
+            if (j.is_null()) {
+                *static_cast<ecs::entity_t*>(ptr) = 0;
+                return {};
+            }
+            if (!j.is_string()) {
+                return mismatch(context, path, kind, j);
+            }
+            const Entity e = world.lookup(j.get<std::string>().c_str());
+            if (!e) {
+                return make_error(
+                    ErrorCode::data_type_mismatch,
+                    std::format("{}: field '{}' names no entity '{}'", context, path, j.get<std::string>()),
+                    "Use the entity's full path, e.g. \"level::player\", or null.");
+            }
+            *static_cast<ecs::entity_t*>(ptr) = e.id();
+            return {};
+        }
+        case ValueKind::optional: {
+            const OptionalLayout layout = optional_layout(world, type);
+            auto* present = static_cast<bool*>(static_cast<void*>(static_cast<char*>(ptr) + layout.present_offset));
+            if (j.is_null()) {
+                *present = false;
+                return {};
+            }
+            *present = true;
+            return assign(world, layout.value_type, static_cast<char*>(ptr) + layout.value_offset, j, context, path);
+        }
         case ValueKind::unsupported: break;
     }
     return make_error(ErrorCode::data_type_mismatch,
@@ -151,6 +181,21 @@ nlohmann::json to_json(const World& world, ecs::entity_t type, const void* ptr) 
             return nlohmann::json::array({v.x, v.y, v.z});
         }
         case ValueKind::enumeration: return read_enum(world, type, ptr).value_or("");
+        case ValueKind::entity: {
+            const auto id = *static_cast<const ecs::entity_t*>(ptr);
+            if (id == 0 || !ecs_is_alive(world.c_ptr(), id)) {
+                return nullptr;
+            }
+            return std::string(world.entity(id).path("::", "").c_str());
+        }
+        case ValueKind::optional: {
+            const OptionalLayout layout = optional_layout(world, type);
+            if (!*static_cast<const bool*>(
+                    static_cast<const void*>(static_cast<const char*>(ptr) + layout.present_offset))) {
+                return nullptr;
+            }
+            return to_json(world, layout.value_type, static_cast<const char*>(ptr) + layout.value_offset);
+        }
         case ValueKind::structure: {
             nlohmann::json object = nlohmann::json::object();
             for (const auto& f : struct_fields(world, type)) {
@@ -176,6 +221,12 @@ nlohmann::json json_schema(const World& world, ecs::entity_t type, const void* d
             schema = {{"type", "array"}, {"items", {{"type", "number"}}}, {"minItems", 3}, {"maxItems", 3}};
             break;
         case ValueKind::enumeration: schema["enum"] = enum_constants(world, type); break;
+        case ValueKind::entity: schema["type"] = nlohmann::json::array({"string", "null"}); break;
+        case ValueKind::optional: {
+            const OptionalLayout layout = optional_layout(world, type);
+            schema["anyOf"] = nlohmann::json::array({json_schema(world, layout.value_type), {{"type", "null"}}});
+            break;
+        }
         case ValueKind::structure: {
             schema["type"] = "object";
             schema["title"] = type_name(world, type);

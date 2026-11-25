@@ -70,6 +70,9 @@ ValueKind value_kind(const World& world, ecs::entity_t type) {
     if (type == world.id<std::string>()) {
         return ValueKind::string;
     }
+    if (type == flecs::Entity) {
+        return ValueKind::entity;
+    }
     if (type == world.id<math::vec3>()) {
         return ValueKind::vec3;
     }
@@ -96,7 +99,8 @@ ValueKind value_kind(const World& world, ecs::entity_t type) {
             }
         }
         case EcsEnumType: return ValueKind::enumeration;
-        case EcsStructType: return ValueKind::structure;
+        case EcsStructType:
+            return ecs_has_id(world.c_ptr(), type, world.id<Optional>()) ? ValueKind::optional : ValueKind::structure;
         default: return ValueKind::unsupported;
     }
 }
@@ -119,6 +123,31 @@ std::vector<FieldInfo> struct_fields(const World& world, ecs::entity_t type) {
     return fields;
 }
 
+ecs::entity_t optional_type(World& world, ecs::entity_t value_type) {
+    const std::string name = "veach::optional::" + type_name(world, value_type);
+    if (const Entity existing = world.lookup(name.c_str())) {
+        return existing.id();
+    }
+    auto type = world.component(name.c_str());
+    type.member(world.id<bool>(), "present");
+    type.member(value_type, "value");
+    type.add<Optional>();
+    return type.id();
+}
+
+OptionalLayout optional_layout(const World& world, ecs::entity_t optional) {
+    OptionalLayout layout;
+    for (const FieldInfo& f : struct_fields(world, optional)) {
+        if (f.name == "present") {
+            layout.present_offset = f.offset;
+        } else if (f.name == "value") {
+            layout.value_offset = f.offset;
+            layout.value_type = f.type;
+        }
+    }
+    return layout;
+}
+
 std::vector<std::string> enum_constants(const World& world, ecs::entity_t type) {
     std::vector<std::string> names;
     const EcsConstants* c = ecs_get(world.c_ptr(), type, EcsConstants);
@@ -136,6 +165,7 @@ std::string type_name(const World& world, ecs::entity_t type) {
     switch (value_kind(world, type)) {
         case ValueKind::string: return "string";
         case ValueKind::vec3: return "vec3";
+        case ValueKind::entity: return "entity";
         default: break;
     }
     const char* name = ecs_get_name(world.c_ptr(), type);

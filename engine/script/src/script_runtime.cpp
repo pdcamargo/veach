@@ -27,12 +27,29 @@ namespace veach {
 
 namespace {
 
-constexpr int entity_tag = 1;
+using script::entity_tag;
 constexpr std::size_t max_query_components = 4;
 
-constexpr std::array<std::string_view, 7> api_function_names{
-    "component", "query", "system", "spawn", "log", "time", "components",
+constexpr std::array<std::string_view, 14> api_function_names{
+    "component", "query", "system", "spawn", "log",  "time",   "components",
+    "f32",       "f64",   "i32",    "u32",   "vec3", "entity", "optional",
 };
+
+/// Explicit field types: veach.f32(...) and friends return a marker the
+/// type checker sees as a plain value (number, vector, Entity?, T?).
+struct TypeMarkerKind {
+    const char* name;
+    bool has_default;  ///< accepts an optional default argument
+    int lua_type;      ///< expected type of that default
+};
+constexpr std::array<TypeMarkerKind, 6> type_markers{{
+    {"f32", true, LUA_TNUMBER},
+    {"f64", true, LUA_TNUMBER},
+    {"i32", true, LUA_TNUMBER},
+    {"u32", true, LUA_TNUMBER},
+    {"vec3", true, LUA_TVECTOR},
+    {"entity", false, LUA_TNIL},
+}};
 
 // Runs a system's callback over a whole batch. The per-entity loop lives here,
 // in Luau, so C++ calls into the VM once per system run, never once per entity.
@@ -87,6 +104,7 @@ struct ScriptRuntime::Impl {
     int entity_metatable_ref = 0;
     int veach_ref = 0;
     int components_ref = 0;
+    int type_marker_ref = 0;  ///< metatable identifying veach.f32(...) etc. markers
     script::Marshal marshal;
     std::unordered_map<const void*, ComponentInfo*> by_table;  ///< Component table identity -> info.
 
@@ -212,6 +230,129 @@ struct ScriptRuntime::Impl {
         lua_pop(L, 1);
     }
 
+    // ---- explicit field types ---------------------------------------------------
+
+    [[nodiscard]] bool is_type_marker(lua_State* S, int index) const {
+        if (!lua_istable(S, index) || !lua_getmetatable(S, index)) {
+            return false;
+        }
+        lua_getref(S, type_marker_ref);
+        const bool marker = lua_rawequal(S, -1, -2) != 0;
+        lua_pop(S, 2);
+        return marker;
+    }
+
+    /// The storage type for a field from its defaults-table value: a plain
+    /// value (inferred) or a type marker (explicit).
+    ecs::entity_t field_type(lua_State* S, int index, const std::string& component, const std::string& field) {
+        if (is_type_marker(S, index)) {
+            lua_getfield(S, index, "kind");
+            const std::string kind = lua_tostring(S, -1);
+            lua_pop(S, 1);
+            if (kind == "f32") {
+                return world.id<float>();
+            }
+            if (kind == "f64") {
+                return world.id<double>();
+            }
+            if (kind == "i32") {
+                return world.id<std::int32_t>();
+            }
+            if (kind == "u32") {
+                return world.id<std::uint32_t>();
+            }
+            if (kind == "vec3") {
+                return world.id<math::vec3>();
+            }
+            if (kind == "entity") {
+                return flecs::Entity;
+            }
+            if (kind == "optional") {
+                lua_getfield(S, index, "inner");
+                const ecs::entity_t inner = field_type(S, lua_gettop(S), component, field);
+                lua_pop(S, 1);
+                return optional_type(world, inner);
+            }
+        }
+        switch (lua_type(S, index)) {
+            case LUA_TBOOLEAN: return world.id<bool>();
+            case LUA_TNUMBER: return world.id<double>();
+            case LUA_TSTRING: return world.id<std::string>();
+            case LUA_TVECTOR: return world.id<math::vec3>();
+            default:
+                raise(S, ErrorCode::script_unsupported_field,
+                      std::format("component '{}': field '{}' has a default of type {}", component, field,
+                                  luaL_typename(S, index)),
+                      "Use a boolean, number, string or vector default, or an explicit type: veach.f32(), "
+                      "veach.i32(), veach.u32(), veach.f64(), veach.vec3(), veach.entity(), veach.optional(...).");
+        }
+    }
+
+    /// Writes the defaults table into the component's default value. Markers
+    /// contribute their own default (if any); optional fields start absent.
+    void fill_defaults(lua_State* S, int table, ComponentInfo& info) {
+        const script::TypePlan& plan = marshal.plan(info.id);
+        for (const script::FieldPlan& f : plan.fields) {
+            lua_getfield(S, table, f.name.c_str());
+            const int value = lua_gettop(S);
+            void* dst = static_cast<char*>(info.defaults) + f.offset;
+            const script::Path path{nullptr, f.name};
+            if (is_type_marker(S, value)) {
+                lua_getfield(S, value, "default");
+                if (!lua_isnil(S, -1) && f.type->kind != ValueKind::optional) {
+                    marshal.read(S, lua_gettop(S), *f.type, dst, path);
+                }
+                lua_pop(S, 1);
+            } else {
+                marshal.read(S, value, *f.type, dst, path);
+            }
+            lua_pop(S, 1);
+        }
+    }
+
+    static int api_type_marker(lua_State* S) {
+        Impl& rt = self(S);
+        const auto& kind = type_markers.at(static_cast<std::size_t>(lua_tointeger(S, lua_upvalueindex(2))));
+        const bool has_default = kind.has_default && !lua_isnoneornil(S, 1);  // before pushing anything
+        if (has_default && lua_type(S, 1) != kind.lua_type) {
+            raise(S, ErrorCode::script_invalid_value,
+                  std::format("veach.{}() default must be a {}, got {}", kind.name, lua_typename(S, kind.lua_type),
+                              luaL_typename(S, 1)));
+        }
+        lua_createtable(S, 0, 2);
+        lua_pushstring(S, kind.name);
+        lua_setfield(S, -2, "kind");
+        if (has_default) {
+            lua_pushvalue(S, 1);
+            lua_setfield(S, -2, "default");
+        }
+        lua_getref(S, rt.type_marker_ref);
+        lua_setmetatable(S, -2);
+        lua_setreadonly(S, -1, 1);
+        return 1;
+    }
+
+    static int api_optional(lua_State* S) {
+        Impl& rt = self(S);
+        luaL_checkany(S, 1);
+        if (rt.is_type_marker(S, 1)) {
+            lua_getfield(S, 1, "kind");
+            if (std::string_view(lua_tostring(S, -1)) == "optional") {
+                raise(S, ErrorCode::script_invalid_value, "veach.optional(veach.optional(...)) is not allowed");
+            }
+            lua_pop(S, 1);
+        }
+        lua_createtable(S, 0, 2);
+        lua_pushstring(S, "optional");
+        lua_setfield(S, -2, "kind");
+        lua_pushvalue(S, 1);
+        lua_setfield(S, -2, "inner");
+        lua_getref(S, rt.type_marker_ref);
+        lua_setmetatable(S, -2);
+        lua_setreadonly(S, -1, 1);
+        return 1;
+    }
+
     // ---- bindings: veach.* ---------------------------------------------------
 
     static int api_component(lua_State* S) {
@@ -232,19 +373,7 @@ struct ScriptRuntime::Impl {
                       std::format("component '{}': field names must be strings", name));
             }
             const std::string field = lua_tostring(S, -2);
-            ecs::entity_t type = 0;
-            switch (lua_type(S, -1)) {
-                case LUA_TBOOLEAN: type = rt.world.id<bool>(); break;
-                case LUA_TNUMBER: type = rt.world.id<double>(); break;
-                case LUA_TSTRING: type = rt.world.id<std::string>(); break;
-                case LUA_TVECTOR: type = rt.world.id<math::vec3>(); break;
-                default:
-                    raise(S, ErrorCode::script_unsupported_field,
-                          std::format("component '{}': field '{}' has a default of type {}", name, field,
-                                      luaL_typename(S, -1)),
-                          "Fields may be boolean, number, string or vector. Nested tables are not supported yet.");
-            }
-            fields.push_back({field, type});
+            fields.push_back({field, rt.field_type(S, lua_gettop(S), name, field)});
             lua_pop(S, 1);
         }
         // Lua table order is unspecified; sort so the layout is deterministic.
@@ -280,7 +409,7 @@ struct ScriptRuntime::Impl {
         info->fields = struct_fields(rt.world, component.id());
         info->script_defined = true;
         info->defaults = ecs_ptr_new(rt.world.c_ptr(), component.id());
-        rt.marshal.read(S, 2, rt.marshal.plan(info->id), info->defaults, script::Path{nullptr, name});
+        rt.fill_defaults(S, 2, *info);
         log::debug("script", "component '{}' defined ({} fields)", name, fields.size());
 
         ComponentInfo& ref = *info;
@@ -520,6 +649,21 @@ struct ScriptRuntime::Impl {
         lua_setfield(L, -2, "system");
         push_function(api_spawn, "spawn");
         lua_setfield(L, -2, "spawn");
+
+        lua_newtable(L);  // metatable that marks explicit field types
+        lua_pushstring(L, "TypeMarker");
+        lua_setfield(L, -2, "__type");
+        lua_setreadonly(L, -1, 1);
+        type_marker_ref = lua_ref(L, -1);
+        lua_pop(L, 1);
+        for (std::size_t i = 0; i < type_markers.size(); ++i) {
+            lua_pushlightuserdata(L, this);
+            lua_pushinteger(L, static_cast<int>(i));
+            lua_pushcclosure(L, api_type_marker, type_markers[i].name, 2);
+            lua_setfield(L, -2, type_markers[i].name);
+        }
+        push_function(api_optional, "optional");
+        lua_setfield(L, -2, "optional");
 
         lua_createtable(L, 0, 4);
         constexpr std::array<std::pair<const char*, log::Level>, 4> levels{{

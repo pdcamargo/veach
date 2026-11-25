@@ -160,6 +160,35 @@ end)
     CHECK(run.logs.contains("Renamed 640x720 fullscreen"));  // written through the command buffer
 }
 
+TEST_CASE("[script.AC9] explicit field types: f32, i32, u32, f64, vec3, entity, optional") {
+    const auto source = fs::read_file(test::source_dir() / "tests/scripts/typed_components.luau");
+    REQUIRE(source.has_value());
+    ScriptRun run(*source, 2);
+    CHECK(run.exit_code == 0);
+    const auto lines = run.logs.messages("script");
+    const auto has = [&](std::string_view line) {
+        return std::ranges::find(lines, line) != lines.end();
+    };
+    CHECK(has("frame 1 hp=75.5 level=3 armor=7 precise=0.25 y=2 target nick=ace shield=-1"));
+    CHECK(has("frame 1 hp=100 level=1 armor=0 precise=0.5 y=1 none nick=- shield=-1"));
+    CHECK(has("frame 2 hp=75.5 level=3 armor=7 precise=0.25 y=2 none nick=ace shield=-1"));  // target despawned
+    CHECK(lines.size() == 3);
+
+    ScriptRun bad(R"(local veach = require("@veach")
+local C = veach.component("C", { n = veach.i32("three") })
+)",
+                  1);
+    CHECK(bad.logs.contains("veach.i32() default must be a number, got string"));
+
+    ScriptRun conflict(R"(local veach = require("@veach")
+local A = veach.component("Same", { n = veach.f32() })
+local B = veach.component("Same", { n = 0 })
+)",
+                       1);
+    CHECK(conflict.logs.has_code("script.runtime_error"));
+    CHECK(conflict.logs.contains("component 'Same' is already defined with different fields"));
+}
+
 TEST_CASE("[script.AC8] generated types cover every binding and every phase") {
     Engine engine(test::headless_config(test::source_dir(), {}, 1));
     REQUIRE(engine.init().has_value());

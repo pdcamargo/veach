@@ -52,8 +52,20 @@ export type Window = {
 }
 
 export type Veach = {
-	--- Defines a script component. Field types come from the defaults: boolean, number, string or vector.
+	--- Defines a script component. Each field's type comes from its default (boolean, number = f64,
+	--- string, vector = vec3) or from an explicit type: veach.f32(100), veach.entity(), veach.optional(...).
 	read component: <T>(name: string, defaults: T) -> Component<T>,
+	--- Explicit field types, for what a default value cannot express. Each one type-checks as the
+	--- value it stores, so `{ hp = veach.f32(100) }` is `{ hp: number }`.
+	read f32: (default: number?) -> number,
+	read f64: (default: number?) -> number,
+	read i32: (default: number?) -> number,
+	read u32: (default: number?) -> number,
+	read vec3: (default: vector?) -> vector,
+	--- An entity reference. Starts as nil (no entity); reads as nil once the entity is despawned.
+	read entity: () -> Entity?,
+	--- An optional field. Starts absent (nil).
+	read optional: <T>(inner: T) -> T?,
 	read query: QueryFn,
 	--- Registers a system. `fn` runs once per matching entity, every time the phase runs.
 	read system: <T...>(name: string, phase: Phase, query: Query<T...>, fn: (Entity, T...) -> ()) -> (),

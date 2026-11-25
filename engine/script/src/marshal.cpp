@@ -19,6 +19,8 @@ const char* kind_label(ValueKind kind) {
         case ValueKind::vec3: return "vector";
         case ValueKind::enumeration: return "string (enum constant)";
         case ValueKind::structure: return "table";
+        case ValueKind::entity: return "Entity or nil";
+        case ValueKind::optional: return "value or nil";
         case ValueKind::unsupported: return "unsupported";
     }
     return "?";
@@ -78,6 +80,20 @@ ecs_primitive_kind_t primitive_of(const World& world, ecs::entity_t type) {
 
 }  // namespace
 
+void push_entity(lua_State* L, const World& world, ecs::entity_t id) {
+    if (id == 0 || !ecs_is_alive(world.c_ptr(), id)) {
+        lua_pushnil(L);
+        return;
+    }
+    auto* data = static_cast<std::uint64_t*>(lua_newuserdatataggedwithmetatable(L, sizeof(std::uint64_t), entity_tag));
+    *data = id;
+}
+
+ecs::entity_t to_entity(lua_State* L, int index) {
+    const auto* data = static_cast<const std::uint64_t*>(lua_touserdatatagged(L, index, entity_tag));
+    return data ? *data : 0;
+}
+
 void raise(lua_State* L, ErrorCode code, const std::string& message, const std::string& hint) {
     const Error error{code, message, hint};
     luaL_error(L, "%s", error.to_string().c_str());
@@ -109,6 +125,11 @@ const TypePlan& Marshal::plan(ecs::entity_t type) {
                 p.fields.push_back({std::move(f.name), f.offset, &this->plan(f.type)});
             }
         }
+    } else if (p.kind == ValueKind::optional) {
+        const OptionalLayout layout = optional_layout(world_, type);
+        p.inner = &this->plan(layout.value_type);
+        p.present_offset = layout.present_offset;
+        p.value_offset = layout.value_offset;
     } else if (p.kind == ValueKind::enumeration) {
         // Resolve each constant's stored value once by writing it and reading it back.
         for (const std::string& constant : enum_constants(world_, type)) {
@@ -153,6 +174,16 @@ void Marshal::push(lua_State* L, const TypePlan& plan, const void* ptr) const {
                 lua_setfield(L, -2, f.name.c_str());
             }
             return;
+        case ValueKind::entity: push_entity(L, world_, *static_cast<const ecs::entity_t*>(ptr)); return;
+        case ValueKind::optional: {
+            const auto* base = static_cast<const char*>(ptr);
+            if (*static_cast<const bool*>(static_cast<const void*>(base + plan.present_offset))) {
+                push(L, *plan.inner, base + plan.value_offset);
+            } else {
+                lua_pushnil(L);
+            }
+            return;
+        }
         case ValueKind::unsupported: lua_pushnil(L); return;
     }
 }
@@ -242,6 +273,29 @@ void Marshal::read(lua_State* L, int index, const TypePlan& plan, void* ptr, con
                 read(L, -1, *field->type, static_cast<char*>(ptr) + field->offset, child);
                 lua_pop(L, 1);
             }
+            return;
+        }
+        case ValueKind::entity: {
+            if (lua_isnil(L, index)) {
+                *static_cast<ecs::entity_t*>(ptr) = 0;
+                return;
+            }
+            const ecs::entity_t id = to_entity(L, index);
+            if (id == 0) {
+                mismatch();
+            }
+            *static_cast<ecs::entity_t*>(ptr) = id;
+            return;
+        }
+        case ValueKind::optional: {
+            auto* base = static_cast<char*>(ptr);
+            bool& present = *static_cast<bool*>(static_cast<void*>(base + plan.present_offset));
+            if (lua_isnil(L, index)) {
+                present = false;
+                return;
+            }
+            read(L, index, *plan.inner, base + plan.value_offset, path);
+            present = true;
             return;
         }
         case ValueKind::unsupported:

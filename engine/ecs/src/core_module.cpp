@@ -15,6 +15,7 @@ CoreModule::CoreModule(World& world) {
     }
 
     world.component<Scriptable>();
+    world.component<Optional>();
 
     world.component<Time>()
         .member(&Time::frame, "frame")

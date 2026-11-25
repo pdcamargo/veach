@@ -27,6 +27,8 @@ enum class ValueKind : std::uint8_t {
     vec3,         ///< veach::math::vec3 (Luau `vector`)
     enumeration,  ///< reflected enum, represented by its constant name
     structure,    ///< reflected struct, represented as an object/table
+    entity,       ///< entity reference (Flecs `Entity` primitive); Luau `Entity?`, JSON path string or null
+    optional,     ///< struct { bool present; T value; } tagged veach::Optional; Luau `T?`, JSON value or null
     unsupported,  ///< anything else (arrays, vectors, maps, opaque types, ...)
 };
 
@@ -37,9 +39,25 @@ struct FieldInfo {
     ValueKind kind = ValueKind::unsupported;
 };
 
+/// Tag on a reflected struct `{ bool present; T value; }` that represents an
+/// optional value. Create such types with optional_type().
+struct Optional {};
+
+/// Layout of an optional type (see Optional).
+struct OptionalLayout {
+    std::int32_t present_offset = 0;
+    std::int32_t value_offset = 0;
+    ecs::entity_t value_type = 0;
+};
+
 /// Registers reflection for std::string (as an opaque string) and the
 /// veach::math vector types. Part of CoreModule.
 void register_builtin_reflection(World& world);
+
+/// The optional type wrapping `value_type` (created on first use, then reused),
+/// e.g. `veach.optional.f32` for f32.
+[[nodiscard]] ecs::entity_t optional_type(World& world, ecs::entity_t value_type);
+[[nodiscard]] OptionalLayout optional_layout(const World& world, ecs::entity_t optional);
 
 [[nodiscard]] ValueKind value_kind(const World& world, ecs::entity_t type);
 [[nodiscard]] std::vector<FieldInfo> struct_fields(const World& world, ecs::entity_t type);

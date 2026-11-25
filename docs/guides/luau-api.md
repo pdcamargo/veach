@@ -38,6 +38,34 @@ Defines a script component. The **defaults table defines the fields and their ty
 | a string | `string` | `std::string` |
 | `vector.create(x, y, z)` | `vector` | `veach::math::vec3` |
 
+When a default value can't express the type you need, use an **explicit type** instead of a plain default:
+
+```lua
+local Health = veach.component("Health", {
+	hp = veach.f32(100),                  -- number, stored as f32 (default 100)
+	level = veach.i32(1),                 -- number, stored as i32
+	armor = veach.u32(),                  -- number, stored as u32 (default 0)
+	precise = veach.f64(0.5),             -- number, stored as f64 (what a plain number gives)
+	offset = veach.vec3(),                -- vector (default 0, 0, 0)
+	target = veach.entity(),              -- Entity?, starts as nil
+	nickname = veach.optional(""),        -- string?, starts absent
+	shield = veach.optional(veach.f32()), -- number?, stored as an optional f32
+	alive = true,                         -- inferred: boolean
+})
+```
+
+| Explicit type | Luau type | Stored as |
+|---|---|---|
+| `veach.f32(default?)`, `veach.f64(default?)` | `number` | `f32`, `f64` |
+| `veach.i32(default?)`, `veach.u32(default?)` | `number` | `i32`, `u32` |
+| `veach.vec3(default?)` | `vector` | `veach::math::vec3` |
+| `veach.entity()` | `Entity?` | an entity reference; reads as `nil` when unset or once the entity is despawned |
+| `veach.optional(inner)` | `T?` for the inner type | a reflected `{ present, value }` struct; `nil` means absent |
+
+Each explicit type checks as the value it stores, so strict-mode inference is the same as with plain defaults:
+`Health` is a `Component<{ hp: number, ..., target: Entity?, nickname: string? }>`. In JSON data files, entity
+fields are entity paths (`"level::player"`) or `null`, and optional fields are a value or `null`.
+
 Nested tables are not supported yet (`script.unsupported_field`). The component is a
 real reflected Flecs component (fields sorted by name), visible to tools like any C++ one.
 Defining the same name again with identical fields returns the existing component; different

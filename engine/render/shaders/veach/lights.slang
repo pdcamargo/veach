@@ -108,7 +108,7 @@ float3 sample_light(float3 p, float3 geometric, Frame frame, Brdf b, float3 v_lo
     } else {
         contribution = sample_punctual(p, frame, b, v_local, 1.0 - p_emissive, rng, l, distance);
     }
-    if (all(contribution <= 0.0) || !visible(offset_origin(p, geometric, l), l, distance * 0.999, rng)) {
+    if (all(contribution <= 0.0) || !light_visible(p, geometric, l, distance, rng)) {
         return float3(0.0, 0.0, 0.0);
     }
     return contribution;
@@ -125,7 +125,7 @@ float3 direct_punctual(float3 p, float3 geometric, Frame frame, Brdf b, float3 v
         const float3 irradiance = punctual_irradiance(veach_scene.lights[i], p, l, distance);
         float bsdf_pdf;
         const float3 c = irradiance * brdf_eval(b, v_local, frame.to_local(l), bsdf_pdf);
-        if (any(c > 0.0) && visible(offset_origin(p, geometric, l), l, distance * 0.999, rng)) {
+        if (any(c > 0.0) && light_visible(p, geometric, l, distance, rng)) {
             sum += c;
         }
     }
@@ -155,7 +155,7 @@ float3 direct_emissive_sample(float3 p, float3 geometric, Frame frame, Brdf b, f
     }
     float bsdf_pdf;
     const float3 c = le * brdf_eval(b, v_local, frame.to_local(l), bsdf_pdf) / pdf;
-    if (all(c <= 0.0) || !visible(offset_origin(p, geometric, l), l, distance * 0.999, rng)) {
+    if (all(c <= 0.0) || !light_visible(p, geometric, l, distance, rng)) {
         return float3(0.0, 0.0, 0.0);
     }
     return c;

@@ -265,3 +265,17 @@ float3 offset_origin(float3 p, float3 geometric, float3 direction) {
 bool visible(float3 from, float3 to_direction, float distance, inout Rng rng) {
     return !trace(from, to_direction, distance, rng).hit;
 }
+
+/// Whether the light at `distance` along `l` reaches surface point p (geometric normal g); `distance` >= 1e29 means
+/// a directional light. The ray starts pushed off the surface and is aimed from there at the light point itself:
+/// keeping the unpushed direction and length would move the segment's end by the push, into an emitter that is
+/// close and oblique, which hid the brightest light samples of an emitter beside the surface.
+bool light_visible(float3 p, float3 g, float3 l, float distance, inout Rng rng) {
+    const float3 from = offset_origin(p, g, l);
+    if (distance >= 1e29) {
+        return visible(from, l, distance, rng);
+    }
+    const float3 to_light = p + l * distance - from;
+    const float length_to_light = length(to_light);
+    return visible(from, to_light / length_to_light, length_to_light * 0.999, rng);
+}

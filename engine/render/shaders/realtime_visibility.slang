@@ -25,8 +25,8 @@ struct VisibilityParams {
 
 struct VisibilityVertex {
     float4 position : SV_Position;
-    float2 uv;
-    nointerpolation uint2 id;  ///< instance, meshlet << 7 | triangle
+    float2 uv : TEXCOORD0;
+    nointerpolation uint2 id : TEXCOORD1;  ///< instance, meshlet << 7 | triangle
 };
 
 [shader("vertex")]

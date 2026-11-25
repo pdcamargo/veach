@@ -16,6 +16,12 @@ Veach is MIT-licensed (see [LICENSE](LICENSE)). It includes or links the third-p
 | [DirectX Shader Compiler](https://github.com/microsoft/DirectXShaderCompiler) | 1.9.2609 | LLVM Release License; `dxil.dll` under the Microsoft Software License Terms | Windows build tool only (Slang's DXIL backend); not linked into or shipped with apps. |
 | [stb](https://github.com/nothings/stb) (`stb_image`, `stb_image_write`) | c16853e | MIT or public domain (your choice) | Engine (PNG screenshots), test tools. |
 | [NVIDIA FLIP](https://github.com/NVlabs/flip) | d3ab02a | BSD-3-Clause | `veach imgdiff` (golden-image comparison) only. |
+| [fastgltf](https://github.com/spnda/fastgltf) | 1.0.1 | MIT | Engine (glTF import). |
+| [simdjson](https://github.com/simdjson/simdjson) | 5.1.0 | Apache-2.0 or MIT (Veach uses simdjson under its MIT option) | Engine, through fastgltf (JSON parsing). Downloaded by fastgltf's build. |
+| [simdutf](https://github.com/simdutf/simdutf) | 9.3.3 | Apache-2.0 or MIT (Veach uses simdutf under its MIT option) | Engine, through fastgltf (base64 decoding). Downloaded by fastgltf's build. |
+| [bc7enc_rdo](https://github.com/richgel999/bc7enc_rdo) | b943862 | MIT or public domain (your choice) | Engine texture cooking (BC7 encoding); its decoder in tests. Only `bc7enc.cpp` and `bc7decomp.cpp` are built. |
+| [DirectX 12 Agility SDK](https://aka.ms/directx12agility) (NuGet `Microsoft.Direct3D.D3D12`) | 1.620.2 | Microsoft Software License Terms (runtime DLLs); MIT (headers) | Windows builds only: headers, plus `D3D12Core.dll` and `d3d12SDKLayers.dll` copied next to each executable. |
+| [Direct3D WARP](https://aka.ms/direct3dwarp) (NuGet `Microsoft.Direct3D.WARP`) | 1.0.22 | Microsoft Software License Terms (testing only, not redistributable) | Windows builds only: `d3d10warp.dll` copied next to each executable for DX12 on GPU-less CI. Must not ship with Veach. |
 
 ## Flecs 4.2.0
 
@@ -461,3 +467,607 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES
 SPDX-License-Identifier: BSD-3-Clause
 ```
+
+## fastgltf 1.0.1
+
+Source: https://github.com/spnda/fastgltf  
+License: MIT
+
+```text
+The MIT License
+
+Copyright (c) 2022 - 2026 Sean Apeler.
+All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
+## simdjson 5.1.0
+
+Source: https://github.com/simdjson/simdjson  
+License: Apache-2.0 or MIT (Veach uses simdjson under its MIT option)
+
+Downloaded by fastgltf's build (`FASTGLTF_DOWNLOAD_SIMDJSON`) as the release's amalgamated `simdjson.h` and `simdjson.cpp`. MIT license text from `LICENSE-MIT` at tag v5.1.0:
+
+```text
+Copyright 2018-2025 The simdjson authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+Code bundled inside simdjson 5.1.0, as stated in its source comments:
+
+- CPU feature detection derived from PyTorch: BSD-3-Clause, text in "Code bundled in simdjson and simdutf" below.
+- fast_float 8.2.10 (renamed `simdjson_fast_float`): Apache-2.0, MIT or BSL-1.0; Veach uses the MIT option, "Copyright (c) 2021 The simdjson_fast_float authors", same terms as the MIT text above.
+- A port of Dragonbox (Copyright 2020-2025 Junekey Jeon and contributors) and string-view-lite (Copyright 2017-2020 Martin Moene): Boost Software License 1.0, https://www.boost.org/LICENSE_1_0.txt.
+
+## simdutf 9.3.3
+
+Source: https://github.com/simdutf/simdutf  
+License: Apache-2.0 or MIT (Veach uses simdutf under its MIT option)
+
+Downloaded by fastgltf's build (`FASTGLTF_DOWNLOAD_SIMDUTF`) as the release's amalgamated `simdutf.h` and `simdutf.cpp`. MIT license text from `LICENSE-MIT` at tag v9.3.3:
+
+```text
+Copyright 2021 The simdutf authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+Code bundled inside simdutf 9.3.3, as stated in its source comments: the same PyTorch-derived CPU feature detection (BSD-3-Clause, below), and two routines marked "based on code from Google Fuchsia (Apache Licensed)".
+
+### Code bundled in simdjson and simdutf: PyTorch CPU detection
+
+```text
+Copyright (c) 2016-     Facebook, Inc            (Adam Paszke)
+Copyright (c) 2014-     Facebook, Inc            (Soumith Chintala)
+Copyright (c) 2011-2014 Idiap Research Institute (Ronan Collobert)
+Copyright (c) 2012-2014 Deepmind Technologies    (Koray Kavukcuoglu)
+Copyright (c) 2011-2012 NEC Laboratories America (Koray Kavukcuoglu)
+Copyright (c) 2011-2013 NYU                      (Clement Farabet)
+Copyright (c) 2006-2010 NEC Laboratories America (Ronan Collobert, Leon Bottou,
+Iain Melvin, Jason Weston) Copyright (c) 2006      Idiap Research Institute
+(Samy Bengio) Copyright (c) 2001-2004 Idiap Research Institute (Ronan Collobert,
+Samy Bengio, Johnny Mariethoz)
+
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+
+3. Neither the names of Facebook, Deepmind Technologies, NYU, NEC Laboratories
+America and IDIAP Research Institute nor the names of its contributors may be
+   used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+```
+
+## bc7enc_rdo (b943862)
+
+Source: https://github.com/richgel999/bc7enc_rdo  
+License: MIT or public domain (your choice)
+
+Veach builds only `bc7enc.cpp` and `bc7decomp.cpp` (with their headers `bc7enc.h` and `bc7decomp.h`), which carry the license below. The repository also contains `bc7e.ispc` (Apache-2.0, Copyright (C) 2018-2021 Binomial LLC) and LodePNG (zlib); Veach does not compile either.
+
+```text
+------------------------------------------------------------------------------
+This software is available under 2 licenses -- choose whichever you prefer.
+If you use this software in a product, attribution / credits is requested but not required.
+------------------------------------------------------------------------------
+ALTERNATIVE A - MIT License
+Copyright(c) 2020-2021 Richard Geldreich, Jr.
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files(the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and / or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions :
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+------------------------------------------------------------------------------
+ALTERNATIVE B - Public Domain(www.unlicense.org)
+This is free and unencumbered software released into the public domain.
+Anyone is free to copy, modify, publish, use, compile, sell, or distribute this
+software, either in source code form or as a compiled binary, for any purpose,
+commercial or non - commercial, and by any means.
+In jurisdictions that recognize copyright laws, the author or authors of this
+software dedicate any and all copyright interest in the software to the public
+domain.We make this dedication for the benefit of the public at large and to
+the detriment of our heirs and successors.We intend this dedication to be an
+overt act of relinquishment in perpetuity of all present and future rights to
+this software under copyright law.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.IN NO EVENT SHALL THE
+AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+------------------------------------------------------------------------------
+```
+
+## DirectX 12 Agility SDK 1.620.2
+
+Source: NuGet package `Microsoft.Direct3D.D3D12` 1.620.2, https://www.nuget.org/packages/Microsoft.Direct3D.D3D12/1.620.2  
+License: Microsoft Software License Terms (runtime files under `build/native/bin/`); MIT (headers under `build/native/include/` and `metadata/`)
+
+Windows builds only. Veach compiles against the headers and copies `D3D12Core.dll` and `d3d12SDKLayers.dll` (both on the package's list of distributable files) next to each executable. License for the runtime files (`LICENSE.txt` in the package):
+
+```text
+MICROSOFT SOFTWARE LICENSE TERMS
+
+MICROSOFT DIRECTX
+
+These license terms are an agreement between you and Microsoft
+Corporation (or one of its affiliates). They apply to the software named
+above and any Microsoft services or software updates (except to the
+extent such services or updates are accompanied by new or additional
+terms, in which case those different terms apply prospectively and do
+not alter your or Microsoft’s rights relating to pre-updated software or
+services). IF YOU COMPLY WITH THESE LICENSE TERMS, YOU HAVE THE RIGHTS
+BELOW. BY USING THE SOFTWARE, YOU ACCEPT THESE TERMS.
+
+INSTALLATION AND USE RIGHTS. 
+
+General. Subject to the terms of this agreement, you may install and use any number of copies of the software, and solely for use on Windows.
+
+Included Microsoft Applications. The software may include other Microsoft applications. These license terms apply to those included applications, if any, unless other license terms are provided with the other Microsoft applications.
+
+Microsoft Platforms. The software may include components from Microsoft Windows. These components are governed by separate agreements and their own product support policies, as described in the license terms found in the installation directory for that component or in the “Licenses” folder accompanying the software.
+
+Third Party Components. The software may include third party components with separate legal notices or governed by other agreements, as may be described in the ThirdPartyNotices file(s) accompanying the software.
+
+DATA. 
+
+Data Collection. The software may collect information about you and your use of the software, and send that to Microsoft. Microsoft may use this information to provide services and improve our products and services. You may opt-out of many of these scenarios, but not all, as described in the product documentation.  There are also some features in the software that may enable you to collect data from users of your applications. If you use these features to enable data collection in your applications, you must comply with applicable law, including providing appropriate notices to users of your applications. You can learn more about data collection and use in the help documentation and the privacy statement at https://aka.ms/privacy. Your use of the software operates as your consent to these practices.
+
+Processing of Personal Data. To the extent Microsoft is a processor or subprocessor of personal data in connection with the software, Microsoft makes the commitments in the European Union General Data Protection Regulation Terms of the Online Services Terms to all customers effective May 25, 2018, at https://docs.microsoft.com/en-us/legal/gdpr.
+
+DISTRIBUTABLE CODE. The software may contain code you are permitted to distribute (i.e. make available for third parties) in applications you develop, as described in this Section. 
+
+Distribution Rights. The code and test files described below are distributable if included with the software. 
+
+Distributables. You may copy and distribute the object code form of the software listed in the distributables file list in the software; and
+
+Third Party Distribution. You may permit distributors of your applications to copy and distribute any of this distributable code you elect to distribute with your applications.
+
+Distribution Requirements. For any code you distribute, you must:
+
+i. add significant primary functionality to it in your applications; 
+
+ii.  require distributors and external end users to agree to terms that protect it and Microsoft at least as much as this agreement; and
+
+iii. indemnify, defend, and hold harmless Microsoft from any claims, including attorneys’ fees, related to the distribution or use of your applications, except to the extent that any claim is based solely on the unmodified distributable code.
+
+Distribution Restrictions. You may not:
+
+use Microsoft’s trademarks or trade dress in your application in any way that suggests your application comes from or is endorsed by Microsoft; or modify or distribute the source code of any distributable code so that any part of it becomes subject to any license that requires that the distributable code, any other part of the software, or any of Microsoft’s other intellectual property be disclosed or distributed in source code form, or that others have the right to modify it.
+
+SCOPE OF LICENSE. The software is licensed, not sold. Microsoft reserves all other rights. Unless applicable law gives you more rights despite this limitation, you will not (and have no right to):
+
+work around any technical limitations in the software that only allow you to use it in certain ways;
+
+reverse engineer, decompile or disassemble the software, or otherwise attempt to derive the source code for the software, except and to the extent required by third party licensing terms governing use of certain open source components that may be included in the software;
+
+remove, minimize, block, or modify any notices of Microsoft or its suppliers in the software;
+
+use the software in any way that is against the law or to create or propagate malware; or
+
+share, publish, distribute, or lease the software (except for any distributable code, subject to the terms above), provide the software as a stand-alone offering for others to use, or transfer the software or this agreement to any third party.
+
+EXPORT RESTRICTIONS. You must comply with all domestic and international export laws and regulations that apply to the software, which include restrictions on destinations, end users, and end use. For further information on export restrictions, visit https://aka.ms/exporting.
+
+SUPPORT SERVICES. Microsoft is not obligated under this agreement to provide any support services for the software. Any support provided is “as is”, “with all faults”, and without warranty of any kind.
+
+UPDATES. The software may periodically check for updates, and download and install them for you. You may obtain updates only from Microsoft or authorized sources. Microsoft may need to update your system to provide you with updates. You agree to receive these automatic updates without any additional notice. Updates may not include or support all existing software features, services, or peripheral devices.
+
+ENTIRE AGREEMENT. This agreement, and any other terms Microsoft may provide for supplements, updates, or third-party applications, is the entire agreement for the software.
+
+APPLICABLE LAW AND PLACE TO RESOLVE DISPUTES. If you acquired the software in the United States or Canada, the laws of the state or province where you live (or, if a business, where your principal place of business is located) govern the interpretation of this agreement, claims for its breach, and all other claims (including consumer protection, unfair competition, and tort claims), regardless of conflict of laws principles. If you acquired the software in any other country, its laws apply. If U.S. federal jurisdiction exists, you and Microsoft consent to exclusive jurisdiction and venue in the federal court in King County, Washington for all disputes heard in court. If not, you and Microsoft consent to exclusive jurisdiction and venue in the Superior Court of King County, Washington for all disputes heard in court.
+
+CONSUMER RIGHTS; REGIONAL VARIATIONS. This agreement describes certain legal rights. You may have other rights, including consumer rights, under the laws of your state or country. Separate and apart from your relationship with Microsoft, you may also have rights with respect to the party from which you acquired the software. This agreement does not change those other rights if the laws of your state or country do not permit it to do so. For example, if you acquired the software in one of the below regions, or mandatory country law applies, then the following provisions apply to you:
+
+a.  Australia. You have statutory guarantees under the Australian
+    Consumer Law and nothing in this agreement is intended to affect
+    those rights.
+
+b.  Canada. If you acquired this software in Canada, you may stop
+    receiving updates by turning off the automatic update feature,
+    disconnecting your device from the Internet (if and when you
+    re-connect to the Internet, however, the software will resume
+    checking for and installing updates), or uninstalling the software.
+    The product documentation, if any, may also specify how to turn off
+    updates for your specific device or software.
+
+c.  Germany and Austria.
+
+  i. Warranty. The properly licensed software will perform substantially
+  as described in any Microsoft materials that accompany the software.
+  However, Microsoft gives no contractual guarantee in relation to the
+  licensed software.
+
+  ii. Limitation of Liability. In case of intentional conduct, gross
+  negligence, claims based on the Product Liability Act, as well as, in
+  case of death or personal or physical injury, Microsoft is liable
+  according to the statutory law.
+
+Subject to the foregoing clause ii., Microsoft will only be liable for slight negligence if Microsoft is in breach of such material contractual obligations, the fulfillment of which facilitate the due performance of this agreement, the breach of which would endanger the purpose of this agreement and the compliance with which a party may constantly trust in (so-called "cardinal obligations"). In other cases of slight negligence, Microsoft will not be liable for slight negligence.
+
+DISCLAIMER OF WARRANTY. THE SOFTWARE IS LICENSED “AS IS.” YOU BEAR THE RISK OF USING IT. MICROSOFT GIVES NO EXPRESS WARRANTIES, GUARANTEES, OR CONDITIONS. TO THE EXTENT PERMITTED UNDER APPLICABLE LAWS, MICROSOFT EXCLUDES ALL IMPLIED WARRANTIES, INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+
+LIMITATION ON AND EXCLUSION OF DAMAGES. IF YOU HAVE ANY BASIS FOR RECOVERING DAMAGES DESPITE THE PRECEDING DISCLAIMER OF WARRANTY, YOU CAN RECOVER FROM MICROSOFT AND ITS SUPPLIERS ONLY DIRECT DAMAGES UP TO U.S. $5.00. YOU CANNOT RECOVER ANY OTHER DAMAGES, INCLUDING CONSEQUENTIAL, LOST PROFITS, SPECIAL, INDIRECT, OR INCIDENTAL DAMAGES.
+
+This limitation applies to (a) anything related to the software,
+services, content (including code) on third party Internet sites, or
+third party applications; and (b) claims for breach of contract,
+warranty, guarantee, or condition; strict liability, negligence, or
+other tort; or any other claim; in each case to the extent permitted by
+applicable law.
+
+It also applies even if Microsoft knew or should have known about the
+possibility of the damages. The above limitation or exclusion may not
+apply to you because your state, province, or country may not allow the
+exclusion or limitation of incidental, consequential, or other damages.
+
+Please note: As this software is distributed in Canada, some of the
+clauses in this agreement are provided below in French.
+
+Remarque: Ce logiciel étant distribué au Canada, certaines des clauses
+dans ce contrat sont fournies ci-dessous en français.
+
+EXONÉRATION DE GARANTIE. Le logiciel visé par une licence est offert «
+tel quel ». Toute utilisation de ce logiciel est à votre seule risque et
+péril. Microsoft n’accorde aucune autre garantie expresse. Vous pouvez
+bénéficier de droits additionnels en vertu du droit local sur la
+protection des consommateurs, que ce contrat ne peut modifier. La ou
+elles sont permises par le droit locale, les garanties implicites de
+qualité marchande, d’adéquation à un usage particulier et d’absence de
+contrefaçon sont exclues.
+
+LIMITATION DES DOMMAGES-INTÉRÊTS ET EXCLUSION DE RESPONSABILITÉ POUR LES
+DOMMAGES. Vous pouvez obtenir de Microsoft et de ses fournisseurs une
+indemnisation en cas de dommages directs uniquement à hauteur de 5,00 $
+US. Vous ne pouvez prétendre à aucune indemnisation pour les autres
+dommages, y compris les dommages spéciaux, indirects ou accessoires et
+pertes de bénéfices.
+
+Cette limitation concerne:
+
+• tout ce qui est relié au logiciel, aux services ou au contenu (y
+compris le code) figurant sur des sites Internet tiers ou dans des
+programmes tiers; et
+
+• les réclamations au titre de violation de contrat ou de garantie, ou
+au titre de responsabilité stricte, de négligence ou d’une autre faute
+dans la limite autorisée par la loi en vigueur.
+
+Elle s’applique également, même si Microsoft connaissait ou devrait
+connaître l’éventualité d’un tel dommage. Si votre pays n’autorise pas
+l’exclusion ou la limitation de responsabilité pour les dommages
+indirects, accessoires ou de quelque nature que ce soit, il se peut que
+la limitation ou l’exclusion ci-dessus ne s’appliquera pas à votre
+égard.
+
+EFFET JURIDIQUE. Le présent contrat décrit certains droits juridiques.
+Vous pourriez avoir d’autres droits prévus par les lois de votre pays.
+Le présent contrat ne modifie pas les droits que vous confèrent les lois
+de votre pays si celles-ci ne le permettent pas.
+```
+
+License for the headers (`LICENSE-CODE.txt` in the package):
+
+```text
+Copyright (c) Microsoft Corporation.
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED *AS IS*, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## Direct3D WARP 1.0.22
+
+Source: NuGet package `Microsoft.Direct3D.WARP` 1.0.22, https://www.nuget.org/packages/Microsoft.Direct3D.WARP/1.0.22  
+License: Microsoft Software License Terms (testing only; no redistribution)
+
+Windows builds only. `d3d10warp.dll` is copied next to each executable in the build tree so DX12 can run on CI machines without a GPU. Its license allows use only to develop and test applications and forbids distributing it, so it must not ship with Veach. License (`LICENSE.TXT` in the package):
+
+```text
+MICROSOFT SOFTWARE LICENSE TERMS
+
+MICROSOFT DIRECT3D WARP
+
+Purpose – for testing purposes only.
+ 
+IF YOU LIVE IN (OR ARE A BUSINESS WITH A PRINCIPAL PLACE OF BUSINESS IN) THE UNITED 
+STATES, PLEASE READ THE “BINDING ARBITRATION AND CLASS ACTION WAIVER” SECTION 
+BELOW. IT AFFECTS HOW DISPUTES ARE RESOLVED.
+ 
+These license terms are an agreement between you and Microsoft Corporation (or one of its affiliates). They 
+apply to the software named above and any Microsoft services or software updates (except to the extent such 
+services or updates are accompanied by new or additional terms, in which case those different terms apply 
+prospectively and do not alter your or Microsoft’s rights relating to pre-updated software or services). IF YOU 
+COMPLY WITH THESE LICENSE TERMS, YOU HAVE THE RIGHTS BELOW. BY USING THE SOFTWARE, YOU 
+ACCEPT THESE TERMS.
+
+1.	INSTALLATION AND USE RIGHTS.
+
+a)	General. You may install and use any number of copies of the software to develop and test your 
+applications, solely for the purpose stated above and otherwise for your internal business purposes, 
+and solely for use on Windows.
+
+2.	DATA. 
+
+a)	Data Collection. The software may collect information about you and your use of the software, and 
+send that to Microsoft. Microsoft may use this information to provide services and improve our 
+products and services. You may opt-out of many of these scenarios, but not all, as described in the 
+product documentation.  There are also some features in the software that may enable you to collect 
+data from users of your applications. If you use these features to enable data collection in your 
+applications, you must comply with applicable law, including providing appropriate notices to users of 
+your applications. You can learn more about data collection and use in the help documentation and 
+the privacy statement at https://aka.ms/privacy. Your use of the software operates as your consent to 
+these practices.
+
+b)	Processing of Personal Data. To the extent Microsoft is a processor or subprocessor of personal 
+data in connection with the software, Microsoft makes the commitments in the European Union 
+General Data Protection Regulation Terms of the Online Services Terms to all customers effective May 
+25, 2018, at https://docs.microsoft.com/en-us/legal/gdpr.
+
+3.	SCOPE OF LICENSE. The software is licensed, not sold. Microsoft reserves all other rights. Unless 
+applicable law gives you more rights despite this limitation, you will not (and have no right to):
+
+a)	work around any technical limitations in the software that only allow you to use it in certain ways;
+
+b)	reverse engineer, decompile or disassemble the software, or otherwise attempt to derive the source 
+code for the software, except and to the extent required by third party licensing terms governing use 
+of certain open source components that may be included in the software;
+
+c)	remove, minimize, block, or modify any notices of Microsoft or its suppliers in the software;
+
+d)	use the software in any way that is against the law or to create or propagate malware; or
+
+e)	share, publish, distribute, or lease the software, provide the software as a stand-alone offering for 
+others to use, or transfer the software or this agreement to any third party.
+
+4.	EXPORT RESTRICTIONS. You must comply with all domestic and international export laws and 
+regulations that apply to the software, which include restrictions on destinations, end users, and end use. 
+For further information on export restrictions, visit https://aka.ms/exporting.
+
+5.	SUPPORT SERVICES. Microsoft is not obligated under this agreement to provide any support services for 
+the software. Any support provided is “as is”, “with all faults”, and without warranty of any kind. 
+
+6.	UPDATES. The software may periodically check for updates, and download and install them for you. You 
+may obtain updates only from Microsoft or authorized sources. Microsoft may need to update your system 
+to provide you with updates. You agree to receive these automatic updates without any additional notice. 
+Updates may not include or support all existing software features, services, or peripheral devices.
+
+7.	BINDING ARBITRATION AND CLASS ACTION WAIVER. This Section applies if you live in (or, if 
+a business, your principal place of business is in) the United States.  If you and Microsoft have a 
+dispute, you and Microsoft agree to try for 60 days to resolve it informally. If you and Microsoft can’t, you 
+and Microsoft agree to binding individual arbitration before the American Arbitration 
+Association under the Federal Arbitration Act (“FAA”), and not to sue in court in front of a judge or 
+jury. Instead, a neutral arbitrator will decide. Class action lawsuits, class-wide arbitrations, private 
+attorney-general actions, and any other proceeding where someone acts in a representative 
+capacity are not allowed; nor is combining individual proceedings without the consent of all 
+parties. The complete Arbitration Agreement contains more terms and is at https://aka.ms/arb-
+agreement-4. You and Microsoft agree to these terms.
+
+8.	ENTIRE AGREEMENT. This agreement, and any other terms Microsoft may provide for supplements, 
+updates, or third-party applications, is the entire agreement for the software.
+
+9.	APPLICABLE LAW AND PLACE TO RESOLVE DISPUTES. If you acquired the software in the United 
+States or Canada, the laws of the state or province where you live (or, if a business, where your principal 
+place of business is located) govern the interpretation of this agreement, claims for its breach, and all 
+other claims (including consumer protection, unfair competition, and tort claims), regardless of conflict of 
+laws principles, except that the FAA governs everything related to arbitration. If you acquired the software 
+in any other country, its laws apply, except that the FAA governs everything related to arbitration. If U.S. 
+federal jurisdiction exists, you and Microsoft consent to exclusive jurisdiction and venue in the federal court 
+in King County, Washington for all disputes heard in court (excluding arbitration). If not, you and Microsoft 
+consent to exclusive jurisdiction and venue in the Superior Court of King County, Washington for all 
+disputes heard in court (excluding arbitration).
+
+10.	CONSUMER RIGHTS; REGIONAL VARIATIONS. This agreement describes certain legal rights. You 
+may have other rights, including consumer rights, under the laws of your state, province, or country. 
+Separate and apart from your relationship with Microsoft, you may also have rights with respect to the 
+party from which you acquired the software. This agreement does not change those other rights if the 
+laws of your state, province, or country do not permit it to do so. For example, if you acquired the 
+software in one of the below regions, or mandatory country law applies, then the following provisions 
+apply to you:
+
+a)	Australia. You have statutory guarantees under the Australian Consumer Law and nothing in this 
+agreement is intended to affect those rights.
+
+b)	Canada. If you acquired this software in Canada, you may stop receiving updates by turning off the 
+automatic update feature, disconnecting your device from the Internet (if and when you re-connect to 
+the Internet, however, the software will resume checking for and installing updates), or uninstalling 
+the software. The product documentation, if any, may also specify how to turn off updates for your 
+specific device or software.
+
+c)	Germany and Austria.
+
+i.	Warranty. The properly licensed software will perform substantially as described in any Microsoft 
+materials that accompany the software. However, Microsoft gives no contractual guarantee in 
+relation to the licensed software.
+
+ii.	Limitation of Liability. In case of intentional conduct, gross negligence, claims based on the 
+Product Liability Act, as well as, in case of death or personal or physical injury, Microsoft is liable 
+according to the statutory law.
+
+Subject to the foregoing clause ii., Microsoft will only be liable for slight negligence if Microsoft is in 
+breach of such material contractual obligations, the fulfillment of which facilitate the due performance 
+of this agreement, the breach of which would endanger the purpose of this agreement and the 
+compliance with which a party may constantly trust in (so-called "cardinal obligations"). In other cases 
+of slight negligence, Microsoft will not be liable for slight negligence.
+
+11.	DISCLAIMER OF WARRANTY. THE SOFTWARE IS LICENSED “AS IS.” YOU BEAR THE RISK OF 
+USING IT. MICROSOFT GIVES NO EXPRESS WARRANTIES, GUARANTEES, OR CONDITIONS. 
+TO THE EXTENT PERMITTED UNDER APPLICABLE LAWS, MICROSOFT EXCLUDES ALL IMPLIED 
+WARRANTIES, INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND 
+NON-INFRINGEMENT.
+
+12.	LIMITATION ON AND EXCLUSION OF DAMAGES. IF YOU HAVE ANY BASIS FOR RECOVERING 
+DAMAGES DESPITE THE PRECEDING DISCLAIMER OF WARRANTY, YOU CAN RECOVER FROM 
+MICROSOFT AND ITS SUPPLIERS ONLY DIRECT DAMAGES UP TO U.S. $5.00. YOU CANNOT 
+RECOVER ANY OTHER DAMAGES, INCLUDING CONSEQUENTIAL, LOST PROFITS, SPECIAL, 
+INDIRECT OR INCIDENTAL DAMAGES.
+
+This limitation applies to (a) anything related to the software, services, content (including 
+code) on third party Internet sites, or third party applications; and (b) claims for breach of 
+contract, warranty, guarantee, or condition; strict liability, negligence, or other tort; or any 
+other claim; in each case to the extent permitted by applicable law.
+It also applies even if Microsoft knew or should have known about the possibility of the 
+damages. The above limitation or exclusion may not apply to you because your state, 
+province, or country may not allow the exclusion or limitation of incidental, consequential, or 
+other damages.
+
+Please note: As this software is distributed in Canada, some of the clauses in this agreement are 
+provided below in French.
+
+Remarque: Ce logiciel étant distribué au Canada, certaines des clauses dans ce contrat sont 
+fournies ci-dessous en français.
+
+EXONÉRATION DE GARANTIE. Le logiciel visé par une licence est offert « tel quel ». Toute 
+utilisation de ce logiciel est à votre seule risque et péril. Microsoft n’accorde aucune autre 
+garantie expresse. Vous pouvez bénéficier de droits additionnels en vertu du droit local sur la 
+protection des consommateurs, que ce contrat ne peut modifier. La ou elles sont permises par le 
+droit locale, les garanties implicites de qualité marchande, d’adéquation à un usage particulier et 
+d’absence de contrefaçon sont exclues.
+
+LIMITATION DES DOMMAGES-INTÉRÊTS ET EXCLUSION DE RESPONSABILITÉ POUR LES 
+DOMMAGES. Vous pouvez obtenir de Microsoft et de ses fournisseurs une indemnisation en cas de 
+dommages directs uniquement à hauteur de 5,00 $ US. Vous ne pouvez prétendre à aucune 
+indemnisation pour les autres dommages, y compris les dommages spéciaux, indirects ou 
+accessoires et pertes de bénéfices.
+
+Cette limitation concerne:
+•	tout ce qui est relié au logiciel, aux services ou au contenu (y compris le code) figurant sur 
+des sites Internet tiers ou dans des programmes tiers; et
+•	les réclamations au titre de violation de contrat ou de garantie, ou au titre de responsabilité 
+stricte, de négligence ou d’une autre faute dans la limite autorisée par la loi en vigueur.
+Elle s’applique également, même si Microsoft connaissait ou devrait connaître l’éventualité d’un 
+tel dommage. Si votre pays n’autorise pas l’exclusion ou la limitation de responsabilité pour les 
+dommages indirects, accessoires ou de quelque nature que ce soit, il se peut que la limitation ou 
+l’exclusion ci-dessus ne s’appliquera pas à votre égard.
+
+EFFET JURIDIQUE. Le présent contrat décrit certains droits juridiques. Vous pourriez avoir 
+d’autres droits prévus par les lois de votre pays. Le présent contrat ne modifie pas les droits que 
+vous confèrent les lois de votre pays si celles-ci ne le permettent pas.
+```
+
+## Third-party assets
+
+Sample content in the repository that is not Veach's own work.
+
+| Asset | Location | License | Used in |
+|---|---|---|---|
+| [FlightHelmet](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/4995a638c96dbc94376d3d6164e70fee3ac7f7a2/Models/FlightHelmet) (Khronos glTF Sample Assets) | `apps/lab/assets/flight_helmet/` | CC0 1.0 | Lab scenes and golden tests. |
+| [Amazon Lumberyard Bistro](https://developer.nvidia.com/orca/amazon-lumberyard-bistro), exterior (NVIDIA ORCA) | `apps/lab/assets/bistro/` | CC BY 4.0 (modified) | Lab scenes, goldens and benchmarks. |
+
+### FlightHelmet
+
+Source: https://github.com/KhronosGroup/glTF-Sample-Assets at commit 4995a638c96dbc94376d3d6164e70fee3ac7f7a2, `Models/FlightHelmet`  
+License: CC0 1.0 (https://creativecommons.org/publicdomain/zero/1.0/) for the model files
+
+Khronos's `LICENSE.md` is kept as published next to the model; it licenses the metadata files themselves under CC BY 4.0. See `apps/lab/assets/flight_helmet/README.md` and `apps/lab/assets/flight_helmet/LICENSE.md`.
+
+### Amazon Lumberyard Bistro (exterior)
+
+Source: NVIDIA Open Research Content Archive (ORCA), https://developer.nvidia.com/orca/amazon-lumberyard-bistro, package `Bistro_v5_2.zip` (version 5.2)  
+License: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/); the full legal code is `apps/lab/assets/bistro/LICENSE.txt`
+
+Attribution: "Amazon Lumberyard Bistro, Open Research Content Archive (ORCA)"
+
+```text
+@misc{ORCAAmazonBistro,
+   title = {Amazon Lumberyard Bistro, Open Research Content Archive (ORCA)},
+   author = {Amazon Lumberyard},
+   year = {2017},
+   month = {July},
+   note = {\small \texttt{http://developer.nvidia.com/orca/amazon-lumberyard-bistro}},
+   url = {http://developer.nvidia.com/orca/amazon-lumberyard-bistro}
+}
+```
+
+Changes: this is a modified version. `BistroExterior.fbx` was converted once to glTF with Blender (`tools/assets/convert_bistro.py`). Materials were rebuilt as metallic-roughness from the Specular map (R = occlusion, G = roughness, B = metalness), the green channel of the DirectX normal maps was flipped, alpha-tested materials became `MASK`, textures were re-encoded as JPEG or PNG, and the camera was dropped. See `apps/lab/assets/bistro/README.md`.

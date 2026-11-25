@@ -82,8 +82,10 @@ jobs:
       VEACH_CI_HOSTED_WINDOWS: ${{ matrix.hosted_windows || '0' }}
     steps:
       - uses: actions/checkout@v5
-        with:
-          lfs: true  # golden images (tests/golden/) live in Git LFS
+      # Only the Git LFS files CI's tests read: the large scenes (Bistro, Sponza) stay out of CI's bandwidth and
+      # run in the pre-push gate (ADR 0036).
+      - name: Fetch Git LFS files used by CI
+        run: git lfs pull --include="tests/golden/**,apps/lab/assets/cornell_box/**,apps/lab/assets/flight_helmet/**"
       - uses: lukka/get-cmake@latest
       - name: MSVC developer environment
         if: runner.os == 'Windows'

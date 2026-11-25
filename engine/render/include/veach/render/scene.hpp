@@ -60,7 +60,7 @@ struct RealtimeLighting {
     // STOPGAP until Candela (VCH-017): sky light on diffuse surfaces, darkened by short-range ray-traced AO.
     // Candela replaces it; at most a short-range AO stays. Off for comparisons against direct light.
     bool ambient = true;
-    math::vec3 sky{0.0f};      ///< the ambient's sky radiance, nits; also what pixels without geometry show
+    math::vec3 sky{0.0f};       ///< the ambient's sky radiance, nits; also what pixels without geometry show
     std::uint32_t ao_rays = 4;  ///< cosine rays per pixel
     float ao_radius = 1.0f;     ///< meters: occluders farther away do not darken
 };

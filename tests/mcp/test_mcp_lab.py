@@ -120,15 +120,15 @@ def protocol(lab: str) -> None:
     check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
 
 
-def golden(lab: str, imgdiff: str, golden_path: str, out: str) -> None:
-    client = McpClient([lab, "--mcp", "--headless", "--rhi", "metal"])
+def golden(lab: str, imgdiff: str, golden_path: str, out: str, rhi: str) -> None:
+    client = McpClient([lab, "--mcp", "--headless", "--rhi", rhi])
     try:
         client.initialize()
     except RuntimeError as error:
         if "rhi.backend_unavailable" in str(error):
             if os.environ.get("VEACH_REQUIRE_GPU") == "1":
                 raise
-            print("VEACH_GPU_UNAVAILABLE: skipped (needs Metal 3 + ray tracing)")
+            print(f"VEACH_GPU_UNAVAILABLE: skipped (the {rhi} device can't ray trace)")
             return
         raise
     client.call_json("spawn_entity", name="triangle", components={"TriangleDemo": {"mode": "raytraced"}})
@@ -153,12 +153,13 @@ def main() -> int:
     parser.add_argument("--imgdiff")
     parser.add_argument("--golden")
     parser.add_argument("--out")
+    parser.add_argument("--rhi", default="metal")
     parser.add_argument("mode", choices=["protocol", "golden"])
     args = parser.parse_args()
     if args.mode == "protocol":
         protocol(args.lab)
     else:
-        golden(args.lab, args.imgdiff, args.golden, args.out)
+        golden(args.lab, args.imgdiff, args.golden, args.out, args.rhi)
     return 0
 
 

@@ -73,6 +73,14 @@ if(Python3_FOUND)
                     --out "${CMAKE_CURRENT_BINARY_DIR}/mcp/triangle.png" golden
             WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
         set_tests_properties("mcp: golden through MCP (GPU)" PROPERTIES SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE")
+    elseif(WIN32)
+        add_test(NAME "mcp: golden through MCP (dx12)"
+            COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
+                    --lab $<TARGET_FILE:veach-lab> --imgdiff $<TARGET_FILE:veach-cli> --rhi dx12
+                    --golden "${PROJECT_SOURCE_DIR}/tests/golden/triangle_raytraced.png"
+                    --out "${CMAKE_CURRENT_BINARY_DIR}/mcp/triangle.png" golden
+            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
+        set_tests_properties("mcp: golden through MCP (dx12)" PROPERTIES SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE")
     endif()
 endif()
 

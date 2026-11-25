@@ -6,15 +6,18 @@
 # unless VEACH_REQUIRE_GPU=1, in which case that is a failure.
 # Goldens are shared across backends (ADR 0028): GOLDEN is tests/golden/<name>.png unless a justified
 # per-backend override tests/golden/<name>.<RHI>.png exists.
-#   cmake -DLAB=... -DIMGDIFF=... -DRHI=metal -DSCRIPT=... -DGOLDEN=... -DOUT=... -DMAX_MEAN=... -P golden_test.cmake
+#   cmake -DLAB=... -DIMGDIFF=... -DRHI=metal -DSCRIPT=... -DGOLDEN=... -DOUT=... -DMAX_MEAN=... [-DFRAMES=3] -P golden_test.cmake
 
+if(NOT DEFINED FRAMES)
+    set(FRAMES 3)
+endif()
 string(REGEX REPLACE "\\.png$" ".${RHI}.png" backend_golden "${GOLDEN}")
 if(EXISTS "${backend_golden}")
     set(GOLDEN "${backend_golden}")
 endif()
 
 execute_process(
-    COMMAND "${LAB}" --rhi ${RHI} --headless --frames 3 --script "${SCRIPT}" --screenshot "${OUT}"
+    COMMAND "${LAB}" --rhi ${RHI} --headless --frames ${FRAMES} --script "${SCRIPT}" --screenshot "${OUT}"
     RESULT_VARIABLE render_result
     OUTPUT_VARIABLE render_output
     ERROR_VARIABLE render_output)

@@ -1,7 +1,9 @@
 # Slang shaders, compiled offline for every target (docs/adr/0026-shader-compilation.md).
 #
-#   veach_add_shader(<target> <file.slang> ENTRIES <entry>:<stage> [...])
+#   veach_add_shader(<target> <file.slang> ENTRIES <entry>:<stage> [...] [INCLUDES <dir>...])
 #   veach_shader_library(<target> NAMESPACE <name>)
+#   veach_add_material(<target> <Name> <file.slang> [EMISSIVE])     (docs/adr/0033-material-model.md)
+#   veach_add_path_tracer(<target> NAMESPACE <name>)                 (docs/adr/0034-...; after the materials)
 #
 # Stages: vertex, fragment, compute. veach_shader_library() generates
 # <name>.hpp/.cpp in the target's build dir with one accessor per shader file:
@@ -22,7 +24,12 @@ elseif(WIN32)
 endif()
 
 function(veach_add_shader target file)
-    cmake_parse_arguments(ARG "" "" "ENTRIES" ${ARGN})
+    cmake_parse_arguments(ARG "" "" "ENTRIES;INCLUDES" ${ARGN})
+    # `import veach.material;` and friends resolve against the engine's shader directory.
+    set(include_args -I "${PROJECT_SOURCE_DIR}/engine/render/shaders")
+    foreach(dir IN LISTS ARG_INCLUDES)
+        list(PREPEND include_args -I "${dir}")
+    endforeach()
     get_filename_component(source "${file}" ABSOLUTE)
     get_filename_component(stem "${file}" NAME_WE)
     set(out_dir "${CMAKE_CURRENT_BINARY_DIR}/shaders")
@@ -44,7 +51,7 @@ function(veach_add_shader target file)
     set(reflection "${out_dir}/${stem}.reflection.json")
     add_custom_command(
         OUTPUT "${reflection}"
-        COMMAND "${VEACH_SLANGC}" "${source}" -target hlsl -profile sm_6_6 ${first_entry_args} ${VEACH_SHADER_FLAGS}
+        COMMAND "${VEACH_SLANGC}" "${source}" ${include_args} -target hlsl -profile sm_6_6 ${first_entry_args} ${VEACH_SHADER_FLAGS}
                 -reflection-json "${reflection}" -depfile "${reflection}.d" -o "${out_dir}/${stem}.hlsl"
         DEPENDS "${source}"
         DEPFILE "${reflection}.d"
@@ -58,7 +65,7 @@ function(veach_add_shader target file)
         set(metallib "${out_dir}/${stem}.metallib")
         add_custom_command(
             OUTPUT "${metallib}"
-            COMMAND "${VEACH_SLANGC}" "${source}" -target metal ${entry_args} ${VEACH_SHADER_FLAGS}
+            COMMAND "${VEACH_SLANGC}" "${source}" ${include_args} -target metal ${entry_args} ${VEACH_SHADER_FLAGS}
                     -depfile "${msl}.d" -o "${msl}"
             COMMAND "${CMAKE_COMMAND}" -DMSL=${msl} -P "${PROJECT_SOURCE_DIR}/cmake/patch_msl.cmake"
             COMMAND xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c "${msl}" -o "${air}"
@@ -83,7 +90,7 @@ function(veach_add_shader target file)
                 OUTPUT "${dxil}"
                 # slangc loads dxcompiler.dll (and dxil.dll, for signing) by name, so put the pinned DXC first on PATH.
                 COMMAND "${CMAKE_COMMAND}" -E env --modify "PATH=path_list_prepend:${VEACH_DXC_DIR}"
-                        "${VEACH_SLANGC}" "${source}" -target dxil -profile sm_6_6 -entry ${entry} -stage ${stage}
+                        "${VEACH_SLANGC}" "${source}" ${include_args} -target dxil -profile sm_6_6 -entry ${entry} -stage ${stage}
                         ${VEACH_SHADER_FLAGS} -depfile "${dxil}.d" -o "${dxil}"
                 DEPENDS "${source}"
                 DEPFILE "${dxil}.d"
@@ -120,4 +127,82 @@ function(veach_shader_library target)
         VERBATIM)
     target_sources(${target} PRIVATE "${source}" "${header}")
     target_include_directories(${target} PRIVATE "${gen_dir}")
+endfunction()
+
+# A material kind (ADR 0033): <Name> is a Slang type in <file.slang> conforming to IMaterial. Kind 0 is always
+# StandardMaterial; these follow in call order. EMISSIVE: its evalEmission may glow where the record's emissive
+# factor is zero, so the path tracer samples its triangles as lights.
+function(veach_add_material target name file)
+    cmake_parse_arguments(ARG "EMISSIVE" "" "" ${ARGN})
+    get_filename_component(source "${file}" ABSOLUTE)
+    set_property(TARGET ${target} APPEND PROPERTY VEACH_MATERIALS "${name}|${source}|${ARG_EMISSIVE}")
+endfunction()
+
+# Compiles the reference path tracer into <target>'s shader library with its materials: generates
+# veach/materials_generated.slang (the evaluateSurface switch) and <NAMESPACE>_materials.hpp (the kind table
+# for render::PathTracerFeature). Call after veach_add_material() and before veach_shader_library().
+function(veach_add_path_tracer target)
+    cmake_parse_arguments(ARG "" "NAMESPACE" "" ${ARGN})
+    get_property(materials TARGET ${target} PROPERTY VEACH_MATERIALS)
+    set(gen_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    set(imports "")
+    set(cases "")
+    set(alpha_cases "")
+    set(kinds "        {\"StandardMaterial\", false},\n")
+    set(include_dirs "${gen_dir}")
+    set(kind 1)
+    foreach(material IN LISTS materials)
+        string(REPLACE "|" ";" parts "${material}")
+        list(GET parts 0 name)
+        list(GET parts 1 source)
+        list(GET parts 2 emissive)
+        get_filename_component(stem "${source}" NAME_WE)
+        get_filename_component(dir "${source}" DIRECTORY)
+        list(APPEND include_dirs "${dir}")
+        string(APPEND imports "import ${stem};\n")
+        string(APPEND cases "    case ${kind}: return evaluate(${name}(), c);\n")
+        string(APPEND alpha_cases "    case ${kind}: return ${name}().evalBaseColor(c).a;\n")
+        if(emissive)
+            string(APPEND kinds "        {\"${name}\", true},\n")
+        else()
+            string(APPEND kinds "        {\"${name}\", false},\n")
+        endif()
+        math(EXPR kind "${kind} + 1")
+    endforeach()
+    list(REMOVE_DUPLICATES include_dirs)
+    file(CONFIGURE OUTPUT "${gen_dir}/veach/materials_generated.slang" CONTENT
+"// Generated by veach_add_path_tracer() (cmake/VeachShaders.cmake). Do not edit.
+import veach.material;
+${imports}
+SurfaceSample evaluateSurface(uint kind, MaterialContext c) {
+    switch (kind) {
+${cases}    default: return evaluate(StandardMaterial(), c);
+    }
+}
+
+/// Coverage only (alpha testing runs per candidate hit, so it must stay cheap).
+float evaluateAlpha(uint kind, MaterialContext c) {
+    switch (kind) {
+${alpha_cases}    default: return StandardMaterial().evalBaseColor(c).a;
+    }
+}
+" @ONLY)
+    file(CONFIGURE OUTPUT "${gen_dir}/${ARG_NAMESPACE}_materials.hpp" CONTENT
+"// Generated by veach_add_path_tracer() (cmake/VeachShaders.cmake). Do not edit.
+#pragma once
+
+#include <veach/render/path_tracer.hpp>
+
+#include <array>
+
+namespace ${ARG_NAMESPACE} {
+
+/// Material kinds, in kind order: what render::PathTracerFeature needs to resolve glTF material names.
+inline constexpr std::array<veach::render::MaterialKind, ${kind}> material_kinds{{
+${kinds}}};
+
+}  // namespace ${ARG_NAMESPACE}
+" @ONLY)
+    veach_add_shader(${target} "${PROJECT_SOURCE_DIR}/engine/render/shaders/path_tracer.slang"
+        ENTRIES trace_pixels:compute INCLUDES ${include_dirs})
 endfunction()

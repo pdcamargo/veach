@@ -141,5 +141,10 @@ renderer.add_extractor("health_bars", [](const veach::World& w, veach::render::R
 ```
 
 Extractors run in registration order during the `Extract` phase, into a freshly cleared
-`RenderWorld`. In v0 `RenderWorld` only has placeholder fields; real views, meshes and lights
-arrive with the render graph (planned, backlog).
+`RenderWorld`. The engine's own extractors fill `views`, `meshes` and `lights`.
+
+## (i) A material
+
+A Slang type conforming to `IMaterial` that overrides only the functions it changes, registered in the app's
+CMake with `veach_add_material()`. See [rendering](rendering.md#scenes-materials-lights-and-the-reference-path-tracer)
+and [ADR 0033](../adr/0033-material-model.md).

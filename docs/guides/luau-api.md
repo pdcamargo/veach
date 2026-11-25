@@ -164,7 +164,12 @@ C++ components tagged `veach::Scriptable` (all fields Luau-representable). The e
 
 - `Window` (`title`, `width`, `height`, `mode: "windowed" | "fullscreen"`, `vsync`)
 - `Transform` (`translation: vector`, `rotation: { x, y, z, w }` quaternion, `scale: vector`)
-- `Camera` (`fov_y` radians, `near_plane` meters, `active`); see [render-views](../specs/render-views/spec.md)
+- `Camera` (`fov_y` radians, `near_plane` meters, `active`, `ev100` exposure); see [render-views](../specs/render-views/spec.md)
+- `SceneInstance` (`path` of a glTF asset): spawns the scene as children
+- `DirectionalLight` (`color`, `illuminance` lux), `PointLight` (`color`, `intensity` cd), `SpotLight` (`color`,
+  `intensity`, `inner_angle`, `outer_angle`)
+- `PathTracer` (`samples_per_frame`, `max_bounces`, `sky`): on a camera, renders it with the reference path
+  tracer; see [first-real-scene](../specs/first-real-scene/spec.md)
 
 ```lua
 local camera = veach.spawn("camera")

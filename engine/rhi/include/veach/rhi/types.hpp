@@ -208,6 +208,8 @@ struct TlasInstance {
     std::uint32_t blas_index = 0;  ///< index into TlasDesc::blases
     std::uint32_t instance_id = 0;
     std::uint8_t mask = 0xFF;
+    /// False: the BLAS's non-opaque geometry reports candidate hits (alpha testing in a ray query loop).
+    bool opaque = true;
 };
 
 // ---- render passes ---------------------------------------------------------------

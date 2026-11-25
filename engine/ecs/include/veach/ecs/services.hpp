@@ -62,5 +62,9 @@ private:
 void attach_services(World& world, Services* services);
 /// The registry attached to `world`. Panics if none is attached.
 [[nodiscard]] Services& services(const World& world);
+/// The registry attached to `world`, or null (worlds made outside an Engine, e.g. in tests).
+[[nodiscard]] inline Services* find_services(const World& world) {
+    return static_cast<Services*>(world.get_ctx());
+}
 
 }  // namespace veach

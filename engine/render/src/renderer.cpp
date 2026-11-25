@@ -1,5 +1,6 @@
 #include <veach/render/renderer.hpp>
 
+#include <veach/asset/asset_server.hpp>
 #include <veach/core/log.hpp>
 #include <veach/core/profile.hpp>
 #include <veach/ecs/components.hpp>
@@ -13,7 +14,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <format>
+#include <functional>
 #include <utility>
 
 namespace veach::render {
@@ -28,6 +31,59 @@ struct PresentParams {
 static_assert(rhi::parameters_match<PresentParams>(veach_render_shaders::layout::present,
                                                    {VEACH_PARAM(PresentParams, source),
                                                     VEACH_PARAM(PresentParams, sampler)}));
+
+/// SceneInstance: replaces the entity's children with the scene's nodes (ADR 0032).
+void spawn_scene(Entity root, const SceneInstance& instance) {
+    World world = root.world();
+    std::vector<Entity> old;
+    root.children([&](Entity child) { old.push_back(child); });
+    for (Entity child : old) {
+        child.destruct();
+    }
+    Services* registry = find_services(world);
+    auto* assets = registry ? registry->find<AssetServer>() : nullptr;
+    if (assets == nullptr || instance.path.empty()) {
+        return;
+    }
+    const Handle<SceneAsset> handle = assets->load<SceneAsset>(instance.path);
+    auto scene = assets->wait(handle);
+    if (!scene) {
+        log::error("render", Error{scene.error().code,
+                                   std::format("SceneInstance on '{}': {}", root.name().c_str(), scene.error().message),
+                                   scene.error().hint});
+        return;
+    }
+    const std::function<void(std::uint32_t, Entity)> spawn = [&](std::uint32_t index, Entity parent) {
+        const SceneNode& node = (*scene)->nodes.at(index);
+        Entity e = world.entity().child_of(parent);
+        // Names are unique per parent in Flecs; glTF repeats them freely.
+        std::string name = node.name.empty() ? std::format("node {}", index) : node.name;
+        for (int k = 2; parent.lookup(name.c_str()); ++k) {
+            name = std::format("{} ({})", node.name.empty() ? std::format("node {}", index) : node.name, k);
+        }
+        e.set_name(name.c_str());
+        e.set(Transform{node.translation, node.rotation, node.scale});
+        if (node.mesh) {
+            e.set(MeshInstance{handle.id, index});
+        }
+        if (node.light) {
+            const SceneLight& light = (*scene)->lights.at(*node.light);
+            switch (light.kind) {
+                case LightKind::directional: e.set(DirectionalLight{light.color, light.intensity}); break;
+                case LightKind::point: e.set(PointLight{light.color, light.intensity}); break;
+                case LightKind::spot:
+                    e.set(SpotLight{light.color, light.intensity, light.inner_cone, light.outer_cone});
+                    break;
+            }
+        }
+        for (const std::uint32_t child : node.children) {
+            spawn(child, e);
+        }
+    };
+    for (const std::uint32_t root_node : (*scene)->roots) {
+        spawn(root_node, root);
+    }
+}
 
 }  // namespace
 
@@ -75,12 +131,54 @@ Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device) {
             view.near_plane = camera.near_plane;
             view.width = width;
             view.height = height;
+            view.exposure = 1.0f / (1.2f * std::exp2(camera.ev100));
+            if (const PathTracer* settings = e.try_get<PathTracer>()) {
+                view.path_tracer = *settings;
+            }
             views.emplace_back(e.id(), view);
         });
         std::ranges::sort(views, {}, &std::pair<std::uint64_t, RenderView>::first);
         for (auto& [id, view] : views) {
             out.views.push_back(view);
         }
+    });
+    add_extractor("scene", [](const World& world, RenderWorld& out) {
+        const Services* registry = find_services(world);
+        const auto* assets = registry ? registry->find<AssetServer>() : nullptr;
+        std::vector<std::pair<std::uint64_t, MeshDraw>> draws;
+        world.each([&](Entity e, const MeshInstance& instance, const GlobalTransform& global) {
+            const SceneAsset* scene = assets ? assets->get(Handle<SceneAsset>{instance.scene}) : nullptr;
+            if (scene == nullptr || instance.node >= scene->nodes.size() || !scene->nodes[instance.node].mesh) {
+                return;
+            }
+            const SceneNode& node = scene->nodes[instance.node];
+            MeshDraw draw{.mesh = scene->meshes.at(*node.mesh), .world = global.matrix};
+            for (const std::uint32_t material : node.materials) {
+                draw.materials.push_back(scene->materials.at(material));
+            }
+            draws.emplace_back(e.id(), std::move(draw));
+        });
+        std::ranges::sort(draws, {}, &std::pair<std::uint64_t, MeshDraw>::first);
+        for (auto& [id, draw] : draws) {
+            out.meshes.push_back(std::move(draw));
+        }
+        const auto light = [&](LightKind kind, const GlobalTransform& g, math::vec3 radiance) {
+            RenderLight l{.kind = kind, .position = g.translation(), .radiance = radiance};
+            l.direction = math::normalize(g.rotation() * math::world_forward);
+            return l;
+        };
+        world.each([&](const DirectionalLight& d, const GlobalTransform& g) {
+            out.lights.push_back(light(LightKind::directional, g, d.color * d.illuminance));
+        });
+        world.each([&](const PointLight& p, const GlobalTransform& g) {
+            out.lights.push_back(light(LightKind::point, g, p.color * p.intensity));
+        });
+        world.each([&](const SpotLight& s, const GlobalTransform& g) {
+            RenderLight l = light(LightKind::spot, g, s.color * s.intensity);
+            l.cos_inner = std::cos(s.inner_angle);
+            l.cos_outer = std::cos(s.outer_angle);
+            out.lights.push_back(l);
+        });
     });
 }
 
@@ -333,7 +431,33 @@ RenderModule::RenderModule(World& world) {
         .member(&Camera::fov_y, "fov_y")
         .member(&Camera::near_plane, "near_plane")
         .member(&Camera::active, "active")
+        .member(&Camera::ev100, "ev100")
         .add<Scriptable>();
+    world.component<AssetId>().member(&AssetId::hi, "hi").member(&AssetId::lo, "lo");
+    world.component<SceneInstance>().member(&SceneInstance::path, "path").add<Scriptable>();
+    world.component<MeshInstance>().member(&MeshInstance::scene, "scene").member(&MeshInstance::node, "node");
+    world.component<DirectionalLight>()
+        .member(&DirectionalLight::color, "color")
+        .member(&DirectionalLight::illuminance, "illuminance")
+        .add<Scriptable>();
+    world.component<PointLight>()
+        .member(&PointLight::color, "color")
+        .member(&PointLight::intensity, "intensity")
+        .add<Scriptable>();
+    world.component<SpotLight>()
+        .member(&SpotLight::color, "color")
+        .member(&SpotLight::intensity, "intensity")
+        .member(&SpotLight::inner_angle, "inner_angle")
+        .member(&SpotLight::outer_angle, "outer_angle")
+        .add<Scriptable>();
+    world.component<PathTracer>()
+        .member(&PathTracer::samples_per_frame, "samples_per_frame")
+        .member(&PathTracer::max_bounces, "max_bounces")
+        .member(&PathTracer::sky, "sky")
+        .add<Scriptable>();
+    world.observer<const SceneInstance>("SpawnSceneInstances")
+        .event(flecs::OnSet)
+        .each([](Entity e, const SceneInstance& instance) { spawn_scene(e, instance); });
     world.system("Extract").kind<phase::Extract>().run([](Iter& it) {
         const World w = it.world();
         services(w).get<Renderer>().extract(w);

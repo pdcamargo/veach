@@ -1444,7 +1444,7 @@ void Dx12CommandList::encode_accel(AccelHandle handle, bool refit, std::span<con
             d.InstanceID = in.instance_id & 0xFFFFFFu;
             d.InstanceMask = in.mask;
             d.InstanceContributionToHitGroupIndex = 0;
-            d.Flags = D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_OPAQUE;
+            d.Flags = in.opaque ? D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_OPAQUE : D3D12_RAYTRACING_INSTANCE_FLAG_NONE;
             const Dx12Accel* blas = device_.accel(a->blases.at(in.blas_index));
             VEACH_ASSERT(blas != nullptr, "TLAS instance {} references a destroyed BLAS", i);
             d.AccelerationStructure = blas->buffer->GetGPUVirtualAddress();

@@ -99,6 +99,31 @@ Rules:
 macOS builds compile to `.metallib`. Windows builds compile every entry point to DXIL, and the Windows CI job
 renders the goldens with it on WARP, so non-portable Slang fails CI either way.
 
+## Scenes, materials, lights and the reference path tracer
+
+- **Scenes:** `SceneInstance { path = "assets/x.gltf" }` spawns the glTF as child entities (`Transform`,
+  `MeshInstance`, lights). Import and cooking: [ADR 0032](../adr/0032-asset-import-and-cooking.md).
+- **Materials** are Slang types conforming to `IMaterial` (`shaders/veach/material.slang`). Every function has
+  a default (glTF metallic-roughness), and a material overrides only what it changes:
+
+  ```slang
+  import veach.material;
+  struct GlowMaterial : IMaterial {
+      override float3 evalEmission(MaterialContext c) { return standardEmission(c) * stripes(c.surface.uv); }
+  };
+  ```
+
+  Register it with `veach_add_material(<app> GlowMaterial shaders/glow_material.slang [EMISSIVE])`, then
+  `veach_add_path_tracer(<app> NAMESPACE <ns>)`. A glTF material selects it with `"extras": {"veach_material":
+  "GlowMaterial"}`. Renderers call `evaluateSurface(kind, context)` and never read material records directly
+  ([ADR 0033](../adr/0033-material-model.md)).
+- **Lights:** `DirectionalLight` (lux), `PointLight` and `SpotLight` (candela), shining down −Z, and emissive
+  surfaces (nits). `Camera.ev100` sets exposure ([ADR 0034](../adr/0034-lights-and-reference-path-tracer.md)).
+- **The reference path tracer** renders a camera that has a `PathTracer { samples_per_frame, max_bounces, sky
+  }`. It accumulates while nothing changes and restarts on any change. The app adds it with
+  `render::PathTracerFeature(<ns>::path_tracer(), <ns>::material_kinds, assets)`. Example:
+  `apps/lab/scripts/cornell_box.luau`.
+
 ## Screenshots and golden images
 
 ```sh
@@ -117,6 +142,6 @@ build/debug/tools/veach-cli/veach imgdiff tests/golden/triangle_raytraced.png ou
 
 ## Adding a golden test
 
-Add a lab script that sets up the scene, then a `golden: ...` test in `tests/CMakeLists.txt` that follows the
-existing `foreach(_mode raster raytraced)` block, plus a line in the `update-goldens` target. Generate the
-golden, inspect it, and commit it.
+Add a lab script that sets up the scene, then `veach_golden_test(...)` calls in `tests/CMakeLists.txt`, one per
+backend (`FRAMES n` for accumulating scenes), plus a line in the `update-goldens` target. Generate the golden on
+Metal, inspect it, and commit it.

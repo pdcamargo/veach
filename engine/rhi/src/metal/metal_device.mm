@@ -756,7 +756,8 @@ void MetalCommandList::write_instances(MetalAccel& tlas, std::span<const TlasIns
                 in.transform[0][static_cast<std::size_t>(column)], in.transform[1][static_cast<std::size_t>(column)],
                 in.transform[2][static_cast<std::size_t>(column)]);
         }
-        d.options = MTLAccelerationStructureInstanceOptionOpaque;
+        d.options =
+            in.opaque ? MTLAccelerationStructureInstanceOptionOpaque : MTLAccelerationStructureInstanceOptionNonOpaque;
         d.mask = in.mask;
         d.intersectionFunctionTableOffset = 0;
         d.accelerationStructureIndex = in.blas_index;

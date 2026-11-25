@@ -1,0 +1,54 @@
+#pragma once
+
+// Scene components (docs/specs/first-real-scene/spec.md): what gameplay writes
+// to put a glTF scene, lights and the reference path tracer into the world.
+// The renderer reads them only during extraction (ADR 0016).
+
+#include <veach/core/ids.hpp>
+#include <veach/core/math.hpp>
+
+#include <cstdint>
+#include <string>
+
+namespace veach {
+
+/// Spawns the glTF scene at `path` as children of this entity: one per node, with Transform, MeshInstance and
+/// lights (ADR 0032). Changing the path respawns them; removing the component despawns them. Scriptable.
+struct SceneInstance {
+    std::string path;
+};
+
+/// A node of an imported scene that has a mesh. Written by SceneInstance; not Scriptable.
+struct MeshInstance {
+    AssetId scene;
+    std::uint32_t node = 0;
+};
+
+/// Shines down the entity's −Z (ADR 0034). Illuminance in lux. Scriptable.
+struct DirectionalLight {
+    math::vec3 color{1.0f};
+    float illuminance = 1.0f;
+};
+
+/// Intensity in candela. Scriptable.
+struct PointLight {
+    math::vec3 color{1.0f};
+    float intensity = 1.0f;
+};
+
+/// Intensity in candela, cone angles in radians (KHR_lights_punctual falloff). Shines down −Z. Scriptable.
+struct SpotLight {
+    math::vec3 color{1.0f};
+    float intensity = 1.0f;
+    float inner_angle = 0.0f;
+    float outer_angle = 0.7853982f;
+};
+
+/// On a camera entity: render its view with the reference path tracer (ADR 0034). Scriptable.
+struct PathTracer {
+    std::uint32_t samples_per_frame = 1;
+    std::uint32_t max_bounces = 8;
+    math::vec3 sky{0.0f};  ///< radiance of every ray that escapes, nits
+};
+
+}  // namespace veach

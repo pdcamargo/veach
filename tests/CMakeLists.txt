@@ -102,12 +102,20 @@ endif()
 # Golden images: one shared set, run on this platform's GPU backend (ADR 0028), DX12 on WARP in hosted CI
 # (ADR 0031). Skipped on GPUs that can't run them, unless VEACH_REQUIRE_GPU=1.
 set(_golden_dir "${PROJECT_SOURCE_DIR}/tests/golden")
+# veach_golden_test(<name> <script> <golden> <rhi> [FRAMES n] [MAX_MEAN x])
 function(veach_golden_test name script golden rhi)
+    cmake_parse_arguments(ARG "" "FRAMES;MAX_MEAN" "" ${ARGN})
+    if(NOT ARG_FRAMES)
+        set(ARG_FRAMES 3)
+    endif()
+    if(NOT ARG_MAX_MEAN)
+        set(ARG_MAX_MEAN 0.01)
+    endif()
     add_test(NAME "${name}"
         COMMAND "${CMAKE_COMMAND}" -DLAB=$<TARGET_FILE:veach-lab> -DIMGDIFF=$<TARGET_FILE:veach-cli> -DRHI=${rhi}
                 -DSCRIPT=scripts/${script}.luau -DGOLDEN=${_golden_dir}/${golden}.png
-                -DOUT=${CMAKE_CURRENT_BINARY_DIR}/golden/${golden}.${rhi}.png -DMAX_MEAN=0.01
-                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/golden_test.cmake")
+                -DOUT=${CMAKE_CURRENT_BINARY_DIR}/golden/${golden}.${rhi}.png -DMAX_MEAN=${ARG_MAX_MEAN}
+                -DFRAMES=${ARG_FRAMES} -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/golden_test.cmake")
     set_tests_properties("${name}" PROPERTIES SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE")
 endfunction()
 if(APPLE)
@@ -116,6 +124,7 @@ if(APPLE)
     veach_golden_test("golden: triangle (raytraced)" triangle_raytraced triangle_raytraced metal)
     veach_golden_test("golden: triangle (camera, raster)" triangle_camera_raster triangle_camera metal)
     veach_golden_test("golden: triangle (camera, raytraced)" triangle_camera_raytraced triangle_camera metal)
+    veach_golden_test("golden: cornell box (path traced)" cornell_box cornell_box metal FRAMES 4)
     add_custom_target(update-goldens
         COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/hello.luau
                 --screenshot "${_golden_dir}/background.png"
@@ -125,6 +134,8 @@ if(APPLE)
                 --screenshot "${_golden_dir}/triangle_raytraced.png"
         COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/triangle_camera_raster.luau
                 --screenshot "${_golden_dir}/triangle_camera.png"
+        COMMAND veach-lab --rhi metal --headless --frames 4 --script scripts/cornell_box.luau
+                --screenshot "${_golden_dir}/cornell_box.png"
         COMMENT "Regenerating golden images in tests/golden/ (review the diff before committing)"
         VERBATIM)
 elseif(WIN32)
@@ -133,6 +144,7 @@ elseif(WIN32)
     veach_golden_test("golden: triangle (raytraced, dx12)" triangle_raytraced triangle_raytraced dx12)
     veach_golden_test("golden: triangle (camera, raster, dx12)" triangle_camera_raster triangle_camera dx12)
     veach_golden_test("golden: triangle (camera, raytraced, dx12)" triangle_camera_raytraced triangle_camera dx12)
+    veach_golden_test("golden: cornell box (path traced, dx12)" cornell_box cornell_box dx12 FRAMES 4)
     # Two frames in flight under load (dx12.AC6). A debug-layer error makes the exit code 1.
     add_test(NAME "dx12: ray-traced soak"
         COMMAND veach-lab --rhi dx12 --headless --frames 300 --script scripts/triangle_raytraced.luau)

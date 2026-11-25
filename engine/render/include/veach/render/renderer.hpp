@@ -12,12 +12,14 @@
 //   renderer.add_extractor("spin", [](const veach::World& w, veach::render::RenderWorld& rw) {...});
 //   renderer.add_feature(std::make_unique<MyFeature>());
 
+#include <veach/asset/scene.hpp>
 #include <veach/core/error.hpp>
 #include <veach/core/math.hpp>
 #include <veach/ecs/flecs.hpp>
 #include <veach/render/camera.hpp>
 #include <veach/render/png.hpp>
 #include <veach/render/render_graph.hpp>
+#include <veach/render/scene.hpp>
 #include <veach/rhi/rhi.hpp>
 
 #include <cstdint>
@@ -44,6 +46,25 @@ struct RenderView {
     float near_plane = 0.1f;
     std::uint32_t width = 0;  ///< the target it was built for, pixels
     std::uint32_t height = 0;
+    float exposure = 1.0f / 1.2f;           ///< 1 / (1.2 * 2^ev100)
+    std::optional<PathTracer> path_tracer;  ///< the camera's PathTracer component, if it has one
+};
+
+/// A mesh to draw this frame: an imported mesh, the material of each of its slots, and where it is.
+struct MeshDraw {
+    AssetId mesh;
+    std::vector<AssetId> materials;
+    math::mat4 world{1.0f};
+};
+
+/// A punctual light this frame (ADR 0034). `radiance` is color x intensity (lux or candela).
+struct RenderLight {
+    LightKind kind = LightKind::point;
+    math::vec3 position{0.0f};
+    math::vec3 direction{0.0f, 0.0f, -1.0f};
+    math::vec3 radiance{0.0f};
+    float cos_inner = 1.0f;
+    float cos_outer = 0.0f;
 };
 
 /// Renderer-owned snapshot of what to draw this frame. Rebuilt by extraction every frame.
@@ -54,6 +75,8 @@ public:
     std::uint32_t target_height = 0;
     std::uint32_t window_count = 0;
     std::vector<RenderView> views;  ///< active cameras, in entity-id order; the first is the primary view
+    std::vector<MeshDraw> meshes;   ///< in entity-id order
+    std::vector<RenderLight> lights;
 
     /// Per-frame data extracted by modules, one value per type.
     template <class T>
@@ -127,6 +150,16 @@ public:
     void render();
 
     [[nodiscard]] const RenderWorld& render_world() const { return render_world_; }
+    /// The first feature of type T, or null.
+    template <class T>
+    [[nodiscard]] T* feature() {
+        for (const auto& f : features_) {
+            if (auto* typed = dynamic_cast<T*>(f.get())) {
+                return typed;
+            }
+        }
+        return nullptr;
+    }
     [[nodiscard]] rhi::Device& device() { return device_; }
     /// The last compiled graph, as text (RenderGraph::describe()).
     [[nodiscard]] const std::string& last_graph() const { return last_graph_; }

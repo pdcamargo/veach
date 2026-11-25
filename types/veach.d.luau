@@ -77,6 +77,29 @@ export type Camera = {
 	fov_y: number,
 	near_plane: number,
 	active: boolean,
+	ev100: number,
+}
+export type DirectionalLight = {
+	color: vector,
+	illuminance: number,
+}
+export type PathTracer = {
+	samples_per_frame: number,
+	max_bounces: number,
+	sky: vector,
+}
+export type PointLight = {
+	color: vector,
+	intensity: number,
+}
+export type SceneInstance = {
+	path: string,
+}
+export type SpotLight = {
+	color: vector,
+	intensity: number,
+	inner_angle: number,
+	outer_angle: number,
 }
 export type quat = {
 	x: number,
@@ -125,6 +148,11 @@ export type Veach = {
 	read time: TimeApi,
 	read components: {
 		read Camera: Component<Camera>,
+		read DirectionalLight: Component<DirectionalLight>,
+		read PathTracer: Component<PathTracer>,
+		read PointLight: Component<PointLight>,
+		read SceneInstance: Component<SceneInstance>,
+		read SpotLight: Component<SpotLight>,
 		read Transform: Component<Transform>,
 		read Window: Component<Window>,
 	},

@@ -4,9 +4,6 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 
 ## Now
 
-- **VCH-051** glTF import and cooking — *asset* — fastgltf import into MeshAsset/TextureAsset (KTX2, BC7)/MaterialAsset/SceneAsset with derived sub-asset ids, a cook cache, and `SceneInstance`. [spec](../specs/first-real-scene/spec.md), [ADR](../adr/0032-asset-import-and-cooking.md)
-- **VCH-052** Materials v0 — *render* — `IMaterial` with overridable defaults, generated `evaluateSurface` dispatch, `veach_add_material()`, the lab's `GlowMaterial`. [ADR](../adr/0033-material-model.md)
-- **VCH-053** Lights — *render* — `DirectionalLight` (lux), `PointLight`/`SpotLight` (cd), emissive surfaces (nits), `Camera.ev100`. [ADR](../adr/0034-lights-and-reference-path-tracer.md)
 - **VCH-054** Reference path tracer — *render* — Progressive, NEE + MIS, deterministic RNG; MCP `path_trace`; Cornell box and FlightHelmet goldens on Metal and WARP. [ADR](../adr/0034-lights-and-reference-path-tracer.md)
 - **VCH-044** GPU runner for CI — *process* — Self-hosted Mac runner (decided 2026-11-25): separate non-admin user, no secrets, push to main and manual dispatch only, `VEACH_REQUIRE_GPU=1`. Script and guide in [ci-runners](../guides/ci-runners.md). Done once the `macOS GPU` job passes on `main`.
 
@@ -54,6 +51,9 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 
 ## Done
 
+- **VCH-053** Lights — *render* — `DirectionalLight` (lux), `PointLight`/`SpotLight` (cd) from components or glTF `KHR_lights_punctual`, emissive surfaces (nits), `Camera.ev100`. [ADR](../adr/0034-lights-and-reference-path-tracer.md)
+- **VCH-052** Materials v0 — *render* — `IMaterial` with overridable defaults (Slang `override`), generated `evaluateSurface`/`evaluateAlpha` dispatch, `veach_add_material()`; the lab's `GlowMaterial` overrides only `evalEmission`. [ADR](../adr/0033-material-model.md)
+- **VCH-051** glTF import and cooking — *asset* — fastgltf into MeshAsset/TextureAsset (KTX2 BC7)/MaterialAsset/SceneAsset, derived sub-asset ids, a cook cache, `SceneInstance`. [ADR](../adr/0032-asset-import-and-cooking.md)
 - **VCH-004** Hot reload — *asset* — Assets reload in place behind the same handle (`fs::stamp` polling); a reloaded script runs as if fresh (systems swapped by name, top-level entities respawned), transactionally. Windowed runs poll every 250 ms; headless only on request. MCP `reload` and `list_assets`. Shader reload stays VCH-009. [spec](../specs/hot-reload/spec.md)
 - **VCH-006** Input actions in Luau — *script* — `"input"` bindings in `veach.project.json` (keys and mouse buttons, schema-validated), `veach.input.down/pressed/released/axis`, platform-level injection and the MCP tool `send_input`. The lab's fly camera is a script, tested end to end over MCP. Mouse motion and gamepads are later. [spec](../specs/input/spec.md)
 - **VCH-007** Transforms and hierarchy — *ecs* — `GlobalTransform` (added with every `Transform`), cascade propagation over ChildOf per fixed step and before extraction, `veach.spawn{ parent = e }`, `e:parent()`, `e:children()`, `veach.quat` helpers; cameras read `GlobalTransform`. [spec](../specs/transforms/spec.md)

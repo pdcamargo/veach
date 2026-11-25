@@ -54,7 +54,10 @@ void round_trip(rhi::Device& device, rhi::Format format, std::uint32_t size) {
     }
     auto texture = device.create_texture(
         {size, size, format, rhi::TextureUsage::sampled | rhi::TextureUsage::copy_src, "uploaded", levels}, mips);
-    REQUIRE_MESSAGE(texture.has_value(), (texture ? std::string() : texture.error().message));
+    CHECK_MESSAGE(texture.has_value(), (texture ? std::string() : texture.error().message));
+    if (!texture) {
+        return;  // the test case then prints the debug layer's messages
+    }
     auto readback = device.create_buffer({.size = data[0].size(),
                                           .usage = rhi::BufferUsage::copy_dst,
                                           .memory = rhi::MemoryType::readback,

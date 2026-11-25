@@ -188,13 +188,15 @@ Trace trace(float3 origin, float3 direction, float tmax, inout Rng rng) {
     result.bary = float2(0.0, 0.0);
     result.t = 0.0;
     float tmin = 0.0;
+    // One query object, traced again per layer: a query allocated inside the loop is a new allocation per
+    // iteration in DXIL.
+    RayQuery<RAY_FLAG_FORCE_OPAQUE> query;
     for (uint layer = 0; layer < 16; ++layer) {
         RayDesc ray;
         ray.Origin = origin;
         ray.Direction = direction;
         ray.TMin = tmin;
         ray.TMax = tmax;
-        RayQuery<RAY_FLAG_FORCE_OPAQUE> query;
         query.TraceRayInline(params.scene, RAY_FLAG_NONE, 0xFF, ray);
         while (query.Proceed()) {
         }

@@ -91,8 +91,8 @@ is still the judge, so watch the Windows job.
 13. **Validation.** The debug layer comes from the Agility SDK. `ID3D12InfoQueue1::RegisterMessageCallback`
     routes errors to `log::error(..., rhi.gpu_error)`, and device removal is reported the same way. With the
     debug layer on, DRED is too: a device removal names the command list and command that did not finish and the
-    allocation at a faulting address. `VEACH_DX12_GPU_VALIDATION=1` adds GPU-based validation (slow; CI sets it
-    on the path-traced Cornell box golden).
+    allocation at a faulting address. `VEACH_DX12_GPU_VALIDATION=1` adds GPU-based validation (slow). Neither
+    helps on WARP: it records no DRED data, and GPU-based validation of the path tracer overflows its stack.
 
 ## Steps, and the CI job that proves each
 

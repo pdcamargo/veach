@@ -165,8 +165,6 @@ elseif(WIN32)
     veach_golden_test("golden: triangle (camera, raster, dx12)" triangle_camera_raster triangle_camera dx12)
     veach_golden_test("golden: triangle (camera, raytraced, dx12)" triangle_camera_raytraced triangle_camera dx12)
     veach_golden_test("golden: cornell box (path traced, dx12)" cornell_box cornell_box dx12 FRAMES 4)
-    # GPU-based validation checks the path tracer's bindless accesses (out-of-range or stale descriptors).
-    set_tests_properties("golden: cornell box (path traced, dx12)" PROPERTIES ENVIRONMENT "VEACH_DX12_GPU_VALIDATION=1")
     veach_golden_test("golden: flight helmet (path traced, dx12)" flight_helmet flight_helmet dx12 FRAMES 4)
     # Two frames in flight under load (dx12.AC6). A debug-layer error makes the exit code 1.
     add_test(NAME "dx12: ray-traced soak"

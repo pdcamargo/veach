@@ -241,8 +241,8 @@ Trace trace(float3 origin, float3 direction, float tmax, inout Rng rng) {
         const uint primitive = query.CommittedPrimitiveIndex();
         const float2 bary = query.CommittedTriangleBarycentrics();
         const float t = query.CommittedRayT();
-        // Only instances with a masked or blended slot pay for the coverage test. Calling it after every hit
-        // also removed the device on WARP (a bisect in CI; the cause inside WARP is unknown).
+        // Only instances with a masked or blended slot pay for the coverage test: an optimization. (WARP's
+        // device removal blamed on this test came from handles used without `nonuniform`, ADR 0039.)
         const bool opaque = (veach_scene.instances[instance].flags & instance_has_alpha) == 0;
         if (opaque || covered(instance, primitive, bary, rng)) {
             result.hit = true;

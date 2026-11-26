@@ -109,6 +109,9 @@ running window. Look at screenshots you take; a successful call is not a correct
 - **TODOs reference the backlog**: `// TODO(VCH-012): ...`. Bare TODOs fail CI.
 - **Warnings are errors** on Veach targets (Clang and MSVC). Keep both compilers clean; you can't run MSVC on
   macOS, so write portable code and watch CI.
+- **Metal's compiler crashes on some large kernels** (`XPC_ERROR_CONNECTION_INTERRUPTED` creating the pipeline).
+  When you split a kernel to avoid one, save a standalone repro in [tools/metal-repros/](tools/metal-repros/README.md);
+  run them after each Xcode update and merge the split back once one passes.
 - **Windows is CI-only** ([ADR 0030](docs/adr/0030-windows-verified-in-hosted-ci.md)). Nobody has a Windows machine:
   never plan work that needs a person on Windows. Windows (DX12 on WARP included) is verified by GitHub-hosted CI;
   real GPU hardware only on macOS. Keep Windows-touching commits small so a red job points at one change. If

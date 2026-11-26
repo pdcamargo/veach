@@ -40,6 +40,9 @@ LIDS = {
 }
 
 
+CANDELA: dict = {}  # --set: Candela fields applied in every session
+
+
 def session(lab: pathlib.Path, rhi: str, scene: str, size: str, gi: str, upscaling: dict | None) -> Mcp:
     mcp = Mcp([str(lab), "--mcp", "--headless", "--rhi", rhi, "--script", f"scripts/{scene}.luau"], ROOT / "apps" / "lab")
     mcp.request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
@@ -51,6 +54,8 @@ def session(lab: pathlib.Path, rhi: str, scene: str, size: str, gi: str, upscali
     mcp.call("set_component", entity="primary_window", component="Window", value=window)
     mcp.call("set_component", entity="camera", component="Upscaling", value=upscaling or {"mode": "none"})
     mcp.call("set_component", entity="camera", component="RealtimeLighting", value={"gi": gi})
+    if CANDELA:
+        mcp.call("set_component", entity="camera", component="Candela", value=CANDELA)
     return mcp
 
 
@@ -171,7 +176,10 @@ def main() -> int:
     parser.add_argument("--rhi", default="metal")
     parser.add_argument("--frames", type=int, default=20, help="frames recorded after each change")
     parser.add_argument("--skip", action="append", default=[], choices=["cost", "flicker", "response"])
+    parser.add_argument("--set", action="append", default=[], metavar="FIELD=VALUE",
+                        help="a Candela field for every session (repeatable), e.g. gather=\"surface_cache\"")
     args = parser.parse_args()
+    CANDELA.update({k: json.loads(v) for k, v in (item.split("=", 1) for item in args.set)})
     lab = ROOT / "build" / args.preset / "apps" / "lab" / "veach-lab"
     imgdiff = ROOT / "build" / args.preset / "tools" / "veach-cli" / "veach"
     results = {}

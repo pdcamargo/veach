@@ -42,6 +42,11 @@ void count(RadianceCache c, uint index, bool event) {
 }
 
 static const uint cache_probes = 8;
+// What a cell holds: the outgoing diffuse radiance of the surfaces in it, or (at visible surfaces only) the diffuse
+// light arriving there from bounces and the sky: the cosine-weighted mean of the incoming radiance, without
+// emitters (direct light). Both kinds share the table.
+static const uint cache_kind_outgoing = 0;
+static const uint cache_kind_incoming = 1;
 static const uint cache_coarser_levels = 2;  ///< a lookup that misses tries this many coarser levels
 static const uint cache_max_level = 15;
 
@@ -67,10 +72,10 @@ struct CacheKey {
     uint checksum;  ///< never 0
 };
 
-CacheKey cache_key(RadianceCache c, float3 p, float3 n, uint level) {
+CacheKey cache_key(RadianceCache c, float3 p, float3 n, uint level, uint kind = cache_kind_outgoing) {
     const float size = c.cell_size * float(1u << level);
     const int3 q = int3(floor(p / size));
-    const uint tag = level * 8u + normal_bucket(n);
+    const uint tag = (kind * 16u + level) * 8u + normal_bucket(n);
     const uint h = pcg(uint(q.z) ^ pcg(uint(q.y) ^ pcg(uint(q.x) ^ pcg(tag))));
     CacheKey k;
     k.slot = h & (c.capacity - 1u);
@@ -85,13 +90,14 @@ float3 unpack_cache_radiance(uint2 v) {
 /// The cached outgoing diffuse radiance at surface point p with normal n (facing the side seen), from p's own level
 /// or, where that cell is empty, its parent's and grandparent's (every estimate goes into all three). False if no
 /// level has a value yet; `level_offset` says which answered (0: p's own).
-bool cache_lookup(RadianceCache c, float3 p, float3 n, out float3 radiance, out uint level_offset) {
+bool cache_lookup(RadianceCache c, float3 p, float3 n, out float3 radiance, out uint level_offset,
+                  uint kind = cache_kind_outgoing) {
     radiance = float3(0.0, 0.0, 0.0);
     level_offset = 0;
     const uint level = cache_level(c, p);
     for (uint l = level; l <= min(level + cache_coarser_levels, cache_max_level); ++l) {
         level_offset = l - level;
-        const CacheKey k = cache_key(c, p, n, l);
+        const CacheKey k = cache_key(c, p, n, l, kind);
         for (uint i = 0; i < cache_probes; ++i) {
             const uint slot = (k.slot + i) & (c.capacity - 1u);
             if (c.keys[slot] == k.checksum) {
@@ -137,11 +143,11 @@ void cache_add_at(RadianceCache c, CacheKey k, uint3 units) {
 
 /// Adds one estimate of the outgoing diffuse radiance at p (normal n facing the side seen) to its cell and to the
 /// two coarser cells containing it, so a lookup that finds its own cell empty can read a parent.
-void cache_add(RadianceCache c, float3 p, float3 n, float3 radiance) {
+void cache_add(RadianceCache c, float3 p, float3 n, float3 radiance, uint kind = cache_kind_outgoing) {
     const uint3 units = uint3(min(max(radiance, 0.0) * c.scale, 4.0e6));
     const uint level = cache_level(c, p);
     for (uint l = level; l <= min(level + cache_coarser_levels, cache_max_level); ++l) {
-        cache_add_at(c, cache_key(c, p, n, l), units);
+        cache_add_at(c, cache_key(c, p, n, l, kind), units);
     }
 }
 

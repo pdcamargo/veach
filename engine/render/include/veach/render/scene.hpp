@@ -103,8 +103,15 @@ enum class GlobalIllumination : std::uint8_t {
     candela,      ///< Candela (ADR 0051): the path tracer's mode 4 is its reference
 };
 
+/// How Candela turns its radiance cache into each pixel's indirect light (ADR 0051).
+enum class CandelaGather : std::uint8_t {
+    restir,         ///< a ReSTIR GI gather: rays from the visible surface read the cache where they land
+    surface_cache,  ///< no rays: the cache's incoming light at the visible surface (a diagnostic, option 3)
+};
+
 /// Candela's settings, on the camera; absent: these defaults (docs/specs/candela/spec.md).
 struct Candela {
+    CandelaGather gather = CandelaGather::restir;
     float ray_rate = 0.25f;             ///< gather rays per render pixel: 0.25, 0.5 or 1
     std::uint32_t spatial_samples = 0;  ///< neighbors' reservoirs reused per pixel, up to 4 (fireflies: VCH-066)
     std::uint32_t cache_bounces = 2;    ///< diffuse surfaces a cache update path visits after the first, up to 3

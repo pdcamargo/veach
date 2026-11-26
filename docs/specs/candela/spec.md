@@ -1,6 +1,6 @@
 # Candela: real-time global illumination
 
-**Status:** In progress (step 1b measured: Bistro fails flicker; screen probes recommended to the owner)
+**Status:** In progress (the cache alone flickers: fixing it goes to the owner before screen probes)
 **Area:** render
 **Owner:** dev lead (product-affecting: the product owner approves)
 
@@ -166,6 +166,34 @@ can keep the light it was chosen for, or follow the cache, not both.
 
 **Verdict:** Bistro still fails flicker, so by the owner's rule step 1b ends with a review packet recommending screen
 probes; light-off response fails everywhere as well. Cost, accuracy (bar Sponza's +3.6%) and leaks pass.
+
+## Diagnostic: the cache alone (2026-11-26)
+
+The owner approved screen probes on one condition: first show that the cache is steady by itself, read at the
+visible surface with no rays and no reservoirs (`Candela.gather = "surface_cache"`: update paths also add, at their
+visible vertex, the indirect light arriving there, into cells of their own kind). At most 0.005 FLIP between frames
+meant probes; more meant the cache is the source and probes would inherit it.
+
+| Cache alone, static camera and lights | Cornell box | Sponza | Bistro noon |
+|---|---|---|---|
+| Flicker, FLIP between frames (limit 0.005) | 0.0107 | 0.0074 | 0.0138 |
+| Light off, frames to 90% | 8 | 17 | 20 |
+
+**The cache is the source: no probe code.** Levers measured on Bistro in this mode:
+
+| Change | Flicker | Light off | Cache update |
+|---|---|---|---|
+| None (cells 1/80 of their distance, 3-frame average, 1 path per 5x5 pixels) | 0.0138 | 20 | 1.15 ms |
+| Coarser cells (1/40) | 0.0158 | 10 | 1.17 ms |
+| 2.8x the update paths (1 per 3x3) | 0.0133 | 11 | 2.38 ms |
+| No eviction | 0.0132 | >20 | 1.19 ms |
+| Cells used only after 3 frames | 0.0132 | >20 | 1.20 ms |
+| A 32-frame average | 0.0080 | >20 | 1.20 ms |
+
+The cache's raw output (linear, before the denoiser) changes by 20% of its value from one frame to the next with
+the 3-frame average, 35% with 2.8x the paths (every cell then updates every frame, each update a third of the way to
+a noisy mean), and 4% with a 32-frame average. A long average is most of the fix but loses the response; the
+0.008 left with it is not explained by the raw change (cell edges are the suspect). The decision is with the owner.
 
 ## Out of scope
 

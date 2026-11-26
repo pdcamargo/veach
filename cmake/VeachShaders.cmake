@@ -220,5 +220,5 @@ ${kinds}}};
         denoise_combine:compute INCLUDES ${include_dirs})
     # Candela, the real-time renderer's GI (ADR 0051).
     veach_add_shader(${target} "${PROJECT_SOURCE_DIR}/engine/render/shaders/candela.slang"
-        ENTRIES cache_update:compute cache_resolve:compute gather:compute misses:compute temporal:compute spatial:compute INCLUDES ${include_dirs})
+        ENTRIES cache_update:compute cache_resolve:compute gather:compute misses:compute temporal:compute spatial:compute surface:compute INCLUDES ${include_dirs})
 endfunction()

@@ -11,6 +11,7 @@
 //   misses:        gather samples no cache level knew: the hit point lit and added to the cache.
 //   temporal:      the sample combined with last frame's reservoir (temporal reuse), in place.
 //   spatial:       neighbors' reservoirs combined (spatial reuse), then the indirect light written for shading.
+//   surface:       instead of the gather (Candela.gather = "surface_cache"): the cache read at the visible surface.
 
 import veach.atmosphere;
 import veach.bindless;
@@ -77,7 +78,8 @@ void cache_update(uint3 id: SV_DispatchThreadID) {
     // The path: the visible surface, then up to gi_cache_bounces diffuse surfaces; past the last one, the cache.
     DiffuseVertex vertices[max_update_vertices];
     float3 light[max_update_vertices];     // each vertex's light sample
-    float3 incoming[max_update_vertices];  // what arrives along each vertex's bounce: emission, or the sky/cache
+    float3 incoming[max_update_vertices];  // what arrives along each vertex's bounce: the emission it finds
+    float3 beyond[max_update_vertices];    // and the rest: the sky where it leaves, the cache past the last vertex
     vertices[0].position = s.position;
     vertices[0].geometric = s.geometric;
     vertices[0].normal = s.normal;
@@ -90,13 +92,14 @@ void cache_update(uint3 id: SV_DispatchThreadID) {
         const DiffuseVertex v = vertices[i];
         light[i] = diffuse_light(v, rng);
         incoming[i] = float3(0.0, 0.0, 0.0);
+        beyond[i] = float3(0.0, 0.0, 0.0);
         count = i + 1;
         float pdf;
         const float3 direction = cosine_direction(frame_of(v.normal), rng, pdf);
         const float3 origin = offset_origin(v.position, v.geometric, direction);
         const Trace t = trace_closest(origin, direction, 1e30, rng);
         if (!t.hit) {
-            incoming[i] = sky_radiance(sky, direction, false);
+            beyond[i] = sky_radiance(sky, direction, false);
             break;
         }
         const DiffuseVertex next = diffuse_vertex(t, origin, direction, pdf);
@@ -107,19 +110,47 @@ void cache_update(uint3 id: SV_DispatchThreadID) {
         if (i == last) {
             float3 cached;
             if (cache_lookup(c, next.position, next.geometric, cached)) {
-                incoming[i] += cached;
+                beyond[i] = cached;
             }
             break;
         }
         vertices[i + 1] = next;
     }
-    // Back to front: each vertex's outgoing diffuse radiance, into its cell.
+    // Back to front: each vertex's outgoing diffuse radiance, into its cell. At the visible surface, also the indirect
+    // light arriving there (the sky and what the next surface reflects, not what it emits), for gi_gather_surface.
     float3 outgoing = float3(0.0, 0.0, 0.0);
     for (int i = int(count) - 1; i >= 0; --i) {
-        const bool continues = i + 1 < int(count);
-        outgoing = light[i] + vertices[i].albedo * (incoming[i] + (continues ? outgoing : float3(0.0, 0.0, 0.0)));
+        const float3 after = i + 1 < int(count) ? outgoing : float3(0.0, 0.0, 0.0);
+        if (i == 0) {
+            cache_add(c, vertices[0].position, vertices[0].geometric, beyond[0] + after, cache_kind_incoming);
+        }
+        outgoing = light[i] + vertices[i].albedo * (incoming[i] + beyond[i] + after);
         cache_add(c, vertices[i].position, vertices[i].geometric, outgoing);
     }
+}
+
+// ---- surface (gi_gather_surface) ---------------------------------------------------------------------------
+
+/// The cache alone, read at the visible surface: each pixel's indirect light is its cell's incoming value (a coarser
+/// level's where the cell is empty). No rays, no reservoirs: how steady and how quick the cache is by itself.
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void surface(uint3 id: SV_DispatchThreadID) {
+    const RealtimeFrame f = realtime_params.frame[0];
+    if (any(id.xy >= f.render_size)) {
+        return;
+    }
+    const GSurface s = load_lit_surface(f, int2(id.xy));
+    float3 indirect = float3(0.0, 0.0, 0.0);
+    if (s.valid) {
+        uint level_offset;
+        const RadianceCache c = cache_of(f);
+        const bool found = cache_lookup(c, s.position, s.geometric, indirect, level_offset, cache_kind_incoming);
+        count(c, cache_stat_hit_own, found && level_offset == 0);
+        count(c, cache_stat_hit_parent, found && level_offset > 0);
+        count(c, cache_stat_miss, !found);
+    }
+    f.indirect_out[id.xy] = float4(indirect, 1.0);
 }
 
 // ---- cache_resolve -----------------------------------------------------------------------------------------

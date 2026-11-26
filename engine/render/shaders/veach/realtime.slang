@@ -165,7 +165,7 @@ struct RealtimeFrame {
     uint gi_spatial_samples;
     uint gi_cache_bounces;    ///< vertices after the first in a cache update path
     uint gi_reservoirs_valid; ///< 1: gi_previous holds last frame's reservoirs for this view
-    uint pad2;
+    uint gi_gather;           ///< render::CandelaGather
 };
 
 /// Fills veach_scene (veach/scene.slang) from the frame record.

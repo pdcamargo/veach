@@ -551,7 +551,9 @@ RenderModule::RenderModule(World& world) {
         .member(&RealtimeLighting::debug_skip, "debug_skip")
         .member(&RealtimeLighting::view, "view")
         .add<Scriptable>();
+    world.component<CandelaGather>();
     world.component<Candela>()
+        .member(&Candela::gather, "gather")
         .member(&Candela::ray_rate, "ray_rate")
         .member(&Candela::spatial_samples, "spatial_samples")
         .member(&Candela::cache_bounces, "cache_bounces")

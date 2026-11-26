@@ -126,7 +126,9 @@ running window. Look at screenshots you take; a successful call is not a correct
 4. Update the spec status, the backlog ([docs/backlog/BACKLOG.md](docs/backlog/BACKLOG.md), `/backlog`) and any
    affected docs **in the same commit**.
 5. Before pushing: `tools/scripts/pre-push.sh`. It runs the build, every test with GPU goldens required on macOS,
-   the hygiene check and clang-format, and is installed as a hook with `git config core.hooksPath tools/githooks`.
+   the hygiene check and clang-format, and is installed as a hook with `git config core.hooksPath tools/githooks`. It takes about 7 minutes; over SSH, keep the
+   connection alive while it runs (`git config core.sshCommand "ssh -o ServerAliveInterval=30"`) or GitHub drops it and
+   the push fails after a passing gate.
    Then push and check CI (`gh run list`). CI has no real Apple GPU, so this gate is what verifies Metal
    ([ADR 0036](docs/adr/0036-no-self-hosted-gpu-runner.md)): never push around it. Docs-only pushes skip the
    build jobs.

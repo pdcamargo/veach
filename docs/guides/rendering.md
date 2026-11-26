@@ -215,7 +215,11 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   new pass or resource name needs a line there, or `mcp: frame_budget maps every pass and resource` fails.
 - **Looking around:** the lab runs `scripts/dev/fly_camera.luau` after every scene (`"dev_scripts"` in its
   `veach.project.json`), so any windowed run flies its active camera with W/A/S/D, Q/E, the arrows and shift:
-  `veach-lab --rhi metal --window --script scripts/bistro.luau`. It writes the camera only while a key is held,
+  `veach-lab --rhi metal --window --script scripts/bistro.luau`. `scripts/dev/gi_modes.luau` runs after every scene
+  too: keys 1-6 switch the active camera between GI off, Candela, Candela's cache alone, the path tracer with full
+  GI, the path tracer's mode 4 (Candela's reference) and Candela's indirect light alone; the window title names the
+  mode. Both write only on a key, so goldens, benchmarks and replays keep the scene's own settings. The fly camera
+  writes the camera only while a key is held,
   so goldens, benchmarks and replays keep the scene's view.
 
 ## Screenshots and golden images

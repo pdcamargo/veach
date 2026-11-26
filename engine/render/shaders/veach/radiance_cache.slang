@@ -5,29 +5,22 @@
 // A cell is a cube whose size grows with its distance from the camera (finer close up, against leaks), times one of
 // six normal directions, so the two sides of a thin wall never share one. Cells live in an open-addressed table:
 // `keys` holds each slot's checksum (0: empty), `accum` this frame's sums (fixed point, 4 uints per slot: r, g, b,
-// count), `radiance` the resolved cell (CellValue, packed in a uint4). Mirrors render::RadianceCache's buffers
-// (realtime_renderer.cpp).
-//
-// A frame's samples for a cell are summed first, and their mean blends into the cell's history weighted by how many
-// there were, over at most `max_samples` samples. A short average of the frame means watches for change: when it
-// leaves the history by more than the frame means' noise allows (a light switched off), the history restarts from
-// this frame.
+// count), `radiance` the resolved value (half r, g, b and frames: rgb in x and y, frames and age in the top of y).
+// Mirrors render::RadianceCache's buffers (realtime_renderer.cpp).
 
 import veach.bindless;
-import veach.brdf;  // luminance
 import veach.random;
 
 struct RadianceCache {
     DescriptorHandle<RWStructuredBuffer<uint>> keys;
     DescriptorHandle<RWStructuredBuffer<uint>> accum;
-    DescriptorHandle<RWStructuredBuffer<uint4>> radiance;
+    DescriptorHandle<RWStructuredBuffer<uint2>> radiance;
     float3 camera;
     uint capacity;     ///< slots, a power of two
     float scale;       ///< fixed-point units per nit in `accum`
     float cell_size;   ///< meters at level 0
     float cell_scale;  ///< a cell is about this fraction of its distance to the camera
-    uint max_samples;  ///< the history a cell averages over, in samples
-    uint smooth;       ///< 1: lookups blend the neighboring cells (trilinear across cell centers, same normal)
+    uint max_frames;   ///< the resolved value blends at least 1 / max_frames of each new frame's mean
     DescriptorHandle<RWStructuredBuffer<uint>> stats;  ///< cache_stat_* counters, never reset (logged at shutdown)
 };
 
@@ -56,8 +49,6 @@ static const uint cache_kind_outgoing = 0;
 static const uint cache_kind_incoming = 1;
 static const uint cache_coarser_levels = 2;  ///< a lookup that misses tries this many coarser levels
 static const uint cache_max_level = 15;
-static const float min_trusted_samples = 16.0;  ///< a history this long can tell a change from noise
-static const float history_decay = 0.9;  ///< a cell's sample count fades by this much a frame: its history is recent
 
 /// One of six directions: the normal's dominant axis and its sign.
 uint normal_bucket(float3 n) {
@@ -81,13 +72,10 @@ struct CacheKey {
     uint checksum;  ///< never 0
 };
 
-float cell_size_at(RadianceCache c, uint level) {
-    return c.cell_size * float(1u << level);
-}
-
-/// The key of cell q (integer coordinates at its level) for one level, normal direction and kind.
-CacheKey cache_key_cell(RadianceCache c, int3 q, uint level, uint bucket, uint kind) {
-    const uint tag = (kind * 16u + level) * 8u + bucket;
+CacheKey cache_key(RadianceCache c, float3 p, float3 n, uint level, uint kind = cache_kind_outgoing) {
+    const float size = c.cell_size * float(1u << level);
+    const int3 q = int3(floor(p / size));
+    const uint tag = (kind * 16u + level) * 8u + normal_bucket(n);
     const uint h = pcg(uint(q.z) ^ pcg(uint(q.y) ^ pcg(uint(q.x) ^ pcg(tag))));
     CacheKey k;
     k.slot = h & (c.capacity - 1u);
@@ -95,102 +83,34 @@ CacheKey cache_key_cell(RadianceCache c, int3 q, uint level, uint bucket, uint k
     return k;
 }
 
-CacheKey cache_key(RadianceCache c, float3 p, float3 n, uint level, uint kind = cache_kind_outgoing) {
-    return cache_key_cell(c, int3(floor(p / cell_size_at(c, level))), level, normal_bucket(n), kind);
+float3 unpack_cache_radiance(uint2 v) {
+    return float3(f16tof32(v.x), f16tof32(v.x >> 16), f16tof32(v.y));
 }
 
-/// A resolved cell.
-struct CellValue {
-    float3 value;      ///< the history's average
-    float short_mean;  ///< a short average of the frame means' luminance: what changed recently
-    float variance;    ///< of the frame means' luminance
-    float samples;     ///< in the history, up to max_samples; 0: no value yet
-    uint age;          ///< frames since a sample last arrived
-};
-
-CellValue unpack_cell(uint4 v) {
-    CellValue cell;
-    cell.value = float3(f16tof32(v.x), f16tof32(v.x >> 16), f16tof32(v.y));
-    cell.short_mean = f16tof32(v.y >> 16);
-    cell.variance = f16tof32(v.z);
-    cell.samples = f16tof32(v.z >> 16);
-    cell.age = v.w & 0xffu;
-    return cell;
-}
-
-uint4 pack_cell(CellValue cell) {
-    const float3 value = min(cell.value, 60000.0);  // half's range
-    return uint4(f32tof16(value.x) | (f32tof16(value.y) << 16), f32tof16(value.z) | (f32tof16(min(cell.short_mean, 60000.0)) << 16),
-                 f32tof16(min(cell.variance, 60000.0)) | (f32tof16(cell.samples) << 16), min(cell.age, 255u));
-}
-
-static const float confident_samples = 8.0;  ///< a cell this well sampled answers alone; fewer, its parent shares
-
-/// The value of the cell with key k, and how far to trust it (0: no value, 1: confident_samples or more).
-float cell_value(RadianceCache c, CacheKey k, out float3 value) {
-    value = float3(0.0, 0.0, 0.0);
-    for (uint i = 0; i < cache_probes; ++i) {
-        const uint slot = (k.slot + i) & (c.capacity - 1u);
-        if (c.keys[slot] == k.checksum) {
-            const CellValue cell = unpack_cell(c.radiance[slot]);
-            value = cell.value;
-            return saturate(cell.samples / confident_samples);
-        }
-    }
-    return 0.0;
-}
-
-/// p's value at one level and how far to trust it: its own cell's, or with `smooth` a trilinear blend of the eight
-/// cells around it (their centers, the same normal direction and kind), each weighted by its trust. Deterministic:
-/// the same point reads the same blend every frame.
-float level_value(RadianceCache c, float3 p, uint bucket, uint level, uint kind, out float3 value) {
-    const float size = cell_size_at(c, level);
-    if (c.smooth == 0u) {
-        return cell_value(c, cache_key_cell(c, int3(floor(p / size)), level, bucket, kind), value);
-    }
-    const float3 u = p / size - 0.5;
-    const int3 base = int3(floor(u));
-    const float3 t = u - float3(base);
-    float3 sum = float3(0.0, 0.0, 0.0);
-    float weight = 0.0;
-    for (uint corner = 0; corner < 8; ++corner) {
-        const int3 o = int3(corner & 1u, (corner >> 1) & 1u, (corner >> 2) & 1u);
-        const float3 w3 = select(o == int3(1, 1, 1), t, 1.0 - t);
-        const float w = w3.x * w3.y * w3.z;
-        float3 v = float3(0.0, 0.0, 0.0);
-        const float trust = w > 0.0 ? cell_value(c, cache_key_cell(c, base + o, level, bucket, kind), v) : 0.0;
-        sum += v * w * trust;
-        weight += w * trust;
-    }
-    value = weight > 0.0 ? sum / weight : float3(0.0, 0.0, 0.0);
-    return weight;
-}
-
-/// The cached outgoing diffuse radiance at surface point p with normal n (facing the side seen): p's own level as far
-/// as it is trusted, the rest from its parent and grandparent (every estimate goes into all three), so a cell that is
-/// new or thinly sampled fades in instead of switching. False if no level has a value yet; `level_offset` is the
-/// finest level that contributed (0: p's own).
+/// The cached outgoing diffuse radiance at surface point p with normal n (facing the side seen), from p's own level
+/// or, where that cell is empty, its parent's and grandparent's (every estimate goes into all three). False if no
+/// level has a value yet; `level_offset` says which answered (0: p's own).
 bool cache_lookup(RadianceCache c, float3 p, float3 n, out float3 radiance, out uint level_offset,
                   uint kind = cache_kind_outgoing) {
     radiance = float3(0.0, 0.0, 0.0);
     level_offset = 0;
     const uint level = cache_level(c, p);
-    const uint bucket = normal_bucket(n);
-    float3 sum = float3(0.0, 0.0, 0.0);
-    float remaining = 1.0;
-    bool found = false;
-    for (uint l = level; l <= min(level + cache_coarser_levels, cache_max_level) && remaining > 0.01; ++l) {
-        float3 v = float3(0.0, 0.0, 0.0);
-        const float trust = level_value(c, p, bucket, l, kind, v);
-        if (trust > 0.0 && !found) {
-            level_offset = l - level;
-            found = true;
+    for (uint l = level; l <= min(level + cache_coarser_levels, cache_max_level); ++l) {
+        level_offset = l - level;
+        const CacheKey k = cache_key(c, p, n, l, kind);
+        for (uint i = 0; i < cache_probes; ++i) {
+            const uint slot = (k.slot + i) & (c.capacity - 1u);
+            if (c.keys[slot] == k.checksum) {
+                const uint2 v = c.radiance[slot];
+                if ((v.y >> 24) > 0) {  // frames with a value
+                    radiance = unpack_cache_radiance(v);
+                    return true;
+                }
+                break;
+            }
         }
-        sum += v * trust * remaining;
-        remaining *= 1.0 - trust;
     }
-    radiance = found ? sum / (1.0 - remaining) : float3(0.0, 0.0, 0.0);
-    return found;
+    return false;
 }
 
 bool cache_lookup(RadianceCache c, float3 p, float3 n, out float3 radiance) {
@@ -231,10 +151,8 @@ void cache_add(RadianceCache c, float3 p, float3 n, float3 radiance, uint kind =
     }
 }
 
-/// End of frame for one slot: this frame's samples (summed by cache_add) blend into the cell's history, weighted by
-/// their count over a history of at most max_samples, and the sums clear. A frame whose mean leaves the history by
-/// more than the noise of frame means allows restarts the history from that frame. A cell nobody added to for
-/// `evict_after` frames is freed.
+/// End of frame for one slot: this frame's mean blended into the resolved value (an average over up to max_frames
+/// frames), the sums cleared; a cell nobody added to for `evict_after` frames is freed.
 void resolve_cell(RadianceCache c, uint slot, uint evict_after) {
     const bool occupied = c.keys[slot] != 0u;
     count(c, cache_stat_occupied, occupied);
@@ -242,48 +160,27 @@ void resolve_cell(RadianceCache c, uint slot, uint evict_after) {
         return;
     }
     const uint count = c.accum[slot * 4u + 3u];
-    CellValue cell = unpack_cell(c.radiance[slot]);
-    // The history reaches back a few frames however often the cell is sampled: a thinly sampled cell keeps few
-    // samples, is trusted little and lets its parent answer (cache_lookup), which is both steadier and quicker.
-    cell.samples *= history_decay;
+    const uint2 v = c.radiance[slot];
+    uint frames = v.y >> 24;
+    uint age = (v.y >> 16) & 0xffu;
+    float3 value = unpack_cache_radiance(v);
     if (count > 0u) {
         const float3 mean = float3(c.accum[slot * 4u + 0u], c.accum[slot * 4u + 1u], c.accum[slot * 4u + 2u]) /
                             (float(count) * c.scale);
-        const float l = luminance(mean);
-        if (cell.samples < 1e-3) {
-            cell.value = mean;
-            cell.short_mean = l;
-            cell.samples = min(float(count), float(c.max_samples));
-        } else {
-            const float history = luminance(cell.value);
-            const float d = l - cell.short_mean;  // noise around the recent level: a change itself does not count
-            cell.short_mean = lerp(cell.short_mean, l, 0.5);
-            // A change: once the history is long enough to trust, the short average (about two frames) is off it by
-            // more than 2.5x the frame means' spread around the short average and by more than 10%. The spread is
-            // the cell's noise, kept across restarts: a light switching off changes the cell's level, not how noisy
-            // its samples are.
-            const float spread = sqrt(max(cell.variance, 0.0));
-            const float off = abs(cell.short_mean - history);
-            if (cell.samples >= min_trusted_samples && off > 2.5 * spread && off > 0.1 * history) {
-                cell.samples = 0.0;
-                cell.short_mean = l;
-            }
-            const float samples = min(cell.samples + float(count), float(c.max_samples));
-            const float w = float(count) / samples;
-            cell.variance = lerp(cell.variance, d * d, max(w, 0.05));
-            cell.value = lerp(cell.value, mean, w);
-            cell.samples = samples;
-        }
-        cell.age = 0u;
+        frames = min(frames + 1u, c.max_frames);
+        value = lerp(value, mean, 1.0 / float(frames));
+        age = 0u;
         c.accum[slot * 4u + 0u] = 0u;
         c.accum[slot * 4u + 1u] = 0u;
         c.accum[slot * 4u + 2u] = 0u;
         c.accum[slot * 4u + 3u] = 0u;
-    } else if (++cell.age > evict_after) {
+    } else if (++age > evict_after) {
         c.keys[slot] = 0u;
-        c.radiance[slot] = uint4(0u, 0u, 0u, 0u);
+        c.radiance[slot] = uint2(0u, 0u);
         InterlockedAdd(c.stats[cache_stat_evictions], 1u);
         return;
     }
-    c.radiance[slot] = pack_cell(cell);
+    value = min(value, 60000.0);  // half's range
+    c.radiance[slot] = uint2(f32tof16(value.x) | (f32tof16(value.y) << 16),
+                             f32tof16(value.z) | (min(age, 255u) << 16) | (frames << 24));
 }

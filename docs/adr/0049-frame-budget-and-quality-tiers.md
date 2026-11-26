@@ -113,8 +113,7 @@ absorbing the change. A tier then fixes the frame rate and the feature set, and 
 exists, an unmeasured Mac runs the tier's settings and misses its frame rate.
 
 **Revision (2026-11-26, the owner):** the GI slice grew from 160 to 192 MiB in Performance, and from 256 to 308 MiB
-in Quality (the same factor), for the cache's longer per-cell history (ADR 0051, step 1c). Totals stay inside 4 and
-5 GiB.
+in Quality (the same factor), room for Candela's cache work (ADR 0051). Totals stay inside 4 and 5 GiB.
 
 ## Consequences
 

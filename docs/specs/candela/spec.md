@@ -1,6 +1,6 @@
 # Candela: real-time global illumination
 
-**Status:** In progress (the cache alone flickers: fixing it goes to the owner before screen probes)
+**Status:** On hold (step 1c failed its gates: surfels or DDGI with the owner)
 **Area:** render
 **Owner:** dev lead (product-affecting: the product owner approves)
 
@@ -194,6 +194,49 @@ The cache's raw output (linear, before the denoiser) changes by 20% of its value
 the 3-frame average, 35% with 2.8x the paths (every cell then updates every frame, each update a third of the way to
 a noisy mean), and 4% with a 32-frame average. A long average is most of the fix but loses the response; the
 0.008 left with it is not explained by the raw change (cell edges are the suspect). The decision is with the owner.
+
+## Step 1c results (2026-11-26)
+
+The owner approved fixing the cache before any gather work, gated in the cache-alone mode: flicker at most 0.005,
+light off within 10 frames, the cache update within 1.2 ms on Bistro, luminance within 3% of mode 4. Tried, in this
+order (commit 99589dd, reverted by the next):
+
+- Each frame's samples already summed per cell before blending; the blend now weighed them by their count, over a
+  capped history (64 samples).
+- A short average watching for change, restarting the history when it left it by more than the noise allowed.
+  First version: restarts on noise, every frame (Bistro flicker 0.0192). Fixed to trust only long histories and keep
+  each cell's noise across restarts: then no restart fired, and light off took over 20 frames everywhere.
+- Lookups trusting a cell by its sample count and letting its parent share the rest, and eviction after 255 idle
+  frames instead of 32: the cache churned (Bistro: 7.2k new cells and 3.8k evictions a frame), each new cell switching
+  pixels from their parent's value to its own. Flicker 0.0055 / 0.0085 / 0.0092, light off still over 20.
+- A history that fades with time (the sample count decays each frame), so thinly sampled cells defer to their
+  better-sampled parents; and a deterministic, normal-aware trilinear blend across neighboring cells. The fade sets
+  the trade between the two gates:
+
+| History | Cornell flicker | Sponza flicker | Bistro flicker | Light off (Cornell, Sponza, Bistro) |
+|---|---|---|---|---|
+| About 5 frames | 0.0077 | 0.0168 | 0.0196 | 6, >20, 2 |
+| About 10 frames (kept for the gates below) | 0.0066 | 0.0102 | 0.0110 | 11, 5, 6 |
+| About 20 frames | | 0.0091 | 0.0096 | 17, 16 (Sponza, Bistro) |
+| 64 samples, no fade | 0.0055 | 0.0085 | 0.0092 | >20 |
+
+The neighbor blend changed flicker by under 10% either way (Bistro 0.0192 with, 0.0207 without, at the first
+setting). With a 10-frame history the gates read:
+
+| Gate, cache alone | Cornell box | Sponza | Bistro noon |
+|---|---|---|---|
+| Flicker (limit 0.005) | **0.0066** | **0.0102** | **0.0110** |
+| Light off, frames (limit 10) | **11** | 5 | 6 |
+| Cache update, ms (limit 1.2) | 0.25 | 0.80 | **1.30** |
+| Luminance against mode 4 (limit 3%) | +0.2% | **+11.5%** | **+5.2%** |
+
+The cache's raw output still changed 14-17% a frame (outgoing cells 13.6%, incoming 16.5%). In Candela's ReSTIR mode
+the same cache made things worse: Bistro's gather 1.17 -> 2.13 ms and temporal reuse 0.29 -> 1.09 ms (eight cells read
+per level), Cornell -2.03%, and the awning leak test +52.7%.
+
+**Verdict:** step 1c fails; the cache is back to step 1b's, and the owner chooses between surfels and DDGI. A
+regression gate now holds the cache-alone mode at its measured values: `candela: the cache alone stays as steady and
+quick` on the Cornell box (flicker 0.013, light off 13 frames) and Bistro (0.016, 25).
 
 ## Out of scope
 

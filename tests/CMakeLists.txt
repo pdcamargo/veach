@@ -196,6 +196,20 @@ if(Python3_FOUND)
             set_tests_properties("${_name}" PROPERTIES
                 SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable" ENVIRONMENT "MTL_SHADER_VALIDATION=0" TIMEOUT 600)
         endforeach()
+        # Candela's cache alone (Candela.gather = "surface_cache"): a regression gate on its flicker and light-off
+        # response, at its measured values plus a margin (the targets, 0.005 and 10 frames, are VCH-067's).
+        foreach(_cache "cornell_box_realtime:0.013:13" "bistro_noon:0.016:25")
+            string(REPLACE ":" ";" _cache "${_cache}")
+            list(GET _cache 0 _scene)
+            list(GET _cache 1 _flicker)
+            list(GET _cache 2 _light_off)
+            add_test(NAME "candela: the cache alone stays as steady and quick on ${_scene} (metal)"
+                COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/candela_cache.py" --lab $<TARGET_FILE:veach-lab>
+                        --imgdiff $<TARGET_FILE:veach-cli> --scene ${_scene} --max-flicker ${_flicker}
+                        --max-light-off ${_light_off})
+            set_tests_properties("candela: the cache alone stays as steady and quick on ${_scene} (metal)" PROPERTIES
+                SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 900)
+        endforeach()
         # ADR 0049, VCH-068: a string-light wire against the sky stays continuous through the upscaler at 0.5 (Bistro
         # noon at 1440p). MetalFX is required; TAAU is measured (it breaks the wire); FSR joins the required ones.
         add_test(NAME "upscale: a thin wire stays continuous at 0.5 render scale (metal)"

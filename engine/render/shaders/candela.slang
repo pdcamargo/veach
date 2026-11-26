@@ -34,7 +34,7 @@ struct RealtimeParams {
 
 static const uint gi_gather_surface = 1;     ///< render::CandelaGather::surface_cache
 static const uint update_block = 5;          ///< one update path per this many pixels squared (SHaRC's 4%)
-static const uint evict_after = 255;         ///< frames a cell keeps its value without new samples
+static const uint evict_after = 32;          ///< frames a cell keeps its value without new samples
 static const float gi_temporal_cap = 16.0;   ///< M a reservoir carries into the next frame
 static const float gi_spatial_radius = 30.0;  ///< render pixels
 static const uint max_gi_spatial_samples = 4;
@@ -49,8 +49,7 @@ RadianceCache cache_of(RealtimeFrame f) {
     c.scale = f.cache_scale;
     c.cell_size = f.cache_cell_size;
     c.cell_scale = f.cache_cell_scale;
-    c.max_samples = f.cache_max_samples;
-    c.smooth = f.cache_smooth;
+    c.max_frames = f.cache_max_frames;
     c.stats = f.counters;
     return c;
 }

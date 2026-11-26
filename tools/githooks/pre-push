@@ -3,5 +3,8 @@
 # LFS objects (golden images). core.hooksPath replaces .git/hooks, so LFS must be called from here.
 # Enable with: git config core.hooksPath tools/githooks
 command -v git-lfs >/dev/null 2>&1 || { echo >&2 "pre-push: git-lfs is required (brew install git-lfs)"; exit 2; }
-sh "$(git rev-parse --show-toplevel)/tools/scripts/pre-push.sh" </dev/null || exit $?
+# tools/push.sh runs the gate before connecting and passes the commit it checked: no need to run it again.
+if [ "${VEACH_GATE_PASSED:-}" != "$(git rev-parse HEAD)" ]; then
+    sh "$(git rev-parse --show-toplevel)/tools/scripts/pre-push.sh" </dev/null || exit $?
+fi
 exec git lfs pre-push "$@"

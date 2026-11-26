@@ -195,6 +195,9 @@ if(Python3_FOUND)
                         "${PROJECT_SOURCE_DIR}/apps/lab/scripts/${_scene}.luau")
             set_tests_properties("${_name}" PROPERTIES
                 SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable" ENVIRONMENT "MTL_SHADER_VALIDATION=0" TIMEOUT 600)
+            if(_scene MATCHES "^bistro")  # the full test set (tools/push.sh): Bistro takes tens of seconds
+                set_tests_properties("${_name}" PROPERTIES LABELS full)
+            endif()
         endforeach()
         # Candela's cache alone (Candela.gather = "surface_cache"): a regression gate on its flicker and light-off
         # response, at its measured values plus a margin (the targets, 0.005 and 10 frames, are VCH-067's).
@@ -208,7 +211,7 @@ if(Python3_FOUND)
                         --imgdiff $<TARGET_FILE:veach-cli> --scene ${_scene} --max-flicker ${_flicker}
                         --max-light-off ${_light_off})
             set_tests_properties("candela: the cache alone stays as steady and quick on ${_scene} (metal)" PROPERTIES
-                SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 900)
+                SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 900 LABELS full)
         endforeach()
         # ADR 0049, VCH-068: a string-light wire against the sky stays continuous through the upscaler at 0.5 (Bistro
         # noon at 1440p). MetalFX is required; TAAU is measured (it breaks the wire); FSR joins the required ones.
@@ -216,7 +219,7 @@ if(Python3_FOUND)
             COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/upscale_wire.py" --lab $<TARGET_FILE:veach-lab>
                     --out "${CMAKE_CURRENT_BINARY_DIR}/upscale_wire" --upscalers metalfx,temporal --require metalfx)
         set_tests_properties("upscale: a thin wire stays continuous at 0.5 render scale (metal)" PROPERTIES
-            SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 900)
+            SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 900 LABELS full)
         # shadows.AC1-AC2: lights with a size match the path tracer, and their penumbrae show (soft-shadows spec).
         add_test(NAME "shadows: sized lights cast penumbrae that match the reference (metal)"
             COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/soft_shadows.py" --rhi metal
@@ -361,6 +364,7 @@ if(APPLE)
     # sky.AC4: Bistro under the physical sky at noon and at sunset (Metal only: Bistro is too heavy for WARP).
     foreach(_time noon sunset)
         veach_golden_test("golden: bistro at ${_time} (realtime)" bistro_${_time} bistro_${_time} metal FRAMES 32)
+        set_tests_properties("golden: bistro at ${_time} (realtime)" PROPERTIES LABELS full)
     endforeach()
     # sky.AC6: lights and no sky: one warning (a warning, not an error: the run still exits 0).
     add_test(NAME "lab: a scene with lights and no sky warns"

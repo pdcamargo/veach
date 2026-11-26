@@ -196,6 +196,13 @@ if(Python3_FOUND)
             set_tests_properties("${_name}" PROPERTIES
                 SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable" ENVIRONMENT "MTL_SHADER_VALIDATION=0" TIMEOUT 600)
         endforeach()
+        # ADR 0049, VCH-068: a string-light wire against the sky stays continuous through the upscaler at 0.5 (Bistro
+        # noon at 1440p). MetalFX is required; TAAU is measured (it breaks the wire); FSR joins the required ones.
+        add_test(NAME "upscale: a thin wire stays continuous at 0.5 render scale (metal)"
+            COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/upscale_wire.py" --lab $<TARGET_FILE:veach-lab>
+                    --out "${CMAKE_CURRENT_BINARY_DIR}/upscale_wire" --upscalers metalfx,temporal --require metalfx)
+        set_tests_properties("upscale: a thin wire stays continuous at 0.5 render scale (metal)" PROPERTIES
+            SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 900)
         # shadows.AC1-AC2: lights with a size match the path tracer, and their penumbrae show (soft-shadows spec).
         add_test(NAME "shadows: sized lights cast penumbrae that match the reference (metal)"
             COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/soft_shadows.py" --rhi metal

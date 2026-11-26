@@ -88,6 +88,9 @@ export type Candela = {
 	ray_rate: number,
 	spatial_samples: number,
 	cache_bounces: number,
+	adaptive_cache: boolean,
+	stable_levels: boolean,
+	freeze_cache: boolean,
 }
 export type DirectionalLight = {
 	color: vector,

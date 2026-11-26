@@ -213,6 +213,19 @@ if(Python3_FOUND)
             set_tests_properties("candela: the cache alone stays as steady and quick on ${_scene} (metal)" PROPERTIES
                 SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 900 LABELS full)
         endforeach()
+        # VCH-069: the motion trail with GI off (the final image after 30 frames of camera motion against a still
+        # camera), without an upscaler and with MetalFX: measured 0.053 and 0.068, held with a margin.
+        foreach(_trail "none:0.058" "automatic:0.075")
+            string(REPLACE ":" ";" _trail "${_trail}")
+            list(GET _trail 0 _upscaler)
+            list(GET _trail 1 _max)
+            add_test(NAME "motion: Bistro's trail stays within ${_max} FLIP (${_upscaler}, metal)"
+                COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/motion_trail.py" --lab $<TARGET_FILE:veach-lab>
+                        --imgdiff $<TARGET_FILE:veach-cli> --upscaler ${_upscaler} --max ${_max}
+                        --out "${CMAKE_CURRENT_BINARY_DIR}/motion_trail")
+            set_tests_properties("motion: Bistro's trail stays within ${_max} FLIP (${_upscaler}, metal)" PROPERTIES
+                SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 900 LABELS full)
+        endforeach()
         # ADR 0049, VCH-068: a string-light wire against the sky stays continuous through the upscaler at 0.5 (Bistro
         # noon at 1440p). MetalFX is required; TAAU is measured (it breaks the wire); FSR joins the required ones.
         add_test(NAME "upscale: a thin wire stays continuous at 0.5 render scale (metal)"

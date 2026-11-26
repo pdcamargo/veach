@@ -389,6 +389,9 @@ void accumulate(uint3 id: SV_DispatchThreadID) {
 // ---- the denoiser (ADR 0042) ------------------------------------------------------------------------------
 
 static const float diffuse_max_history = 32.0;
+/// History that moves is resampled every frame and lags what the camera now sees: its weight falls with its speed,
+/// this much current frame per pixel of motion, up to a quarter (VCH-069: Bistro's motion trail 0.060 -> 0.053).
+static const float motion_alpha_per_pixel = 0.0625;
 static const float atrous_kernel[3] = { 0.25, 0.5, 0.25 };
 
 float max_specular_history(float roughness) {
@@ -453,8 +456,9 @@ void denoise_temporal(uint3 id: SV_DispatchThreadID) {
     // History is dropped at a disocclusion, never blended (ADR 0042).
     const float length_d = valid ? min(hd.a + 1.0, diffuse_max_history) : 1.0;
     const float length_s = valid ? min(hs.a + 1.0, max_specular_history(roughness)) : 1.0;
-    const float alpha_d = 1.0 / length_d;
-    const float alpha_s = 1.0 / length_s;
+    const float fast = valid ? min(length(f.motion.Load(int3(p, 0)).xy) * motion_alpha_per_pixel, 0.25) : 0.0;
+    const float alpha_d = max(1.0 / length_d, fast);
+    const float alpha_s = max(1.0 / length_s, fast);
     const float ld = luminance(diffuse);
     const float ls = luminance(specular);
     f.diffuse_history_out[id.xy] = float4(lerp(hd.rgb, diffuse, alpha_d), length_d);

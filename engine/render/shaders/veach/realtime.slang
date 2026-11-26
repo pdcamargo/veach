@@ -58,7 +58,7 @@ struct RealtimeFrame {
     float4x4 previous_view_projection;    ///< last frame's, unjittered
     float4 camera_position;               ///< xyz; w = exposure (1 / (1.2 * 2^ev100))
     float4 previous_camera_position;      ///< xyz
-    float4 reserved;
+    float4 cache_anchor;                  ///< xyz: where the radiance cache measures distance for cell sizes; w: 1 = adaptive averaging
     float4 jitter;                        ///< xy: this frame's sample offset from the pixel center, render pixels
 
     DescriptorHandle<RaytracingAccelerationStructure> tlas;
@@ -132,7 +132,7 @@ struct RealtimeFrame {
     // Candela (ADR 0051): the radiance cache (veach/radiance_cache.slang) and the GI reservoirs, one per render pixel.
     DescriptorHandle<RWStructuredBuffer<uint>> cache_keys;
     DescriptorHandle<RWStructuredBuffer<uint>> cache_accum;
-    DescriptorHandle<RWStructuredBuffer<uint2>> cache_radiance;
+    DescriptorHandle<RWStructuredBuffer<uint4>> cache_radiance;
     DescriptorHandle<RWStructuredBuffer<PackedGiReservoir>> gi_temporal_out;  ///< gather + temporal reuse
     DescriptorHandle<StructuredBuffer<PackedGiReservoir>> gi_temporal;
     DescriptorHandle<RWStructuredBuffer<PackedGiReservoir>> gi_final_out;     ///< after spatial reuse

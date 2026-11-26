@@ -1,6 +1,6 @@
 # Candela: real-time global illumination
 
-**Status:** On hold (step 1c failed its gates: surfels or DDGI with the owner)
+**Status:** On hold (option 0 failed; the frozen-cache test points at the gather, not the cache: with the owner)
 **Area:** render
 **Owner:** dev lead (product-affecting: the product owner approves)
 
@@ -237,6 +237,35 @@ per level), Cornell -2.03%, and the awning leak test +52.7%.
 **Verdict:** step 1c fails; the cache is back to step 1b's, and the owner chooses between surfels and DDGI. A
 regression gate now holds the cache-alone mode at its measured values: `candela: the cache alone stays as steady and
 quick` on the Cornell box (flicker 0.013, light off 13 frames) and Bistro (0.016, 25).
+
+## Option 0 (2026-11-27)
+
+The owner moved the gates to the final image (ReSTIR gather and denoiser, Performance tier: 1280x720 output, MetalFX
+at 0.5) and asked for a one-day option 0 before surfels: step 1b plus only step 1c's adaptive averaging
+(`Candela.adaptive_cache`), and cell levels that hold still under camera motion (`Candela.stable_levels`: distances
+from the camera snapped to a 4 m grid). Both are switches on trial, off by default.
+
+| Final image, Performance | Cornell box | Sponza | Bistro noon |
+|---|---|---|---|
+| Flicker, GI off | 0.0042 | 0.0020 | 0.0041 |
+| Flicker, step 1b | 0.0049 | 0.0051 | **0.0107** |
+| Flicker, adaptive averaging | 0.0051 | 0.0053 | **0.0108** |
+| Flicker, option 0 (both) | 0.0051 | 0.0053 | **0.0107** |
+| Light off (Candela's own light), step 1b and option 0 | >20 | >20 | >20 |
+
+Motion trail (Bistro, the final image after 30 frames of motion against a still camera; GI off 0.060 / 0.071 without
+an upscaler / with MetalFX): step 1b 0.093 / 0.122, stable levels 0.093 / 0.122, option 0 0.093 / 0.122. Reading
+reused samples' radiance again from the cache each frame (step 1's refresh) on top of option 0 still left light off
+over 20 frames and put Sponza at +17%.
+
+**The cache is not what flickers in the final image.** With the cache frozen after warm-up (`Candela.freeze_cache`,
+a diagnostic: no paths, no resolve, so it cannot change), Bistro's final-image flicker is 0.0101 against 0.0109 live,
+Sponza's 0.0052 against 0.0051. Stable levels leave the trail where it was. The flicker and the trail come from the
+per-pixel gather: its sampling, its reservoirs and their temporal reuse, through the denoiser.
+
+**Verdict:** option 0 fails flicker on Bistro and light off everywhere, and changes neither. The surfels fallback
+would replace the cache, which these measurements clear; the decision goes back to the owner. Clips for judging by
+eye: `build/videos/` (`tools/bench/record_clips.py`).
 
 ## Out of scope
 

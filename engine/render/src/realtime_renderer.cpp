@@ -56,7 +56,9 @@ static_assert(sizeof(PackedGiReservoir) == 32);
 constexpr std::uint32_t cache_capacity = 1u << 21;
 constexpr float cache_cell_size = 0.05f;
 constexpr float cache_cell_scale = 1.0f / 80.0f;
-constexpr std::uint32_t cache_max_frames = 3;
+constexpr std::uint32_t cache_max_frames = 3;    ///< the frame average (Candela.adaptive_cache off)
+constexpr std::uint32_t cache_max_samples = 64;  ///< the adaptive history (Candela.adaptive_cache on)
+constexpr float cache_anchor_step = 4.0f;        ///< Candela.stable_levels: the camera snapped to this grid, meters
 /// The real-time counters: ReSTIR's three, then Candela's (RealtimeFrame::counters).
 constexpr std::size_t counter_count = 16;
 
@@ -91,7 +93,7 @@ struct alignas(16) RealtimeFrame {
     math::mat4 previous_view_projection{1.0f};
     math::vec4 camera_position{0.0f};
     math::vec4 previous_camera_position{0.0f};
-    math::vec4 reserved{0.0f};
+    math::vec4 cache_anchor{0.0f};  ///< xyz: the cache's level anchor; w: 1 = adaptive averaging
     math::vec4 jitter{0.0f};
     rhi::DescriptorHandle tlas;
     rhi::DescriptorHandle instances;
@@ -501,7 +503,7 @@ struct RealtimeRenderer::Impl {
             const std::span<const std::byte> all(zeros);
             ok = create(cache[0], cache_capacity * 4ull, "candela cache keys", 4, all.first(cache_capacity * 4ull)) &&
                  create(cache[1], cache_capacity * 16ull, "candela cache sums", 4, all) &&
-                 create(cache[2], cache_capacity * 8ull, "candela cache values", 8, all.first(cache_capacity * 8ull));
+                 create(cache[2], cache_capacity * 16ull, "candela cache values", 16, all);
         }
         if (ok && !v.gi_temporal.handle.is_valid()) {
             const std::uint64_t size = std::uint64_t{v.render_width} * v.render_height * sizeof(PackedGiReservoir);
@@ -752,7 +754,14 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     f.cache_scale = 65536.0f * view.exposure;  // fixed point relative to what the camera shows
     f.cache_cell_size = cache_cell_size;
     f.cache_cell_scale = cache_cell_scale;
-    f.cache_max_frames = cache_max_frames;
+    f.cache_max_frames = gi_settings.adaptive_cache ? cache_max_samples : cache_max_frames;
+    // Cell sizes grow with distance from this point: the camera itself, or with stable_levels the camera snapped to a
+    // coarse grid, so moving does not change which level (and cell) a surface reads until it crosses a grid line.
+    math::vec3 anchor = view.position;
+    if (gi_settings.stable_levels) {
+        anchor = math::floor(view.position / cache_anchor_step + 0.5f) * cache_anchor_step;
+    }
+    f.cache_anchor = math::vec4(anchor, gi_settings.adaptive_cache ? 1.0f : 0.0f);
     f.gi_rate = gi_settings.ray_rate >= 1.0f ? 1u : (gi_settings.ray_rate >= 0.5f ? 2u : 4u);
     f.gi_spatial_samples = std::min<std::uint32_t>(gi_settings.spatial_samples, 4);
     f.gi_cache_bounces = std::min<std::uint32_t>(gi_settings.cache_bounces, 3);
@@ -952,15 +961,17 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
         constexpr std::uint32_t update_block = 5;  // candela.slang's: one path per 5x5 pixels
         const std::uint32_t blocks_x = (rw + update_block - 1) / update_block;
         const std::uint32_t blocks_y = (rh + update_block - 1) / update_block;
-        groups("candela: cache update", s.cache_update_pipeline, (blocks_x + 7) / 8, (blocks_y + 7) / 8,
-               [&](PassBuilder& b) {
-                   scene.read_scene(b);
-                   for (const GraphResource& r : current_targets) {
-                       b.read(r);
-                   }
-                   use_cache(b);
-               });
-        groups("candela: cache resolve", s.cache_resolve_pipeline, cache_capacity / 64, 1, use_cache);
+        if (!gi_settings.freeze_cache) {
+            groups("candela: cache update", s.cache_update_pipeline, (blocks_x + 7) / 8, (blocks_y + 7) / 8,
+                   [&](PassBuilder& b) {
+                       scene.read_scene(b);
+                       for (const GraphResource& r : current_targets) {
+                           b.read(r);
+                       }
+                       use_cache(b);
+                   });
+            groups("candela: cache resolve", s.cache_resolve_pipeline, cache_capacity / 64, 1, use_cache);
+        }
         if (gi_settings.gather == CandelaGather::surface_cache) {
             dispatch("candela: surface", s.gi_surface_pipeline, [&](PassBuilder& b) {
                 for (const GraphResource& r : current_targets) {

@@ -24,7 +24,7 @@ veach_add_shader(veach_render shaders/realtime_shade.slang ENTRIES surface:compu
         denoise_combine:compute
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
 veach_add_shader(veach_render shaders/candela.slang
-    ENTRIES cache_update:compute cache_resolve:compute gather:compute spatial:compute
+    ENTRIES cache_update:compute cache_resolve:compute gather:compute misses:compute temporal:compute spatial:compute
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
 veach_add_shader(veach_render shaders/taau.slang ENTRIES taau:compute)
 veach_add_shader(veach_render shaders/atmosphere.slang ENTRIES transmittance_lut:compute multiscattering_lut:compute

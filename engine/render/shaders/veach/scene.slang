@@ -280,6 +280,42 @@ Trace trace(float3 origin, float3 direction, float tmax, inout Rng rng, uint ins
     return result;
 }
 
+/// The closest covered hit in one traversal (ADR 0048's approach for visibility, applied to the closest hit): masked
+/// and blended candidates are tested for coverage as the traversal meets them, and the covered ones committed.
+/// trace() re-traces once per transparent texel instead, which costs a traversal per leaf in dense foliage; this is
+/// for Candela's rays (ADR 0051), which cross foliage constantly. The path tracer keeps trace(): one closest-hit
+/// call site per kernel, deterministic on every backend.
+Trace trace_closest(float3 origin, float3 direction, float tmax, inout Rng rng) {
+    Trace result;
+    result.hit = false;
+    result.instance = 0;
+    result.primitive = 0;
+    result.bary = float2(0.0, 0.0);
+    result.t = 0.0;
+    RayDesc ray;
+    ray.Origin = origin;
+    ray.Direction = direction;
+    ray.TMin = 0.0;
+    ray.TMax = tmax;
+    RayQuery<RAY_FLAG_NONE> query;
+    query.TraceRayInline(veach_scene.tlas, RAY_FLAG_NONE, 0xFF, ray);
+    while (query.Proceed()) {
+        if (query.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE &&
+            covered(query.CandidateInstanceIndex(), query.CandidatePrimitiveIndex(),
+                    query.CandidateTriangleBarycentrics(), rng)) {
+            query.CommitNonOpaqueTriangleHit();
+        }
+    }
+    if (query.CommittedStatus() == COMMITTED_TRIANGLE_HIT) {
+        result.hit = true;
+        result.instance = query.CommittedInstanceIndex();
+        result.primitive = query.CommittedPrimitiveIndex();
+        result.bary = query.CommittedTriangleBarycentrics();
+        result.t = query.CommittedRayT();
+    }
+    return result;
+}
+
 /// Shadow rays start a little off the surface along the geometric normal, on the side they leave from.
 float3 offset_origin(float3 p, float3 geometric, float3 direction) {
     return p + geometric * (dot(geometric, direction) >= 0.0 ? 1e-3 : -1e-3);

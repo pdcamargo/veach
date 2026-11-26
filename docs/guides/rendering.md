@@ -181,8 +181,9 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
      indirect light comes from the GI pass before it (`RealtimeLighting.gi`): `"off"` (default until Candela) is
      the ambient stopgap (`gi: ambient`: the sky through `ao_rays` short-range rays), `"direct_only"` none, and
      `"candela"` Candela (ADR 0051): a world-space radiance cache (`veach/radiance_cache.slang`) fed by sparse
-     diffuse paths (`candela: cache update`, `cache resolve`), and a ReSTIR GI gather that reads it where its rays
-     land (`candela: gather`, `spatial`);
+     diffuse paths (`candela: cache update`, `cache resolve`; an empty cell reads its parent), and a ReSTIR GI
+     gather that reads it where its rays land (`candela: gather`, `misses` for points no level knows, `temporal`,
+     `spatial`);
   4. the denoiser (ADR 0042): demodulated diffuse and specular, temporal accumulation, variance, five a-trous
      iterations, remodulation;
   5. the upscaler (ADR 0043): MetalFX's temporal scaler where the device has it (`Upscaling.mode = "automatic"`),

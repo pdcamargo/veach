@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Candela step 1 (ADR 0051): cost, temporal flicker and response to sudden changes, over MCP.
+"""Candela steps 1 and 1b (ADR 0051): cost, temporal flicker and response to sudden changes, over MCP.
 
   python3 -I tools/bench/candela_step1.py [--preset release] [--rhi metal] [--quick] scene ...
 
 Scenes are lab script names: cornell_box_realtime, sponza, bistro_noon. For each:
 
-- Cost: frame_budget (ADR 0049) at 1440p output with the Performance tier's settings, GI off (the ambient stopgap)
-  and Candela: each Candela pass's median GPU time.
+- Cost: frame_budget (ADR 0049) at 1440p output in the Performance tier, GI off (the ambient stopgap) and Candela:
+  each Candela pass's median GPU time. The cache's statistics are in the lab's log at shutdown ("candela cache:").
 - Flicker: a still camera at 640x360 without an upscaler; the mean FLIP between consecutive final frames (16 pairs),
-  with Candela and with direct light only (candela.AC4: no worse than direct light + 20%).
+  with Candela and with direct light only (candela.AC4: at most 0.005 with Candela).
 - Response: a light switched off and a door opened (an occluder over the scene moved away). The indirect light is
   Candela's own (RealtimeLighting.view = "indirect": linear, exposed, before the denoiser), its mean over the
   image; the response is the number of frames until it has gone 90% of the way to where it settles 60 frames

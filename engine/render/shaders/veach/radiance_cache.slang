@@ -21,7 +21,25 @@ struct RadianceCache {
     float cell_size;   ///< meters at level 0
     float cell_scale;  ///< a cell is about this fraction of its distance to the camera
     uint max_frames;   ///< the resolved value blends at least 1 / max_frames of each new frame's mean
+    DescriptorHandle<RWStructuredBuffer<uint>> stats;  ///< cache_stat_* counters, never reset (logged at shutdown)
 };
+
+// Counters in RadianceCache::stats (render::RealtimeRenderer logs them at shutdown).
+static const uint cache_stat_adds = 3;          ///< estimates added (one per vertex and level)
+static const uint cache_stat_new_cells = 4;     ///< empty slots claimed
+static const uint cache_stat_failed_adds = 5;   ///< estimates dropped: every probed slot held another cell
+static const uint cache_stat_evictions = 6;     ///< cells freed after evict_after idle frames
+static const uint cache_stat_occupied = 7;      ///< slots holding a cell after each resolve, summed over frames
+static const uint cache_stat_hit_own = 8;       ///< lookups answered by their own level
+static const uint cache_stat_hit_parent = 9;    ///< answered by a coarser level
+static const uint cache_stat_miss = 10;         ///< no level had a value: the hit was shaded and added
+
+void count(RadianceCache c, uint index, bool event) {
+    const uint n = WaveActiveCountBits(event);
+    if (WaveIsFirstLane() && n > 0) {
+        InterlockedAdd(c.stats[index], n);
+    }
+}
 
 static const uint cache_probes = 8;
 static const uint cache_coarser_levels = 2;  ///< a lookup that misses tries this many coarser levels
@@ -65,11 +83,14 @@ float3 unpack_cache_radiance(uint2 v) {
 }
 
 /// The cached outgoing diffuse radiance at surface point p with normal n (facing the side seen), from p's own level
-/// or a coarser one. False if no cell there has a value yet.
-bool cache_lookup(RadianceCache c, float3 p, float3 n, out float3 radiance) {
+/// or, where that cell is empty, its parent's and grandparent's (every estimate goes into all three). False if no
+/// level has a value yet; `level_offset` says which answered (0: p's own).
+bool cache_lookup(RadianceCache c, float3 p, float3 n, out float3 radiance, out uint level_offset) {
     radiance = float3(0.0, 0.0, 0.0);
+    level_offset = 0;
     const uint level = cache_level(c, p);
     for (uint l = level; l <= min(level + cache_coarser_levels, cache_max_level); ++l) {
+        level_offset = l - level;
         const CacheKey k = cache_key(c, p, n, l);
         for (uint i = 0; i < cache_probes; ++i) {
             const uint slot = (k.slot + i) & (c.capacity - 1u);
@@ -86,12 +107,17 @@ bool cache_lookup(RadianceCache c, float3 p, float3 n, out float3 radiance) {
     return false;
 }
 
-/// Adds one estimate of the outgoing diffuse radiance at p (normal n facing the side seen) to its cell, claiming a
-/// slot for it if it has none. Dropped when every probed slot belongs to another cell.
-void cache_add(RadianceCache c, float3 p, float3 n, float3 radiance) {
-    const CacheKey k = cache_key(c, p, n, cache_level(c, p));
-    const uint3 units = uint3(min(max(radiance, 0.0) * c.scale, 4.0e6));
-    for (uint i = 0; i < cache_probes; ++i) {
+bool cache_lookup(RadianceCache c, float3 p, float3 n, out float3 radiance) {
+    uint level_offset;
+    return cache_lookup(c, p, n, radiance, level_offset);
+}
+
+/// Adds one estimate to a cell, claiming a slot for it if it has none. Dropped when every probed slot belongs to
+/// another cell.
+void cache_add_at(RadianceCache c, CacheKey k, uint3 units) {
+    bool added = false;
+    bool claimed = false;
+    for (uint i = 0; i < cache_probes && !added; ++i) {
         const uint slot = (k.slot + i) & (c.capacity - 1u);
         uint previous;
         InterlockedCompareExchange(c.keys[slot], 0u, k.checksum, previous);
@@ -100,15 +126,31 @@ void cache_add(RadianceCache c, float3 p, float3 n, float3 radiance) {
             InterlockedAdd(c.accum[slot * 4u + 1u], units.y);
             InterlockedAdd(c.accum[slot * 4u + 2u], units.z);
             InterlockedAdd(c.accum[slot * 4u + 3u], 1u);
-            return;
+            added = true;
+            claimed = previous == 0u;
         }
+    }
+    count(c, cache_stat_adds, true);
+    count(c, cache_stat_new_cells, claimed);
+    count(c, cache_stat_failed_adds, !added);
+}
+
+/// Adds one estimate of the outgoing diffuse radiance at p (normal n facing the side seen) to its cell and to the
+/// two coarser cells containing it, so a lookup that finds its own cell empty can read a parent.
+void cache_add(RadianceCache c, float3 p, float3 n, float3 radiance) {
+    const uint3 units = uint3(min(max(radiance, 0.0) * c.scale, 4.0e6));
+    const uint level = cache_level(c, p);
+    for (uint l = level; l <= min(level + cache_coarser_levels, cache_max_level); ++l) {
+        cache_add_at(c, cache_key(c, p, n, l), units);
     }
 }
 
 /// End of frame for one slot: this frame's mean blended into the resolved value (an average over up to max_frames
 /// frames), the sums cleared; a cell nobody added to for `evict_after` frames is freed.
 void resolve_cell(RadianceCache c, uint slot, uint evict_after) {
-    if (c.keys[slot] == 0u) {
+    const bool occupied = c.keys[slot] != 0u;
+    count(c, cache_stat_occupied, occupied);
+    if (!occupied) {
         return;
     }
     const uint count = c.accum[slot * 4u + 3u];
@@ -129,6 +171,7 @@ void resolve_cell(RadianceCache c, uint slot, uint evict_after) {
     } else if (++age > evict_after) {
         c.keys[slot] = 0u;
         c.radiance[slot] = uint2(0u, 0u);
+        InterlockedAdd(c.stats[cache_stat_evictions], 1u);
         return;
     }
     value = min(value, 60000.0);  // half's range

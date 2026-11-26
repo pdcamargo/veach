@@ -1,6 +1,6 @@
 # Candela: real-time global illumination
 
-**Status:** In progress (step 1 measured: stop conditions hit, the owner decides; see Step 1 results)
+**Status:** In progress (step 1b measured: Bistro fails flicker; screen probes recommended to the owner)
 **Area:** render
 **Owner:** dev lead (product-affecting: the product owner approves)
 
@@ -56,11 +56,14 @@ camera:set(c.PathTracer, { mode = 4 })  -- reference: direct light plus diffuse 
 - **candela.AC1**: The Cornell box: the real-time image against the path tracer's mode 4 within ADR 0047 of its
   baseline; the red and green walls tint the floor and ceiling (measured: the floor's red/green ratio near each
   wall within 10% of the reference's).
-- **candela.AC2**: Sponza, Bistro (noon and sunset): within ADR 0047 of their baselines, recorded here.
+- **candela.AC2**: Sponza, Bistro (noon and sunset): mean luminance within 3% of the path tracer's mode 4; mean
+  FLIP and the per-pixel figures (99.9th percentile, pixels above 0.5) recorded here, within ADR 0047 of their
+  baselines.
 - **candela.AC3**: Cost on the M5 Max, Bistro at 1440p output: Candela's passes in the frame budget report
   (ADR 0049) within 4.5 ms at the Performance settings and 10 ms at Quality.
-- **candela.AC4**: Stability: a still camera's frame-to-frame FLIP over 64 frames no worse than direct lighting
-  alone plus 20% (the temporal foundation's stability measure).
+- **candela.AC4**: Stability: with a still camera and still lighting, the mean FLIP between consecutive final
+  frames is at most 0.005 on the Cornell box, Sponza and Bistro (the owner's absolute target, replacing "direct light
+  plus 20%").
 - **candela.AC5**: Response: switching off Bistro's sun (or a Cornell box light) drops the indirect light below 10%
   of its old value within 10 frames; switching it on reaches 90% within 10 frames.
 - **candela.AC6**: No ghosting beyond the temporal foundation's: the ghosting test (temporal.AC10) with Candela on
@@ -106,11 +109,63 @@ at 1, 0.5 and 0.25 gather rays per pixel, and with the cache averaged over 8 fra
 the way): a light switched off, 6 (Cornell's fill light), 11 (Sponza's sun), more than 20 (Bistro's sun and sky); a
 door opened (Cornell's tall box removed, a lid over Sponza or Bistro moved away), 1, more than 20, more than 20.
 
-**Verdict:** step 1 hit ADR 0051's stop conditions on Bistro: the gather (2.29 ms) and the cache update (1.91 ms) are
+**Step 1 verdict:** step 1 hit ADR 0051's stop conditions on Bistro: the gather (2.29 ms) and the cache update (1.91 ms) are
 past twice their estimates, and flicker and response fail. Three causes, measured (VCH-067): closest-hit rays through
 foliage re-trace once per transparent layer (without alpha tests Bistro's Candela is 1.77 ms, inside the estimates);
 gather rays landing in cells no update path reached read black (Bistro dark, Sponza speckled); and flicker that comes
 from the cache, not the gather rate. The owner decides how to go on.
+
+## Step 1b results (2026-11-26)
+
+The owner approved step 1b with gates on the Cornell box, Sponza and Bistro: gather and cache update each within
+twice their estimates, flicker at most 0.005 FLIP between consecutive frames, luminance within 3% of mode 4, light
+off settled within 10 frames, the leak test passing; and the same stop rule (Bistro failing cost or flicker: a
+review packet recommending screen probes).
+
+What changed:
+- **Foliage:** Candela's rays use `trace_closest()`, one traversal that commits covered alpha candidates (ADR 0048's
+  approach for the closest hit). It is correct on Metal (Sponza, every pixel gathering, no reuse: +2.30% against
+  +2.73% with the layered trace()).
+- **Misses:** every estimate goes into its cell and the two coarser cells containing it, so an empty fine cell reads
+  its parent; when every level is empty, a pass of its own (`candela: misses`) lights the hit point and adds it.
+- **Reuse:** temporal reuse in its own pass; a reused sample keeps the radiance it was chosen with and is dropped when
+  its cell now reads more than 2x off. Replacing it with the cell's current value each frame (step 1) brightened
+  Sponza by 12.7%: a hit first lit directly gains its bounced light once its cell fills, and the sample's weight
+  was computed for the darker value. Spatial reuse is still off: pairwise MIS in area measure exploded (+400% on
+  Sponza, from weights and geometry terms computed with different normals), and with the reconnection Jacobian it
+  left fireflies on the Cornell box (516 pixels above 0.5).
+
+**Cache statistics** (per frame, Performance at 1440p, 90 frames, `candela cache:` in the log):
+
+| | Cells held (of 2.1M) | New cells | Evictions | Dropped (slots taken) | Lookups: own / parent / missed |
+|---|---|---|---|---|---|
+| Cornell box | 18.7k | 237 | 24 | 0 | 99.8 / 0.2 / 0.0% |
+| Sponza | 643k | 11.8k | 4.1k | 27 | 92.7 / 7.1 / 0.3% |
+| Bistro noon | 908k | 19.5k | 8.5k | 275 | 80.7 / 18.4 / 0.8% |
+
+Collisions are rare (the table is under half full) and churn is 1-2% of the cells per frame. The flicker comes from
+sparse updates instead: Bistro adds about 242k estimates a frame into 908k cells, so most cells get one every three
+or four frames, and each moves its value.
+
+**Gates:**
+
+| Gate | Cornell box | Sponza | Bistro noon |
+|---|---|---|---|
+| Gather, ms (estimate 0.3-1.2, limit 2.4) | 0.26 | 0.74 | 1.17 |
+| Cache update, ms (estimate 0.4-0.6, limit 1.2) | 0.15 | 0.60 | 1.15 |
+| Candela in all, ms (slice 4.5) | 0.81 | 2.15 | 3.16 |
+| Flicker, FLIP (limit 0.005) | 0.0048 | **0.0058** | **0.0071** |
+| Luminance against mode 4 (limit 3%) | -1.6% | **+3.6%** | -1.3% |
+| FLIP against mode 4 (99.9th percentile, pixels above 0.5) | 0.031 (0.23, 1) | 0.068 (0.44, 64) | 0.052 (0.28, 5) |
+| Light off, frames to 90% (limit 10) | **>20** | **>20** | **>20** |
+| Door opened, frames to 90% | 1 | >20 | >20 |
+
+Leak test (candela.AC7): the awning's underside is 6.8% brighter than mode 4, inside the 10% bound. With step 1's
+per-frame refresh the Cornell box's light-off case settled in 6 frames, at the cost of Sponza's +12.7%: the reservoir
+can keep the light it was chosen for, or follow the cache, not both.
+
+**Verdict:** Bistro still fails flicker, so by the owner's rule step 1b ends with a review packet recommending screen
+probes; light-off response fails everywhere as well. Cost, accuracy (bar Sponza's +3.6%) and leaks pass.
 
 ## Out of scope
 

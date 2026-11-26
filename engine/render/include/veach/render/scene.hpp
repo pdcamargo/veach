@@ -106,7 +106,7 @@ enum class GlobalIllumination : std::uint8_t {
 /// Candela's settings, on the camera; absent: these defaults (docs/specs/candela/spec.md).
 struct Candela {
     float ray_rate = 0.25f;             ///< gather rays per render pixel: 0.25, 0.5 or 1
-    std::uint32_t spatial_samples = 0;  ///< neighbors' reservoirs reused per pixel, up to 4 (biased: VCH-066)
+    std::uint32_t spatial_samples = 0;  ///< neighbors' reservoirs reused per pixel, up to 4 (fireflies: VCH-066)
     std::uint32_t cache_bounces = 2;    ///< diffuse surfaces a cache update path visits after the first, up to 3
 };
 

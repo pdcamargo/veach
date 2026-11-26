@@ -57,6 +57,8 @@ constexpr std::uint32_t cache_capacity = 1u << 21;
 constexpr float cache_cell_size = 0.05f;
 constexpr float cache_cell_scale = 1.0f / 80.0f;
 constexpr std::uint32_t cache_max_frames = 3;
+/// The real-time counters: ReSTIR's three, then Candela's (RealtimeFrame::counters).
+constexpr std::size_t counter_count = 16;
 
 /// Mirrors Params in shaders/taau.slang.
 struct alignas(16) TaauParams {
@@ -116,7 +118,9 @@ struct alignas(16) RealtimeFrame {
     /// (write, read), the a-trous ping-pong (diffuse 0, 1, specular 0, 1: read, write each), the denoised image (read,
     /// write).
     std::array<rhi::DescriptorHandle, 23> denoiser;
-    rhi::DescriptorHandle counters;  ///< [0] ReSTIR's shadow rays, [1] lit pixels, [2] directional lights' rays
+    /// [0] ReSTIR's shadow rays, [1] lit pixels, [2] directional lights' rays, [3..10] Candela's cache
+    /// (veach/radiance_cache.slang's cache_stat_*)
+    rhi::DescriptorHandle counters;
     rhi::DescriptorHandle sky;       ///< SkyFrame (ADR 0050)
     rhi::DescriptorHandle indirect;  ///< the GI pass's indirect light on the diffuse lobe (read, then write)
     rhi::DescriptorHandle indirect_out;
@@ -256,6 +260,8 @@ struct RealtimeRenderer::Impl {
     rhi::PipelineHandle cache_update_pipeline;
     rhi::PipelineHandle cache_resolve_pipeline;
     rhi::PipelineHandle gather_pipeline;
+    rhi::PipelineHandle gi_temporal_pipeline;
+    rhi::PipelineHandle gi_misses_pipeline;
     rhi::PipelineHandle gi_spatial_pipeline;
     /// Candela's radiance cache: world space, shared by every view, made on first use.
     std::array<PersistentBuffer, 3> cache;  ///< keys, sums, values
@@ -279,6 +285,7 @@ struct RealtimeRenderer::Impl {
     std::vector<rhi::BufferHandle> counter_readbacks;
     std::size_t counted_slot = 0;
     bool counted = false;
+    std::uint64_t candela_frames = 0;  ///< frames Candela ran, for its counters' per-frame figures
 
     ~Impl() {
         if (device == nullptr) {
@@ -294,6 +301,18 @@ struct RealtimeRenderer::Impl {
                           "directional lights ({} pixels)",
                           static_cast<double>(totals[0]) / totals[1], static_cast<double>(totals[2]) / totals[1],
                           totals[1]);
+            }
+            if (const auto* totals = static_cast<const std::uint32_t*>(device->map(counter_readbacks[counted_slot]));
+                totals != nullptr && candela_frames > 0 && totals[3] > 0) {
+                const double frames = static_cast<double>(candela_frames);
+                const double lookups = std::max(1.0, static_cast<double>(totals[8]) + totals[9] + totals[10]);
+                log::info("render",
+                          "candela cache: per frame {:.0f} estimates added, {:.0f} new cells, {:.0f} dropped (slots "
+                          "taken), {:.0f} evictions, {:.0f} cells held; gather lookups {:.1f}% own level, {:.1f}% "
+                          "parent, {:.1f}% shaded ({} frames)",
+                          totals[3] / frames, totals[4] / frames, totals[5] / frames, totals[6] / frames,
+                          totals[7] / frames, 100.0 * totals[8] / lookups, 100.0 * totals[9] / lookups,
+                          100.0 * totals[10] / lookups, candela_frames);
             }
         }
         for (PersistentBuffer& b : cache) {
@@ -314,10 +333,10 @@ struct RealtimeRenderer::Impl {
         }
         for (rhi::PipelineHandle* p :
              {&visibility_pipeline, &surface_pipeline, &gi_ambient_pipeline, &cache_update_pipeline,
-              &cache_resolve_pipeline, &gather_pipeline, &gi_spatial_pipeline, &shade_pipeline,
-              &restir_temporal_pipeline, &restir_spatial_pipeline, &accumulate_pipeline, &denoise_temporal_pipeline,
-              &denoise_variance_pipeline, &denoise_atrous_pipeline, &denoise_combine_pipeline, &taau_pipeline,
-              &display_pipeline}) {
+              &cache_resolve_pipeline, &gather_pipeline, &gi_misses_pipeline, &gi_temporal_pipeline,
+              &gi_spatial_pipeline, &shade_pipeline, &restir_temporal_pipeline, &restir_spatial_pipeline,
+              &accumulate_pipeline, &denoise_temporal_pipeline, &denoise_variance_pipeline, &denoise_atrous_pipeline,
+              &denoise_combine_pipeline, &taau_pipeline, &display_pipeline}) {
             if (p->is_valid()) {
                 device->destroy(*p);
             }
@@ -528,6 +547,8 @@ Result<> RealtimeRenderer::prepare(rhi::Device& device, const SceneShaders& shad
           std::tuple{&shaders.candela, "cache_update", &s.cache_update_pipeline},
           std::tuple{&shaders.candela, "cache_resolve", &s.cache_resolve_pipeline},
           std::tuple{&shaders.candela, "gather", &s.gather_pipeline},
+          std::tuple{&shaders.candela, "misses", &s.gi_misses_pipeline},
+          std::tuple{&shaders.candela, "temporal", &s.gi_temporal_pipeline},
           std::tuple{&shaders.candela, "spatial", &s.gi_spatial_pipeline},
           std::tuple{&shaders.shade, "shade", &s.shade_pipeline},
           std::tuple{&shaders.shade, "accumulate", &s.accumulate_pipeline},
@@ -546,7 +567,7 @@ Result<> RealtimeRenderer::prepare(rhi::Device& device, const SceneShaders& shad
         return std::unexpected(sampler.error());
     }
     s.linear_clamp = *sampler;
-    const std::array<std::uint32_t, 4> zeros{};
+    const std::array<std::uint32_t, counter_count> zeros{};
     auto counters = device.create_buffer({.size = sizeof(zeros),
                                           .usage = rhi::BufferUsage::storage | rhi::BufferUsage::copy_src,
                                           .debug_name = "real-time counters",
@@ -894,7 +915,9 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
             for (const GraphResource& r : cache) {
                 b.write(r, rhi::ResourceState::shader_write);
             }
+            b.write(counters, rhi::ResourceState::shader_write);
         };
+        ++s.candela_frames;
         const auto groups = [&](std::string name, rhi::PipelineHandle pipeline, std::uint32_t x, std::uint32_t y,
                                 const auto& declare) {
             graph.add_compute_pass(
@@ -922,6 +945,22 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
                });
         groups("candela: cache resolve", s.cache_resolve_pipeline, cache_capacity / 64, 1, use_cache);
         dispatch("candela: gather", s.gather_pipeline, [&](PassBuilder& b) {
+            scene.read_scene(b);
+            for (const GraphResource& r : current_targets) {
+                b.read(r);
+            }
+            use_cache(b);
+            b.write(gi_temporal, rhi::ResourceState::shader_write);
+        });
+        dispatch("candela: misses", s.gi_misses_pipeline, [&](PassBuilder& b) {
+            scene.read_scene(b);
+            for (const GraphResource& r : current_targets) {
+                b.read(r);
+            }
+            use_cache(b);
+            b.write(gi_temporal, rhi::ResourceState::shader_write);
+        });
+        dispatch("candela: temporal", s.gi_temporal_pipeline, [&](PassBuilder& b) {
             scene.read_scene(b);
             for (const GraphResource& r : current_targets) {
                 b.read(r);
@@ -977,7 +1016,7 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
             b.write(counter_readback, rhi::ResourceState::copy_dst);
         },
         [source = s.counters, target = s.counter_readbacks[s.counted_slot]](PassContext& ctx) {
-            ctx.cmd.copy_buffer(source, target, 3 * sizeof(std::uint32_t));
+            ctx.cmd.copy_buffer(source, target, counter_count * sizeof(std::uint32_t));
         });
     if (accumulating) {
         dispatch("accumulate", s.accumulate_pipeline, [&](PassBuilder& b) {

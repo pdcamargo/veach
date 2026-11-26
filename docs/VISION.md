@@ -43,7 +43,9 @@ Changing anything in this file is a product decision: the product owner signs of
 - Hardware raytracing is the baseline, not an add-on: DXR 1.1-class GPUs on Windows, Apple M3 or newer on
   Mac. M1/M2 may run but are not optimized for.
 - Initial target: **60 fps at 1440p output** (with upscaling) on current mid/high-end RT GPUs. Refined with
-  real measurements.
+  real measurements: two quality tiers, Performance (60 fps, the default) and Quality (30 fps)
+  ([ADR 0049](adr/0049-frame-budget-and-quality-tiers.md)). Base M3/M4 Macs are expected at about **30 fps** in
+  Performance until dynamic resolution (VCH-065) holds the frame rate by lowering the render scale.
 - **The real-time renderer**: a visibility buffer over meshlets, lit with the same Slang materials and lights as
   the reference path tracer.
 - **Tessera**: virtualized geometry (our Nanite): cluster hierarchies, GPU culling and streaming, taking over the

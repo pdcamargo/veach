@@ -168,6 +168,8 @@ def main() -> int:
             max_mean, max_luminance = tolerance(entry)
         realtime = variant(scene, f"{args.label}realtime", size, args.extra + "\n"
                            "camera:remove(veach.components.PathTracer)\n" + no_sky +
+                           # The protocol's own settings, not the quality tier's (ADR 0049).
+                           "camera:set(veach.components.RenderQuality, { tier = \"custom\" })\n" +
                            "camera:set(veach.components.RealtimeLighting, { light_candidates = "
                            f"{args.candidates}, gi = \"{gi}\", "
                            f"ao_rays = {4 if args.sky else 0}, ao_radius = {10000 if args.sky else 1}, "

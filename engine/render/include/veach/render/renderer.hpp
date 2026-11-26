@@ -51,7 +51,10 @@ struct RenderView {
     RealtimeLighting realtime;              ///< the camera's RealtimeLighting component, or the defaults
     Upscaling upscaling;                    ///< the camera's Upscaling component, or the defaults
     Candela candela;                        ///< the camera's Candela component, or the defaults
-    std::uint64_t camera = 0;               ///< the camera entity: per-view history is kept by it (ADR 0040)
+    /// The camera's RenderQuality tier (absent: Performance). Unless custom, realtime, upscaling and candela above
+    /// already hold the tier's settings.
+    RenderTier tier = RenderTier::performance;
+    std::uint64_t camera = 0;  ///< the camera entity: per-view history is kept by it (ADR 0040)
 };
 
 /// A mesh to draw this frame: an imported mesh, the material of each of its slots, and where it is.

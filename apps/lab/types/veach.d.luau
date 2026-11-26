@@ -116,6 +116,10 @@ export type RealtimeLighting = {
 	debug_skip: number,
 	view: RealtimeView,
 }
+export type RenderTier = "performance" | "quality" | "custom"
+export type RenderQuality = {
+	tier: RenderTier,
+}
 export type SceneInstance = {
 	path: string,
 }
@@ -208,6 +212,7 @@ export type Veach = {
 		read PathTracer: Component<PathTracer>,
 		read PointLight: Component<PointLight>,
 		read RealtimeLighting: Component<RealtimeLighting>,
+		read RenderQuality: Component<RenderQuality>,
 		read SceneInstance: Component<SceneInstance>,
 		read Sky: Component<Sky>,
 		read Spinner: Component<Spinner>,

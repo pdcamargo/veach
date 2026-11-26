@@ -62,9 +62,8 @@ def screenshot_luminance(mcp: Mcp, path: pathlib.Path) -> float:
 def cost(lab: pathlib.Path, rhi: str, scene: str) -> dict:
     out = {}
     for gi in ("off", "candela"):
-        mcp = session(lab, rhi, scene, "2560x1440", gi, {"mode": "automatic", "render_scale": 0.5})
-        mcp.call("set_component", entity="camera", component="RealtimeLighting",
-                 value={"gi": gi, "light_candidates": 8, "spatial_samples": 1})
+        mcp = session(lab, rhi, scene, "2560x1440", gi, {"mode": "automatic"})
+        mcp.call("set_component", entity="camera", component="RenderQuality", value={"tier": "performance"})
         mcp.call("step_frames", count=30)
         report = mcp.call("frame_budget", tier="performance", frames=30)
         mcp.close()

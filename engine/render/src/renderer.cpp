@@ -8,6 +8,7 @@
 #include <veach/ecs/services.hpp>
 #include <veach/platform/platform_module.hpp>
 #include <veach/platform/window.hpp>
+#include <veach/render/frame_budget.hpp>
 #include <veach/render/png.hpp>
 
 #include "atmosphere.hpp"
@@ -196,6 +197,17 @@ Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device) {
             }
             if (const Candela* candela = e.try_get<Candela>()) {
                 view.candela = *candela;
+            }
+            if (const RenderQuality* quality = e.try_get<RenderQuality>()) {
+                view.tier = quality->tier;
+            }
+            if (view.tier != RenderTier::custom) {
+                const TierBudget& tier =
+                    tier_budget(view.tier == RenderTier::quality ? QualityTier::quality : QualityTier::performance);
+                view.upscaling.render_scale = tier.render_scale;
+                view.realtime.light_candidates = tier.light_candidates;
+                view.realtime.spatial_samples = tier.spatial_samples;
+                view.candela.ray_rate = tier.gi_ray_rate;
             }
             view.camera = e.id();
             views.emplace_back(e.id(), view);
@@ -562,6 +574,8 @@ RenderModule::RenderModule(World& world) {
         .member(&Sky::aerial_perspective, "aerial_perspective")
         .add<Scriptable>();
     world.component<UpscalerMode>();
+    world.component<RenderTier>();
+    world.component<RenderQuality>().member(&RenderQuality::tier, "tier").add<Scriptable>();
     world.component<Upscaling>()
         .member(&Upscaling::mode, "mode")
         .member(&Upscaling::render_scale, "render_scale")

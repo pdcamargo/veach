@@ -58,7 +58,7 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0046 | [Directional lights are evaluated exactly, beside ReSTIR DI](0046-exact-directional-lights.md) | Accepted |
 | 0047 | [Image accuracy against recorded baselines with explicit tolerances](0047-image-tolerance-policy.md) | Accepted |
 | 0048 | [Visibility rays test alpha-tested triangles as candidates in one traversal](0048-alpha-tested-visibility-rays.md) | Accepted |
-| 0049 | [Frame budget and quality tiers](0049-frame-budget-and-quality-tiers.md) | Proposed |
+| 0049 | [Frame budget and quality tiers](0049-frame-budget-and-quality-tiers.md) | Accepted |
 | 0050 | [The physical atmosphere: Hillaire LUTs shared by both renderers, one Sky component](0050-physical-atmosphere.md) | Accepted |
 | 0051 | [Candela: a ReSTIR GI final gather over a world-space radiance cache](0051-candela-approach.md) | Accepted |
 | 0052 | [Image tolerance exceptions expire with their bug](0052-tolerance-exceptions-expire.md) | Accepted |

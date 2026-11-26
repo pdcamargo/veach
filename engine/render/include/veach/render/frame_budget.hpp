@@ -47,6 +47,7 @@ struct TierBudget {
     float render_scale = 1.0f;  ///< direct lighting settings that fit the slices on Bistro (ADR 0049)
     std::uint32_t light_candidates = 0;
     std::uint32_t spatial_samples = 0;
+    float gi_ray_rate = 0.25f;                             ///< Candela's gather rays per render pixel
     std::array<double, subsystem_count> ms{};              ///< by Subsystem; the rest of frame_ms is headroom
     std::array<std::uint64_t, memory_kind_count> bytes{};  ///< by MemoryKind
     std::uint64_t memory_bytes = 0;                        ///< total; the rest is headroom

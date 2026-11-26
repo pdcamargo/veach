@@ -206,7 +206,15 @@ double median(std::vector<double> values) {
 
 /// ADR 0049's budget report: the current state rendered `frames` times, measured against a tier.
 json frame_budget(Engine& engine, const json& arguments) {
-    const std::string tier_name = arguments.value("tier", std::string("performance"));
+    auto& renderer = engine.services().get<render::Renderer>();
+    if (renderer.render_world().views.empty()) {
+        engine.render_frame();
+    }
+    // The tier to measure against: the argument, else the camera's active one (a custom tier: Performance's slices).
+    const auto& views = renderer.render_world().views;
+    const RenderTier active = views.empty() ? RenderTier::performance : views.front().tier;
+    const std::string tier_name =
+        arguments.value("tier", std::string(active == RenderTier::quality ? "quality" : "performance"));
     const std::optional<render::QualityTier> tier = render::tier_from_string(tier_name);
     if (!tier) {
         fail(ErrorCode::mcp_invalid_arguments, std::format("unknown tier '{}'", tier_name),
@@ -215,7 +223,6 @@ json frame_budget(Engine& engine, const json& arguments) {
     const render::TierBudget& budget = render::tier_budget(*tier);
     const int frames = arguments.value("frames", 16);
     auto& device = engine.services().get<rhi::Device>();
-    auto& renderer = engine.services().get<render::Renderer>();
 
     std::vector<double> totals;
     std::map<std::string, std::vector<double>> pass_ms;
@@ -313,7 +320,9 @@ json frame_budget(Engine& engine, const json& arguments) {
         const bool matches = view.upscaling.render_scale == budget.render_scale &&
                              view.realtime.light_candidates == budget.light_candidates &&
                              view.realtime.spatial_samples == budget.spatial_samples;
+        constexpr std::array<std::string_view, 3> tiers{"performance", "quality", "custom"};
         settings = {{"gi", gi_mode(view)},
+                    {"active_tier", tiers.at(std::to_underlying(view.tier))},
                     {"render_scale", view.upscaling.render_scale},
                     {"light_candidates", view.realtime.light_candidates},
                     {"spatial_samples", view.realtime.spatial_samples},

@@ -169,12 +169,14 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   (`veach/scene.slang`, `veach/brdf.slang`, `veach/lights.slang`), so a material renders the same in both
   ([ADR 0037](../adr/0037-realtime-renderer-visibility-buffer.md)).
 - **The real-time renderer** draws a camera without a `PathTracer` ([temporal spec](../specs/temporal-direct-lighting/spec.md)),
-  at the render resolution (`Upscaling.render_scale`, default 0.75) with sub-pixel jitter:
+  at the render resolution with sub-pixel jitter. The camera's quality tier (`RenderQuality.tier`, ADR 0049) sets
+  it: Performance (the default) renders at 0.5 with 8 ReSTIR candidates and 1 neighbor, Quality at 0.75 with 12 and
+  2; `"custom"` takes `Upscaling.render_scale` and `RealtimeLighting`'s own values instead (benchmarks, comparisons):
   1. `visibility`: meshlet triangles into the visibility buffer (ADR 0037);
   2. `surface`: the G-buffer, analytic motion vectors and the disocclusion decision every temporal pass shares
      (`veach/temporal.slang`, ADR 0040, ADR 0045);
-  3. ReSTIR DI (ADR 0041): `light_candidates` (12) alias-table samples over point, spot and emissive lights,
-     temporal and `spatial_samples` (2) spatial reuse with pairwise MIS, then `shade` with one shadow ray per
+  3. ReSTIR DI (ADR 0041): `light_candidates` alias-table samples over point, spot and emissive lights,
+     temporal and `spatial_samples` spatial reuse with pairwise MIS, then `shade` with one shadow ray per
      pixel, plus one per directional light, evaluated exactly (ADR 0046), the indirect light and emission. The
      indirect light comes from the GI pass before it (`RealtimeLighting.gi`): `"off"` (default until Candela) is
      the ambient stopgap (`gi: ambient`: the sky through `ao_rays` short-range rays), `"direct_only"` none, and

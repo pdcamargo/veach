@@ -126,6 +126,16 @@ struct RealtimeLighting {
     RealtimeView view = RealtimeView::final;
 };
 
+/// The quality tier a camera renders at (ADR 0049). A tier sets the render scale, ReSTIR's candidates and neighbors
+/// and Candela's ray rate from its budget (engine/render/src/frame_budget.cpp), whatever Upscaling, RealtimeLighting
+/// and Candela say; `custom` leaves those to them (benchmarks and comparisons pin their own).
+enum class RenderTier : std::uint8_t { performance, quality, custom };
+
+/// On the camera; absent: Performance.
+struct RenderQuality {
+    RenderTier tier = RenderTier::performance;
+};
+
 /// How the real-time renderer upscales (ADR 0043). `automatic` is MetalFX's temporal scaler where the device
 /// supports it, otherwise Veach's own (`temporal`); `none` renders at the output resolution without jitter.
 enum class UpscalerMode : std::uint8_t { automatic, metalfx, temporal, none };

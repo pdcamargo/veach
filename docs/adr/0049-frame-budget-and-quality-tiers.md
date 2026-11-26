@@ -4,9 +4,10 @@ Date: 2026-11-25
 
 ## Status
 
-Proposed. The owner approved the two tiers, Performance as the default and the budget report, with additions
-(review packet replies, 2026-11-25); it becomes Accepted once the owner has judged the Performance tier's 0.5 render
-scale from the upscaling comparison. Until then the renderer's defaults stay at Quality's settings.
+Accepted (2026-11-26). The owner approved the two tiers, Performance as the default, the budget report and the
+memory budgets, and judged the Performance tier's 0.5 render scale with MetalFX against native 1440p by eye
+(MetalFX 0.046 FLIP from native on Bistro noon, our TAAU 0.056 and visibly softer, accepted for now on Windows:
+VCH-068 looks at AMD FSR there).
 
 ## Context
 
@@ -29,6 +30,11 @@ Measured on the M5 Max, Bistro, 1440p output, MetalFX, release build (`tools/ben
 
 ## Decision
 
+**The active tier** is the camera's `RenderQuality { tier }`, Performance when absent. A tier sets the render scale,
+ReSTIR's candidates and neighbors and Candela's ray rate; `custom` leaves them to `Upscaling`, `RealtimeLighting` and
+`Candela` (benchmarks and comparisons pin their own). The budget report measures against the active tier and says
+whether the settings are its (`matches_tier`).
+
 **Two tiers**, each a GPU-time budget and a GPU-memory budget split by subsystem, at 1440p output on the reference
 machine. **Performance is the default** at startup.
 
@@ -45,8 +51,9 @@ machine. **Performance is the default** at startup.
 | Headroom | 0.42 ms | 0.83 ms |
 
 Fog and transparency (VISION) take their slices from the headroom and the sky's old 0.5 ms, which the sky measured
-under 0.25 ms. Headroom is now thin in Performance: the GI slice is where to find more if a later subsystem needs it
-(Candela is estimated at 1.3-2.6 ms of its 4.5, ADR 0051).
+under 0.25 ms. **Headroom is thin in Performance (0.42 ms): any change that takes from it, a new slice or a larger
+one, is flagged to the owner.** The GI slice is where to find more if a later subsystem needs it (Candela is
+estimated at 1.3-2.6 ms of its 4.5, ADR 0051).
 
 Tier settings for direct lighting: **Performance** renders at 0.5 scale with 8 candidates and 1 spatial neighbor;
 **Quality** at 0.75 with 12 and 2. Further Performance options if the slice tightens: a half-rate sun ray (temporal
@@ -97,6 +104,9 @@ bandwidth (about 120 GB/s against about 400) falls by a similar ratio, so the re
 The render-scale row assumes the pixel-bound passes scale with pixel count, and visibility and the TLAS only partly
 do.
 
+**Base M3/M4 Macs are expected at about 30 fps in Performance until dynamic resolution lands.** That is the stated
+expectation (VISION), not a failure to fix tier by tier.
+
 **For hardware we cannot measure, dynamic resolution is the plan** (VCH-065): the render scale adapts each frame
 to hold the tier's frame time, between a floor (about 0.33) and the tier's own scale, with the temporal upscaler
 absorbing the change. A tier then fixes the frame rate and the feature set, and resolution is what gives. Until it
@@ -106,7 +116,8 @@ exists, an unmeasured Mac runs the tier's settings and misses its frame rate.
 
 - Candela, reflections, fog and transparency each have a number before they are designed (Candela's design must
   fit 4.5 ms in Performance).
-- Performance at 0.5 scale costs about 15% more upscaled FLIP than 0.75 on Bistro; the owner judges it by eye.
+- Performance at 0.5 scale costs about 15% more upscaled FLIP than 0.75 on Bistro; the owner judged it acceptable
+  with MetalFX.
 - The budget file is something every rendering change keeps in step: a new pass or resource name fails the
   mapping test until it has a subsystem.
 - The GI slice holds the ambient stopgap while GI is off (2.3 ms of 4.5 in Performance), so the report shows what

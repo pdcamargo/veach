@@ -179,6 +179,9 @@ C++ components tagged `veach::Scriptable` (all fields Luau-representable). The e
   `denoise`, `gi` (`"off"`: the ambient stopgap, sky light darkened by `ao_rays` rays within `ao_radius` meters;
   `"direct_only"`: no indirect light; `"candela"`: Candela, step 1 of [its spec](../specs/candela/spec.md)), `view`
   (`"indirect"` shows the GI pass's light alone, linear); see [rendering](rendering.md).
+- `RenderQuality` (on a camera; absent: Performance): `tier` `"performance"`, `"quality"` or `"custom"`. A tier sets
+  the render scale, ReSTIR's candidates and neighbors and Candela's ray rate, overriding the components below;
+  `"custom"` uses theirs ([ADR 0049](../adr/0049-frame-budget-and-quality-tiers.md)).
 - `Candela` (on a camera; absent: the defaults): `ray_rate` (gather rays per render pixel: 0.25, 0.5 or 1),
   `spatial_samples` (0; reuse is biased until VCH-066), `cache_bounces` (2).
 - `Sky` (on any one entity; none means the defaults): `mode` `"physical"` (default), `"constant"` (`color` in nits)

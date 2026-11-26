@@ -1,15 +1,15 @@
 {
-  "doc": "Image accuracy baselines and their exceptions (ADR 0047, ADR 0052). Measured by tools/bench/compare_direct.py --final [--sky] at 640x360 against the path tracer. A scene passes at flip + max(0.001, 5% of flip) mean FLIP and within 2% mean luminance, unless an exception names an open backlog item: tools/scripts/check_repo.py fails once that item is done, so the exception goes with its bug. 'gate': the pre-push gate runs it (tests/CMakeLists.txt); 'benchmark': run by hand in a release build when lighting, the denoiser or the upscaler changes.",
+  "doc": "Image accuracy baselines and their exceptions (ADR 0047, ADR 0052). Measured by tools/bench/compare_direct.py --final [--sky | --candela] at 640x360 against the path tracer (modes 1, 3 and 4). Entries are keyed by name and mode; `realtime_frames` (default 64) is the real-time warm-up. A scene passes at flip + max(0.001, 5% of flip) mean FLIP and within 2% mean luminance, unless an exception names an open backlog item: tools/scripts/check_repo.py fails once that item is done, so the exception goes with its bug. 'gate': the pre-push gate runs it (tests/CMakeLists.txt); 'benchmark': run by hand in a release build when lighting, the denoiser or the upscaler changes.",
   "scenes": [
-    { "name": "cornell_box", "flip": 0.0208, "luminance": -0.0095, "check": "gate", "measured": "c6a1c4b" },
-    { "name": "flight_helmet", "flip": 0.0018, "luminance": -0.0022, "check": "gate", "measured": "c6a1c4b" },
-    { "name": "sponza", "flip": 0.0119, "luminance": 0.0596, "check": "benchmark", "measured": "c6a1c4b",
-      "exceptions": [ { "metric": "luminance", "limit": 0.07, "bug": "VCH-060",
-                        "why": "the blended dirt decal is masked at 0.5 in real time, covered stochastically by the path tracer" } ] },
-    { "name": "bistro", "flip": 0.0145, "luminance": -0.0018, "check": "benchmark", "measured": "VCH-064 fix" },
-    { "name": "bistro_noon", "sky": true, "criterion": "sky.AC3", "flip": 0.0150, "luminance": -0.0067, "check": "gate",
-      "measured": "VCH-064 fix" },
-    { "name": "bistro_sunset", "sky": true, "criterion": "sky.AC3", "flip": 0.0217, "luminance": -0.0099, "check": "gate",
-      "measured": "VCH-064 fix" }
+    {"name": "cornell_box", "flip": 0.0208, "luminance": -0.0095, "check": "gate", "measured": "c6a1c4b"},
+    {"name": "flight_helmet", "flip": 0.0018, "luminance": -0.0022, "check": "gate", "measured": "c6a1c4b"},
+    {"name": "sponza", "flip": 0.0119, "luminance": 0.0596, "check": "benchmark", "measured": "c6a1c4b", "exceptions": [{"metric": "luminance", "limit": 0.07, "bug": "VCH-060", "why": "the blended dirt decal is masked at 0.5 in real time, covered stochastically by the path tracer"}]},
+    {"name": "bistro", "flip": 0.0145, "luminance": -0.0018, "check": "benchmark", "measured": "VCH-064 fix"},
+    {"name": "bistro_noon", "sky": true, "criterion": "sky.AC3", "flip": 0.015, "luminance": -0.0067, "check": "gate", "measured": "VCH-064 fix"},
+    {"name": "bistro_sunset", "sky": true, "criterion": "sky.AC3", "flip": 0.0217, "luminance": -0.0099, "check": "gate", "measured": "VCH-064 fix"},
+    {"name": "cornell_box", "candela": true, "criterion": "candela.AC1", "flip": 0.0382, "luminance": -0.0268, "check": "gate", "measured": "Candela step 1", "exceptions": [{"metric": "luminance", "limit": 0.04, "bug": "VCH-067", "why": "Candela step 1: cache misses where gather rays land read as black, and the denoised indirect light runs dark"}], "realtime_frames": 256},
+    {"name": "bistro_awning", "candela": true, "criterion": "candela.AC7", "flip": 0.0109, "luminance": -0.0515, "check": "gate", "measured": "Candela step 1", "exceptions": [{"metric": "luminance", "limit": 0.06, "bug": "VCH-067", "why": "Candela step 1: cache misses where gather rays land read as black, and the denoised indirect light runs dark (no leak: brighter than the reference would be one)"}], "realtime_frames": 256},
+    {"name": "sponza", "candela": true, "criterion": "candela.AC2", "flip": 0.1436, "luminance": 0.0965, "check": "benchmark", "measured": "Candela step 1", "exceptions": [{"metric": "luminance", "limit": 0.11, "bug": "VCH-067", "why": "Candela step 1: cache misses where gather rays land read as black, and the denoised indirect light runs dark"}], "realtime_frames": 256},
+    {"name": "bistro_noon", "candela": true, "criterion": "candela.AC2", "flip": 0.1287, "luminance": -0.0836, "check": "benchmark", "measured": "Candela step 1", "exceptions": [{"metric": "luminance", "limit": 0.1, "bug": "VCH-067", "why": "Candela step 1: cache misses where gather rays land read as black, and the denoised indirect light runs dark"}], "realtime_frames": 256}
   ]
 }

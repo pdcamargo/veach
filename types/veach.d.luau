@@ -82,6 +82,11 @@ export type Camera = {
 	shutter: number,
 	iso: number,
 }
+export type Candela = {
+	ray_rate: number,
+	spatial_samples: number,
+	cache_bounces: number,
+}
 export type DirectionalLight = {
 	color: vector,
 	illuminance: number,
@@ -98,8 +103,8 @@ export type PointLight = {
 	intensity: number,
 	radius: number,
 }
-export type GlobalIllumination = "off" | "direct_only"
-export type RealtimeView = "final" | "noisy" | "motion" | "history" | "accumulated"
+export type GlobalIllumination = "off" | "direct_only" | "candela"
+export type RealtimeView = "final" | "noisy" | "motion" | "history" | "accumulated" | "indirect"
 export type RealtimeLighting = {
 	light_candidates: number,
 	temporal_reuse: boolean,
@@ -190,6 +195,7 @@ export type Veach = {
 	read time: TimeApi,
 	read components: {
 		read Camera: Component<Camera>,
+		read Candela: Component<Candela>,
 		read DirectionalLight: Component<DirectionalLight>,
 		read PathTracer: Component<PathTracer>,
 		read PointLight: Component<PointLight>,

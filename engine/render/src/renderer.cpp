@@ -194,6 +194,9 @@ Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device) {
             if (const Upscaling* upscaling = e.try_get<Upscaling>()) {
                 view.upscaling = *upscaling;
             }
+            if (const Candela* candela = e.try_get<Candela>()) {
+                view.candela = *candela;
+            }
             view.camera = e.id();
             views.emplace_back(e.id(), view);
         });
@@ -535,6 +538,11 @@ RenderModule::RenderModule(World& world) {
         .member(&RealtimeLighting::ao_radius, "ao_radius")
         .member(&RealtimeLighting::debug_skip, "debug_skip")
         .member(&RealtimeLighting::view, "view")
+        .add<Scriptable>();
+    world.component<Candela>()
+        .member(&Candela::ray_rate, "ray_rate")
+        .member(&Candela::spatial_samples, "spatial_samples")
+        .member(&Candela::cache_bounces, "cache_bounces")
         .add<Scriptable>();
     world.component<SkyMode>();
     world.component<Sky>()

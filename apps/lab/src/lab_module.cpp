@@ -33,7 +33,7 @@ LabModule::LabModule(veach::World& world) {
     auto& renderer = veach::services(world).get<veach::render::Renderer>();
     renderer.add_feature(std::make_unique<veach::render::SceneRenderer>(
         veach::render::SceneShaders{lab_shaders::path_tracer(), lab_shaders::realtime_visibility(),
-                                    lab_shaders::realtime_shade()},
+                                    lab_shaders::realtime_shade(), lab_shaders::candela()},
         lab_shaders::material_kinds, veach::services(world).get<veach::AssetServer>()));
 
     world.system<const Spinner>("ReportSpinner").kind<veach::phase::Shutdown>().each([](const Spinner& s) {

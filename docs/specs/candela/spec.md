@@ -1,6 +1,6 @@
 # Candela: real-time global illumination
 
-**Status:** In progress (step 1: a prototype measured for cost and quality, ADR 0051)
+**Status:** In progress (step 1 measured: stop conditions hit, the owner decides; see Step 1 results)
 **Area:** render
 **Owner:** dev lead (product-affecting: the product owner approves)
 
@@ -68,6 +68,49 @@ camera:set(c.PathTracer, { mode = 4 })  -- reference: direct light plus diffuse 
 - **candela.AC7**: No leaks: behind one of Bistro's thin walls, unlit from its side, Candela's indirect light is
   within ADR 0047's tolerance of mode 4's, and not brighter than it by more than 10%.
 - **candela.AC8**: Opening a door (an occluder removed) brings the new indirect light to 90% within 10 frames.
+
+## Step 1 results (2026-11-26)
+
+The prototype: `RealtimeLighting.gi = "candela"`, off by default. A radiance cache of 2^21 slots
+(`veach/radiance_cache.slang`: cells 5 cm at level 0, about 1/80 of their distance to the camera, six normal
+directions, an average over 3 frames, eviction after 32 idle frames), fed by one diffuse path per 5x5 pixels with two
+bounces past the visible surface; a gather of one cosine ray per 4 pixels with temporal reuse, the sample's radiance
+read again from its cell each frame; spatial reuse off (biased, VCH-066). The path tracer's mode 4 is the reference:
+direct light, then the first hit's diffuse lobe followed through Lambertian bounces. Measured on the M5 Max with
+`tools/bench/candela_step1.py` and `compare_direct.py --candela`.
+
+**Cost**, Performance settings at 1440p output (0.5 scale), median ms:
+
+| Scene | Cache update (est. 0.4-0.6) | Cache resolve | Gather (est. 0.3-1.2) | Spatial | Candela | GI off (stopgap) |
+|---|---|---|---|---|---|---|
+| Cornell box | 0.14 | 0.04 | 0.33 | 0.13 | 0.64 | 0.12 |
+| Sponza | 0.54 | 0.13 | 0.95 | 0.18 | 1.79 | 1.30 |
+| Bistro noon | **1.91** | 0.15 | **2.29** | 0.18 | **4.52** | 2.34 |
+| Bistro, alpha tests skipped | 0.57 | 0.14 | 0.88 | 0.17 | 1.77 | |
+
+GPU memory: 140 MiB (cache 56, reservoirs 84) of the 160 MiB GI slice.
+
+**Accuracy** against mode 4 (`compare_direct.py --candela --final`, 640x360, 256 frames of warm-up; baselines in
+`tests/tolerance.json`): Cornell box 0.0382 FLIP, -2.68%; Bistro awning 0.0109, -5.15%; Sponza 0.1436, +9.65%; Bistro
+noon 0.1287, -8.36%. Without the denoiser, Cornell's average over 512 frames is -0.65%; the cache alone (every pixel
+gathering, no reuse) -1.1%. Candela's own indirect light settles within 8 frames; the denoised image takes about
+128 (the awning: -21% after 64 frames).
+
+**Leaks** (candela.AC7): under Bistro's café awning, Candela is 5% darker than the reference, never brighter.
+
+**Flicker** (candela.AC4, mean FLIP between consecutive frames of a still camera, 640x360): direct light only
+0.0042 / 0.0009 / 0.0007 (Cornell, Sponza, Bistro), with Candela 0.0057 / 0.0097 / 0.0058: 1.4x, 10.8x, 8.3x. The same
+at 1, 0.5 and 0.25 gather rays per pixel, and with the cache averaged over 8 frames instead of 3 (0.0056).
+
+**Response** (candela.AC5, AC8: frames until Candela's indirect light, linear and before the denoiser, has gone 90% of
+the way): a light switched off, 6 (Cornell's fill light), 11 (Sponza's sun), more than 20 (Bistro's sun and sky); a
+door opened (Cornell's tall box removed, a lid over Sponza or Bistro moved away), 1, more than 20, more than 20.
+
+**Verdict:** step 1 hit ADR 0051's stop conditions on Bistro: the gather (2.29 ms) and the cache update (1.91 ms) are
+past twice their estimates, and flicker and response fail. Three causes, measured (VCH-067): closest-hit rays through
+foliage re-trace once per transparent layer (without alpha tests Bistro's Candela is 1.77 ms, inside the estimates);
+gather rays landing in cells no update path reached read black (Bistro dark, Sponza speckled); and flicker that comes
+from the cache, not the gather rate. The owner decides how to go on.
 
 ## Out of scope
 

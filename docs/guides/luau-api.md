@@ -173,10 +173,14 @@ C++ components tagged `veach::Scriptable` (all fields Luau-representable). The e
 - `PathTracer` (`samples_per_frame`, `max_bounces`, `mode`): on a camera, renders it with the reference
   path tracer; see [first-real-scene](../specs/first-real-scene/spec.md). `mode` 0 is everything, 1 direct light
   only (no sky, no bounces: what the real-time renderer estimates), 2 an ambient-occlusion debug view, 3 direct light
-  plus the sky on the first hit's diffuse lobe (what the real-time renderer estimates with its ambient stopgap).
+  plus the sky on the first hit's diffuse lobe (what the real-time renderer estimates with its ambient stopgap), 4
+  direct light plus diffuse indirect light on that lobe (what Candela estimates).
 - `RealtimeLighting` (on a camera; absent: the defaults): `light_candidates`, `temporal_reuse`, `spatial_samples`,
   `denoise`, `gi` (`"off"`: the ambient stopgap, sky light darkened by `ao_rays` rays within `ao_radius` meters;
-  `"direct_only"`: no indirect light), `view`; see [rendering](rendering.md).
+  `"direct_only"`: no indirect light; `"candela"`: Candela, step 1 of [its spec](../specs/candela/spec.md)), `view`
+  (`"indirect"` shows the GI pass's light alone, linear); see [rendering](rendering.md).
+- `Candela` (on a camera; absent: the defaults): `ray_rate` (gather rays per render pixel: 0.25, 0.5 or 1),
+  `spatial_samples` (0; reuse is biased until VCH-066), `cache_bounces` (2).
 - `Sky` (on any one entity; none means the defaults): `mode` `"physical"` (default), `"constant"` (`color` in nits)
   or `"none"`; the physical sky's `time_of_day` (hours, solar time), `latitude` (degrees), `day_of_year`, `north`
   (radians: north is -Z turned about +Y), `sun_illuminance` (lux at the top of the atmosphere), `ground_albedo`,

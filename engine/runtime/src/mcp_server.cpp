@@ -191,6 +191,7 @@ std::string_view gi_mode(const render::RenderView& view) {
     switch (view.realtime.gi) {
         case GlobalIllumination::off: return "off (ambient stopgap)";
         case GlobalIllumination::direct_only: return "direct only";
+        case GlobalIllumination::candela: return "candela";
     }
     return "?";
 }

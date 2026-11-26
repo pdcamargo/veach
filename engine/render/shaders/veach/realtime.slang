@@ -25,6 +25,15 @@ struct PackedReservoir {
     float4 radiance_m;      ///< xyz: a triangle sample's front emitted radiance; w: M
 };
 
+/// Candela's GI reservoir as stored (candela.slang packs it): a sample point (or, for the sky, a direction), its
+/// normal, the radiance it sends, and the reservoir's M and W. 32 bytes. Mirrors render::PackedGiReservoir.
+struct PackedGiReservoir {
+    uint4 point_normal;  ///< xyz: the point (bits of a float3), or a direction for the sky; w: octahedral normal, or
+                         ///< gi_sky_sample
+    uint4 radiance_mw;   ///< x: half r, g; y: half b, M; z: W (bits); w: unused
+};
+static const uint gi_sky_sample = 0xffffffffu;
+
 static const uint frame_history_valid = 1;    ///< RealtimeFrame::flags: last frame's targets belong to this view
 static const uint frame_reservoirs_valid = 2;
 static const uint frame_denoiser_history_valid = 4;  ///< the denoiser ran last frame: its history is this view's  ///< RealtimeFrame::flags: last frame's reservoirs hold these lights' samples
@@ -32,6 +41,7 @@ static const uint frame_denoiser_history_valid = 4;  ///< the denoiser ran last 
 // RealtimeFrame::gi: the indirect light (render::GlobalIllumination).
 static const uint gi_off = 0;          ///< the ambient stopgap
 static const uint gi_direct_only = 1;  ///< none
+static const uint gi_candela = 2;
 
 // RealtimeFrame::view: what the renderer shows (render::RealtimeView).
 static const uint view_final = 0;
@@ -39,6 +49,7 @@ static const uint view_noisy = 1;
 static const uint view_motion = 2;
 static const uint view_history = 3;
 static const uint view_accumulated = 4;
+static const uint view_indirect = 5;
 
 struct RealtimeFrame {
     float4x4 view_projection;             ///< jittered: what the visibility pass rasterizes with
@@ -118,6 +129,15 @@ struct RealtimeFrame {
     /// the incoming radiance (nits, unexposed), which the diffuse albedo turns into outgoing radiance.
     DescriptorHandle<Texture2D<float4>> indirect;
     DescriptorHandle<RWTexture2D<float4>> indirect_out;
+    // Candela (ADR 0051): the radiance cache (veach/radiance_cache.slang) and the GI reservoirs, one per render pixel.
+    DescriptorHandle<RWStructuredBuffer<uint>> cache_keys;
+    DescriptorHandle<RWStructuredBuffer<uint>> cache_accum;
+    DescriptorHandle<RWStructuredBuffer<uint2>> cache_radiance;
+    DescriptorHandle<RWStructuredBuffer<PackedGiReservoir>> gi_temporal_out;  ///< gather + temporal reuse
+    DescriptorHandle<StructuredBuffer<PackedGiReservoir>> gi_temporal;
+    DescriptorHandle<RWStructuredBuffer<PackedGiReservoir>> gi_final_out;     ///< after spatial reuse
+    DescriptorHandle<StructuredBuffer<PackedGiReservoir>> gi_previous;        ///< last frame's final
+    DescriptorHandle<StructuredBuffer<uint>> unused1;
 
     uint2 render_size;
     uint frame;  ///< seeds the random numbers
@@ -136,7 +156,16 @@ struct RealtimeFrame {
     uint temporal_reuse;  ///< 1: reuse last frame's reservoirs
     uint accumulated;     ///< view_accumulated: frames in the average before this one
     uint denoise;         ///< 1: the denoiser runs (shade still writes the noisy image to radiance)
-    uint2 pad2;
+    uint cache_capacity;  ///< RadianceCache's
+    float cache_scale;
+    float cache_cell_size;
+    float cache_cell_scale;
+    uint cache_max_frames;
+    uint gi_rate;             ///< Candela: one gather ray per this many pixels (1, 2 or 4)
+    uint gi_spatial_samples;
+    uint gi_cache_bounces;    ///< vertices after the first in a cache update path
+    uint gi_reservoirs_valid; ///< 1: gi_previous holds last frame's reservoirs for this view
+    uint pad2;
 };
 
 /// Fills veach_scene (veach/scene.slang) from the frame record.

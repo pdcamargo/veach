@@ -76,6 +76,13 @@ float3 brdf_eval(Brdf b, float3 v, float3 l, out float pdf) {
     return (specular + diffuse) * l.z;
 }
 
+/// A Lambertian surface's albedo / pi x cos(l), with the cosine-sampling pdf: the diffuse-only bounces of Candela and
+/// of the path tracer's mode 4 (docs/specs/candela/spec.md).
+float3 lambert_eval(float3 albedo, float3 l, out float pdf) {
+    pdf = max(l.z, 0.0) / pi;
+    return albedo * pdf;
+}
+
 /// brdf_eval's two lobes, each times cos(l): what the denoiser filters separately (ADR 0042). Their sum is
 /// brdf_eval's value.
 void brdf_eval_lobes(Brdf b, float3 v, float3 l, out float3 diffuse, out float3 specular) {

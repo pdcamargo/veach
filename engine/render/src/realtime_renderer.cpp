@@ -41,6 +41,22 @@ struct alignas(16) RealtimeParams {
 static_assert(rhi::parameters_match<RealtimeParams>(
     veach_render_shaders::layout::realtime_shade,
     {VEACH_PARAM(RealtimeParams, frame), VEACH_PARAM(RealtimeParams, argument), VEACH_PARAM(RealtimeParams, pad)}));
+static_assert(rhi::parameters_match<RealtimeParams>(
+    veach_render_shaders::layout::candela,
+    {VEACH_PARAM(RealtimeParams, frame), VEACH_PARAM(RealtimeParams, argument), VEACH_PARAM(RealtimeParams, pad)}));
+
+/// Mirrors PackedGiReservoir in shaders/veach/realtime.slang: Candela's GI reservoir.
+struct PackedGiReservoir {
+    std::array<std::uint32_t, 8> words{};
+};
+static_assert(sizeof(PackedGiReservoir) == 32);
+
+/// Candela's radiance cache (ADR 0051, shaders/veach/radiance_cache.slang): slots, the size of a cell at level 0 and
+/// of a cell relative to its distance from the camera, frames a value averages over.
+constexpr std::uint32_t cache_capacity = 1u << 21;
+constexpr float cache_cell_size = 0.05f;
+constexpr float cache_cell_scale = 1.0f / 80.0f;
+constexpr std::uint32_t cache_max_frames = 3;
 
 /// Mirrors Params in shaders/taau.slang.
 struct alignas(16) TaauParams {
@@ -104,6 +120,10 @@ struct alignas(16) RealtimeFrame {
     rhi::DescriptorHandle sky;       ///< SkyFrame (ADR 0050)
     rhi::DescriptorHandle indirect;  ///< the GI pass's indirect light on the diffuse lobe (read, then write)
     rhi::DescriptorHandle indirect_out;
+    /// Candela (ADR 0051): the radiance cache's keys, sums and values, then the GI reservoirs: temporal (write, read),
+    /// final (write), last frame's final (read), and a spare.
+    std::array<rhi::DescriptorHandle, 3> cache;
+    std::array<rhi::DescriptorHandle, 5> gi_reservoirs;
     std::array<std::uint32_t, 2> render_size{};
     std::uint32_t frame = 0;
     std::uint32_t flags = 0;
@@ -121,15 +141,24 @@ struct alignas(16) RealtimeFrame {
     std::uint32_t temporal_reuse = 0;
     std::uint32_t accumulated = 0;
     std::uint32_t denoise = 0;
-    std::array<std::uint32_t, 2> pad2{};
+    std::uint32_t cache_capacity = 0;
+    float cache_scale = 0.0f;
+    float cache_cell_size = 0.0f;
+    float cache_cell_scale = 0.0f;
+    std::uint32_t cache_max_frames = 0;
+    std::uint32_t gi_rate = 4;
+    std::uint32_t gi_spatial_samples = 0;
+    std::uint32_t gi_cache_bounces = 0;
+    std::uint32_t gi_reservoirs_valid = 0;
+    std::uint32_t pad2 = 0;
 };
 static_assert(offsetof(RealtimeFrame, tlas) == 320);
 static_assert(offsetof(RealtimeFrame, surfaces) == 368);
 static_assert(offsetof(RealtimeFrame, previous) == 480);
 static_assert(offsetof(RealtimeFrame, alias) == 536);
 static_assert(offsetof(RealtimeFrame, denoiser) == 600);
-static_assert(offsetof(RealtimeFrame, render_size) == 816);
-static_assert(sizeof(RealtimeFrame) == 896);
+static_assert(offsetof(RealtimeFrame, render_size) == 880);
+static_assert(sizeof(RealtimeFrame) == 992);
 
 /// Mirrors PackedReservoir in shaders/veach/realtime.slang (ADR 0041).
 struct PackedReservoir {
@@ -205,7 +234,11 @@ struct RealtimeRenderer::Impl {
         std::array<Persistent, 2> atrous_diffuse;
         std::array<Persistent, 2> atrous_specular;
         Persistent denoised;
-        Persistent indirect;               ///< the GI pass's output (RealtimeFrame::indirect)
+        Persistent indirect;  ///< the GI pass's output (RealtimeFrame::indirect)
+        // Candela's GI reservoirs (ADR 0051), made on first use: gather + temporal, then final (ping-pong).
+        PersistentBuffer gi_temporal;
+        std::array<PersistentBuffer, 2> gi_final;
+        bool gi_valid = false;             ///< last frame's final GI reservoirs belong to this view
         bool denoised_last_frame = false;  ///< the denoiser's history is this view's
         std::uint64_t lights_hash = 0;     ///< the lights last frame's reservoirs sampled
         bool history = false;              ///< last frame's targets belong to this view
@@ -220,6 +253,12 @@ struct RealtimeRenderer::Impl {
     rhi::PipelineHandle surface_pipeline;
     rhi::PipelineHandle shade_pipeline;
     rhi::PipelineHandle gi_ambient_pipeline;
+    rhi::PipelineHandle cache_update_pipeline;
+    rhi::PipelineHandle cache_resolve_pipeline;
+    rhi::PipelineHandle gather_pipeline;
+    rhi::PipelineHandle gi_spatial_pipeline;
+    /// Candela's radiance cache: world space, shared by every view, made on first use.
+    std::array<PersistentBuffer, 3> cache;  ///< keys, sums, values
     rhi::PipelineHandle restir_temporal_pipeline;
     rhi::PipelineHandle restir_spatial_pipeline;
     rhi::PipelineHandle accumulate_pipeline;
@@ -257,6 +296,11 @@ struct RealtimeRenderer::Impl {
                           totals[1]);
             }
         }
+        for (PersistentBuffer& b : cache) {
+            if (b.handle.is_valid()) {
+                device->destroy(b.handle);
+            }
+        }
         for (rhi::BufferHandle* b : {&counters}) {
             if (b->is_valid()) {
                 device->destroy(*b);
@@ -269,9 +313,11 @@ struct RealtimeRenderer::Impl {
             destroy(v);
         }
         for (rhi::PipelineHandle* p :
-             {&visibility_pipeline, &surface_pipeline, &gi_ambient_pipeline, &shade_pipeline, &restir_temporal_pipeline,
-              &restir_spatial_pipeline, &accumulate_pipeline, &denoise_temporal_pipeline, &denoise_variance_pipeline,
-              &denoise_atrous_pipeline, &denoise_combine_pipeline, &taau_pipeline, &display_pipeline}) {
+             {&visibility_pipeline, &surface_pipeline, &gi_ambient_pipeline, &cache_update_pipeline,
+              &cache_resolve_pipeline, &gather_pipeline, &gi_spatial_pipeline, &shade_pipeline,
+              &restir_temporal_pipeline, &restir_spatial_pipeline, &accumulate_pipeline, &denoise_temporal_pipeline,
+              &denoise_variance_pipeline, &denoise_atrous_pipeline, &denoise_combine_pipeline, &taau_pipeline,
+              &display_pipeline}) {
             if (p->is_valid()) {
                 device->destroy(*p);
             }
@@ -325,6 +371,10 @@ struct RealtimeRenderer::Impl {
         for (PersistentBuffer& b : v.final_reservoirs) {
             destroy(b);
         }
+        destroy(v.gi_temporal);
+        for (PersistentBuffer& b : v.gi_final) {
+            destroy(b);
+        }
     }
     static std::array<Persistent*, 12> denoiser_targets(ViewState& v) {
         return {&v.noisy_diffuse,       &v.noisy_specular,      &v.diffuse_history[0], &v.diffuse_history[1],
@@ -337,9 +387,10 @@ struct RealtimeRenderer::Impl {
         }
         b = {};
     }
-    bool create(PersistentBuffer& b, std::uint64_t size, const char* name) {
+    bool create(PersistentBuffer& b, std::uint64_t size, const char* name,
+                std::uint32_t stride = sizeof(PackedReservoir), std::span<const std::byte> initial = {}) {
         auto buffer = device->create_buffer(
-            {.size = size, .usage = rhi::BufferUsage::storage, .debug_name = name, .stride = sizeof(PackedReservoir)});
+            {.size = size, .usage = rhi::BufferUsage::storage, .debug_name = name, .stride = stride}, initial);
         if (!buffer) {
             log::error("render", buffer.error());
             return false;
@@ -408,6 +459,26 @@ struct RealtimeRenderer::Impl {
         return ok;
     }
 
+    /// Candela's cache (once) and this view's GI reservoirs. False if the GPU refused one.
+    bool ensure_candela(ViewState& v) {
+        bool ok = true;
+        if (!cache[0].handle.is_valid()) {
+            const std::vector<std::byte> zeros(std::size_t{cache_capacity} * 16);
+            const std::span<const std::byte> all(zeros);
+            ok = create(cache[0], cache_capacity * 4ull, "candela cache keys", 4, all.first(cache_capacity * 4ull)) &&
+                 create(cache[1], cache_capacity * 16ull, "candela cache sums", 4, all) &&
+                 create(cache[2], cache_capacity * 8ull, "candela cache values", 8, all.first(cache_capacity * 8ull));
+        }
+        if (ok && !v.gi_temporal.handle.is_valid()) {
+            const std::uint64_t size = std::uint64_t{v.render_width} * v.render_height * sizeof(PackedGiReservoir);
+            ok = create(v.gi_temporal, size, "candela reservoirs (temporal)", sizeof(PackedGiReservoir)) &&
+                 create(v.gi_final[0], size, "candela reservoirs", sizeof(PackedGiReservoir)) &&
+                 create(v.gi_final[1], size, "candela reservoirs", sizeof(PackedGiReservoir));
+            v.gi_valid = false;
+        }
+        return ok;
+    }
+
     GraphResource import(RenderGraph& graph, Persistent& p, const char* name) {
         return graph.import(p.handle, name, p.written ? rhi::ResourceState::shader_read : rhi::ResourceState::undefined,
                             rhi::ResourceState::shader_read);
@@ -439,7 +510,10 @@ Result<> RealtimeRenderer::prepare(rhi::Device& device, const SceneShaders& shad
     s.visibility_pipeline = *visibility_pipeline;
     const auto compute = [&](const rhi::ShaderLibrary& library, const char* entry,
                              rhi::PipelineHandle& out) -> Result<> {
-        auto pipeline = device.create_compute_pipeline({&library, entry, {8, 8, 1}, entry});
+        const std::array<std::uint32_t, 3> group = std::string_view(entry) == "cache_resolve"
+                                                       ? std::array<std::uint32_t, 3>{64, 1, 1}
+                                                       : std::array<std::uint32_t, 3>{8, 8, 1};
+        auto pipeline = device.create_compute_pipeline({&library, entry, group, entry});
         if (!pipeline) {
             return std::unexpected(pipeline.error());
         }
@@ -451,6 +525,10 @@ Result<> RealtimeRenderer::prepare(rhi::Device& device, const SceneShaders& shad
           std::tuple{&shaders.shade, "restir_temporal", &s.restir_temporal_pipeline},
           std::tuple{&shaders.shade, "restir_spatial", &s.restir_spatial_pipeline},
           std::tuple{&shaders.shade, "gi_ambient", &s.gi_ambient_pipeline},
+          std::tuple{&shaders.candela, "cache_update", &s.cache_update_pipeline},
+          std::tuple{&shaders.candela, "cache_resolve", &s.cache_resolve_pipeline},
+          std::tuple{&shaders.candela, "gather", &s.gather_pipeline},
+          std::tuple{&shaders.candela, "spatial", &s.gi_spatial_pipeline},
           std::tuple{&shaders.shade, "shade", &s.shade_pipeline},
           std::tuple{&shaders.shade, "accumulate", &s.accumulate_pipeline},
           std::tuple{&shaders.shade, "denoise_temporal", &s.denoise_temporal_pipeline},
@@ -616,6 +694,33 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     f.indirect = device.descriptor(v.indirect.handle);
     f.indirect_out = device.descriptor(v.indirect.handle, rhi::View::storage);
     f.gi = static_cast<std::uint32_t>(lighting.gi);
+    // Candela (ADR 0051): its cache and this view's GI reservoirs, made on first use.
+    const bool candela = lighting.gi == GlobalIllumination::candela;
+    if (candela && !s.ensure_candela(v)) {
+        return;
+    }
+    for (std::size_t i = 0; i < f.cache.size(); ++i) {
+        f.cache.at(i) = candela ? device.descriptor(s.cache.at(i).handle, rhi::View::storage)
+                                : device.null_descriptor(rhi::DescriptorKind::storage_buffer);
+    }
+    f.gi_reservoirs.fill(device.null_descriptor(rhi::DescriptorKind::buffer));
+    if (candela) {
+        f.gi_reservoirs[0] = device.descriptor(v.gi_temporal.handle, rhi::View::storage);
+        f.gi_reservoirs[1] = device.descriptor(v.gi_temporal.handle);
+        f.gi_reservoirs[2] = device.descriptor(v.gi_final[current].handle, rhi::View::storage);
+        f.gi_reservoirs[3] = device.descriptor(v.gi_final[previous].handle);
+    }
+    const Candela& gi_settings = view.candela;
+    f.cache_capacity = cache_capacity;
+    f.cache_scale = 65536.0f * view.exposure;  // fixed point relative to what the camera shows
+    f.cache_cell_size = cache_cell_size;
+    f.cache_cell_scale = cache_cell_scale;
+    f.cache_max_frames = cache_max_frames;
+    f.gi_rate = gi_settings.ray_rate >= 1.0f ? 1u : (gi_settings.ray_rate >= 0.5f ? 2u : 4u);
+    f.gi_spatial_samples = std::min<std::uint32_t>(gi_settings.spatial_samples, 4);
+    f.gi_cache_bounces = std::min<std::uint32_t>(gi_settings.cache_bounces, 3);
+    f.gi_reservoirs_valid = candela && v.gi_valid && v.history ? 1u : 0u;
+    v.gi_valid = candela;
     f.render_size = {rw, rh};
     f.frame = s.frame++;
     // The denoiser runs for the final image; its history is valid only if it ran last frame too (ADR 0042).
@@ -768,10 +873,75 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
         b.read(temporal_reservoirs);
         b.write(final_reservoirs, rhi::ResourceState::shader_write);
     });
-    // ---- indirect light: GI off is the ambient stopgap (VCH-017).
+    // ---- indirect light: Candela (ADR 0051), or GI off: the ambient stopgap (VCH-017).
     const bool gi = lighting.gi != GlobalIllumination::direct_only;
     const GraphResource indirect = s.import(graph, v.indirect, "indirect light");
-    if (gi) {
+    if (candela) {
+        std::array<GraphResource, 3> cache{};
+        constexpr std::array<const char*, 3> cache_names{"candela cache keys", "candela cache sums",
+                                                         "candela cache values"};
+        for (std::size_t i = 0; i < cache.size(); ++i) {
+            cache.at(i) = s.import(graph, s.cache.at(i), cache_names.at(i));
+            s.cache.at(i).written = true;
+        }
+        const GraphResource gi_temporal = s.import(graph, v.gi_temporal, "candela reservoirs (temporal)");
+        const GraphResource gi_final = s.import(graph, v.gi_final[current], "candela reservoirs");
+        const GraphResource gi_previous = s.import(graph, v.gi_final[previous], "candela reservoirs (last frame)");
+        v.gi_temporal.written = true;
+        v.gi_final[current].written = true;
+        // The cache is read and written through storage views everywhere.
+        const auto use_cache = [&](PassBuilder& b) {
+            for (const GraphResource& r : cache) {
+                b.write(r, rhi::ResourceState::shader_write);
+            }
+        };
+        const auto groups = [&](std::string name, rhi::PipelineHandle pipeline, std::uint32_t x, std::uint32_t y,
+                                const auto& declare) {
+            graph.add_compute_pass(
+                std::move(name),
+                [&](PassBuilder& b) {
+                    b.read(frame_data);
+                    declare(b);
+                },
+                [params, pipeline, x, y](PassContext& ctx) {
+                    ctx.cmd.set_pipeline(pipeline);
+                    ctx.cmd.set_parameters(params);
+                    ctx.cmd.dispatch(x, y);
+                });
+        };
+        constexpr std::uint32_t update_block = 5;  // candela.slang's: one path per 5x5 pixels
+        const std::uint32_t blocks_x = (rw + update_block - 1) / update_block;
+        const std::uint32_t blocks_y = (rh + update_block - 1) / update_block;
+        groups("candela: cache update", s.cache_update_pipeline, (blocks_x + 7) / 8, (blocks_y + 7) / 8,
+               [&](PassBuilder& b) {
+                   scene.read_scene(b);
+                   for (const GraphResource& r : current_targets) {
+                       b.read(r);
+                   }
+                   use_cache(b);
+               });
+        groups("candela: cache resolve", s.cache_resolve_pipeline, cache_capacity / 64, 1, use_cache);
+        dispatch("candela: gather", s.gather_pipeline, [&](PassBuilder& b) {
+            scene.read_scene(b);
+            for (const GraphResource& r : current_targets) {
+                b.read(r);
+            }
+            b.read(gi_previous);
+            use_cache(b);
+            b.write(gi_temporal, rhi::ResourceState::shader_write);
+        });
+        dispatch("candela: spatial", s.gi_spatial_pipeline, [&](PassBuilder& b) {
+            scene.read_scene(b);
+            for (const GraphResource& r : current_targets) {
+                b.read(r);
+            }
+            b.read(gi_temporal);
+            use_cache(b);
+            b.write(gi_final, rhi::ResourceState::shader_write);
+            b.write(indirect, rhi::ResourceState::shader_write);
+        });
+        v.indirect.written = true;
+    } else if (gi) {
         dispatch("gi: ambient", s.gi_ambient_pipeline, [&](PassBuilder& b) {
             scene.read_scene(b);
             for (const GraphResource& r : current_targets) {

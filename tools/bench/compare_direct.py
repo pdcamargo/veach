@@ -120,6 +120,9 @@ def main() -> int:
     parser.add_argument("--sky", action="store_true",
                         help="direct light plus sky light: the scene's sky, the ambient stopgap on with unlimited range, the path tracer's "
                              "mode 3 (physical-sky spec, sky.AC3); otherwise both sides render without a sky")
+    parser.add_argument("--candela", action="store_true",
+                        help="direct light plus diffuse GI: the scene's sky, Candela in real time, the path tracer's mode 4 "
+                             "(docs/specs/candela/spec.md)")
     parser.add_argument("--no-reuse", action="store_true",
                         help="no temporal or spatial reservoir reuse: independent frames converge faster when averaged")
     parser.add_argument("--realtime-frames", type=int, default=1,
@@ -144,26 +147,29 @@ def main() -> int:
           f"{args.frames * args.spf} spp, real time {args.candidates} candidates, {args.realtime_frames} frames)")
     print("|---|---|---|---|---|")
     view = "final" if args.final else "accumulated" if args.realtime_frames > 1 else "noisy"
-    no_sky = "" if args.sky else "camera:set(veach.components.Sky, { mode = \"none\" })\n"
+    no_sky = "" if args.sky or args.candela else "camera:set(veach.components.Sky, { mode = \"none\" })\n"
+    gi = "candela" if args.candela else "off" if args.sky else "direct_only"
+    mode, bounces = (4, 8) if args.candela else (3, 1) if args.sky else (1, 1)
     baselines = {}
     if args.tolerance:
-        baselines = {s["name"]: s for s in json.loads(args.tolerance.read_text(encoding="utf-8"))["scenes"]}
+        baselines = {(s["name"], s.get("sky", False), s.get("candela", False)): s
+                     for s in json.loads(args.tolerance.read_text(encoding="utf-8"))["scenes"]}
     for scene in args.scenes:
         scene = scene.resolve()
         name = scene.stem + (f"_{args.label}" if args.label else "")
         max_mean, max_luminance = args.max_mean, args.max_luminance_error
         if args.tolerance:
-            entry = baselines.get(scene.stem)
-            if entry is None or entry.get("sky", False) != args.sky:
-                print(f"compare_direct: {scene.stem}: no {'--sky ' if args.sky else ''}entry in {args.tolerance}",
-                      file=sys.stderr)
+            entry = baselines.get((scene.stem, args.sky, args.candela))
+            if entry is None:
+                mode = "--sky " if args.sky else "--candela " if args.candela else ""
+                print(f"compare_direct: {scene.stem}: no {mode}entry in {args.tolerance}", file=sys.stderr)
                 failed = True
                 continue
             max_mean, max_luminance = tolerance(entry)
         realtime = variant(scene, f"{args.label}realtime", size, args.extra + "\n"
                            "camera:remove(veach.components.PathTracer)\n" + no_sky +
                            "camera:set(veach.components.RealtimeLighting, { light_candidates = "
-                           f"{args.candidates}, gi = \"{'off' if args.sky else 'direct_only'}\", "
+                           f"{args.candidates}, gi = \"{gi}\", "
                            f"ao_rays = {4 if args.sky else 0}, ao_radius = {10000 if args.sky else 1}, "
                            f"denoise = {'true' if args.final else 'false'}, view = \"{view}\", "
                            f"temporal_reuse = {'false' if args.no_reuse else 'true'}, "
@@ -176,7 +182,7 @@ def main() -> int:
                               "camera:set(veach.components.Upscaling, { mode = \"none\", render_scale = 1 })"))
         reference = variant(scene, f"{args.label}reference", size, args.extra + "\n" + no_sky +
                             "camera:set(veach.components.PathTracer, { samples_per_frame = "
-                            f"{args.spf}, max_bounces = 1, mode = {3 if args.sky else 1}, "
+                            f"{args.spf}, max_bounces = {bounces}, mode = {mode}, "
                             f"jitter = {'true' if args.final and args.upscaler != 'none' else 'false'} }})")
         try:
             rt_png = args.out / f"{name}.realtime.png"

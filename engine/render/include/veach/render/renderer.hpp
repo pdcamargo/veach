@@ -50,6 +50,7 @@ struct RenderView {
     std::optional<PathTracer> path_tracer;  ///< the camera's PathTracer component, if it has one
     RealtimeLighting realtime;              ///< the camera's RealtimeLighting component, or the defaults
     Upscaling upscaling;                    ///< the camera's Upscaling component, or the defaults
+    Candela candela;                        ///< the camera's Candela component, or the defaults
     std::uint64_t camera = 0;               ///< the camera entity: per-view history is kept by it (ADR 0040)
 };
 

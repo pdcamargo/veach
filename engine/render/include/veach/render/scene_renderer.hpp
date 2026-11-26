@@ -9,7 +9,7 @@
 //
 //   renderer.add_feature(std::make_unique<veach::render::SceneRenderer>(
 //       veach::render::SceneShaders{lab_shaders::path_tracer(), lab_shaders::realtime_visibility(),
-//                                   lab_shaders::realtime_shade()},
+//                                   lab_shaders::realtime_shade(), lab_shaders::candela()},
 //       lab_shaders::material_kinds, assets));
 
 #include <veach/core/math.hpp>
@@ -61,6 +61,7 @@ struct SceneShaders {
     const rhi::ShaderLibrary& path_tracer;
     const rhi::ShaderLibrary& visibility;
     const rhi::ShaderLibrary& shade;
+    const rhi::ShaderLibrary& candela;
 };
 
 class SceneRenderer final : public RenderFeature {

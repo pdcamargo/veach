@@ -297,7 +297,8 @@ void shade(uint3 id: SV_DispatchThreadID) {
     const SkyFrame sky = f.sky[0];
     if (!s.valid) {  // the sky, with the sun's disk (ADR 0050)
         const float3 direction = camera_ray(f, float2(id.xy) + 0.5);
-        f.radiance_out[id.xy] = float4(sky_radiance(sky, direction, true) * exposure, 1.0);
+        f.radiance_out[id.xy] = float4(f.view == view_indirect ? float3(0.0, 0.0, 0.0)
+                                                               : sky_radiance(sky, direction, true) * exposure, 1.0);
         f.noisy_diffuse_out[id.xy] = float4(0.0, 0.0, 0.0, 0.0);
         f.noisy_specular_out[id.xy] = float4(0.0, 0.0, 0.0, 0.0);
         return;
@@ -352,7 +353,12 @@ void shade(uint3 id: SV_DispatchThreadID) {
         }
         // Indirect light (the GI pass's) on the diffuse lobe.
         if (f.gi != gi_direct_only) {
-            diffuse += f.indirect.Load(int3(id.xy, 0)).rgb * d.b.diffuse;
+            const float3 indirect = f.indirect.Load(int3(id.xy, 0)).rgb * d.b.diffuse;
+            if (f.view == view_indirect) {
+                f.radiance_out[id.xy] = float4(indirect * exposure, 1.0);
+                return;
+            }
+            diffuse += indirect;
         }
     }
     // The noisy image, and its two lobes demodulated for the denoiser (ADR 0042); all exposed.

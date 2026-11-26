@@ -54,6 +54,8 @@ inline constexpr std::uint32_t full = 0;  ///< all light transport: the referenc
 inline constexpr std::uint32_t direct =
     1;                                  ///< light reaching the first surface straight from lights; no sky, no bounces
 inline constexpr std::uint32_t ao = 2;  ///< debug view: ambient occlusion (1 m) at the first surface, never lighting
+inline constexpr std::uint32_t direct_sky = 3;         ///< direct light plus the sky on the first hit's diffuse lobe
+inline constexpr std::uint32_t direct_diffuse_gi = 4;  ///< direct light plus diffuse indirect light (Candela's)
 }  // namespace path_tracer_mode
 
 /// The real-time renderer's settings, on a camera without a PathTracer (docs/specs/realtime-renderer-v0/spec.md).
@@ -90,12 +92,22 @@ enum class RealtimeView : std::uint8_t {
     history,      ///< green: last frame's surface found; yellow: disoccluded, history borrowed from the same surface
                   ///< next to it; red: none; blue: no geometry
     accumulated,  ///< lighting before the denoiser, averaged over frames while nothing changes (bias checks)
+    indirect,     ///< the GI pass's indirect light times the diffuse albedo, exposed and linear, not tonemapped:
+                  ///< what Candela (or the stopgap) adds before the denoiser (response measurements)
 };
 
 /// The real-time renderer's indirect light (docs/specs/candela/spec.md, ADR 0051).
 enum class GlobalIllumination : std::uint8_t {
     off,          ///< GI off: the ambient stopgap, the sky's light darkened by short-range ray-traced AO
     direct_only,  ///< no indirect light at all: direct light only (comparisons with the path tracer's mode 1)
+    candela,      ///< Candela (ADR 0051): the path tracer's mode 4 is its reference
+};
+
+/// Candela's settings, on the camera; absent: these defaults (docs/specs/candela/spec.md).
+struct Candela {
+    float ray_rate = 0.25f;             ///< gather rays per render pixel: 0.25, 0.5 or 1
+    std::uint32_t spatial_samples = 0;  ///< neighbors' reservoirs reused per pixel, up to 4 (biased: VCH-066)
+    std::uint32_t cache_bounces = 2;    ///< diffuse surfaces a cache update path visits after the first, up to 3
 };
 
 struct RealtimeLighting {
@@ -128,7 +140,8 @@ struct PathTracer {
     std::uint32_t samples_per_frame = 1;
     std::uint32_t max_bounces = 8;
     /// path_tracer_mode: 0 full, 1 direct, 2 ao (debug view), 3 direct + sky light on the first hit's diffuse lobe
-    /// (what the real-time renderer's direct light and ambient stopgap estimate). Escaped rays see the Sky (ADR 0050).
+    /// (what the real-time renderer's direct light and ambient stopgap estimate), 4 direct + diffuse indirect light on
+    /// it (what direct light and Candela estimate). Escaped rays see the Sky (ADR 0050).
     std::uint32_t mode = 0;
     bool jitter = true;  ///< false: one ray per pixel center, no anti-aliasing (comparisons with real time)
 };

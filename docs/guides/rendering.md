@@ -163,7 +163,7 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   display pass applies it and the AgX tonemapper to the linear radiance renderers produce
   ([ADR 0038](../adr/0038-exposure-and-tonemapping.md)).
 - **One feature, two renderers.** The app adds `render::SceneRenderer(SceneShaders{<ns>::path_tracer(),
-  <ns>::realtime_visibility(), <ns>::realtime_shade()}, <ns>::material_kinds, assets)`. It keeps the scene on the
+  <ns>::realtime_visibility(), <ns>::realtime_shade(), <ns>::candela()}, <ns>::material_kinds, assets)`. It keeps the scene on the
   GPU (meshes with their meshlets, BLASes and a TLAS, material, light and emitter records) and draws each view
   with the renderer its camera asks for. Both share the surface reconstruction, BRDF and light sampling
   (`veach/scene.slang`, `veach/brdf.slang`, `veach/lights.slang`), so a material renders the same in both
@@ -177,7 +177,10 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
      temporal and `spatial_samples` (2) spatial reuse with pairwise MIS, then `shade` with one shadow ray per
      pixel, plus one per directional light, evaluated exactly (ADR 0046), the indirect light and emission. The
      indirect light comes from the GI pass before it (`RealtimeLighting.gi`): `"off"` (default until Candela) is
-     the ambient stopgap (`gi: ambient`: the sky through `ao_rays` short-range rays), `"direct_only"` none;
+     the ambient stopgap (`gi: ambient`: the sky through `ao_rays` short-range rays), `"direct_only"` none, and
+     `"candela"` Candela (ADR 0051): a world-space radiance cache (`veach/radiance_cache.slang`) fed by sparse
+     diffuse paths (`candela: cache update`, `cache resolve`), and a ReSTIR GI gather that reads it where its rays
+     land (`candela: gather`, `spatial`);
   4. the denoiser (ADR 0042): demodulated diffuse and specular, temporal accumulation, variance, five a-trous
      iterations, remodulation;
   5. the upscaler (ADR 0043): MetalFX's temporal scaler where the device has it (`Upscaling.mode = "automatic"`),
@@ -191,8 +194,9 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
 - **The reference path tracer** renders a camera that has a `PathTracer { samples_per_frame, max_bounces, mode,
   jitter }`. It accumulates while nothing changes and restarts on any change. `mode` 1 computes direct light
   only, which is what the real-time renderer estimates; mode 3 adds the sky on the first hit's diffuse lobe (the
-  real-time ambient stopgap's term); `tools/bench/compare_direct.py` measures one against the other per scene
-  (`--sky` for mode 3). Example: `scripts/cornell_box.luau`. It counts what should never happen and fails the run:
+  real-time ambient stopgap's term), mode 4 diffuse indirect light (Candela's); `tools/bench/compare_direct.py`
+  measures one against the other per scene (`--sky` for mode 3, `--candela` for mode 4), and
+  `tools/bench/candela_step1.py` Candela's cost, flicker and response. Example: `scripts/cornell_box.luau`. It counts what should never happen and fails the run:
   pixels whose accumulation reads back wrong (`render.history_lost`) and NaN or infinite samples
   (`render.nonfinite_samples`).
 - **The sky** ([ADR 0050](../adr/0050-physical-atmosphere.md)): a `Sky` component on any entity, physical by

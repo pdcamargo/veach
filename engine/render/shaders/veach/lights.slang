@@ -117,7 +117,7 @@ float3 punctual_irradiance_sample(LightRecord light, float3 p, inout Rng rng, ou
 
 /// A punctual light, picked uniformly: delta, so no MIS. Returns radiance x f x cos / pdf, and the shadow ray.
 float3 sample_punctual(float3 p, Frame frame, Brdf b, float3 v_local, float p_punctual, inout Rng rng,
-                       out float3 l, out float distance) {
+                       out float3 l, out float distance, bool lambert = false) {
     l = float3(0.0, 0.0, 1.0);
     distance = 0.0;
     if (veach_scene.light_count == 0) {
@@ -127,7 +127,8 @@ float3 sample_punctual(float3 p, Frame frame, Brdf b, float3 v_local, float p_pu
     const float select = p_punctual / float(veach_scene.light_count);
     const float3 irradiance = punctual_irradiance_sample(veach_scene.lights[index], p, rng, l, distance);
     float bsdf_pdf;
-    const float3 f = brdf_eval(b, v_local, frame.to_local(l), bsdf_pdf);
+    const float3 f = lambert ? lambert_eval(b.diffuse, frame.to_local(l), bsdf_pdf)
+                             : brdf_eval(b, v_local, frame.to_local(l), bsdf_pdf);
     return irradiance * f / select;
 }
 
@@ -148,7 +149,10 @@ uint pick_emissive(float u) {
 
 /// One light sample, MIS-weighted for emissive triangles. Returns radiance x f x cos / pdf. There is one
 /// shadow ray at the end: every trace() call site inlines the alpha test, and Metal's compiler gives up on many.
-float3 sample_light(float3 p, float3 geometric, Frame frame, Brdf b, float3 v_local, inout Rng rng) {
+/// `lambert`: the surface is b.diffuse / pi alone and bounces by cosine sampling (lambert_eval), as in Candela.
+/// `mis` false: no BSDF-sampled ray will find these emitters, so light sampling counts them in full.
+float3 sample_light(float3 p, float3 geometric, Frame frame, Brdf b, float3 v_local, inout Rng rng,
+                    bool lambert = false, bool mis = true) {
     const float pick = rng.next();
     const float p_emissive = emissive_selection_probability();
     float3 contribution = float3(0.0, 0.0, 0.0);
@@ -170,10 +174,11 @@ float3 sample_light(float3 p, float3 geometric, Frame frame, Brdf b, float3 v_lo
             return float3(0.0, 0.0, 0.0);
         }
         float bsdf_pdf;
-        const float3 f = brdf_eval(b, v_local, frame.to_local(l), bsdf_pdf);
-        contribution = le * f * power_heuristic(light_pdf, bsdf_pdf) / light_pdf;
+        const float3 f = lambert ? lambert_eval(b.diffuse, frame.to_local(l), bsdf_pdf)
+                                 : brdf_eval(b, v_local, frame.to_local(l), bsdf_pdf);
+        contribution = le * f * (mis ? power_heuristic(light_pdf, bsdf_pdf) : 1.0) / light_pdf;
     } else {
-        contribution = sample_punctual(p, frame, b, v_local, 1.0 - p_emissive, rng, l, distance);
+        contribution = sample_punctual(p, frame, b, v_local, 1.0 - p_emissive, rng, l, distance, lambert);
     }
     if (all(contribution <= 0.0) || !light_visible(p, geometric, l, distance, rng)) {
         return float3(0.0, 0.0, 0.0);

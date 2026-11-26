@@ -10,6 +10,7 @@ import veach.bindless;
 import veach.material;
 import veach.materials_generated;  // evaluateSurface(kind, c), evaluateAlpha(kind, c)
 import veach.brdf;
+import veach.diffuse_path;  // cosine_direction
 import veach.lights;
 import veach.random;
 import veach.scene;
@@ -31,7 +32,8 @@ struct Params {
     uint emissive_count;
     float emissive_total_weight;  ///< sum of area x weight over every emissive triangle
     uint mode;  ///< PathTracer.mode: 0 full, 1 direct (first-bounce lights only, no sky), 2 AO debug view,
-                ///< 3 direct + sky (mode 1 plus the sky on the first hit's diffuse lobe)
+                ///< 3 direct + sky (mode 1 plus the sky on the first hit's diffuse lobe), 4 direct + diffuse GI
+                ///< (mode 1 plus diffuse indirect light on the first hit's diffuse lobe: what Candela estimates)
     DescriptorHandle<RWStructuredBuffer<uint>> diagnostics;  ///< [0] lost history, [1] non-finite samples; never reset
     uint jitter;  ///< 1: rays spread over the pixel (anti-aliased); 0: through its center, as the real-time renderer
     uint scene_flags;  ///< SceneData::flags (veach/scene.slang)
@@ -51,14 +53,19 @@ float3 radiance(float3 origin, float3 direction, inout Rng rng, out float first_
     // that hit an emitter), with no sky and no further bounces: what the real-time renderer's direct lighting
     // estimates. Direct + sky (mode 3) adds the sky on the first hit's diffuse lobe, through a cosine ray: what its
     // ambient stopgap estimates (the sky in specular reflections waits for the reflections milestone, VCH-018).
+    // Direct + diffuse GI (mode 4) follows the first hit's diffuse lobe instead of its BSDF: Lambertian bounces past
+    // it, which see the sky and every surface's reflected light (veach/diffuse_path.slang's rules): what Candela
+    // estimates (docs/specs/candela/spec.md). One trace() call site: Metal's compiler gives up on more.
     const bool direct = params.mode == 1 || params.mode == 3;
+    const bool gi = params.mode == 4;
     const uint max_bounces = direct ? 1 : uint(params.sky_bounces.w);
     const SkyFrame sky = params.sky[0];
+    bool diffuse = false;  // mode 4 past the first surface
     for (uint bounce = 0; bounce <= max_bounces; ++bounce) {
         const Trace t = trace(origin, direction, 1e30, rng);
         if (!t.hit) {
             // The sun is the directional light (next-event estimation): only camera rays see its disk.
-            if (params.mode == 0 || (bounce == 0 && params.mode == 3)) {
+            if (params.mode == 0 || diffuse || (bounce == 0 && (params.mode == 3 || gi))) {
                 result += throughput * sky_radiance(sky, direction, bounce == 0);
             }
             break;
@@ -70,8 +77,10 @@ float3 radiance(float3 origin, float3 direction, inout Rng rng, out float first_
         MaterialContext ctx = { hit.surface, hit.material };
         const SurfaceSample s = evaluateSurface(hit.material.kind, ctx);
 
-        // Emission found by BSDF sampling, weighted against light sampling.
-        if (any(s.emission > 0.0) && (hit.front || (hit.material.flags & material_double_sided) != 0)) {
+        // Emission found by BSDF sampling, weighted against light sampling. In mode 4 what the first diffuse bounce
+        // finds is the first surface's direct light, which light sampling counted there in full.
+        if (any(s.emission > 0.0) && (hit.front || (hit.material.flags & material_double_sided) != 0) &&
+            !(gi && bounce == 1)) {
             float weight = 1.0;
             if (previous_bsdf_pdf > 0.0 && (hit.material.flags & material_emissive) != 0) {
                 const float light_pdf = emissive_light_pdf(hit.material, hit.area, t.t, dot(hit.surface.geometric_normal, -direction));
@@ -97,8 +106,13 @@ float3 radiance(float3 origin, float3 direction, inout Rng rng, out float first_
         if (v.z <= 0.0) {
             break;
         }
-        const Brdf b = brdf_of(s, v.z);
-        result += throughput * sample_light(hit.surface.position, hit.surface.geometric_normal, frame, b, v, rng);
+        Brdf b = brdf_of(s, v.z);
+        if (diffuse) {
+            b.f0 = float3(0.0, 0.0, 0.0);
+            b.specular_probability = 0.0;
+        }
+        result += throughput * sample_light(hit.surface.position, hit.surface.geometric_normal, frame, b, v, rng,
+                                            diffuse, !(gi && bounce == 0));
         if (params.mode == 3) {
             const float2 u = float2(rng.next(), rng.next());
             const float r = sqrt(u.x);
@@ -108,9 +122,17 @@ float3 radiance(float3 origin, float3 direction, inout Rng rng, out float first_
             }
         }
 
-        const float3 l = brdf_sample(b, v, rng);
+        float3 l;
         float pdf;
-        const float3 f = brdf_eval(b, v, l, pdf);
+        float3 f;
+        if (gi) {  // the diffuse lobe: cosine sampling, albedo / pi
+            l = frame.to_local(cosine_direction(frame, rng, pdf));
+            f = lambert_eval(b.diffuse, l, pdf);
+            diffuse = true;
+        } else {
+            l = brdf_sample(b, v, rng);
+            f = brdf_eval(b, v, l, pdf);
+        }
         if (pdf <= 0.0 || all(f <= 0.0)) {
             break;
         }

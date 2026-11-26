@@ -78,14 +78,26 @@ jobs:
             hosted_windows: "1"  # tests/cmake/windowed_test.cmake: the runner's Present quirk (VCH-050)
     env:
       CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache
+      LFS_INCLUDE: tests/golden/**,apps/lab/assets/cornell_box/**,apps/lab/assets/flight_helmet/**
       VEACH_REQUIRE_GPU: ${{ matrix.require_gpu || '0' }}
       VEACH_CI_HOSTED_WINDOWS: ${{ matrix.hosted_windows || '0' }}
     steps:
       - uses: actions/checkout@v5
       # Only the Git LFS files CI's tests read: the large scenes (Bistro, Sponza) stay out of CI's bandwidth and
-      # run in the pre-push gate (ADR 0036).
+      # run in the pre-push gate (ADR 0036). Every download counts against the account's LFS bandwidth, so the
+      # objects are cached, keyed on the list of those files: a run downloads only what changed since the cache.
+      - name: List Git LFS files used by CI
+        shell: bash
+        run: git lfs ls-files --long --include="$LFS_INCLUDE" | cut -d' ' -f1 | sort > .lfs-ci-objects
+      - name: Cache Git LFS objects
+        uses: actions/cache@v4
+        with:
+          path: .git/lfs/objects
+          key: lfs-${{ runner.os }}-${{ hashFiles('.lfs-ci-objects') }}
+          restore-keys: lfs-${{ runner.os }}-
       - name: Fetch Git LFS files used by CI
-        run: git lfs pull --include="tests/golden/**,apps/lab/assets/cornell_box/**,apps/lab/assets/flight_helmet/**"
+        shell: bash
+        run: git lfs pull --include="$LFS_INCLUDE"
       - uses: lukka/get-cmake@latest
       - name: MSVC developer environment
         if: runner.os == 'Windows'

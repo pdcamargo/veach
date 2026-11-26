@@ -16,8 +16,11 @@ camera:set(veach.components.Camera, { fov_y = math.rad(40), near_plane = 0.1, ac
 -- A closed room lit by its own lights: no sky.
 camera:set(veach.components.Sky, { mode = "none" })
 
--- The temporal path with Veach's own upscaler, on every backend: one golden for Metal and DX12 (ADR 0043).
+-- The temporal path with Veach's own upscaler, on every backend: one golden for Metal and DX12 (ADR 0043). The
+-- Quality tier's 0.75 scale: at Performance's 0.5 this 256x256 golden renders 128x128, noisy enough that Metal and
+-- WARP drift past the golden's 0.01 FLIP.
 camera:set(veach.components.Upscaling, { mode = "temporal" })
+camera:set(veach.components.RenderQuality, { tier = "quality" })
 
 -- Square, small: the golden runs on WARP too.
 veach.system("CornellBoxSize", "Startup", veach.query(veach.components.Window), function(e, w)

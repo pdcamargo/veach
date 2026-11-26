@@ -414,24 +414,35 @@ def budget(lab: str, rhi: str) -> None:
         else:
             check(report["settings"]["gi"] == "off (ambient stopgap)" and passes["gi"] == ["gi: ambient"],
                   f"[ADR 0049] GI off is the ambient stopgap, shown in the report: {passes['gi']}")
+            # The scene pins the Quality tier (its golden); the report measures against the active tier.
             settings = report["settings"]
-            check(report["tier"] == "performance" and settings["active_tier"] == "performance" and
-                  settings["matches_tier"] and settings["render_scale"] == 0.5,
-                  f"[ADR 0049] Performance is the default tier and the settings follow it: {settings}")
-            # RealtimeLighting's own candidates give way to the tier's; switching the tier switches them.
+            check(report["tier"] == "quality" and settings["active_tier"] == "quality" and
+                  settings["matches_tier"] and settings["render_scale"] == 0.75,
+                  f"[ADR 0049] the report uses the active tier and the settings follow it: {settings}")
+            # RealtimeLighting's own candidates give way to the tier's.
             client.call_json("set_component", entity="camera", component="RealtimeLighting",
                              value={"gi": "direct_only", "light_candidates": 3})
-            client.call_json("set_component", entity="camera", component="RenderQuality", value={"tier": "quality"})
+            client.call_json("set_component", entity="camera", component="RenderQuality",
+                             value={"tier": "performance"})
             client.call_json("step_frames", count=1)
             report = client.call_json("frame_budget", frames=1)
             passes = {s["name"]: [p["name"] for p in s["passes"]] for s in report["subsystems"]}
             settings = report["settings"]
-            check(report["tier"] == "quality" and settings["matches_tier"] and settings["light_candidates"] == 12 and
-                  settings["render_scale"] == 0.75, f"[ADR 0049] the Quality tier's settings apply: {settings}")
+            check(report["tier"] == "performance" and settings["matches_tier"] and
+                  settings["light_candidates"] == 8 and settings["render_scale"] == 0.5,
+                  f"[ADR 0049] the Performance tier's settings apply: {settings}")
             check(settings["gi"] == "direct only" and passes["gi"] == [], "[ADR 0049] gi = direct_only runs no GI pass")
             result = client.call("frame_budget", tier="cinematic")
             check(result.get("isError") is True, "[ADR 0049] an unknown tier is a tool error")
         check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
+    # A camera without RenderQuality renders in the Performance tier, with its settings.
+    client = McpClient([lab, "--mcp", "--headless", "--rhi", rhi, "--script", "scripts/flight_helmet_realtime.luau"])
+    client.initialize()
+    client.call_json("step_frames", count=2)
+    settings = client.call_json("frame_budget", frames=1)["settings"]
+    check(settings["active_tier"] == "performance" and settings["matches_tier"] and settings["render_scale"] == 0.5,
+          f"[ADR 0049] Performance is the default tier: {settings}")
+    check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
 
 
 # ---- the temporal renderer (docs/specs/temporal-direct-lighting/spec.md) --------------------------------------

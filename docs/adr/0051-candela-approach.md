@@ -4,7 +4,7 @@ Date: 2026-11-25
 
 ## Status
 
-Proposed (the owner decides: review packet in the 2026-11-25 summary). No Candela code until then.
+Accepted (the owner approved option 1 with conditions, 2026-11-25; they are part of the decision below).
 
 ## Context
 
@@ -31,15 +31,21 @@ upsampling. Whatever Candela is, it shades far fewer than one hit per pixel per 
 surfaces, motion and disocclusion (0040), a denoiser that takes a demodulated diffuse signal (0042), the physical
 sky for rays that leave the scene (0050), and a path tracer whose bounce code is the reference.
 
-## Decision (proposed)
+## Decision
 
 A hybrid in the shape of AMD's GI-1.0, NVIDIA's SHaRC and Lumen's final gather, built from our parts:
 
-1. **World-space radiance cache.** A spatial hash grid (cells sized by distance to the camera) holding each cell's
-   outgoing diffuse radiance. Updated every frame by tracing short paths from a sparse subset of pixels (one
-   random pixel per 5x5 block, about 4%, as SHaRC recommends), with the path tracer's bounce code: light sampling
-   at each vertex, the sky on misses, the cache itself read at the path's end for further bounces. Cells not
-   touched for a while are evicted. Infinite bounces converge over frames.
+1. **World-space radiance cache.** A spatial hash grid holding each cell's outgoing diffuse radiance. Updated every
+   frame by tracing short paths from a sparse subset of pixels (one random pixel per 5x5 block, about 4%, as SHaRC
+   recommends), with the path tracer's bounce code: light sampling at each vertex, the sky on misses, the cache
+   itself read at the path's end for further bounces. Cells not touched for a while are evicted. Infinite bounces
+   converge over frames.
+   - **Against leaks**, a cell's key includes the surface's normal (six directions, so the two sides of a thin wall
+     never share a cell), and cells are finer near the camera: a cell's size grows with its distance, from a few
+     centimeters close up. A leak test on Bistro's thin walls checks it (candela.AC7).
+   - **Reusable by reflections** (VCH-018): the cache is its own Slang module (`veach/radiance_cache.slang`) with a
+     query by position and normal that any pass can call, and its own GPU resources outside Candela's passes, so
+     rough reflections can end their rays in it and keep it fed with their own path vertices.
 2. **Final gather: ReSTIR GI.** At the render resolution, a quarter of the pixels (Performance; half in Quality)
    trace one cosine ray from the surface each frame. The hit's radiance is read from the cache (no material
    evaluation at the hit beyond its normal), or the sky on a miss. Samples become GI reservoirs, reused temporally
@@ -48,15 +54,25 @@ A hybrid in the shape of AMD's GI-1.0, NVIDIA's SHaRC and Lumen's final gather, 
    denoiser.
 4. **Reference:** `PathTracer.mode = 4`, direct light plus diffuse indirect light (no specular after the first
    hit): what Candela estimates.
-5. **The stopgap goes:** the ambient + AO path remains only as Candela's fallback when its `Candela` component is
-   absent.
+5. **The stopgap is an explicit mode, never a fallback:** `RealtimeLighting.gi` is `"candela"`, `"off"` (the
+   ambient stopgap, shown as "GI off" in the frame budget report) or `"direct_only"`. A camera asking for Candela
+   on a device that cannot run it gets an error, not the stopgap.
+6. **Memory:** about 64 MB for the cache (approved), within the GI memory slice of each tier (ADR 0049) and shown
+   in the budget report.
 
 **Cost estimate, Performance (from the table):** gather 0.25 x 0.9-1.2 ms (visibility-class rays, cache reads) =
 0.3 ms, up to 1.2 ms if hits need full shading; cache update 4% of pixels x 2-3 shaded bounces = 0.4-0.6 ms; GI
 reservoir reuse at quarter rate 0.3-0.5 ms (DI's two reuse passes are 0.9 ms at full rate); upsampling and cache
 upkeep 0.3 ms. **Total 1.3-2.6 ms of 4.5 ms.** Quality at half rate and 2.25x the pixels: about 4-7 ms of 10 ms.
-These are estimates from measured parts, not a prototype: the first implementation step is to measure the gather
-and the cache update alone and stop if either is twice its estimate.
+These are estimates from measured parts, not a prototype.
+
+**Step 1 decides whether to go on**, on Sponza and Bistro, against the path tracer's mode 4:
+
+- **Cost:** the gather and the cache update, each timed alone. Either at twice its estimate is a stop.
+- **Quality:** FLIP against mode 4 (ADR 0047's protocol), temporal flicker (a still camera's frame-to-frame FLIP
+  against direct light alone), and the response to sudden changes (a light switched off, a door opened: frames to
+  reach 10% and 90% of the new indirect light).
+- A failure on quality is a stop too: before going further, the gather is reconsidered (screen probes).
 
 ## Consequences
 

@@ -1,7 +1,6 @@
 # Candela: real-time global illumination
 
-**Status:** Draft (design only: the owner reviews the approach in [ADR 0051](../../adr/0051-candela-approach.md)
-before any code)
+**Status:** In progress (step 1: a prototype measured for cost and quality, ADR 0051)
 **Area:** render
 **Owner:** dev lead (product-affecting: the product owner approves)
 
@@ -34,16 +33,20 @@ and green bleed. Roadmap: VISION's rendering pillar (Candela, "our Lumen"); back
 - Its image MUST be comparable to the path tracer: a path-tracer mode computes exactly what Candela estimates, and
   the real-time image stays within ADR 0047's tolerance of it, baselines recorded per scene.
 - It MUST run on Metal and DX12 through the RHI and the render graph, with ray queries in compute (no hit shaders).
+- Its cache MUST NOT leak light through thin walls: cells are keyed by the surface normal and finer near the camera.
+- Its cache MUST be reusable by reflections (VCH-018): a query by position and normal from any pass.
+- The ambient stopgap MUST remain only as the explicit "GI off" mode (`gi = "off"`), never as a silent fallback.
+- Its GPU memory MUST fit the GI slice of ADR 0049's memory budget and show in the budget report.
 - Indirect specular (reflections) is out of scope: VCH-018 will reuse Candela's cache.
 
 ## API sketch
 
 ```luau
--- On the camera, next to RealtimeLighting. Absent: the ambient stopgap, as today.
-camera:set(c.Candela, {
-	ray_rate = 0.25,        -- final-gather rays per render pixel (Performance 0.25, Quality 0.5)
-	spatial_samples = 2,    -- neighbors' reservoirs reused per pixel
-	cache = true,           -- multiple bounces through the world-space radiance cache
+camera:set(c.RealtimeLighting, { gi = "candela" })  -- or "off" (the ambient stopgap), "direct_only"
+camera:set(c.Candela, {         -- Candela's settings; absent: these defaults
+	ray_rate = 0.25,            -- final-gather rays per render pixel (Performance 0.25, Quality 0.5)
+	spatial_samples = 2,        -- neighbors' reservoirs reused per pixel
+	cache_bounces = 2,          -- bounces after the first in a cache update path, then the cache itself
 })
 camera:set(c.PathTracer, { mode = 4 })  -- reference: direct light plus diffuse indirect light, what Candela estimates
 ```
@@ -62,6 +65,9 @@ camera:set(c.PathTracer, { mode = 4 })  -- reference: direct light plus diffuse 
   of its old value within 10 frames; switching it on reaches 90% within 10 frames.
 - **candela.AC6**: No ghosting beyond the temporal foundation's: the ghosting test (temporal.AC10) with Candela on
   stays within 10% of its value with the stopgap.
+- **candela.AC7**: No leaks: behind one of Bistro's thin walls, unlit from its side, Candela's indirect light is
+  within ADR 0047's tolerance of mode 4's, and not brighter than it by more than 10%.
+- **candela.AC8**: Opening a door (an occluder removed) brings the new indirect light to 90% within 10 frames.
 
 ## Out of scope
 
@@ -71,7 +77,7 @@ camera:set(c.PathTracer, { mode = 4 })  -- reference: direct light plus diffuse 
 
 ## Open questions
 
-- The approach: [ADR 0051](../../adr/0051-candela-approach.md), awaiting the owner.
+- Settled: the approach ([ADR 0051](../../adr/0051-candela-approach.md), accepted with conditions).
 
 ## Links
 

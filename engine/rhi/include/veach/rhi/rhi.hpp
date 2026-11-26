@@ -59,6 +59,18 @@ struct FrameTimings {
     std::string unavailable;
 };
 
+/// GPU memory held by one resource: buffers, textures and acceleration structures (with their scratch and instance
+/// buffers), as the driver sized them. The frame budget report groups them by name (ADR 0049).
+struct ResourceMemory {
+    std::string name;  ///< the resource's debug name
+    std::uint64_t bytes = 0;
+};
+
+struct MemoryUsage {
+    std::uint64_t device_bytes = 0;  ///< everything the device has allocated, by the driver's count; 0 if unknown
+    std::vector<ResourceMemory> resources;
+};
+
 struct DeviceDesc {
     Backend backend = Backend::null;
     bool validation = false;  ///< API validation (Metal debug layer / D3D12 debug layer); errors become error logs.
@@ -141,6 +153,8 @@ public:
     /// Per-pass GPU times of the most recently completed frame. Never waits: frames still on the GPU are not
     /// included (call wait_idle() first for the latest one).
     [[nodiscard]] virtual FrameTimings last_frame_timings() = 0;
+    /// The resources alive now and what they occupy (ADR 0049's memory budget).
+    [[nodiscard]] virtual MemoryUsage memory_usage() = 0;
 
     // ---- work
     [[nodiscard]] virtual std::unique_ptr<CommandList> begin_commands(std::string_view debug_name) = 0;

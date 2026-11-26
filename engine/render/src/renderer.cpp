@@ -456,6 +456,7 @@ void Renderer::render() {
         log::error("render", compiled.error());
         return;
     }
+    last_passes_ = graph.execution_order();
     std::string described = graph.describe();
     if (described != last_graph_) {
         log::debug("render", "{}", described);
@@ -523,12 +524,13 @@ RenderModule::RenderModule(World& world) {
         .member(&SpotLight::radius, "radius")
         .add<Scriptable>();
     world.component<RealtimeView>();
+    world.component<GlobalIllumination>();
     world.component<RealtimeLighting>()
         .member(&RealtimeLighting::light_candidates, "light_candidates")
         .member(&RealtimeLighting::temporal_reuse, "temporal_reuse")
         .member(&RealtimeLighting::spatial_samples, "spatial_samples")
         .member(&RealtimeLighting::denoise, "denoise")
-        .member(&RealtimeLighting::ambient, "ambient")
+        .member(&RealtimeLighting::gi, "gi")
         .member(&RealtimeLighting::ao_rays, "ao_rays")
         .member(&RealtimeLighting::ao_radius, "ao_radius")
         .member(&RealtimeLighting::debug_skip, "debug_skip")

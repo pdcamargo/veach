@@ -92,14 +92,20 @@ enum class RealtimeView : std::uint8_t {
     accumulated,  ///< lighting before the denoiser, averaged over frames while nothing changes (bias checks)
 };
 
+/// The real-time renderer's indirect light (docs/specs/candela/spec.md, ADR 0051).
+enum class GlobalIllumination : std::uint8_t {
+    off,          ///< GI off: the ambient stopgap, the sky's light darkened by short-range ray-traced AO
+    direct_only,  ///< no indirect light at all: direct light only (comparisons with the path tracer's mode 1)
+};
+
 struct RealtimeLighting {
     std::uint32_t light_candidates = 12;  ///< ReSTIR DI's initial candidates per pixel (ADR 0041, ADR 0046)
     bool temporal_reuse = true;           ///< reuse last frame's reservoirs
     std::uint32_t spatial_samples = 2;    ///< neighbors' reservoirs reused per pixel, up to 8; 0 = none
     bool denoise = true;                  ///< the denoiser (ADR 0042); off for the noisy view and bias checks
-    // STOPGAP until Candela (VCH-017): the sky's light (Sky, ADR 0050) on diffuse surfaces, darkened by short-range
-    // ray-traced AO. Candela replaces it; at most a short-range AO stays. Off for comparisons against direct light.
-    bool ambient = true;
+    GlobalIllumination gi = GlobalIllumination::off;
+    // STOPGAP until Candela (VCH-017), what `gi = off` shows: the sky's light (Sky, ADR 0050) on diffuse surfaces,
+    // darkened by short-range ray-traced AO, in its own pass (`gi: ambient`).
     std::uint32_t ao_rays = 4;  ///< cosine rays per pixel
     float ao_radius = 1.0f;     ///< meters: occluders farther away do not darken
     /// Measurement only: parts of shading left out to time what they cost (tools/bench/frame_times.py

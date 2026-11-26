@@ -388,6 +388,44 @@ def gpu_timings(lab: str, rhi: str) -> None:
     check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
 
 
+def budget(lab: str, rhi: str) -> None:
+    """ADR 0049: frame_budget maps every pass and GPU resource of a real-time and a path-traced frame to a subsystem,
+    and shows the GI mode. CI runs it on WARP, whose timings mean nothing, so the slices are not checked here."""
+    for script, reference in (("scripts/cornell_box_realtime.luau", False), ("scripts/cornell_box.luau", True)):
+        client = McpClient([lab, "--mcp", "--headless", "--rhi", rhi, "--script", script])
+        try:
+            client.initialize()
+        except RuntimeError as error:
+            if "rhi.backend_unavailable" in str(error) and os.environ.get("VEACH_REQUIRE_GPU") != "1":
+                print(f"VEACH_GPU_UNAVAILABLE: skipped (the {rhi} device can't ray trace)")
+                return
+            raise
+        client.call_json("step_frames", count=3)
+        report = client.call_json("frame_budget", frames=2)
+        print(json.dumps({k: report[k] for k in ("tier", "ok", "frame_gpu_ms", "settings", "unmapped_passes")}))
+        passes = {s["name"]: [p["name"] for p in s["passes"]] for s in report["subsystems"]}
+        check(report["unmapped_passes"] == [], f"[ADR 0049] every pass has a subsystem: {report['unmapped_passes']}")
+        check(report["memory"]["unmapped"] == [], f"[ADR 0049] every GPU resource has a memory kind: "
+                                                  f"{report['memory']['unmapped']}")
+        check(report["memory"]["mib"] > 0, "[ADR 0049] the report counts GPU memory")
+        if reference:
+            check(report["settings"]["gi"] == "path tracer" and "path tracer" in passes.get("reference", []),
+                  "[ADR 0049] the path tracer is reported apart, unbudgeted")
+        else:
+            check(report["settings"]["gi"] == "off (ambient stopgap)" and passes["gi"] == ["gi: ambient"],
+                  f"[ADR 0049] GI off is the ambient stopgap, shown in the report: {passes['gi']}")
+            client.call_json("set_component", entity="camera", component="RealtimeLighting",
+                             value={"gi": "direct_only"})
+            client.call_json("step_frames", count=1)
+            report = client.call_json("frame_budget", tier="quality", frames=1)
+            passes = {s["name"]: [p["name"] for p in s["passes"]] for s in report["subsystems"]}
+            check(report["tier"] == "quality" and report["settings"]["gi"] == "direct only" and passes["gi"] == [],
+                  "[ADR 0049] gi = direct_only runs no GI pass")
+            result = client.call("frame_budget", tier="cinematic")
+            check(result.get("isError") is True, "[ADR 0049] an unknown tier is a tool error")
+        check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
+
+
 # ---- the temporal renderer (docs/specs/temporal-direct-lighting/spec.md) --------------------------------------
 
 def read_png(path: str) -> tuple[int, int, list[tuple[int, int, int]]]:
@@ -701,7 +739,7 @@ def main() -> int:
     parser.add_argument("--rhi", default="metal")
     parser.add_argument("mode", choices=["protocol", "golden", "fly", "reload", "path_trace", "gpu_timings", "replay",
                                          "replay_windowed", "upscalers", "temporal_motion", "temporal_stability",
-                                         "temporal_ghosting", "sky"])
+                                         "temporal_ghosting", "sky", "budget"])
     args = parser.parse_args()
     if args.mode == "protocol":
         protocol(args.lab)
@@ -723,6 +761,8 @@ def main() -> int:
         temporal_stability(args.lab, args.imgdiff, args.out)
     elif args.mode == "temporal_ghosting":
         temporal_ghosting(args.lab, args.imgdiff, args.out)
+    elif args.mode == "budget":
+        budget(args.lab, args.rhi)
     elif args.mode == "sky":
         sky(args.lab, args.out)
     elif args.mode == "path_trace":

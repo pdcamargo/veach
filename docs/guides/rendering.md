@@ -175,7 +175,9 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
      (`veach/temporal.slang`, ADR 0040, ADR 0045);
   3. ReSTIR DI (ADR 0041): `light_candidates` (12) alias-table samples over point, spot and emissive lights,
      temporal and `spatial_samples` (2) spatial reuse with pairwise MIS, then `shade` with one shadow ray per
-     pixel, plus one per directional light, evaluated exactly (ADR 0046), the ambient stopgap and emission;
+     pixel, plus one per directional light, evaluated exactly (ADR 0046), the indirect light and emission. The
+     indirect light comes from the GI pass before it (`RealtimeLighting.gi`): `"off"` (default until Candela) is
+     the ambient stopgap (`gi: ambient`: the sky through `ao_rays` short-range rays), `"direct_only"` none;
   4. the denoiser (ADR 0042): demodulated diffuse and specular, temporal accumulation, variance, five a-trous
      iterations, remodulation;
   5. the upscaler (ADR 0043): MetalFX's temporal scaler where the device has it (`Upscaling.mode = "automatic"`),
@@ -200,6 +202,10 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   one, it drives the sun from `time_of_day`. Closed test scenes set `Sky { mode = "none" }` (a warning says so when
   the scene has lights). Example: `scripts/bistro_sunset.luau`.
 - **GPU timings:** `tools/bench/frame_times.py` reports the frame and each pass over MCP (`gpu_timings`).
+- **Frame budget** ([ADR 0049](../adr/0049-frame-budget-and-quality-tiers.md)): MCP `frame_budget { tier }` measures
+  the frame against the Performance or Quality tier: GPU time per subsystem and GPU memory per kind, each against
+  its slice (`engine/render/src/frame_budget.cpp`). Every pass and GPU resource maps to a subsystem by its name; a
+  new pass or resource name needs a line there, or `mcp: frame_budget maps every pass and resource` fails.
 - **Looking around:** the lab runs `scripts/dev/fly_camera.luau` after every scene (`"dev_scripts"` in its
   `veach.project.json`), so any windowed run flies its active camera with W/A/S/D, Q/E, the arrows and shift:
   `veach-lab --rhi metal --window --script scripts/bistro.luau`. It writes the camera only while a key is held,

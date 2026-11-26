@@ -8,6 +8,7 @@
 #include <veach/ecs/reflection.hpp>
 #include <veach/platform/input.hpp>
 #include <veach/platform/platform.hpp>
+#include <veach/render/frame_budget.hpp>
 #include <veach/render/png.hpp>
 #include <veach/render/renderer.hpp>
 #include <veach/render/scene_renderer.hpp>
@@ -181,6 +182,169 @@ json entity_schema() {
 
 }  // namespace
 
+namespace {
+
+std::string_view gi_mode(const render::RenderView& view) {
+    if (view.path_tracer) {
+        return "path tracer";
+    }
+    switch (view.realtime.gi) {
+        case GlobalIllumination::off: return "off (ambient stopgap)";
+        case GlobalIllumination::direct_only: return "direct only";
+    }
+    return "?";
+}
+
+double median(std::vector<double> values) {
+    if (values.empty()) {
+        return 0.0;
+    }
+    std::ranges::sort(values);
+    return values[values.size() / 2];
+}
+
+/// ADR 0049's budget report: the current state rendered `frames` times, measured against a tier.
+json frame_budget(Engine& engine, const json& arguments) {
+    const std::string tier_name = arguments.value("tier", std::string("performance"));
+    const std::optional<render::QualityTier> tier = render::tier_from_string(tier_name);
+    if (!tier) {
+        fail(ErrorCode::mcp_invalid_arguments, std::format("unknown tier '{}'", tier_name),
+             "Use \"performance\" or \"quality\" (ADR 0049).");
+    }
+    const render::TierBudget& budget = render::tier_budget(*tier);
+    const int frames = arguments.value("frames", 16);
+    auto& device = engine.services().get<rhi::Device>();
+    auto& renderer = engine.services().get<render::Renderer>();
+
+    std::vector<double> totals;
+    std::map<std::string, std::vector<double>> pass_ms;
+    std::string unavailable;
+    for (int i = 0; i < frames; ++i) {
+        engine.render_frame();
+        device.wait_idle();
+        const rhi::FrameTimings timings = device.last_frame_timings();
+        if (!timings.unavailable.empty()) {
+            unavailable = timings.unavailable;
+            break;
+        }
+        totals.push_back(device.last_frame_gpu_ms());
+        for (const rhi::PassTiming& pass : timings.passes) {
+            pass_ms[pass.name].push_back(pass.gpu_ms);
+        }
+    }
+
+    // GPU time by subsystem. Work no pass timestamp sees (a vendor upscaler, gaps between passes) is the
+    // difference between the frame and its passes: counted in post, where MetalFX runs.
+    std::array<double, render::subsystem_count> spent{};
+    std::array<json, render::subsystem_count> passes;
+    json unmapped_passes = json::array();
+    double timed = 0.0;
+    for (const std::string& pass : renderer.last_passes()) {
+        const std::optional<render::Subsystem> subsystem = render::subsystem_of_pass(pass);
+        const auto it = pass_ms.find(pass);
+        const double ms = it == pass_ms.end() ? 0.0 : median(it->second);
+        if (!subsystem) {
+            unmapped_passes.push_back(pass);
+            continue;
+        }
+        const auto s = std::to_underlying(*subsystem);
+        spent[s] += ms;
+        timed += *subsystem == render::Subsystem::reference ? 0.0 : ms;
+        passes[s].push_back({{"name", pass}, {"gpu_ms", ms}});
+    }
+    const double frame_ms = median(totals) - spent[std::to_underlying(render::Subsystem::reference)];
+    const double untimed = std::max(0.0, frame_ms - timed);
+    spent[std::to_underlying(render::Subsystem::post)] += untimed;
+
+    // Without timings (the null RHI, a device without timestamps) only the mapping and memory are checked.
+    bool ok = unmapped_passes.empty();
+    json subsystems = json::array();
+    for (std::size_t s = 0; s < render::subsystem_count; ++s) {
+        const auto subsystem = static_cast<render::Subsystem>(s);
+        if (subsystem == render::Subsystem::reference && passes[s].is_null()) {
+            continue;
+        }
+        const bool over = subsystem != render::Subsystem::reference && spent[s] > budget.ms[s];
+        ok = ok && !over;
+        json row = {{"name", render::to_string(subsystem)},
+                    {"budget_ms", budget.ms[s]},
+                    {"gpu_ms", spent[s]},
+                    {"over", over},
+                    {"passes", passes[s].is_null() ? json::array() : passes[s]}};
+        if (subsystem == render::Subsystem::post) {
+            row["untimed_ms"] = untimed;
+        }
+        subsystems.push_back(std::move(row));
+    }
+
+    // GPU memory by kind.
+    const rhi::MemoryUsage memory = device.memory_usage();
+    std::array<std::uint64_t, render::memory_kind_count> held{};
+    std::map<std::string, std::uint64_t> unmapped_resources;
+    std::uint64_t total = 0;
+    for (const rhi::ResourceMemory& r : memory.resources) {
+        const std::optional<render::MemoryKind> kind = render::memory_kind_of(r.name);
+        if (!kind) {
+            unmapped_resources[r.name] += r.bytes;
+        }
+        held[std::to_underlying(kind.value_or(render::MemoryKind::other))] += r.bytes;
+        total += r.bytes;
+    }
+    constexpr double mib = 1024.0 * 1024.0;
+    json kinds = json::array();
+    for (std::size_t k = 0; k < render::memory_kind_count; ++k) {
+        const bool over = held[k] > budget.bytes[k];
+        ok = ok && !over;
+        kinds.push_back({{"name", render::to_string(static_cast<render::MemoryKind>(k))},
+                         {"budget_mib", static_cast<double>(budget.bytes[k]) / mib},
+                         {"mib", static_cast<double>(held[k]) / mib},
+                         {"over", over}});
+    }
+    json unmapped = json::array();
+    for (const auto& [resource, bytes] : unmapped_resources) {
+        unmapped.push_back({{"name", resource}, {"mib", static_cast<double>(bytes) / mib}});
+    }
+    ok = ok && unmapped.empty() && total <= budget.memory_bytes;
+
+    json settings = {{"gi", "no camera"}};
+    if (!renderer.render_world().views.empty()) {
+        const render::RenderView& view = renderer.render_world().views.front();
+        const bool matches = view.upscaling.render_scale == budget.render_scale &&
+                             view.realtime.light_candidates == budget.light_candidates &&
+                             view.realtime.spatial_samples == budget.spatial_samples;
+        settings = {{"gi", gi_mode(view)},
+                    {"render_scale", view.upscaling.render_scale},
+                    {"light_candidates", view.realtime.light_candidates},
+                    {"spatial_samples", view.realtime.spatial_samples},
+                    {"matches_tier", matches},
+                    {"tier_render_scale", budget.render_scale},
+                    {"tier_light_candidates", budget.light_candidates},
+                    {"tier_spatial_samples", budget.spatial_samples}};
+    }
+
+    json out = {{"tier", budget.name},
+                {"ok", ok},
+                {"frames", static_cast<int>(totals.size())},
+                {"frame_budget_ms", budget.frame_ms},
+                {"frame_gpu_ms", frame_ms},
+                {"headroom_ms", budget.frame_ms - frame_ms},
+                {"settings", settings},
+                {"subsystems", subsystems},
+                {"unmapped_passes", unmapped_passes},
+                {"memory",
+                 {{"budget_mib", static_cast<double>(budget.memory_bytes) / mib},
+                  {"mib", static_cast<double>(total) / mib},
+                  {"device_mib", static_cast<double>(memory.device_bytes) / mib},
+                  {"kinds", kinds},
+                  {"unmapped", unmapped}}}};
+    if (!unavailable.empty()) {
+        out["timings_unavailable"] = unavailable;
+    }
+    return out;
+}
+
+}  // namespace
+
 json McpServer::tools() const {
     World& world = engine_.world();
     const ComponentIndex index(world);
@@ -277,6 +441,17 @@ json McpServer::tools() const {
                         "GPU backend, device, frames in flight, and the last completed frame's GPU time, total and "
                         "per render-graph pass (waits for the GPU first).",
                         {{"type", "object"}, {"properties", json::object()}}));
+    list.push_back(
+        tool("frame_budget",
+             "The frame against a quality tier's budget (ADR 0049): renders `frames` frames of the current state "
+             "(simulation does not advance), then reports each subsystem's median GPU time and its passes against the "
+             "tier's slice, GPU memory by kind against the tier's memory budget, the GI mode and whether the camera's "
+             "settings are the tier's. `ok` is false when a slice or the memory budget is exceeded, or a pass or "
+             "resource has no subsystem. Timings need a GPU backend; memory and the pass mapping work on any.",
+             {{"type", "object"},
+              {"properties",
+               {{"tier", {{"type", "string"}, {"enum", {"performance", "quality"}}}},
+                {"frames", {{"type", "integer"}, {"minimum", 1}, {"maximum", 1000}}}}}}));
     list.push_back(
         tool("eval",
              "Run Luau in the live world, sandboxed and transactional like any script invocation "
@@ -581,6 +756,10 @@ json McpServer::call_tool(std::string_view name, const json& arguments) {
         return text_result(renderer.last_graph());
     }
 
+    if (name == "frame_budget") {
+        return json_result(frame_budget(engine_, arguments));
+    }
+
     if (name == "gpu_timings") {
         auto& device = engine_.services().get<rhi::Device>();
         // The frame just rendered, not one still on the GPU: timings are read once a frame completes.
@@ -665,7 +844,7 @@ json McpServer::handle(const json& message) {
                         {"instructions",
                          "Veach engine. Inspect and change the live ECS world (query_entities, get/set_component, "
                          "spawn_entity), advance it (step_frames), look at it (screenshot, render_graph_plan, "
-                         "gpu_timings) and run Luau in it (eval). Errors carry [codes] documented in "
+                         "gpu_timings, frame_budget) and run Luau in it (eval). Errors carry [codes] documented in "
                          "docs/reference/errors.md."}});
     }
     if (method == "ping") {

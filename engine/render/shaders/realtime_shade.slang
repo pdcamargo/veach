@@ -5,8 +5,9 @@
 //   surface:         resolves the visibility buffer into the surfaces, with motion and disocclusion (ADR 0040).
 //   restir_temporal: ReSTIR DI's initial candidates, combined with last frame's reservoir (ADR 0041).
 //   restir_spatial:  combined with neighbors' reservoirs.
-//   shade:           the selected light sample with one shadow ray, emission and the ambient stopgap, into
-//                    exposed radiance.
+//   gi_ambient:      GI off (RealtimeLighting.gi): the ambient stopgap's sky light into the indirect light target.
+//   shade:           the selected light sample with one shadow ray, emission and the indirect light, into exposed
+//                    radiance.
 //   accumulate:      view_accumulated: the average of that radiance over frames while nothing changes.
 //   denoise_*:       the denoiser (ADR 0042): temporal accumulation, variance, an a-trous filter, remodulation.
 
@@ -237,6 +238,38 @@ void restir_spatial(uint3 id: SV_DispatchThreadID) {
     f.final_out[index] = pack(pairwise_end(p, 1e30, rng));
 }
 
+// ---- gi_ambient ----------------------------------------------------------------------------------------------
+
+/// STOPGAP until Candela (VCH-017), GI off: sky light on the diffuse lobe through cosine-distributed rays, each seeing
+/// the sky in its direction unless something within ao_radius blocks it (with an unlimited radius, the path tracer's
+/// mode 3). A black sky contributes nothing, so its rays are skipped.
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void gi_ambient(uint3 id: SV_DispatchThreadID) {
+    const RealtimeFrame f = realtime_params.frame[0];
+    if (any(id.xy >= f.render_size)) {
+        return;
+    }
+    use_scene(f);
+    const GSurface s = load_lit_surface(f, int2(id.xy));
+    const Domain d = domain_of(s, f.camera_position.xyz);
+    const SkyFrame sky = f.sky[0];
+    float3 sky_light = float3(0.0, 0.0, 0.0);
+    if (d.valid && f.ao_rays > 0 && any(sky_ambient_radiance(sky) > 0.0)) {
+        Rng rng = { pcg(id.x + pcg(id.y + pcg(f.frame * 4u + 2u))) };
+        for (uint i = 0; i < f.ao_rays; ++i) {
+            const float2 u = float2(rng.next(), rng.next());
+            const float r2 = sqrt(u.x);
+            const float3 dir = d.frame.to_world(float3(r2 * cos(2.0 * pi * u.y), r2 * sin(2.0 * pi * u.y), sqrt(1.0 - u.x)));
+            if (visible(offset_origin(d.p, d.g, dir), dir, f.ao_radius, rng)) {
+                sky_light += sky_radiance(sky, dir, false);
+            }
+        }
+        sky_light /= float(f.ao_rays);
+    }
+    f.indirect_out[id.xy] = float4(sky_light, 1.0);
+}
+
 // ---- shade -------------------------------------------------------------------------------------------------
 
 [shader("compute")]
@@ -248,7 +281,6 @@ void shade(uint3 id: SV_DispatchThreadID) {
     }
     use_scene(f);
     const float exposure = f.camera_position.w;
-    const bool ambient = f.sky_ambient.w > 0.0;
     const GSurface s = load_surface(f, int2(id.xy));
     if (f.view == view_motion) {
         const float2 m = f.motion.Load(int3(id.xy, 0)).xy;
@@ -318,20 +350,9 @@ void shade(uint3 id: SV_DispatchThreadID) {
             InterlockedAdd(f.counters[1], pixels);
             InterlockedAdd(f.counters[2], sun_rays);
         }
-        // STOPGAP until Candela (VCH-017): sky light on the diffuse lobe through cosine-distributed rays, each seeing
-        // the sky in its direction unless something within ao_radius blocks it (with an unlimited radius, the path
-        // tracer's mode 3). A black sky contributes nothing, so its rays are skipped.
-        if (ambient && f.ao_rays > 0 && any(sky_ambient_radiance(sky) > 0.0)) {
-            float3 sky_light = float3(0.0, 0.0, 0.0);
-            for (uint i = 0; i < f.ao_rays; ++i) {
-                const float2 u = float2(rng.next(), rng.next());
-                const float r2 = sqrt(u.x);
-                const float3 dir = d.frame.to_world(float3(r2 * cos(2.0 * pi * u.y), r2 * sin(2.0 * pi * u.y), sqrt(1.0 - u.x)));
-                if (visible(offset_origin(d.p, d.g, dir), dir, f.ao_radius, rng)) {
-                    sky_light += sky_radiance(sky, dir, false);
-                }
-            }
-            diffuse += sky_light * d.b.diffuse / float(f.ao_rays);
+        // Indirect light (the GI pass's) on the diffuse lobe.
+        if (f.gi != gi_direct_only) {
+            diffuse += f.indirect.Load(int3(id.xy, 0)).rgb * d.b.diffuse;
         }
     }
     // The noisy image, and its two lobes demodulated for the denoiser (ADR 0042); all exposed.

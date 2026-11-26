@@ -65,6 +65,16 @@ public:
     [[nodiscard]] FrameTimings last_frame_timings() override {
         return {.frame = 0, .passes = {}, .unavailable = "the null RHI has no GPU"};
     }
+    /// What the resources would occupy, from their descriptions (no driver to ask).
+    [[nodiscard]] MemoryUsage memory_usage() override {
+        MemoryUsage usage;
+        buffers_.for_each([&](const Buffer& b) { usage.resources.push_back({b.desc.debug_name, b.desc.size}); });
+        textures_.for_each([&](const TextureDesc& t) {
+            usage.resources.push_back(
+                {t.debug_name, std::uint64_t{t.width} * t.height * bytes_per_pixel(t.format) * 4 / 3});
+        });
+        return usage;
+    }
 
 private:
     struct Buffer {

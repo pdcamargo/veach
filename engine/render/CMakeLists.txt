@@ -1,6 +1,7 @@
 veach_add_engine_library(render
     SOURCES
         src/atmosphere.cpp
+        src/frame_budget.cpp
         src/realtime_renderer.cpp
         src/scene_renderer.cpp
         src/png.cpp
@@ -18,7 +19,7 @@ veach_add_shader(veach_render shaders/path_tracer.slang ENTRIES trace_pixels:com
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
 veach_add_shader(veach_render shaders/realtime_visibility.slang ENTRIES vis_vs:vertex vis_fs:fragment
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
-veach_add_shader(veach_render shaders/realtime_shade.slang ENTRIES surface:compute restir_temporal:compute restir_spatial:compute shade:compute
+veach_add_shader(veach_render shaders/realtime_shade.slang ENTRIES surface:compute restir_temporal:compute restir_spatial:compute gi_ambient:compute shade:compute
         accumulate:compute denoise_temporal:compute denoise_variance:compute denoise_atrous:compute
         denoise_combine:compute
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")

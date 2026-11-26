@@ -128,6 +128,7 @@ struct MetalAccel {
     std::vector<AccelHandle> blases;
     std::uint32_t max_instances = 0;
     bool tlas = false;
+    std::string name;
 };
 
 struct MetalSurface {
@@ -580,6 +581,7 @@ public:
             newBufferWithLength:std::max<NSUInteger>({sizes.buildScratchBufferSize, sizes.refitScratchBufferSize, 16})
                         options:MTLResourceStorageModePrivate];
         accel.descriptor = d;
+        accel.name = name;
         if (!name.empty()) {
             accel.accel.label = ns(name);
         }
@@ -902,6 +904,25 @@ public:
     [[nodiscard]] FrameInfo current_frame() const override { return state_->tracker.current_frame(); }
     [[nodiscard]] std::uint32_t frames_in_flight() const override { return state_->tracker.frames_in_flight(); }
     [[nodiscard]] double last_frame_gpu_ms() const override { return state_->last_gpu_ms.load(); }
+
+    [[nodiscard]] MemoryUsage memory_usage() override {
+        MemoryUsage usage{.device_bytes = [device_ currentAllocatedSize], .resources = {}};
+        buffers_.for_each(
+            [&](const MetalBuffer& b) { usage.resources.push_back({b.desc.debug_name, [b.buffer allocatedSize]}); });
+        textures_.for_each([&](const MetalTexture& t) {
+            if (!t.drawable) {
+                usage.resources.push_back({t.desc.debug_name, [t.texture allocatedSize]});
+            }
+        });
+        accels_.for_each([&](const MetalAccel& a) {
+            std::uint64_t bytes = [a.accel allocatedSize] + [a.scratch allocatedSize];
+            for (id<MTLBuffer> instances : a.instances) {
+                bytes += [instances allocatedSize];
+            }
+            usage.resources.push_back({a.name, bytes});
+        });
+        return usage;
+    }
 
     void prune() {
         const std::uint64_t done = tracker().completed().value;

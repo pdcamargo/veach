@@ -15,6 +15,7 @@ Conventions: [README.md](README.md). Add items with `/backlog`.
 
 ## Later
 
+- **VCH-065** Dynamic resolution scaling — *render* — The render scale adapts each frame to hold the quality tier's frame time (a floor near 0.33, the tier's scale as the ceiling), with the temporal upscaler absorbing the change: how tiers work on hardware we cannot measure. The base M3/M4 estimate in [ADR 0049](../adr/0049-frame-budget-and-quality-tiers.md) is about 31 ms for Performance at 0.5 scale, so they need it to hold 60 fps. Needs the upscalers to take a changing input size without a history reset.
 - **VCH-063** Opacity micromaps on DX12 — *render* — DXR 1.2 / SM 6.9 micromaps baked from alpha textures for alpha-tested BLASes, DX12 only (Metal has no equivalent). Our pinned Agility SDK 1.620.2 and WARP 1.0.22 support them, but WARP's software timings say nothing: measure on DX12 hardware first (blocked with VCH-050). [ADR](../adr/0048-alpha-tested-visibility-rays.md)
 - **VCH-058** Release packaging for Windows — *process* — `veach_deploy_d3d12` copies WARP's `d3d10warp.dll` next to every Windows executable, which is right for CI and development, but WARP's license allows testing only and forbids redistribution. A release package must leave it out, and must meet the Agility SDK's redistribution terms (THIRD_PARTY_NOTICES).
 - **VCH-048** MCP over HTTP — *agents* — Streamable HTTP transport next to stdio, so several clients can attach to one running app (an editor session). Same tools. [spec](../specs/mcp-server/spec.md)

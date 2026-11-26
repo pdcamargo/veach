@@ -177,6 +177,8 @@ public:
     [[nodiscard]] rhi::Device& device() { return device_; }
     /// The last compiled graph, as text (RenderGraph::describe()).
     [[nodiscard]] const std::string& last_graph() const { return last_graph_; }
+    /// The last frame's passes in execution order (culled ones left out): what the frame budget maps (ADR 0049).
+    [[nodiscard]] const std::vector<std::string>& last_passes() const { return last_passes_; }
 
 private:
     struct NamedExtractor {
@@ -212,6 +214,7 @@ private:
     std::uint64_t readback_size_ = 0;
 
     std::string last_graph_;
+    std::vector<std::string> last_passes_;
 };
 
 /// Registers the Extract and Render phase systems. Requires a Renderer service.

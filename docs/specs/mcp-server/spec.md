@@ -56,6 +56,7 @@ veach-lab --mcp --rhi metal                      # windowed: the app keeps runni
 | `path_trace` | `samples`, `path?` | restarts the reference path tracer and renders exactly `samples` per pixel, without advancing simulation; image content (PNG) ([first-real-scene](../first-real-scene/spec.md)) |
 | `render_graph_plan` | | the last compiled plan as text (`RenderGraph::describe`) |
 | `gpu_timings` | | `{backend, device, gpu, frames_in_flight, last_frame_gpu_ms, frame, passes: [{name, gpu_ms}], passes_unavailable?, path_tracer_samples}`: waits for the GPU, then the last completed frame's time per render-graph pass, in execution order; `passes_unavailable` says why `passes` is empty on a device that cannot time them (the null RHI). VCH-049, rt.AC7 |
+| `frame_budget` | `tier?` (`"performance"`, default, or `"quality"`), `frames?` (16) | renders `frames` frames of the current state (simulation does not advance) and reports, against the tier's budget (ADR 0049): each subsystem's median GPU time with its passes and slice, untimed vendor work (MetalFX) counted in post, GPU memory by kind against its slice, the GI mode, whether the camera's settings are the tier's, and `ok`; `unmapped_passes` and `memory.unmapped` name anything without a subsystem |
 | `eval` | `source` (Luau) | `{ok, returns: [string], log: [string]}` |
 
 ```cpp

@@ -73,7 +73,7 @@ struct alignas(16) RealtimeFrame {
     math::mat4 previous_view_projection{1.0f};
     math::vec4 camera_position{0.0f};
     math::vec4 previous_camera_position{0.0f};
-    math::vec4 sky_ambient{0.0f};
+    math::vec4 reserved{0.0f};
     math::vec4 jitter{0.0f};
     rhi::DescriptorHandle tlas;
     rhi::DescriptorHandle instances;
@@ -102,6 +102,8 @@ struct alignas(16) RealtimeFrame {
     std::array<rhi::DescriptorHandle, 23> denoiser;
     rhi::DescriptorHandle counters;  ///< [0] ReSTIR's shadow rays, [1] lit pixels, [2] directional lights' rays
     rhi::DescriptorHandle sky;       ///< SkyFrame (ADR 0050)
+    rhi::DescriptorHandle indirect;  ///< the GI pass's indirect light on the diffuse lobe (read, then write)
+    rhi::DescriptorHandle indirect_out;
     std::array<std::uint32_t, 2> render_size{};
     std::uint32_t frame = 0;
     std::uint32_t flags = 0;
@@ -109,7 +111,7 @@ struct alignas(16) RealtimeFrame {
     std::uint32_t emissive_count = 0;
     float emissive_total_weight = 0.0f;
     std::uint32_t scene_flags = 0;
-    std::uint32_t pad0 = 0;
+    std::uint32_t gi = 0;  ///< GlobalIllumination
     std::uint32_t ao_rays = 0;
     float ao_radius = 1.0f;
     std::uint32_t debug_skip = 0;
@@ -126,8 +128,8 @@ static_assert(offsetof(RealtimeFrame, surfaces) == 368);
 static_assert(offsetof(RealtimeFrame, previous) == 480);
 static_assert(offsetof(RealtimeFrame, alias) == 536);
 static_assert(offsetof(RealtimeFrame, denoiser) == 600);
-static_assert(offsetof(RealtimeFrame, render_size) == 800);
-static_assert(sizeof(RealtimeFrame) == 880);
+static_assert(offsetof(RealtimeFrame, render_size) == 816);
+static_assert(sizeof(RealtimeFrame) == 896);
 
 /// Mirrors PackedReservoir in shaders/veach/realtime.slang (ADR 0041).
 struct PackedReservoir {
@@ -203,6 +205,7 @@ struct RealtimeRenderer::Impl {
         std::array<Persistent, 2> atrous_diffuse;
         std::array<Persistent, 2> atrous_specular;
         Persistent denoised;
+        Persistent indirect;               ///< the GI pass's output (RealtimeFrame::indirect)
         bool denoised_last_frame = false;  ///< the denoiser's history is this view's
         std::uint64_t lights_hash = 0;     ///< the lights last frame's reservoirs sampled
         bool history = false;              ///< last frame's targets belong to this view
@@ -216,6 +219,7 @@ struct RealtimeRenderer::Impl {
     rhi::PipelineHandle visibility_pipeline;
     rhi::PipelineHandle surface_pipeline;
     rhi::PipelineHandle shade_pipeline;
+    rhi::PipelineHandle gi_ambient_pipeline;
     rhi::PipelineHandle restir_temporal_pipeline;
     rhi::PipelineHandle restir_spatial_pipeline;
     rhi::PipelineHandle accumulate_pipeline;
@@ -265,7 +269,7 @@ struct RealtimeRenderer::Impl {
             destroy(v);
         }
         for (rhi::PipelineHandle* p :
-             {&visibility_pipeline, &surface_pipeline, &shade_pipeline, &restir_temporal_pipeline,
+             {&visibility_pipeline, &surface_pipeline, &gi_ambient_pipeline, &shade_pipeline, &restir_temporal_pipeline,
               &restir_spatial_pipeline, &accumulate_pipeline, &denoise_temporal_pipeline, &denoise_variance_pipeline,
               &denoise_atrous_pipeline, &denoise_combine_pipeline, &taau_pipeline, &display_pipeline}) {
             if (p->is_valid()) {
@@ -309,6 +313,7 @@ struct RealtimeRenderer::Impl {
         }
         destroy(v.radiance);
         destroy(v.denoised);
+        destroy(v.indirect);
         for (Persistent& p : v.upscaled) {
             destroy(p);
         }
@@ -376,6 +381,7 @@ struct RealtimeRenderer::Impl {
             ok = ok && create(*p, {rw, rh, rhi::Format::rgba16_float, rw_usage, "denoiser"});
         }
         ok = ok && create(v.denoised, {rw, rh, rhi::Format::rgba16_float, rw_usage, "denoised"});
+        ok = ok && create(v.indirect, {rw, rh, rhi::Format::rgba16_float, rw_usage, "indirect light"});
         const std::uint64_t reservoirs = std::uint64_t{rw} * rh * sizeof(PackedReservoir);
         ok = ok && create(v.temporal_reservoirs, reservoirs, "reservoirs (temporal)");
         for (PersistentBuffer& b : v.final_reservoirs) {
@@ -444,6 +450,7 @@ Result<> RealtimeRenderer::prepare(rhi::Device& device, const SceneShaders& shad
          {std::tuple{&shaders.shade, "surface", &s.surface_pipeline},
           std::tuple{&shaders.shade, "restir_temporal", &s.restir_temporal_pipeline},
           std::tuple{&shaders.shade, "restir_spatial", &s.restir_spatial_pipeline},
+          std::tuple{&shaders.shade, "gi_ambient", &s.gi_ambient_pipeline},
           std::tuple{&shaders.shade, "shade", &s.shade_pipeline},
           std::tuple{&shaders.shade, "accumulate", &s.accumulate_pipeline},
           std::tuple{&shaders.shade, "denoise_temporal", &s.denoise_temporal_pipeline},
@@ -559,7 +566,6 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     f.previous_view_projection = v.history ? v.previous_view_projection : view.view_projection;
     f.camera_position = math::vec4(view.position, view.exposure);
     f.previous_camera_position = math::vec4(v.history ? v.previous_position : view.position, 0.0f);
-    f.sky_ambient = math::vec4(0.0f, 0.0f, 0.0f, lighting.ambient ? 1.0f : 0.0f);
     f.jitter = math::vec4(jitter, 0.0f, 0.0f);
     rhi::Device& device = *s.device;
     f.tlas = device.descriptor(scene.tlas_handle);
@@ -607,6 +613,9 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     rw_pair(v.denoised, 21);
     f.counters = device.descriptor(s.counters, rhi::View::storage);
     f.sky = device.descriptor(scene.sky);
+    f.indirect = device.descriptor(v.indirect.handle);
+    f.indirect_out = device.descriptor(v.indirect.handle, rhi::View::storage);
+    f.gi = static_cast<std::uint32_t>(lighting.gi);
     f.render_size = {rw, rh};
     f.frame = s.frame++;
     // The denoiser runs for the final image; its history is valid only if it ran last frame too (ADR 0042).
@@ -759,10 +768,26 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
         b.read(temporal_reservoirs);
         b.write(final_reservoirs, rhi::ResourceState::shader_write);
     });
+    // ---- indirect light: GI off is the ambient stopgap (VCH-017).
+    const bool gi = lighting.gi != GlobalIllumination::direct_only;
+    const GraphResource indirect = s.import(graph, v.indirect, "indirect light");
+    if (gi) {
+        dispatch("gi: ambient", s.gi_ambient_pipeline, [&](PassBuilder& b) {
+            scene.read_scene(b);
+            for (const GraphResource& r : current_targets) {
+                b.read(r);
+            }
+            b.write(indirect, rhi::ResourceState::shader_write);
+        });
+        v.indirect.written = true;
+    }
     dispatch("shade", s.shade_pipeline, [&](PassBuilder& b) {
         scene.read_scene(b);
         for (const GraphResource& r : current_targets) {
             b.read(r);
+        }
+        if (gi) {
+            b.read(indirect);
         }
         b.read(final_reservoirs);
         b.write(counters, rhi::ResourceState::shader_write);

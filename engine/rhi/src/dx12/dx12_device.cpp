@@ -469,6 +469,7 @@ struct Dx12Accel {
     std::uint32_t max_instances = 0;
     std::uint32_t srv = 0;  ///< TLAS: the acceleration-structure SRV shaders trace against
     bool tlas = false;
+    std::string name;
 };
 
 /// A flip-model swapchain; its buffers are ordinary textures (state: present) for the render graph.
@@ -1138,6 +1139,29 @@ public:
     /// The timed part of the frame: the first render-graph pass's start to the last one's end.
     [[nodiscard]] double last_frame_gpu_ms() const override { return timings_.published_span_ms(); }
 
+    [[nodiscard]] MemoryUsage memory_usage() override {
+        const auto bytes = [&](ID3D12Resource* resource) -> std::uint64_t {
+            if (resource == nullptr) {
+                return 0;
+            }
+            const D3D12_RESOURCE_DESC desc = resource->GetDesc();
+            return device_->GetResourceAllocationInfo(0, 1, &desc).SizeInBytes;
+        };
+        MemoryUsage usage;
+        buffers_.for_each(
+            [&](const Dx12Buffer& b) { usage.resources.push_back({b.desc.debug_name, bytes(b.resource.Get())}); });
+        textures_.for_each(
+            [&](const Dx12Texture& t) { usage.resources.push_back({t.desc.debug_name, bytes(t.resource.Get())}); });
+        accels_.for_each([&](const Dx12Accel& a) {
+            std::uint64_t total = bytes(a.buffer.Get()) + bytes(a.scratch.Get());
+            for (const ComPtr<ID3D12Resource>& instances : a.instances) {
+                total += bytes(instances.Get());
+            }
+            usage.resources.push_back({a.name, total});
+        });
+        return usage;
+    }
+
     [[nodiscard]] FrameTimings last_frame_timings() override {
         collect_timings();
         FrameTimings out = timings_.published();
@@ -1440,6 +1464,7 @@ private:
         }
         accel.buffer = std::move(*buffer);
         accel.scratch = std::move(*scratch);
+        accel.name = name;
         accel.inputs.pGeometryDescs = nullptr;  // points into `accel`, which moves; set again at build time
         if (accel.tlas) {
             accel.srv = view_heap_.allocate(SlotKind::accel);

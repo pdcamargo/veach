@@ -98,13 +98,14 @@ export type PointLight = {
 	intensity: number,
 	radius: number,
 }
+export type GlobalIllumination = "off" | "direct_only"
 export type RealtimeView = "final" | "noisy" | "motion" | "history" | "accumulated"
 export type RealtimeLighting = {
 	light_candidates: number,
 	temporal_reuse: boolean,
 	spatial_samples: number,
 	denoise: boolean,
-	ambient: boolean,
+	gi: GlobalIllumination,
 	ao_rays: number,
 	ao_radius: number,
 	debug_skip: number,

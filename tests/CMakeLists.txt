@@ -127,6 +127,13 @@ if(Python3_FOUND)
             WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
         set_tests_properties("mcp: per-pass gpu_timings (${_pt_rhi})" PROPERTIES
             SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE")
+        # ADR 0049: the frame budget report maps every pass and GPU resource to a subsystem.
+        add_test(NAME "mcp: frame_budget maps every pass and resource (${_pt_rhi})"
+            COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
+                    --lab $<TARGET_FILE:veach-lab> --rhi ${_pt_rhi} budget
+            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
+        set_tests_properties("mcp: frame_budget maps every pass and resource (${_pt_rhi})" PROPERTIES
+            SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE")
     endif()
     if(APPLE)
         # temporal.AC8: MetalFX's temporal scaler against Veach's TAAU on the same frames (ADR 0043).

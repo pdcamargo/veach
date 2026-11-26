@@ -29,6 +29,10 @@ static const uint frame_history_valid = 1;    ///< RealtimeFrame::flags: last fr
 static const uint frame_reservoirs_valid = 2;
 static const uint frame_denoiser_history_valid = 4;  ///< the denoiser ran last frame: its history is this view's  ///< RealtimeFrame::flags: last frame's reservoirs hold these lights' samples
 
+// RealtimeFrame::gi: the indirect light (render::GlobalIllumination).
+static const uint gi_off = 0;          ///< the ambient stopgap
+static const uint gi_direct_only = 1;  ///< none
+
 // RealtimeFrame::view: what the renderer shows (render::RealtimeView).
 static const uint view_final = 0;
 static const uint view_noisy = 1;
@@ -43,7 +47,7 @@ struct RealtimeFrame {
     float4x4 previous_view_projection;    ///< last frame's, unjittered
     float4 camera_position;               ///< xyz; w = exposure (1 / (1.2 * 2^ev100))
     float4 previous_camera_position;      ///< xyz
-    float4 sky_ambient;                   ///< w = 1 when the ambient stopgap is on (its light: the sky, ADR 0050)
+    float4 reserved;
     float4 jitter;                        ///< xy: this frame's sample offset from the pixel center, render pixels
 
     DescriptorHandle<RaytracingAccelerationStructure> tlas;
@@ -110,6 +114,10 @@ struct RealtimeFrame {
     DescriptorHandle<RWTexture2D<float4>> denoised_out;
     DescriptorHandle<RWStructuredBuffer<uint>> counters;   ///< [0] ReSTIR's shadow rays, [1] lit pixels, [2] directional lights' rays
     DescriptorHandle<StructuredBuffer<SkyFrame>> sky;      ///< the environment (ADR 0050)
+    /// Indirect light on the diffuse lobe, written by the GI pass and added by shading: the cosine-weighted mean of
+    /// the incoming radiance (nits, unexposed), which the diffuse albedo turns into outgoing radiance.
+    DescriptorHandle<Texture2D<float4>> indirect;
+    DescriptorHandle<RWTexture2D<float4>> indirect_out;
 
     uint2 render_size;
     uint frame;  ///< seeds the random numbers
@@ -118,7 +126,7 @@ struct RealtimeFrame {
     uint emissive_count;
     float emissive_total_weight;
     uint scene_flags;
-    uint pad0;
+    uint gi;  ///< gi_*
     uint ao_rays;
     float ao_radius;
     uint debug_skip;

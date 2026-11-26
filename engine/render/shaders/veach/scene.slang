@@ -231,6 +231,8 @@ struct Trace {
 /// masked or blended surface, the same ray continues just past it. That is deterministic on every backend,
 /// unlike committing non-opaque candidates, whose results varied run to run on Metal (and whose inlined
 /// candidate loop crashed Metal's shader compiler).
+static const uint max_trace_layers = 64;
+
 Trace trace(float3 origin, float3 direction, float tmax, inout Rng rng, uint instance_mask = 0xFF) {
     Trace result;
     result.hit = false;
@@ -242,7 +244,9 @@ Trace trace(float3 origin, float3 direction, float tmax, inout Rng rng, uint ins
     // One query object, traced again per layer: a query allocated inside the loop is a new allocation per
     // iteration in DXIL.
     RayQuery<RAY_FLAG_FORCE_OPAQUE> query;
-    for (uint layer = 0; layer < 16; ++layer) {
+    // Dense foliage puts dozens of transparent texels on one ray. A ray that runs out of layers stops at the last one
+    // it reached, as if covered: reporting a miss would let it see the sky through a canopy (VCH-064).
+    for (uint layer = 0; layer < max_trace_layers; ++layer) {
         RayDesc ray;
         ray.Origin = origin;
         ray.Direction = direction;
@@ -252,6 +256,7 @@ Trace trace(float3 origin, float3 direction, float tmax, inout Rng rng, uint ins
         while (query.Proceed()) {
         }
         if (query.CommittedStatus() != COMMITTED_TRIANGLE_HIT) {
+            result.hit = false;
             return result;
         }
         const uint instance = query.CommittedInstanceIndex();
@@ -262,12 +267,12 @@ Trace trace(float3 origin, float3 direction, float tmax, inout Rng rng, uint ins
         // device removal blamed on this test came from handles used without `nonuniform`, ADR 0039.)
         const bool opaque = (veach_scene.instances[instance].flags & instance_has_alpha) == 0 ||
                             (veach_scene.debug_skip & debug_skip_alpha) != 0;
+        result.hit = true;
+        result.instance = instance;
+        result.primitive = primitive;
+        result.bary = bary;
+        result.t = t;
         if (opaque || covered(instance, primitive, bary, rng)) {
-            result.hit = true;
-            result.instance = instance;
-            result.primitive = primitive;
-            result.bary = bary;
-            result.t = t;
             return result;
         }
         tmin = t * (1.0 + 1e-5) + 1e-5;

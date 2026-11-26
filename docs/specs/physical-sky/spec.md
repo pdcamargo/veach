@@ -72,12 +72,13 @@ default 1 m range lights street canyons as if they saw the whole sky, a stopgap 
 
 | Scene | Mean FLIP | Limit | Luminance | Limit |
 |---|---|---|---|---|
-| bistro_noon | 0.0312 | 0.0328 | -2.37% | 3% (exception, VCH-064) |
-| bistro_sunset | 0.0406 | 0.0426 | -8.28% | 9% (exception, VCH-064) |
+| bistro_noon | 0.0150 | 0.0160 | -0.67% | 2% |
+| bistro_sunset | 0.0217 | 0.0228 | -0.99% | 2% |
 
-The luminance exceptions are the trees' string-light bulbs: the path tracer shows them sky-lit, the real-time
-image does not (VCH-064): about 2% of the pixels, nearly all of those above 0.5 FLIP. Before the stopgap saw the sky per
-direction, it applied the upward irradiance to every normal: +35% and +214%.
+The first baselines (0.0312 and 0.0406, with luminance exceptions of 3% and 9%) measured a fault in the reference:
+the path tracer's `trace()` gave up on a ray after 16 transparent leaf texels and reported a miss, so camera rays
+through the dense cypresses saw the sky as bright specks that looked like string-light bulbs (VCH-064). Before the
+stopgap saw the sky per direction, it applied the upward irradiance to every normal: +35% and +214%.
 
 ## Out of scope
 

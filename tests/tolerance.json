@@ -6,14 +6,10 @@
     { "name": "sponza", "flip": 0.0119, "luminance": 0.0596, "check": "benchmark", "measured": "c6a1c4b",
       "exceptions": [ { "metric": "luminance", "limit": 0.07, "bug": "VCH-060",
                         "why": "the blended dirt decal is masked at 0.5 in real time, covered stochastically by the path tracer" } ] },
-    { "name": "bistro", "flip": 0.0151, "luminance": -0.0013, "check": "benchmark", "measured": "c6a1c4b" },
-    { "name": "bistro_noon", "sky": true, "criterion": "sky.AC3", "flip": 0.0312, "luminance": -0.0237, "check": "gate",
-      "measured": "44ce4c2",
-      "exceptions": [ { "metric": "luminance", "limit": 0.03, "bug": "VCH-064",
-                        "why": "the trees' string-light bulbs are missing from the real-time image" } ] },
-    { "name": "bistro_sunset", "sky": true, "criterion": "sky.AC3", "flip": 0.0406, "luminance": -0.0828, "check": "gate",
-      "measured": "44ce4c2",
-      "exceptions": [ { "metric": "luminance", "limit": 0.09, "bug": "VCH-064",
-                        "why": "the trees' string-light bulbs are missing from the real-time image" } ] }
+    { "name": "bistro", "flip": 0.0145, "luminance": -0.0018, "check": "benchmark", "measured": "VCH-064 fix" },
+    { "name": "bistro_noon", "sky": true, "criterion": "sky.AC3", "flip": 0.0150, "luminance": -0.0067, "check": "gate",
+      "measured": "VCH-064 fix" },
+    { "name": "bistro_sunset", "sky": true, "criterion": "sky.AC3", "flip": 0.0217, "luminance": -0.0099, "check": "gate",
+      "measured": "VCH-064 fix" }
   ]
 }

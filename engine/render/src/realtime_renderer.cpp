@@ -56,7 +56,7 @@ static_assert(sizeof(PackedGiReservoir) == 32);
 constexpr std::uint32_t cache_capacity = 1u << 21;
 constexpr float cache_cell_size = 0.05f;
 constexpr float cache_cell_scale = 1.0f / 80.0f;
-constexpr std::uint32_t cache_max_frames = 3;
+constexpr std::uint32_t cache_max_samples = 64;
 /// The real-time counters: ReSTIR's three, then Candela's (RealtimeFrame::counters).
 constexpr std::size_t counter_count = 16;
 
@@ -149,12 +149,14 @@ struct alignas(16) RealtimeFrame {
     float cache_scale = 0.0f;
     float cache_cell_size = 0.0f;
     float cache_cell_scale = 0.0f;
-    std::uint32_t cache_max_frames = 0;
+    std::uint32_t cache_max_samples = 0;
     std::uint32_t gi_rate = 4;
     std::uint32_t gi_spatial_samples = 0;
     std::uint32_t gi_cache_bounces = 0;
     std::uint32_t gi_reservoirs_valid = 0;
     std::uint32_t gi_gather = 0;  ///< CandelaGather
+    std::uint32_t cache_smooth = 0;
+    std::array<std::uint32_t, 3> pad3{};
 };
 static_assert(offsetof(RealtimeFrame, tlas) == 320);
 static_assert(offsetof(RealtimeFrame, surfaces) == 368);
@@ -162,7 +164,7 @@ static_assert(offsetof(RealtimeFrame, previous) == 480);
 static_assert(offsetof(RealtimeFrame, alias) == 536);
 static_assert(offsetof(RealtimeFrame, denoiser) == 600);
 static_assert(offsetof(RealtimeFrame, render_size) == 880);
-static_assert(sizeof(RealtimeFrame) == 992);
+static_assert(sizeof(RealtimeFrame) == 1008);
 
 /// Mirrors PackedReservoir in shaders/veach/realtime.slang (ADR 0041).
 struct PackedReservoir {
@@ -501,7 +503,7 @@ struct RealtimeRenderer::Impl {
             const std::span<const std::byte> all(zeros);
             ok = create(cache[0], cache_capacity * 4ull, "candela cache keys", 4, all.first(cache_capacity * 4ull)) &&
                  create(cache[1], cache_capacity * 16ull, "candela cache sums", 4, all) &&
-                 create(cache[2], cache_capacity * 8ull, "candela cache values", 8, all.first(cache_capacity * 8ull));
+                 create(cache[2], cache_capacity * 16ull, "candela cache values", 16, all);
         }
         if (ok && !v.gi_temporal.handle.is_valid()) {
             const std::uint64_t size = std::uint64_t{v.render_width} * v.render_height * sizeof(PackedGiReservoir);
@@ -752,7 +754,8 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     f.cache_scale = 65536.0f * view.exposure;  // fixed point relative to what the camera shows
     f.cache_cell_size = cache_cell_size;
     f.cache_cell_scale = cache_cell_scale;
-    f.cache_max_frames = cache_max_frames;
+    f.cache_max_samples = cache_max_samples;
+    f.cache_smooth = gi_settings.smooth_cache ? 1u : 0u;
     f.gi_rate = gi_settings.ray_rate >= 1.0f ? 1u : (gi_settings.ray_rate >= 0.5f ? 2u : 4u);
     f.gi_spatial_samples = std::min<std::uint32_t>(gi_settings.spatial_samples, 4);
     f.gi_cache_bounces = std::min<std::uint32_t>(gi_settings.cache_bounces, 3);

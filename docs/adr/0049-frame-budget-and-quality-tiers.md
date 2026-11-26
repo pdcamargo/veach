@@ -68,7 +68,7 @@ with room for the game's own data and the OS.
 | Acceleration structures with scratch | 768 | 768 | 469 |
 | Material textures | 1536 | 1536 | 301 |
 | Render targets, history, reservoirs, readbacks | 640 | 1280 | 448 / 910 |
-| GI: Candela's cache and reservoirs | 160 | 256 | 0 (64 MB cache approved, ADR 0051) |
+| GI: Candela's cache and reservoirs | 192 | 308 | 156 (cache 72, reservoirs 84) |
 | Sky | 8 | 8 | 0.6 |
 | Other | 64 | 64 | 0 |
 | **Total (the rest is headroom)** | **4096** | **5120** | 1434 / 1896 |
@@ -111,6 +111,10 @@ expectation (VISION), not a failure to fix tier by tier.
 to hold the tier's frame time, between a floor (about 0.33) and the tier's own scale, with the temporal upscaler
 absorbing the change. A tier then fixes the frame rate and the feature set, and resolution is what gives. Until it
 exists, an unmeasured Mac runs the tier's settings and misses its frame rate.
+
+**Revision (2026-11-26, the owner):** the GI slice grew from 160 to 192 MiB in Performance, and from 256 to 308 MiB
+in Quality (the same factor), for the cache's longer per-cell history (ADR 0051, step 1c). Totals stay inside 4 and
+5 GiB.
 
 ## Consequences
 

@@ -132,7 +132,7 @@ struct RealtimeFrame {
     // Candela (ADR 0051): the radiance cache (veach/radiance_cache.slang) and the GI reservoirs, one per render pixel.
     DescriptorHandle<RWStructuredBuffer<uint>> cache_keys;
     DescriptorHandle<RWStructuredBuffer<uint>> cache_accum;
-    DescriptorHandle<RWStructuredBuffer<uint2>> cache_radiance;
+    DescriptorHandle<RWStructuredBuffer<uint4>> cache_radiance;
     DescriptorHandle<RWStructuredBuffer<PackedGiReservoir>> gi_temporal_out;  ///< gather + temporal reuse
     DescriptorHandle<StructuredBuffer<PackedGiReservoir>> gi_temporal;
     DescriptorHandle<RWStructuredBuffer<PackedGiReservoir>> gi_final_out;     ///< after spatial reuse
@@ -160,12 +160,16 @@ struct RealtimeFrame {
     float cache_scale;
     float cache_cell_size;
     float cache_cell_scale;
-    uint cache_max_frames;
+    uint cache_max_samples;
     uint gi_rate;             ///< Candela: one gather ray per this many pixels (1, 2 or 4)
     uint gi_spatial_samples;
     uint gi_cache_bounces;    ///< vertices after the first in a cache update path
     uint gi_reservoirs_valid; ///< 1: gi_previous holds last frame's reservoirs for this view
     uint gi_gather;           ///< render::CandelaGather
+    uint cache_smooth;        ///< 1: cache lookups blend neighboring cells
+    uint pad3;
+    uint pad4;
+    uint pad5;
 };
 
 /// Fills veach_scene (veach/scene.slang) from the frame record.

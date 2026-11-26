@@ -557,6 +557,7 @@ RenderModule::RenderModule(World& world) {
         .member(&Candela::ray_rate, "ray_rate")
         .member(&Candela::spatial_samples, "spatial_samples")
         .member(&Candela::cache_bounces, "cache_bounces")
+        .member(&Candela::smooth_cache, "smooth_cache")
         .add<Scriptable>();
     world.component<SkyMode>();
     world.component<Sky>()

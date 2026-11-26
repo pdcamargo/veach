@@ -32,8 +32,9 @@ struct RealtimeParams {
 };
 [[vk::push_constant]] ConstantBuffer<RealtimeParams> realtime_params;
 
+static const uint gi_gather_surface = 1;     ///< render::CandelaGather::surface_cache
 static const uint update_block = 5;          ///< one update path per this many pixels squared (SHaRC's 4%)
-static const uint evict_after = 32;          ///< frames a cell keeps its value without new samples
+static const uint evict_after = 255;         ///< frames a cell keeps its value without new samples
 static const float gi_temporal_cap = 16.0;   ///< M a reservoir carries into the next frame
 static const float gi_spatial_radius = 30.0;  ///< render pixels
 static const uint max_gi_spatial_samples = 4;
@@ -48,7 +49,8 @@ RadianceCache cache_of(RealtimeFrame f) {
     c.scale = f.cache_scale;
     c.cell_size = f.cache_cell_size;
     c.cell_scale = f.cache_cell_scale;
-    c.max_frames = f.cache_max_frames;
+    c.max_samples = f.cache_max_samples;
+    c.smooth = f.cache_smooth;
     c.stats = f.counters;
     return c;
 }
@@ -121,7 +123,7 @@ void cache_update(uint3 id: SV_DispatchThreadID) {
     float3 outgoing = float3(0.0, 0.0, 0.0);
     for (int i = int(count) - 1; i >= 0; --i) {
         const float3 after = i + 1 < int(count) ? outgoing : float3(0.0, 0.0, 0.0);
-        if (i == 0) {
+        if (i == 0 && f.gi_gather == gi_gather_surface) {  // only the diagnostic reads them
             cache_add(c, vertices[0].position, vertices[0].geometric, beyond[0] + after, cache_kind_incoming);
         }
         outgoing = light[i] + vertices[i].albedo * (incoming[i] + beyond[i] + after);

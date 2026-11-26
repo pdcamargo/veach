@@ -19,7 +19,7 @@ constexpr TierBudget performance{
     //    visibility, direct, gi,  reflections, sky,  fog, transparency, post, reference
     .ms = {2.5, 4.5, 4.5, 2.0, 0.25, 0.5, 0.5, 1.5, 0.0},
     //       geometry,  acceleration, textures,   render targets, gi,       sky,     other
-    .bytes = {512 * mib, 768 * mib, 1536 * mib, 640 * mib, 160 * mib, 8 * mib, 64 * mib},
+    .bytes = {512 * mib, 768 * mib, 1536 * mib, 640 * mib, 192 * mib, 8 * mib, 64 * mib},
     .memory_bytes = 4096 * mib,
 };
 
@@ -32,7 +32,7 @@ constexpr TierBudget quality{
     .spatial_samples = 2,
     .gi_ray_rate = 0.5f,
     .ms = {3.0, 10.0, 10.0, 5.0, 0.5, 1.0, 1.0, 2.0, 0.0},
-    .bytes = {512 * mib, 768 * mib, 1536 * mib, 1280 * mib, 256 * mib, 8 * mib, 64 * mib},
+    .bytes = {512 * mib, 768 * mib, 1536 * mib, 1280 * mib, 308 * mib, 8 * mib, 64 * mib},
     .memory_bytes = 5120 * mib,
 };
 

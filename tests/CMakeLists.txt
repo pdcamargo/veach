@@ -148,37 +148,38 @@ if(Python3_FOUND)
                     "${PROJECT_SOURCE_DIR}/apps/lab/scripts/flight_helmet.luau")
         set_tests_properties("temporal.AC4: ReSTIR DI converges to the direct-light reference (metal)" PROPERTIES
             SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable")
-        # The image tolerance policy (ADR 0047): the denoised final image within baseline + max(0.001, 5%) FLIP and
-        # 2% luminance of the path tracer's direct light. Baselines: Cornell 0.0208, FlightHelmet 0.0018.
-        # Labeled: other tests render variants of the same scripts in parallel.
-        foreach(_tol "cornell_box:0.0218" "flight_helmet:0.0028")
-            string(REPLACE ":" ";" _tol "${_tol}")
-            list(GET _tol 0 _scene)
-            list(GET _tol 1 _limit)
-            add_test(NAME "tolerance: ${_scene} final image within ADR 0047 (metal)"
+        # The image tolerance policy (ADR 0047, ADR 0052): each 'gate' scene of tests/tolerance.json, its denoised
+        # final image within its baseline's limits of the path tracer (direct light; with "sky", direct plus sky
+        # light: the stopgap with unlimited range against the path tracer's mode 3, sky.AC3). Labeled: other tests
+        # render variants of the same scripts in parallel.
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tolerance.json")
+        file(READ "${CMAKE_CURRENT_SOURCE_DIR}/tolerance.json" _tolerance)
+        string(JSON _count LENGTH "${_tolerance}" scenes)
+        math(EXPR _last "${_count} - 1")
+        foreach(_i RANGE ${_last})
+            string(JSON _check GET "${_tolerance}" scenes ${_i} check)
+            if(NOT _check STREQUAL "gate")
+                continue()
+            endif()
+            string(JSON _scene GET "${_tolerance}" scenes ${_i} name)
+            string(JSON _criterion ERROR_VARIABLE _none GET "${_tolerance}" scenes ${_i} criterion)
+            if(_none)
+                set(_criterion "tolerance")
+            endif()
+            string(JSON _sky ERROR_VARIABLE _none GET "${_tolerance}" scenes ${_i} sky)
+            set(_sky_flag "")
+            if(NOT _none AND _sky)
+                set(_sky_flag "--sky")
+            endif()
+            set(_name "${_criterion}: ${_scene} final image within ADR 0047 (metal)")
+            add_test(NAME "${_name}"
                 COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/bench/compare_direct.py" --rhi metal
                         --lab $<TARGET_FILE:veach-lab> --imgdiff $<TARGET_FILE:veach-cli>
                         --out "${CMAKE_CURRENT_BINARY_DIR}/compare/tolerance" --size 640x360 --frames 64 --spf 16
-                        --final --realtime-frames 64 --max-mean ${_limit} --max-luminance-error 0.02 --label tolerance
+                        --final --realtime-frames 64 ${_sky_flag} --label tolerance
+                        --tolerance "${CMAKE_CURRENT_SOURCE_DIR}/tolerance.json"
                         "${PROJECT_SOURCE_DIR}/apps/lab/scripts/${_scene}.luau")
-            set_tests_properties("tolerance: ${_scene} final image within ADR 0047 (metal)" PROPERTIES
-                SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable" ENVIRONMENT "MTL_SHADER_VALIDATION=0")
-        endforeach()
-        # sky.AC3: Bistro at noon and at sunset, direct light plus sky light (the stopgap with unlimited range against
-        # the path tracer's mode 3), within ADR 0047 of the baselines in docs/specs/physical-sky/spec.md. Luminance:
-        # exceptions while the real-time image misses the trees' string-light bulbs (VCH-064).
-        foreach(_tol "noon:0.0328:0.03" "sunset:0.0426:0.09")
-            string(REPLACE ":" ";" _tol "${_tol}")
-            list(GET _tol 0 _time)
-            list(GET _tol 1 _limit)
-            list(GET _tol 2 _luminance)
-            add_test(NAME "sky.AC3: bistro at ${_time} within ADR 0047 of the path tracer (metal)"
-                COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/bench/compare_direct.py" --rhi metal
-                        --lab $<TARGET_FILE:veach-lab> --imgdiff $<TARGET_FILE:veach-cli>
-                        --out "${CMAKE_CURRENT_BINARY_DIR}/compare/sky" --size 640x360 --frames 64 --spf 16
-                        --final --realtime-frames 64 --sky --max-mean ${_limit} --max-luminance-error ${_luminance}
-                        "${PROJECT_SOURCE_DIR}/apps/lab/scripts/bistro_${_time}.luau")
-            set_tests_properties("sky.AC3: bistro at ${_time} within ADR 0047 of the path tracer (metal)" PROPERTIES
+            set_tests_properties("${_name}" PROPERTIES
                 SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable" ENVIRONMENT "MTL_SHADER_VALIDATION=0" TIMEOUT 600)
         endforeach()
         # shadows.AC1-AC2: lights with a size match the path tracer, and their penumbrae show (soft-shadows spec).

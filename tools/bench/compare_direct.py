@@ -19,6 +19,7 @@ percentile and the pixels above 0.5. Exits 1 if a scene's mean exceeds --max-mea
 from __future__ import annotations
 
 import argparse
+import json
 import pathlib
 import re
 import subprocess
@@ -82,6 +83,14 @@ def mean_luminance(png: pathlib.Path) -> float:
     return total / (width * height)
 
 
+def tolerance(entry: dict) -> tuple[float, float]:
+    """ADR 0047's limits for a baseline entry: FLIP + max(0.001, 5%) and 2% luminance, unless an exception says."""
+    limits = {"flip": entry["flip"] + max(0.001, 0.05 * entry["flip"]), "luminance": 0.02}
+    for exception in entry.get("exceptions", []):
+        limits[exception["metric"]] = exception["limit"]
+    return limits["flip"], limits["luminance"]
+
+
 def render(lab: pathlib.Path, rhi: str, script: pathlib.Path, frames: int, out: pathlib.Path) -> None:
     result = subprocess.run([str(lab), "--rhi", rhi, "--headless", "--frames", str(frames), "--script",
                              f"scripts/{script.name}", "--screenshot", str(out)],
@@ -116,6 +125,9 @@ def main() -> int:
     parser.add_argument("--realtime-frames", type=int, default=1,
                         help="frames of real-time lighting averaged (RealtimeLighting.view = accumulated) before comparing")
     parser.add_argument("--max-mean", type=float, default=None)
+    parser.add_argument("--tolerance", type=pathlib.Path,
+                        help="baselines file (tests/tolerance.json, ADR 0047): each scene's limits from its entry, "
+                             "named after the script; overrides --max-mean and --max-luminance-error")
     parser.add_argument("--out", type=pathlib.Path, default=ROOT / "build" / "compare_direct")
     parser.add_argument("--lab", type=pathlib.Path, help="veach-lab (default: build/<preset>/apps/lab/veach-lab)")
     parser.add_argument("--imgdiff", type=pathlib.Path, help="veach-cli (default: build/<preset>/tools/veach-cli/veach)")
@@ -133,9 +145,21 @@ def main() -> int:
     print("|---|---|---|---|---|")
     view = "final" if args.final else "accumulated" if args.realtime_frames > 1 else "noisy"
     no_sky = "" if args.sky else "camera:set(veach.components.Sky, { mode = \"none\" })\n"
+    baselines = {}
+    if args.tolerance:
+        baselines = {s["name"]: s for s in json.loads(args.tolerance.read_text(encoding="utf-8"))["scenes"]}
     for scene in args.scenes:
         scene = scene.resolve()
         name = scene.stem + (f"_{args.label}" if args.label else "")
+        max_mean, max_luminance = args.max_mean, args.max_luminance_error
+        if args.tolerance:
+            entry = baselines.get(scene.stem)
+            if entry is None or entry.get("sky", False) != args.sky:
+                print(f"compare_direct: {scene.stem}: no {'--sky ' if args.sky else ''}entry in {args.tolerance}",
+                      file=sys.stderr)
+                failed = True
+                continue
+            max_mean, max_luminance = tolerance(entry)
         realtime = variant(scene, f"{args.label}realtime", size, args.extra + "\n"
                            "camera:remove(veach.components.PathTracer)\n" + no_sky +
                            "camera:set(veach.components.RealtimeLighting, { light_candidates = "
@@ -169,12 +193,12 @@ def main() -> int:
             mean, p999, outliers = float(match[1]), float(match[2]), int(match[3])
             luminance = mean_luminance(rt_png) / max(mean_luminance(pt_png), 1e-9) - 1.0
             print(f"| {name} | {mean:.4f} | {p999:.3f} | {outliers} | {luminance:+.2%} |")
-            if args.max_mean is not None and mean > args.max_mean:
-                print(f"compare_direct: {name}: mean FLIP {mean:.4f} exceeds {args.max_mean}", file=sys.stderr)
+            if max_mean is not None and mean > max_mean:
+                print(f"compare_direct: {name}: mean FLIP {mean:.4f} exceeds {max_mean:.4f}", file=sys.stderr)
                 failed = True
-            if args.max_luminance_error is not None and abs(luminance) > args.max_luminance_error:
+            if max_luminance is not None and abs(luminance) > max_luminance:
                 print(f"compare_direct: {name}: mean luminance off by {luminance:+.2%}, more than "
-                      f"{args.max_luminance_error:.0%}", file=sys.stderr)
+                      f"{max_luminance:.0%}", file=sys.stderr)
                 failed = True
         except RuntimeError as error:
             print(f"compare_direct: {error}", file=sys.stderr)

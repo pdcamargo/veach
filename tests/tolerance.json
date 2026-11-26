@@ -1,0 +1,19 @@
+{
+  "doc": "Image accuracy baselines and their exceptions (ADR 0047, ADR 0052). Measured by tools/bench/compare_direct.py --final [--sky] at 640x360 against the path tracer. A scene passes at flip + max(0.001, 5% of flip) mean FLIP and within 2% mean luminance, unless an exception names an open backlog item: tools/scripts/check_repo.py fails once that item is done, so the exception goes with its bug. 'gate': the pre-push gate runs it (tests/CMakeLists.txt); 'benchmark': run by hand in a release build when lighting, the denoiser or the upscaler changes.",
+  "scenes": [
+    { "name": "cornell_box", "flip": 0.0208, "luminance": -0.0095, "check": "gate", "measured": "c6a1c4b" },
+    { "name": "flight_helmet", "flip": 0.0018, "luminance": -0.0022, "check": "gate", "measured": "c6a1c4b" },
+    { "name": "sponza", "flip": 0.0119, "luminance": 0.0596, "check": "benchmark", "measured": "c6a1c4b",
+      "exceptions": [ { "metric": "luminance", "limit": 0.07, "bug": "VCH-060",
+                        "why": "the blended dirt decal is masked at 0.5 in real time, covered stochastically by the path tracer" } ] },
+    { "name": "bistro", "flip": 0.0151, "luminance": -0.0013, "check": "benchmark", "measured": "c6a1c4b" },
+    { "name": "bistro_noon", "sky": true, "criterion": "sky.AC3", "flip": 0.0312, "luminance": -0.0237, "check": "gate",
+      "measured": "44ce4c2",
+      "exceptions": [ { "metric": "luminance", "limit": 0.03, "bug": "VCH-064",
+                        "why": "the trees' string-light bulbs are missing from the real-time image" } ] },
+    { "name": "bistro_sunset", "sky": true, "criterion": "sky.AC3", "flip": 0.0406, "luminance": -0.0828, "check": "gate",
+      "measured": "44ce4c2",
+      "exceptions": [ { "metric": "luminance", "limit": 0.09, "bug": "VCH-064",
+                        "why": "the trees' string-light bulbs are missing from the real-time image" } ] }
+  ]
+}

@@ -9,10 +9,13 @@
    parameters_match<...>(<namespace>::layout::<stem>, ...) somewhere in C++ (VCH-041, ADR 0024).
 5. Every .slang file that uses DescriptorHandle imports veach.bindless, so debug builds check its handles
    (ADR 0039).
+6. Every image tolerance exception in tests/tolerance.json names an open backlog item and says why: fixing the
+   bug (moving it to Done) fails this check until the exception is removed (ADR 0052).
 """
 
 from __future__ import annotations
 
+import json
 import pathlib
 import re
 import sys
@@ -78,6 +81,19 @@ def main() -> int:
         if "DescriptorHandle" in text and not re.search(r"^import veach\.bindless;", text, re.MULTILINE):
             errors.append(f"{shader.relative_to(ROOT).as_posix()}: uses DescriptorHandle without "
                           "`import veach.bindless;` (its handles would go unchecked, ADR 0039)")
+
+    open_ids = set(re.findall(r"\bVCH-(\d{3,})\b", backlog.split("\n## Done", 1)[0]))
+    for scene in json.loads((ROOT / "tests/tolerance.json").read_text(encoding="utf-8"))["scenes"]:
+        for exception in scene.get("exceptions", []):
+            bug = re.fullmatch(r"VCH-(\d{3,})", exception.get("bug", ""))
+            where = f"tests/tolerance.json: {scene['name']}'s {exception.get('metric')} exception"
+            if not bug:
+                errors.append(f"{where} has no bug; name the backlog item it waits on (\"bug\": \"VCH-NNN\")")
+            elif bug[1] not in open_ids:
+                errors.append(f"{where} waits on VCH-{bug[1]}, which is not an open item in BACKLOG.md: if it is "
+                              "fixed, remove the exception and record the new baseline (ADR 0052)")
+            if not exception.get("why"):
+                errors.append(f"{where} has no \"why\"")
 
     claude = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
     if claude != "@AGENTS.md\n":

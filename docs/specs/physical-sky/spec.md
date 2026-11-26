@@ -61,12 +61,12 @@ camera:set(c.Sky, { mode = "none" })  -- indoor test scenes
 |---|---|---|
 | sky.AC1 | `unit: [sky.AC1] ...` | zenith at 12:00, horizon at 18:00 within 1 degree, west is -X, `north` turns the frame |
 | sky.AC2 | `unit: [sky.AC2] ...` (x2), `mcp: sky set over MCP` | GPU and CPU transmittance within 1% at 24 points, two atmospheres; sunset sun red/blue > 3; noon sky mean blue 2.8x red |
-| sky.AC3 | `sky.AC3: bistro at noon/sunset ...` | see below |
+| sky.AC3 | `sky.AC3: bistro_noon/bistro_sunset final image within ADR 0047` | see below |
 | sky.AC4 | `golden: bistro at noon/sunset (realtime)` | `tests/golden/bistro_noon.png`, `bistro_sunset.png` (640x360, 32 frames) |
 | sky.AC5 | `mcp: sky set over MCP` | `time_of_day` 12:30 -> 23:00 over MCP: the next frame's zenith goes from 0.245 to 0.042 (what is left is the street's wires and lamps) |
 | sky.AC6 | `lab: a scene with lights and no sky warns` | Cornell box (`Sky.mode = "none"`) |
 
-**sky.AC3 baselines** (ADR 0047; `compare_direct.py --sky --final`, 640x360, 1024 spp reference, 64 real-time
+**sky.AC3 baselines** (ADR 0047, kept in `tests/tolerance.json` per ADR 0052; `compare_direct.py --sky --final`, 640x360, 1024 spp reference, 64 real-time
 frames). The real-time side runs the ambient stopgap with unlimited range, which is what mode 3 computes; its
 default 1 m range lights street canyons as if they saw the whole sky, a stopgap trade until Candela.
 

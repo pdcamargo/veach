@@ -163,3 +163,18 @@ Extraction, 100k camera-relative float32 draw matrices: copying a float `mat4` (
   this ladder (1 km, 1 AU, 30 AU, against the origin image) as golden tests.
 - Photo mode is not reproducible from one run to the next (mean FLIP 0.0004 between two runs of the same golden
   script). Worth knowing before goldens get tighter.
+
+## Decisions (dev lead)
+
+- **ADR 0045 and 0046 hold.** Camera-relative double positions stay within FLIP 0.0005 out to 30 AU; today's float32
+  path fails at 1 km. Double propagation costs about 8 % (`FrameTransform`), and a Luau `Position` at 7-16 ns per
+  operation is affordable next to a script system's 90-180 ns per entity.
+- **One render origin per frame**, the primary camera's position, in double; other views carry a float32 offset from
+  it. `MeshDraw` keeps one world matrix for every view, and a second view far from the primary camera is not a case
+  the toolbox has. This refines ADR 0045's "camera-relative for each view" and goes into its implementation.
+- **The query leak in `propagate_transforms()` is fixed** (it now frees its cached query), with a regression test.
+- **Deep hierarchies** (21 ms for 100k entities in chains, even in float, because Flecs puts each parent's children in
+  their own table) are a Flecs layout question, not a precision one: VCH-106.
+- The spike's lab module and scripts stay until ADR 0045 is implemented, so the screenshots can be reproduced; they
+  are deleted with it.
+

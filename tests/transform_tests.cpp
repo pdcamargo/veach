@@ -141,3 +141,18 @@ TEST_CASE("[transform.AC5] a camera on a rig views from the rig's world pose") {
     REQUIRE(renderer.render_world().views.size() == 1);
     CHECK(near(renderer.render_world().views.front().position, {1.0f, 2.0f, 5.0f}));
 }
+
+TEST_CASE("propagate_transforms leaves no query behind") {
+    // SP-03 found the helper built a new cached query on every call; a few hundred crashed world teardown.
+    World world = make_world();
+    world.entity().set(Transform{});
+    const auto queries = [&] {
+        return ecs_count_id(world.c_ptr(), ecs_pair(ecs_id(EcsPoly), EcsQuery));
+    };
+    propagate_transforms(world);
+    const auto before = queries();
+    for (int i = 0; i < 500; ++i) {
+        propagate_transforms(world);
+    }
+    CHECK(queries() == before);
+}

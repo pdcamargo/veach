@@ -13,12 +13,14 @@ void compose_global(const Transform& local, const GlobalTransform* parent, Globa
 }  // namespace
 
 void propagate_transforms(World& world) {
-    world.query_builder<const Transform, const GlobalTransform*, GlobalTransform>()
-        .term_at(1)
-        .parent()
-        .cascade()
-        .build()
-        .each(compose_global);
+    // A cached query (cascade needs one) is an entity in the world: free it, or every call leaves one behind.
+    auto query = world.query_builder<const Transform, const GlobalTransform*, GlobalTransform>()
+                     .term_at(1)
+                     .parent()
+                     .cascade()
+                     .build();
+    query.each(compose_global);
+    query.destruct();
 }
 
 CoreModule::CoreModule(World& world) {

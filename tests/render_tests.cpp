@@ -285,14 +285,17 @@ TEST_CASE("[views.AC2] inactive cameras are skipped and views come in entity-id 
     f.renderer.render();
     CHECK_FALSE(saw_view);  // no camera: FrameContext::view is null
 
-    const Entity first = f.world.entity("first").set(Camera{math::radians(40.0f), 0.1f, true});
+    const Entity narrow = f.world.entity("narrow").set(Camera{math::radians(40.0f), 0.1f, true});
     f.world.entity("off").set(Camera{math::radians(50.0f), 0.1f, false});
-    const Entity second = f.world.entity("second").set(Camera{math::radians(70.0f), 0.1f, true});
-    REQUIRE(first.id() < second.id());
+    const Entity wide = f.world.entity("wide").set(Camera{math::radians(70.0f), 0.1f, true});
     const render::RenderWorld& rw = f.extract();
     REQUIRE(rw.views.size() == 2);
+    // Ordered by entity id, which is not creation order once Flecs recycles ids (with a newer generation).
+    CHECK(rw.views[0].camera < rw.views[1].camera);
+    const bool narrow_first = narrow.id() < wide.id();
+    CHECK(rw.views[0].camera == (narrow_first ? narrow.id() : wide.id()));
     // A narrower field of view has a larger y scale.
-    CHECK(rw.views[0].projection[1][1] > rw.views[1].projection[1][1]);
+    CHECK((rw.views[0].projection[1][1] > rw.views[1].projection[1][1]) == narrow_first);
     f.renderer.render();
     CHECK(saw_view);
 }

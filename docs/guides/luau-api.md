@@ -182,10 +182,10 @@ C++ components tagged `veach::Scriptable` (all fields Luau-representable). The e
 - `RenderQuality` (on a camera; absent: Performance): `tier` `"performance"`, `"quality"` or `"custom"`. A tier sets
   the render scale, ReSTIR's candidates and neighbors and Candela's ray rate, overriding the components below;
   `"custom"` uses theirs ([ADR 0049](../adr/0049-frame-budget-and-quality-tiers.md)).
-- `Candela` (on a camera; absent: the defaults): `gather` (`"restir"`; `"surface_cache"` reads the cache at the
-  visible surface, a diagnostic), `ray_rate` (gather rays per render pixel: 0.25, 0.5 or 1),
-  `spatial_samples` (0; reuse is biased until VCH-066), `cache_bounces` (2), and on trial (option 0): `adaptive_cache`,
-  `stable_levels`; `freeze_cache` stops the cache updating (a diagnostic).
+- `Candela` (on a camera; absent: the defaults): `gather` (`"restir"`; two diagnostics: `"surface_cache"` reads the
+  cache at the visible surface, `"no_reuse"` gives every pixel a fresh gather ray each frame, without reservoirs),
+  `ray_rate` (gather rays per render pixel: 0.25, 0.5 or 1), `spatial_samples` (0; reuse is biased until VCH-066),
+  `cache_bounces` (2), and `freeze_cache`, which stops the cache updating (a diagnostic).
 - `Sky` (on any one entity; none means the defaults): `mode` `"physical"` (default), `"constant"` (`color` in nits)
   or `"none"`; the physical sky's `time_of_day` (hours, solar time), `latitude` (degrees), `day_of_year`, `north`
   (radians: north is -Z turned about +Y), `sun_illuminance` (lux at the top of the atmosphere), `ground_albedo`,

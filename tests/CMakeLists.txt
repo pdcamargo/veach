@@ -213,18 +213,26 @@ if(Python3_FOUND)
             set_tests_properties("candela: the cache alone stays as steady and quick on ${_scene} (metal)" PROPERTIES
                 SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 900 LABELS full)
         endforeach()
-        # VCH-069: the motion trail with GI off (the final image after 30 frames of camera motion against a still
-        # camera), without an upscaler and with MetalFX: measured 0.053 and 0.068, held with a margin.
-        foreach(_trail "none:0.058" "automatic:0.075")
-            string(REPLACE ":" ";" _trail "${_trail}")
-            list(GET _trail 0 _upscaler)
-            list(GET _trail 1 _max)
-            add_test(NAME "motion: Bistro's trail stays within ${_max} FLIP (${_upscaler}, metal)"
+        # VCH-069 and the Candela spec: Bistro noon's motion trail (the final image after 30 frames of camera motion
+        # against a still camera), each 'gate' entry of tests/tolerance.json's "motion_trail": GI off within noise of
+        # its measured trail, Candela within the margin over GI off's (motion_trail.py's limit()).
+        string(JSON _count LENGTH "${_tolerance}" motion_trail entries)
+        math(EXPR _last "${_count} - 1")
+        foreach(_i RANGE ${_last})
+            string(JSON _check GET "${_tolerance}" motion_trail entries ${_i} check)
+            if(NOT _check STREQUAL "gate")
+                continue()
+            endif()
+            string(JSON _gi GET "${_tolerance}" motion_trail entries ${_i} gi)
+            string(JSON _upscaler GET "${_tolerance}" motion_trail entries ${_i} upscaler)
+            set(_name "motion: Bistro's trail within tolerance (GI ${_gi}, upscaler ${_upscaler}, metal)")
+            add_test(NAME "${_name}"
                 COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/motion_trail.py" --lab $<TARGET_FILE:veach-lab>
-                        --imgdiff $<TARGET_FILE:veach-cli> --upscaler ${_upscaler} --max ${_max}
+                        --imgdiff $<TARGET_FILE:veach-cli> --gi ${_gi} --upscaler ${_upscaler}
+                        --tolerance "${CMAKE_CURRENT_SOURCE_DIR}/tolerance.json"
                         --out "${CMAKE_CURRENT_BINARY_DIR}/motion_trail")
-            set_tests_properties("motion: Bistro's trail stays within ${_max} FLIP (${_upscaler}, metal)" PROPERTIES
-                SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 900 LABELS full)
+            set_tests_properties("${_name}" PROPERTIES SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 900
+                LABELS full)
         endforeach()
         # ADR 0049, VCH-068: a string-light wire against the sky stays continuous through the upscaler at 0.5 (Bistro
         # noon at 1440p). MetalFX is required; TAAU is measured (it breaks the wire); FSR joins the required ones.

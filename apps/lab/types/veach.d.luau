@@ -82,14 +82,12 @@ export type Camera = {
 	shutter: number,
 	iso: number,
 }
-export type CandelaGather = "restir" | "surface_cache"
+export type CandelaGather = "restir" | "surface_cache" | "no_reuse"
 export type Candela = {
 	gather: CandelaGather,
 	ray_rate: number,
 	spatial_samples: number,
 	cache_bounces: number,
-	adaptive_cache: boolean,
-	stable_levels: boolean,
 	freeze_cache: boolean,
 }
 export type DirectionalLight = {

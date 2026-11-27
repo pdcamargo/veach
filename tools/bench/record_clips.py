@@ -90,7 +90,7 @@ def main() -> int:
     parser.add_argument("--size", default="1280x720")
     parser.add_argument("--clips", default="static,light_off,pan")
     parser.add_argument("--variant", action="append", default=[], metavar="NAME=JSON",
-                        help='e.g. option0=\'{"RealtimeLighting": {"gi": "candela"}, "Candela": {"adaptive_cache": true}}\'')
+                        help='e.g. no_reuse=\'{"RealtimeLighting": {"gi": "candela"}, "Candela": {"gather": "no_reuse"}}\'')
     args = parser.parse_args()
     lab = ROOT / "build" / args.preset / "apps" / "lab" / "veach-lab"
     variants = [(v.split("=", 1)[0], json.loads(v.split("=", 1)[1])) for v in args.variant] or \

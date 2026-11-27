@@ -44,13 +44,12 @@ RadianceCache cache_of(RealtimeFrame f) {
     c.keys = f.cache_keys;
     c.accum = f.cache_accum;
     c.radiance = f.cache_radiance;
-    c.camera = f.cache_anchor.xyz;
+    c.camera = f.camera_position.xyz;
     c.capacity = f.cache_capacity;
     c.scale = f.cache_scale;
     c.cell_size = f.cache_cell_size;
     c.cell_scale = f.cache_cell_scale;
     c.max_frames = f.cache_max_frames;
-    c.adaptive = f.cache_anchor.w > 0.5 ? 1u : 0u;
     c.stats = f.counters;
     return c;
 }

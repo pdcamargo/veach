@@ -107,6 +107,7 @@ enum class GlobalIllumination : std::uint8_t {
 enum class CandelaGather : std::uint8_t {
     restir,         ///< a ReSTIR GI gather: rays from the visible surface read the cache where they land
     surface_cache,  ///< no rays: the cache's incoming light at the visible surface (a diagnostic, option 3)
+    no_reuse,       ///< the gather's rays without reservoirs: every pixel a fresh sample each frame (a diagnostic)
 };
 
 /// Candela's settings, on the camera; absent: these defaults (docs/specs/candela/spec.md).
@@ -115,11 +116,6 @@ struct Candela {
     float ray_rate = 0.25f;             ///< gather rays per render pixel: 0.25, 0.5 or 1
     std::uint32_t spatial_samples = 0;  ///< neighbors' reservoirs reused per pixel, up to 4 (fireflies: VCH-066)
     std::uint32_t cache_bounces = 2;    ///< diffuse surfaces a cache update path visits after the first, up to 3
-    /// Option 0 (docs/specs/candela/spec.md), on trial: cells average their samples weighted by count over a long
-    /// history, restarted when a short average shows a change, instead of the last three frames' means.
-    bool adaptive_cache = false;
-    /// Option 0, on trial: cell sizes measured from the camera snapped to a 4 m grid, so they stay put as it moves.
-    bool stable_levels = false;
     /// Diagnostic: the cache stops updating (no paths, no resolve) and keeps what it holds, perfectly steady.
     bool freeze_cache = false;
 };

@@ -1,6 +1,6 @@
 # Candela: real-time global illumination
 
-**Status:** On hold (option 0 failed; the frozen-cache test points at the gather, not the cache: with the owner)
+**Status:** On hold (the reuse-off diagnostic points at the denoiser under the upscaler's jitter: with the owner)
 **Area:** render
 **Owner:** dev lead (product-affecting: the product owner approves)
 
@@ -243,11 +243,11 @@ quick` on the Cornell box (flicker 0.013, light off 13 frames) and Bistro (0.016
 The owner moved the gates to the final image (ReSTIR gather and denoiser, Performance tier: 1280x720 output, MetalFX
 at 0.5) and asked for a one-day option 0 before surfels: step 1b plus only step 1c's adaptive averaging
 (`Candela.adaptive_cache`), and cell levels that hold still under camera motion (`Candela.stable_levels`: distances
-from the camera snapped to a 4 m grid). Both are switches on trial, off by default.
+from the camera snapped to a 4 m grid). Both were switches on trial; the owner had them removed after this.
 
 | Final image, Performance | Cornell box | Sponza | Bistro noon |
 |---|---|---|---|
-| Flicker, GI off | 0.0042 | 0.0020 | 0.0041 |
+| Flicker, direct light only | 0.0042 | 0.0020 | 0.0041 |
 | Flicker, step 1b | 0.0049 | 0.0051 | **0.0107** |
 | Flicker, adaptive averaging | 0.0051 | 0.0053 | **0.0108** |
 | Flicker, option 0 (both) | 0.0051 | 0.0053 | **0.0107** |
@@ -266,6 +266,42 @@ per-pixel gather: its sampling, its reservoirs and their temporal reuse, through
 **Verdict:** option 0 fails flicker on Bistro and light off everywhere, and changes neither. The surfels fallback
 would replace the cache, which these measurements clear; the decision goes back to the owner. Clips for judging by
 eye: `build/videos/` (`tools/bench/record_clips.py`).
+
+## Reuse off (2026-11-27)
+
+Before building screen probes, the owner asked whether the reservoirs cause the flicker: `Candela.gather =
+"no_reuse"` (a permanent diagnostic) gives every pixel a fresh gather ray each frame, with no temporal or spatial
+reuse and the same denoiser. Final image, Performance tier, cache frozen, mean FLIP between consecutive frames:
+
+| Final image, cache frozen | Cornell box | Sponza | Bistro noon |
+|---|---|---|---|
+| Direct light only | 0.0042 | 0.0020 | 0.0041 |
+| Cache alone (a steady input) | | 0.0020 | 0.0041 |
+| ReSTIR, 0.25 rays per pixel (shipped) | 0.0049 | 0.0037 | **0.0100** |
+| ReSTIR, 1 ray per pixel | | | **0.0095** |
+| Reuse off, 1 ray per pixel | 0.0047 | 0.0032 | **0.0088** |
+| ReSTIR, cache live (step 1b) | 0.0049 | 0.0051 | **0.0107** |
+
+Before the denoiser (Candela's indirect light, `view = "indirect"`), reuse off is far noisier: 0.18 / 0.061 / 0.21
+against ReSTIR's 0.024 / 0.030 / 0.081. Option 0 measured Sponza's frozen flicker at 0.0052; this build gives
+0.0037, a difference not accounted for.
+
+**The reservoirs are not the cause.** Without them Bistro still flickers at 0.0088. A steady input adds nothing, so
+the denoiser and MetalFX pass a still image through cleanly; what they let through is the gather's noise. Where it
+gets through depends on the upscaler's jitter (Bistro, ReSTIR, cache live):
+
+| Bistro, flicker | Direct only | Denoiser history 32 frames (today) | 128 frames |
+|---|---|---|---|
+| No upscaler (640x360) | 0.0007 | 0.0071 | **0.0047** |
+| MetalFX at 0.5 (Performance) | 0.0041 | 0.0107 | 0.0100 |
+| TAAU at 0.5 | 0.0095 | 0.0275 | 0.0268 |
+| Jitter forced on, no upscaler | 0.035 | 0.068 | 0.067 |
+
+Without jitter a longer history brings Bistro under 0.005; with it, history length barely matters. Under jitter many
+edge and foliage pixels of a still camera lose or borrow their history every frame (the `history` view), and a
+history fix for them (rebuilding short histories from the same surface around them, VCH-069) changed nothing
+(0.0108). Where jitter lets the gather's noise through is not yet located. **Verdict:** the denoiser's indirect path
+is the floor; no screen probes. The decision goes back to the owner (review packet, 2026-11-27).
 
 ## Out of scope
 

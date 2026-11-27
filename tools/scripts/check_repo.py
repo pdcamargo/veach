@@ -83,10 +83,13 @@ def main() -> int:
                           "`import veach.bindless;` (its handles would go unchecked, ADR 0039)")
 
     open_ids = set(re.findall(r"\bVCH-(\d{3,})\b", backlog.split("\n## Done", 1)[0]))
-    for scene in json.loads((ROOT / "tests/tolerance.json").read_text(encoding="utf-8"))["scenes"]:
+    tolerance = json.loads((ROOT / "tests/tolerance.json").read_text(encoding="utf-8"))
+    entries = [(scene["name"], scene) for scene in tolerance["scenes"]] + \
+        [(f"the motion trail (GI {e['gi']}, {e['upscaler']})", e) for e in tolerance["motion_trail"]["entries"]]
+    for name, scene in entries:
         for exception in scene.get("exceptions", []):
             bug = re.fullmatch(r"VCH-(\d{3,})", exception.get("bug", ""))
-            where = f"tests/tolerance.json: {scene['name']}'s {exception.get('metric')} exception"
+            where = f"tests/tolerance.json: {name}'s {exception.get('metric')} exception"
             if not bug:
                 errors.append(f"{where} has no bug; name the backlog item it waits on (\"bug\": \"VCH-NNN\")")
             elif bug[1] not in open_ids:

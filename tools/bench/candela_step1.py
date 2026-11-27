@@ -42,6 +42,7 @@ LIDS = {
 
 CANDELA: dict = {}  # --set: Candela fields applied in every session
 FINAL = {"size": "640x360", "upscaling": None}  # --performance: the shipped view (1280x720, the tier's upscaler)
+VIEW = {"flicker": "final"}  # --view indirect: flicker of Candela's own light, before the denoiser
 
 
 def session(lab: pathlib.Path, rhi: str, scene: str, size: str, gi: str, upscaling: dict | None) -> Mcp:
@@ -85,6 +86,9 @@ def flicker(lab: pathlib.Path, rhi: str, imgdiff: pathlib.Path, scene: str, work
     out = {}
     for gi in ("direct_only", "candela"):
         mcp = session(lab, rhi, scene, FINAL["size"], gi, FINAL["upscaling"])
+        if gi == "candela" and VIEW["flicker"] != "final":
+            mcp.call("set_component", entity="camera", component="RealtimeLighting",
+                     value={"gi": gi, "view": VIEW["flicker"]})
         mcp.call("step_frames", count=96)
         shots = []
         for i in range(17):
@@ -180,10 +184,13 @@ def main() -> int:
     parser.add_argument("--performance", action="store_true",
                         help="flicker and response on the shipped view: 1280x720 output, the Performance tier's "
                              "upscaler (MetalFX at 0.5, jittered), instead of 640x360 without one")
+    parser.add_argument("--view", default="final", choices=["final", "indirect"],
+                        help="flicker of the final image, or of Candela's indirect light before the denoiser")
     parser.add_argument("--set", action="append", default=[], metavar="FIELD=VALUE",
                         help="a Candela field for every session (repeatable), e.g. gather=\"surface_cache\"")
     args = parser.parse_args()
     CANDELA.update({k: json.loads(v) for k, v in (item.split("=", 1) for item in args.set)})
+    VIEW["flicker"] = args.view
     if args.performance:
         FINAL.update(size="1280x720", upscaling={"mode": "automatic"})
     lab = ROOT / "build" / args.preset / "apps" / "lab" / "veach-lab"

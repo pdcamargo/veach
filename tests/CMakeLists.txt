@@ -31,6 +31,7 @@ target_include_directories(veach-tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 set_target_properties(veach-tests PROPERTIES FOLDER "tests")
 veach_apply_warnings(veach-tests)
 veach_deploy_d3d12(veach-tests)
+add_subdirectory(sp06)  # Spike SP-06 (VCH-082): its tests join veach-tests; its bench is veach-bench-sp06
 
 include("${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake")
 doctest_discover_tests(veach-tests TEST_PREFIX "unit: ")

@@ -1,0 +1,26 @@
+{
+  "veach_graph": 1,
+  "id": "sp06:terrain",
+  "inputs": { "p": "p_planet" },
+  "nodes": [
+    {
+      "id": "continents",
+      "type": "veach:fbm@1",
+      "inputs": { "p": "p" },
+      "params": { "wavelength": { "planet_m": 3000000 }, "octaves": 6, "lacunarity": 2.0, "gain": 0.5 }
+    },
+    {
+      "id": "mountains",
+      "type": "veach:fbm@1",
+      "inputs": { "p": "p" },
+      "params": { "wavelength": { "planet_m": 600000 }, "octaves": 5, "lacunarity": 2.0, "gain": 0.5 }
+    },
+    { "id": "ridges", "type": "veach:ridge@1", "inputs": { "x": "mountains" }, "params": { "offset": 1.0 } },
+    { "id": "peaks", "type": "veach:remap@1", "inputs": { "x": "ridges" }, "params": { "from": [0.0, 1.0], "to": [0.35, 1.0] } },
+    { "id": "land", "type": "veach:remap@1", "inputs": { "x": "continents" }, "params": { "from": [-1.0, 1.0], "to": [0.0, 0.6] } },
+    { "id": "mask_raw", "type": "veach:remap@1", "inputs": { "x": "continents" }, "params": { "from": [0.05, 0.3], "to": [0.0, 1.0] } },
+    { "id": "mask", "type": "veach:clamp@1", "inputs": { "x": "mask_raw" }, "params": { "min": 0.0, "max": 1.0 } },
+    { "id": "height", "type": "veach:blend@1", "inputs": { "a": "land", "b": "peaks", "t": "mask" } }
+  ],
+  "outputs": { "height": "height" }
+}

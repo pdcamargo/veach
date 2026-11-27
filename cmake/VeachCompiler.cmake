@@ -38,3 +38,13 @@ endif()
 if(MSVC)
     add_compile_options(/utf-8 /Zc:preprocessor /Zc:__cplusplus)
 endif()
+
+# Canonical floating point (docs/adr/0043-determinism-tiers-and-strict-floating-point.md): every CPU target, and every
+# dependency built after this point, rounds `a * b + c` as two operations, never a fused multiply-add, so the same
+# source gives the same bits on Apple Clang (which contracts by default on arm64) and MSVC. No fast math anywhere.
+# tools/scripts/check_repo.py fails if these go missing; the canonical-hash test fails if they stop working.
+if(MSVC)
+    add_compile_options(/fp:precise)
+else()
+    add_compile_options(-ffp-contract=off -fno-fast-math)
+endif()

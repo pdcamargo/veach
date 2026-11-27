@@ -9,6 +9,8 @@
    parameters_match<...>(<namespace>::layout::<stem>, ...) somewhere in C++ (VCH-041, ADR 0027).
 5. Every .slang file that uses DescriptorHandle imports veach.bindless, so debug builds check its handles
    (ADR 0027).
+7. Canonical floating point (ADR 0043): cmake/VeachCompiler.cmake sets -ffp-contract=off -fno-fast-math (Clang) and
+   /fp:precise (MSVC) globally, and no build file turns on fast math or FP contraction.
 6. The engine never knows the space toolbox exists: nothing under engine/ names `veach/space`, `veach::space` or
    `veach_space` (ADR 0042). What the toolbox needs that is generic moves down into the engine instead.
 """
@@ -85,6 +87,20 @@ def main() -> int:
         if "DescriptorHandle" in text and not re.search(r"^import veach\.bindless;", text, re.MULTILINE):
             errors.append(f"{shader.relative_to(ROOT).as_posix()}: uses DescriptorHandle without "
                           "`import veach.bindless;` (its handles would go unchecked, ADR 0027)")
+
+    compiler = (ROOT / "cmake/VeachCompiler.cmake").read_text(encoding="utf-8")
+    for flag in ("-ffp-contract=off", "-fno-fast-math", "/fp:precise"):
+        if flag not in compiler:
+            errors.append(f"cmake/VeachCompiler.cmake: missing {flag}; canonical floating point needs it on every CPU "
+                          "target (ADR 0043)")
+    fast_math = re.compile(r"-ffast-math|-ffp-contract=(?:fast|on)\b|/fp:fast|/fp:contract|-Ofast")
+    build_files = [ROOT / "CMakeLists.txt", ROOT / "CMakePresets.json", *sorted((ROOT / "cmake").glob("*.cmake")),
+                   *sorted(p for top in ("engine", "space", "apps", "tools", "tests") for p in (ROOT / top).rglob("CMakeLists.txt"))]
+    for path in build_files:
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if fast_math.search(line) and not line.lstrip().startswith("#"):
+                errors.append(f"{path.relative_to(ROOT).as_posix()}:{lineno}: fast math or FP contraction breaks "
+                              "canonical determinism (ADR 0043); shaders keep fast math through cmake/VeachShaders.cmake")
 
     claude = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
     if claude != "@AGENTS.md\n":

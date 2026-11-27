@@ -116,6 +116,16 @@ export type Sky = {
 	mie_g: number,
 	aerial_perspective: boolean,
 }
+export type Sp03Ladder = {
+	distance: number,
+	large: boolean,
+	photo: boolean,
+}
+export type Sp03LargePosition = {
+	x: number,
+	y: number,
+	z: number,
+}
 export type Spinner = {
 	radians_per_second: number,
 	angle: number,
@@ -183,6 +193,8 @@ export type Veach = {
 		read PointLight: Component<PointLight>,
 		read SceneInstance: Component<SceneInstance>,
 		read Sky: Component<Sky>,
+		read Sp03Ladder: Component<Sp03Ladder>,
+		read Sp03LargePosition: Component<Sp03LargePosition>,
 		read Spinner: Component<Spinner>,
 		read SpotLight: Component<SpotLight>,
 		read Transform: Component<Transform>,

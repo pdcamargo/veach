@@ -2,6 +2,7 @@ veach_add_app(veach-lab
     SOURCES
         src/lab_module.cpp
         src/main.cpp
+        src/sp03_spike.cpp
         src/triangle_feature.cpp)
 
 # The lab finds its project (veach.project.json, scripts/) from any working directory.

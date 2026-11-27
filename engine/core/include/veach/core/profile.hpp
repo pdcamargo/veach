@@ -1,6 +1,6 @@
 #pragma once
 
-// Tracy instrumentation (ADR 0011). Compiles to nothing unless the build was
+// Tracy instrumentation (ADR 0014). Compiles to nothing unless the build was
 // configured with VEACH_TRACY=ON (the 'profile' preset). Zone names must be
 // string literals except for VEACH_ZONE_TEXT, which copies a runtime name.
 //

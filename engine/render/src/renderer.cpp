@@ -8,7 +8,6 @@
 #include <veach/ecs/services.hpp>
 #include <veach/platform/platform_module.hpp>
 #include <veach/platform/window.hpp>
-#include <veach/render/frame_budget.hpp>
 #include <veach/render/png.hpp>
 
 #include "atmosphere.hpp"
@@ -26,7 +25,7 @@ namespace veach::render {
 
 namespace {
 
-/// Mirrors `Params` in shaders/present.slang (ADR 0024 layout rules).
+/// Mirrors `Params` in shaders/present.slang (ADR 0027 layout rules).
 struct PresentParams {
     rhi::DescriptorHandle source;
     rhi::DescriptorHandle sampler;
@@ -35,7 +34,7 @@ static_assert(rhi::parameters_match<PresentParams>(veach_render_shaders::layout:
                                                    {VEACH_PARAM(PresentParams, source),
                                                     VEACH_PARAM(PresentParams, sampler)}));
 
-/// SceneInstance: replaces the entity's children with the scene's nodes (ADR 0032).
+/// SceneInstance: replaces the entity's children with the scene's nodes (ADR 0011).
 void spawn_scene(Entity root, const SceneInstance& instance) {
     World world = root.world();
     std::vector<Entity> old;
@@ -92,7 +91,7 @@ float luminance_of(math::vec3 c) {
     return 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z;
 }
 
-/// The frame's sky (ADR 0050): the first Sky in entity order, or the defaults. A Sky that drives the sun replaces
+/// The frame's sky (ADR 0038): the first Sky in entity order, or the defaults. A Sky that drives the sun replaces
 /// the scene's directional lights with the atmosphere's sun; without one, the default sky follows the scene's first
 /// directional light, scaled so its ground illuminance is that light's.
 void resolve_sky(const World& world, RenderWorld& out) {
@@ -186,28 +185,8 @@ Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device) {
             view.width = width;
             view.height = height;
             view.exposure = 1.0f / (1.2f * std::exp2(ev100_of(camera)));
-            if (const PathTracer* settings = e.try_get<PathTracer>()) {
-                view.path_tracer = *settings;
-            }
-            if (const RealtimeLighting* lighting = e.try_get<RealtimeLighting>()) {
-                view.realtime = *lighting;
-            }
-            if (const Upscaling* upscaling = e.try_get<Upscaling>()) {
-                view.upscaling = *upscaling;
-            }
-            if (const Candela* candela = e.try_get<Candela>()) {
-                view.candela = *candela;
-            }
-            if (const RenderQuality* quality = e.try_get<RenderQuality>()) {
-                view.tier = quality->tier;
-            }
-            if (view.tier != RenderTier::custom) {
-                const TierBudget& tier =
-                    tier_budget(view.tier == RenderTier::quality ? QualityTier::quality : QualityTier::performance);
-                view.upscaling.render_scale = tier.render_scale;
-                view.realtime.light_candidates = tier.light_candidates;
-                view.realtime.spatial_samples = tier.spatial_samples;
-                view.candela.ray_rate = tier.gi_ray_rate;
+            if (const PhotoMode* photo = e.try_get<PhotoMode>()) {
+                view.photo_mode = *photo;
             }
             view.camera = e.id();
             views.emplace_back(e.id(), view);
@@ -314,10 +293,9 @@ void Renderer::request_capture(CaptureCallback done) {
     capture_ = std::move(done);
 }
 
-void Renderer::extract(const World& world, bool lighting_changed) {
+void Renderer::extract(const World& world) {
     VEACH_ZONE("Renderer::extract");
     render_world_ = {};
-    render_world_.lighting_changed = lighting_changed;
     for (const NamedExtractor& extractor : extractors_) {
         VEACH_ZONE_TEXT("extractor", extractor.name.data(), extractor.name.size());
         extractor.fn(world, render_world_);
@@ -391,7 +369,7 @@ void Renderer::render() {
         return;
     }
 
-    // Frames in flight (ADR 0029): blocks only if the GPU is frames_in_flight frames behind.
+    // Frames in flight (ADR 0030): blocks only if the GPU is frames_in_flight frames behind.
     device_.begin_frame();
 
     RenderGraph graph(device_, &pool_);
@@ -472,7 +450,6 @@ void Renderer::render() {
         log::error("render", compiled.error());
         return;
     }
-    last_passes_ = graph.execution_order();
     std::string described = graph.describe();
     if (described != last_graph_) {
         log::debug("render", "{}", described);
@@ -539,27 +516,6 @@ RenderModule::RenderModule(World& world) {
         .member(&SpotLight::outer_angle, "outer_angle")
         .member(&SpotLight::radius, "radius")
         .add<Scriptable>();
-    world.component<RealtimeView>();
-    world.component<GlobalIllumination>();
-    world.component<RealtimeLighting>()
-        .member(&RealtimeLighting::light_candidates, "light_candidates")
-        .member(&RealtimeLighting::temporal_reuse, "temporal_reuse")
-        .member(&RealtimeLighting::spatial_samples, "spatial_samples")
-        .member(&RealtimeLighting::denoise, "denoise")
-        .member(&RealtimeLighting::gi, "gi")
-        .member(&RealtimeLighting::ao_rays, "ao_rays")
-        .member(&RealtimeLighting::ao_radius, "ao_radius")
-        .member(&RealtimeLighting::debug_skip, "debug_skip")
-        .member(&RealtimeLighting::view, "view")
-        .add<Scriptable>();
-    world.component<CandelaGather>();
-    world.component<Candela>()
-        .member(&Candela::gather, "gather")
-        .member(&Candela::ray_rate, "ray_rate")
-        .member(&Candela::spatial_samples, "spatial_samples")
-        .member(&Candela::cache_bounces, "cache_bounces")
-        .member(&Candela::freeze_cache, "freeze_cache")
-        .add<Scriptable>();
     world.component<SkyMode>();
     world.component<Sky>()
         .member(&Sky::mode, "mode")
@@ -577,40 +533,16 @@ RenderModule::RenderModule(World& world) {
         .member(&Sky::mie_g, "mie_g")
         .member(&Sky::aerial_perspective, "aerial_perspective")
         .add<Scriptable>();
-    world.component<UpscalerMode>();
-    world.component<RenderTier>();
-    world.component<RenderQuality>().member(&RenderQuality::tier, "tier").add<Scriptable>();
-    world.component<Upscaling>()
-        .member(&Upscaling::mode, "mode")
-        .member(&Upscaling::render_scale, "render_scale")
-        .add<Scriptable>();
-    world.component<PathTracer>()
-        .member(&PathTracer::samples_per_frame, "samples_per_frame")
-        .member(&PathTracer::max_bounces, "max_bounces")
-        .member(&PathTracer::mode, "mode")
-        .member(&PathTracer::jitter, "jitter")
+    world.component<PhotoMode>()
+        .member(&PhotoMode::samples_per_frame, "samples_per_frame")
+        .member(&PhotoMode::max_bounces, "max_bounces")
         .add<Scriptable>();
     world.observer<const SceneInstance>("SpawnSceneInstances")
         .event(flecs::OnSet)
         .each([](Entity e, const SceneInstance& instance) { spawn_scene(e, instance); });
-    // Lighting changes, for the renderer's temporal histories: a light, the sky or a mesh instance (whose materials
-    // may emit) set, added or removed. Observers, not queries with change detection: those also report tables whose
-    // other columns were written (every transform, every frame).
-    auto lighting_changed = std::make_shared<bool>(true);
-    const auto watch = [&]<class T>() {
-        world.observer<const T>().event(flecs::OnSet).event(flecs::OnRemove).each([lighting_changed](Entity, const T&) {
-            *lighting_changed = true;
-        });
-    };
-    watch.template operator()<DirectionalLight>();
-    watch.template operator()<PointLight>();
-    watch.template operator()<SpotLight>();
-    watch.template operator()<Sky>();
-    watch.template operator()<MeshInstance>();
-    world.system("Extract").kind<phase::Extract>().run([lighting_changed](Iter& it) {
+    world.system("Extract").kind<phase::Extract>().run([](Iter& it) {
         const World w = it.world();
-        services(w).get<Renderer>().extract(w, *lighting_changed);
-        *lighting_changed = false;
+        services(w).get<Renderer>().extract(w);
     });
     world.system("Render").kind<phase::Render>().run([](Iter& it) { services(it.world()).get<Renderer>().render(); });
 }

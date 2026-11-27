@@ -1,9 +1,15 @@
 # Rendering: features, shaders, render graph, goldens
 
-How to draw something in Veach today. Design: [ADR 0024](../adr/0024-resource-binding-model.md) (bindless
-binding), [ADR 0025](../adr/0025-sync-and-barrier-model.md) (barriers),
-[ADR 0026](../adr/0026-shader-compilation.md) (shader compilation), [spec](../specs/first-light/spec.md).
+How to draw something in Veach today. Design: [ADR 0027](../adr/0027-resource-binding-model.md) (bindless
+binding), [ADR 0029](../adr/0029-render-graph-sync-and-barriers.md) (barriers),
+[ADR 0009](../adr/0009-shader-compilation.md) (shader compilation), [spec](../specs/first-light/spec.md).
 The working example is `apps/lab/src/triangle_feature.cpp`.
+
+**Where the renderer is going.** The real-time renderer is a stylized PBR rasterizer with no real-time GI or path
+tracing ([ADR 0039](../adr/0039-realtime-renderer-is-raster-pbr.md)). What exists today is an interim visibility-buffer
+path ([ADR 0040](../adr/0040-interim-realtime-path-visibility-buffer.md)); the real one is designed in the research
+phase (ARCHITECTURE.md, open question 7). Real-time features never require hardware ray tracing
+([ADR 0003](../adr/0003-platforms-and-hardware-target.md)); only photo mode uses it.
 
 ## The shape of a frame
 
@@ -130,9 +136,9 @@ encoders, so a transfer pass with many builds is first start to last end.
    `my_shaders::layout::<stem>` is generated from Slang's reflection of the shader. Different field names, order,
    offsets or sizes are a compile error, and the hygiene check fails if a shader with a parameter block has no
    such check. The shader build itself fails on `float3`/`uint3` members and 3-row or 3-column matrices, whose
-   layout differs between Metal and HLSL (ADR 0024). Use 8-byte `rhi::DescriptorHandle`s for handles, and never
+   layout differs between Metal and HLSL (ADR 0027). Use 8-byte `rhi::DescriptorHandle`s for handles, and never
    leave one unwritten (handle 0) where a shader might read it, even behind a flag: the compiler may load the
-   descriptor before the branch. Point absent resources at `device.null_descriptor(kind)` (ADR 0039). Keep raster and compute entry points that need different parameters
+   descriptor before the branch. Point absent resources at `device.null_descriptor(kind)` (ADR 0027). Keep raster and compute entry points that need different parameters
    in separate `.slang` files.
 
 macOS builds compile to `.metallib`. Windows builds compile every entry point to DXIL, and the Windows CI job
@@ -141,7 +147,7 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
 ## Scenes, materials, lights, and the two renderers
 
 - **Scenes:** `SceneInstance { path = "assets/x.gltf" }` spawns the glTF as child entities (`Transform`,
-  `MeshInstance`, lights). Import and cooking: [ADR 0032](../adr/0032-asset-import-and-cooking.md).
+  `MeshInstance`, lights). Import and cooking, meshlets included: [ADR 0011](../adr/0011-gltf-import-and-cooking.md).
 - **Materials** are Slang types conforming to `IMaterial` (`shaders/veach/material.slang`). Every function has
   a default (glTF metallic-roughness), and a material overrides only what it changes:
 
@@ -155,86 +161,57 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   Register it with `veach_add_material(<app> GlowMaterial shaders/glow_material.slang [EMISSIVE])`, then
   `veach_add_scene_shaders(<app> NAMESPACE <ns>)`. A glTF material selects it with `"extras": {"veach_material":
   "GlowMaterial"}`. Renderers call `evaluateSurface(kind, context)` and never read material records directly
-  ([ADR 0033](../adr/0033-material-model.md)).
+  ([ADR 0035](../adr/0035-material-model.md)).
 - **Lights:** `DirectionalLight` (lux), `PointLight` and `SpotLight` (candela), shining down −Z, and emissive
-  surfaces (nits). `PointLight.radius` and `SpotLight.radius` (meters) and `DirectionalLight.angle` (angular
-  diameter, radians) give them a size and soft shadows in both renderers, at the same intensity
-  ([soft-shadows spec](../specs/soft-shadows/spec.md)). `Camera.ev100` sets exposure, or derives it from `aperture`, `shutter` and `iso` when 0; a
-  display pass applies it and the AgX tonemapper to the linear radiance renderers produce
-  ([ADR 0038](../adr/0038-exposure-and-tonemapping.md)).
+  surfaces (nits) ([ADR 0036](../adr/0036-lights-in-photometric-units.md)). `PointLight.radius`, `SpotLight.radius`
+  (meters) and `DirectionalLight.angle` (angular diameter, radians) give a light a size: soft shadows in photo mode.
+  The real-time path treats every light as an unshadowed point. `Camera.ev100` sets exposure, or derives it from
+  `aperture`, `shutter` and `iso` when 0; the display pass applies it and the AgX tonemapper
+  ([ADR 0037](../adr/0037-exposure-and-agx.md)).
 - **One feature, two renderers.** The app adds `render::SceneRenderer(SceneShaders{<ns>::path_tracer(),
-  <ns>::realtime_visibility(), <ns>::realtime_shade(), <ns>::candela()}, <ns>::material_kinds, assets)`. It keeps the scene on the
-  GPU (meshes with their meshlets, BLASes and a TLAS, material, light and emitter records) and draws each view
-  with the renderer its camera asks for. Both share the surface reconstruction, BRDF and light sampling
-  (`veach/scene.slang`, `veach/brdf.slang`, `veach/lights.slang`), so a material renders the same in both
-  ([ADR 0037](../adr/0037-realtime-renderer-visibility-buffer.md)).
-- **The real-time renderer** draws a camera without a `PathTracer` ([temporal spec](../specs/temporal-direct-lighting/spec.md)),
-  at the render resolution with sub-pixel jitter. The camera's quality tier (`RenderQuality.tier`, ADR 0049) sets
-  it: Performance (the default) renders at 0.5 with 8 ReSTIR candidates and 1 neighbor, Quality at 0.75 with 12 and
-  2; `"custom"` takes `Upscaling.render_scale` and `RealtimeLighting`'s own values instead (benchmarks, comparisons):
-  1. `visibility`: meshlet triangles into the visibility buffer (ADR 0037);
-  2. `surface`: the G-buffer, analytic motion vectors and the disocclusion decision every temporal pass shares
-     (`veach/temporal.slang`, ADR 0040, ADR 0045);
-  3. ReSTIR DI (ADR 0041): `light_candidates` alias-table samples over point, spot and emissive lights,
-     temporal and `spatial_samples` spatial reuse with pairwise MIS, then `shade` with one shadow ray per
-     pixel, plus one per directional light, evaluated exactly (ADR 0046), the indirect light and emission. The
-     indirect light comes from the GI pass before it (`RealtimeLighting.gi`): `"off"` (default until Candela) is
-     the ambient stopgap (`gi: ambient`: the sky through `ao_rays` short-range rays), `"direct_only"` none, and
-     `"candela"` Candela (ADR 0051): a world-space radiance cache (`veach/radiance_cache.slang`) fed by sparse
-     diffuse paths (`candela: cache update`, `cache resolve`; an empty cell reads its parent), and a ReSTIR GI
-     gather that reads it where its rays land (`candela: gather`, `misses` for points no level knows, `temporal`,
-     `spatial`);
-  4. the denoiser (ADR 0042): demodulated diffuse and specular, temporal accumulation, variance, five a-trous
-     iterations, remodulation. Its history, Candela's reservoirs and Candela's cache restart on a frame where a
-     light, the sky or a mesh instance was set or removed (`RenderWorld::lighting_changed`, ADR 0053);
-  5. the upscaler (ADR 0043): MetalFX's temporal scaler where the device has it (`Upscaling.mode = "automatic"`),
-     Veach's TAAU otherwise (`"temporal"`, what goldens pin so Metal and DX12 share one image); then AgX.
+  <ns>::realtime_visibility(), <ns>::realtime_shade()}, <ns>::material_kinds, assets)`. It keeps the scene on the GPU
+  (meshes with their meshlets, material and light records) and draws each view with the renderer its camera asks for.
+  Both share surface reconstruction and the BRDF (`veach/scene.slang`, `veach/brdf.slang`), so a material is the same
+  surface in both.
+- **The real-time renderer** ([spec](../specs/realtime-renderer/spec.md)) draws a camera without `PhotoMode`:
+  1. `visibility`: meshlet triangles into an `rg32_uint` visibility buffer, vertex pulling, reverse-Z depth;
+  2. `shade`: one compute pass rebuilds each pixel's surface and lights it with every punctual light (unshadowed),
+     the sky's ambient irradiance and emission, the sky behind geometry and aerial perspective in front;
+  3. `display`: AgX.
 
-  `Upscaling { mode = "none" }` renders at full resolution without jitter or upscaling. History is per camera and
-  resets on a resize, a mode change or a cut (more than 2 m or 45 degrees in a frame). `RealtimeLighting.view`
-  shows `noisy` (before the denoiser), `motion`, `history` (green: last frame's surface found, red: disoccluded)
-  or `accumulated` (the undenoised lighting averaged while nothing changes: what bias checks compare). Example:
-  `scripts/cornell_box_realtime.luau`.
-- **The reference path tracer** renders a camera that has a `PathTracer { samples_per_frame, max_bounces, mode,
-  jitter }`. It accumulates while nothing changes and restarts on any change. `mode` 1 computes direct light
-  only, which is what the real-time renderer estimates; mode 3 adds the sky on the first hit's diffuse lobe (the
-  real-time ambient stopgap's term), mode 4 diffuse indirect light (Candela's); `tools/bench/compare_direct.py`
-  measures one against the other per scene (`--sky` for mode 3, `--candela` for mode 4), and
-  `tools/bench/candela_step1.py` Candela's cost, flicker and response. Example: `scripts/cornell_box.luau`. It counts what should never happen and fails the run:
-  pixels whose accumulation reads back wrong (`render.history_lost`) and NaN or infinite samples
-  (`render.nonfinite_samples`).
-- **The sky** ([ADR 0050](../adr/0050-physical-atmosphere.md)): a `Sky` component on any entity, physical by
-  default. Its lookup tables (transmittance, multiple scattering, sky view, aerial perspective) are built by the
-  scene renderer's passes and read by both renderers: the real-time background, ambient stopgap and haze, and the
-  path tracer's escaped rays. Without a `Sky` entity the sky follows the scene's brightest directional light; with
-  one, it drives the sun from `time_of_day`. Closed test scenes set `Sky { mode = "none" }` (a warning says so when
-  the scene has lights). Example: `scripts/bistro_sunset.luau`.
-- **GPU timings:** `tools/bench/frame_times.py` reports the frame and each pass over MCP (`gpu_timings`).
-- **Frame budget** ([ADR 0049](../adr/0049-frame-budget-and-quality-tiers.md)): MCP `frame_budget { tier }` measures
-  the frame against the Performance or Quality tier: GPU time per subsystem and GPU memory per kind, each against
-  its slice (`engine/render/src/frame_budget.cpp`). Every pass and GPU resource maps to a subsystem by its name; a
-  new pass or resource name needs a line there, or `mcp: frame_budget maps every pass and resource` fails.
+  It is basic on purpose (no shadows, no indirect light, no reflections) and uses no ray tracing:
+  `VEACH_DISABLE_RAY_TRACING=1` renders the same image. Example: `scripts/flight_helmet_realtime.luau`.
+- **Photo mode** ([ADR 0041](../adr/0041-photo-mode.md), [spec](../specs/photo-mode/spec.md)) path traces a camera that
+  has `PhotoMode { samples_per_frame, max_bounces }`: the reference path tracer (`shaders/path_tracer.slang`), with
+  BLASes and a TLAS built only for it. It accumulates while nothing changes and restarts on any change; no denoiser.
+  It fails the run on accumulation that reads back wrong (`render.history_lost`) and on NaN or infinite samples
+  (`render.nonfinite_samples`). On a device without hardware ray tracing it logs `rhi.backend_unavailable` and the
+  camera renders in real time. MCP `photo_mode { samples }` renders a reference image of the current state.
+  Example: `scripts/cornell_box.luau`.
+- **The sky** ([ADR 0038](../adr/0038-physical-sky.md)): a `Sky` component on any entity, physical by default. Its
+  lookup tables (transmittance, multiple scattering, sky view, aerial perspective, sky irradiance) are built by the
+  scene renderer's passes and read by both renderers: the real-time background, ambient light and haze, and photo
+  mode's escaped rays. Without a `Sky` entity the sky follows the scene's brightest directional light; with one, it
+  drives the sun from `time_of_day`. Closed test scenes set `Sky { mode = "none" }` (a warning says so when the scene
+  has lights). Example: `scripts/bistro_sunset.luau`.
 - **Looking around:** the lab runs `scripts/dev/fly_camera.luau` after every scene (`"dev_scripts"` in its
   `veach.project.json`), so any windowed run flies its active camera with W/A/S/D, Q/E, the arrows and shift:
-  `veach-lab --rhi metal --window --script scripts/bistro.luau`. `scripts/dev/gi_modes.luau` runs after every scene
-  too: keys 1-6 switch the active camera between GI off, Candela, Candela's cache alone, the path tracer with full
-  GI, the path tracer's mode 4 (Candela's reference) and Candela's indirect light alone; the window title names the
-  mode. Both write only on a key, so goldens, benchmarks and replays keep the scene's own settings. The fly camera
-  writes the camera only while a key is held,
-  so goldens, benchmarks and replays keep the scene's view.
+  `veach-lab --rhi metal --window --script scripts/bistro.luau`. It writes the camera only while a key is held, so
+  goldens and replays keep the scene's view.
 
 ## Screenshots and golden images
 
 ```sh
-veach-lab --rhi metal --headless --frames 3 --script scripts/triangle_raytraced.luau --screenshot out.png
-build/debug/tools/veach-cli/veach imgdiff tests/golden/triangle_raytraced.png out.png --max-mean 0.01 --diff diff.png
+veach-lab --rhi metal --headless --frames 3 --script scripts/flight_helmet_realtime.luau --screenshot out.png
+build/debug/tools/veach-cli/veach imgdiff tests/golden/flight_helmet_realtime.png out.png --max-mean 0.01 --diff diff.png
 ```
 
 - `--screenshot` captures the last frame's scene color (needs `--frames N` and a GPU RHI).
 - `veach imgdiff` compares with NVIDIA FLIP. On failure it writes a magma error map with `--diff`. Mean FLIP 0
   means identical; up to about 0.01 is invisible.
-- Golden tests are CTest tests named `golden: ...` (macOS). They **skip**, never pass, on GPUs without Metal 3 or
-  ray tracing. Set `VEACH_REQUIRE_GPU=1` on machines that must run them.
+- Golden tests are CTest tests named `golden: ...` (Metal on macOS, DX12/WARP on Windows CI). They **skip**, never
+  pass, on GPUs without Metal 3, and photo-mode ones also on GPUs without ray tracing. Set `VEACH_REQUIRE_GPU=1` on
+  machines that must run them (the pre-push gate does).
 - On Metal the golden image is rendered with `MTL_SHADER_VALIDATION=0`, and a second run with it on (the debug
   default) must exit 0: under shader validation, ray queries that read instance data after a hit or trace twice
   return shadows that vary from run to run. Take screenshots you compare the same way.
@@ -245,5 +222,6 @@ build/debug/tools/veach-cli/veach imgdiff tests/golden/triangle_raytraced.png ou
 ## Adding a golden test
 
 Add a lab script that sets up the scene, then `veach_golden_test(...)` calls in `tests/CMakeLists.txt`, one per
-backend (`FRAMES n` for accumulating scenes), plus a line in the `update-goldens` target. Generate the golden on
+backend (`FRAMES n` for photo mode, `NO_RAY_TRACING` to render with ray tracing disabled), plus an entry in the
+`update-goldens` list. Generate the golden on
 Metal, inspect it, and commit it.

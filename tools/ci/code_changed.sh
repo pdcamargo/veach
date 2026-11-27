@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Prints "code=true" if anything other than docs changed since the last commit on main whose hosted CI jobs
-# passed, else "code=false" (ADR 0030). Docs are docs/, *.md and LICENSE. Any doubt (no green run, history not
+# passed, else "code=false" (ADR 0032). Docs are docs/, *.md and LICENSE. Any doubt (no green run, history not
 # fetched, manual dispatch) means code=true.
 #
 #   tools/ci/code_changed.sh [<event>] [<pull request base sha>]      # needs gh (GH_TOKEN) and full history
@@ -15,7 +15,7 @@ if [ "$event" = workflow_dispatch ]; then
 fi
 
 if [ "$event" != pull_request ]; then
-    # A run counts by its jobs' results, not its own status: runs before ADR 0036 list a self-hosted GPU job that
+    # A run counts by its jobs' results, not its own status: runs before ADR 0034 list a self-hosted GPU job that
     # never left the queue, so it is ignored.
     # Never the run asking (its lint may already be green while its builds are not even listed yet), and only
     # runs that list their Windows job (or, when it was skipped, the unexpanded matrix).

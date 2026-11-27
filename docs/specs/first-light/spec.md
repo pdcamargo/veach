@@ -1,22 +1,22 @@
 # First light: RHI v0, render graph v0, golden images
 
-**Status:** Implemented (macOS). Metal goldens run in the pre-push gate, not in CI ([ADR 0036](../../adr/0036-no-self-hosted-gpu-runner.md)).
+**Status:** Implemented (macOS). Metal goldens run in the pre-push gate, not in CI ([ADR 0034](../../adr/0034-pre-push-gate-no-gpu-runner.md)).
 **Area:** render
 **Owner:** dev lead
 
 ## Summary
 
-Veach's first image is ray traced, and a test proves it. The Metal backend of the RHI gets real resources,
+Veach's first images, rasterized and ray traced, and tests that prove them. The Metal backend of the RHI gets real resources,
 pipelines, acceleration structures, command encoding, swapchains, offscreen targets and readback. A render
 graph derives pass order and barriers. The lab draws the same triangle twice, once rasterized and once by a
 compute shader using ray queries against a TLAS, and golden-image tests compare both with committed references.
 
 ## Motivation
 
-Everything in the roadmap renders through these seams: Tessera, Candela and the DX12 backend. Getting the
-binding model ([ADR 0024](../../adr/0024-resource-binding-model.md)), the barrier model
-([ADR 0025](../../adr/0025-sync-and-barrier-model.md)) and the shader pipeline
-([ADR 0026](../../adr/0026-shader-compilation.md)) right on day one, and proving them with images agents can
+Everything that renders goes through these seams, the DX12 backend included. Getting the
+binding model ([ADR 0027](../../adr/0027-resource-binding-model.md)), the barrier model
+([ADR 0029](../../adr/0029-render-graph-sync-and-barriers.md)) and the shader pipeline
+([ADR 0009](../../adr/0009-shader-compilation.md)) right on day one, and proving them with images agents can
 check, is cheaper than retrofitting them.
 
 ## Requirements
@@ -29,7 +29,7 @@ check, is cheaper than retrofitting them.
 - The DX12 backend MUST implement the whole `rhi::Device` interface as stubs, compiled on every build
   (`static_assert(!std::is_abstract_v<Dx12Device>)`).
 - The render graph MUST derive the pass order from declared accesses, cull passes whose results are unused, emit
-  barriers per ADR 0025 (including write-after-write and final states of imported resources), declare residency,
+  barriers per ADR 0029 (including write-after-write and final states of imported resources), declare residency,
   and reject impossible accesses with `render.graph_invalid`. `describe()` prints the plan as text.
 - The renderer MUST run unchanged on the null RHI (headless CI), and modules MUST extend it through
   `RenderFeature` and extractors only.
@@ -92,18 +92,18 @@ cmake --build --preset debug --target update-goldens      # regenerate goldens o
 
 - The DX12 implementation (VCH-012), depth buffers, a camera (VCH-011), transient aliasing, async compute, and
   layout validation of parameter blocks against Slang reflection (VCH-041). Frames in flight and deferred
-  destruction landed later, in VCH-045 ([ADR 0029](../../adr/0029-frame-and-sync-model.md)).
+  destruction landed later, in VCH-045 ([ADR 0030](../../adr/0030-frame-and-sync-model.md)).
 
 ## Open questions
 
 - **CI GPU.** GitHub's hosted macOS runners expose an "Apple Paravirtual device" (no Metal 3, no ray tracing,
   tier-1 argument buffers), so the GPU goldens skip there. Decided: the pre-push gate runs them on a real Mac
-  ([ADR 0036](../../adr/0036-no-self-hosted-gpu-runner.md)).
+  ([ADR 0034](../../adr/0034-pre-push-gate-no-gpu-runner.md)).
 
 ## Links
 
-- ADRs: [0009 RHI](../../adr/0009-rhi-design.md), [0024 binding](../../adr/0024-resource-binding-model.md),
-  [0025 barriers](../../adr/0025-sync-and-barrier-model.md), [0026 shaders](../../adr/0026-shader-compilation.md)
-- Backlog: VCH-010, VCH-013 (done), VCH-012, VCH-041, VCH-042, VCH-043, VCH-044 (won't do, ADR 0036)
+- ADRs: [0004 RHI](../../adr/0004-own-rhi-not-sdl-gpu.md), [0027 binding](../../adr/0027-resource-binding-model.md),
+  [0029 barriers](../../adr/0029-render-graph-sync-and-barriers.md), [0009 shaders](../../adr/0009-shader-compilation.md)
+- Backlog: VCH-010, VCH-013 (done), VCH-012, VCH-041, VCH-043, VCH-044 (won't do, ADR 0034)
 - Guide: [rendering](../../guides/rendering.md)
 - Code: `engine/rhi/`, `engine/render/`, `apps/lab/src/triangle_feature.cpp`, `apps/lab/shaders/`, `tests/golden/`

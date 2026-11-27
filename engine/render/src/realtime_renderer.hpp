@@ -1,8 +1,9 @@
 #pragma once
 
-// The real-time renderer (ADR 0037, ADR 0040, ADR 0043): visibility buffer, surfaces with motion and
-// disocclusion, lighting, then the upscaler and the display transform, with per-view history. The scene renderer
-// owns the scene on the GPU and hands it over each frame.
+// The real-time renderer for now (docs/adr/0040-interim-realtime-path-visibility-buffer.md): a visibility buffer
+// over the cooked meshlets, one compute pass that shades it with every punctual light (unshadowed), the sky's ambient
+// light and emission, then the display transform. No ray tracing and nothing carried between frames. The scene
+// renderer owns the scene on the GPU and hands it over each frame.
 
 #include <veach/core/error.hpp>
 #include <veach/render/render_graph.hpp>
@@ -17,22 +18,13 @@ namespace veach::render {
 
 /// The scene as the scene renderer put it on the GPU this frame.
 struct RealtimeScene {
-    GraphResource tlas;
-    rhi::AccelHandle tlas_handle;
-    std::function<void(PassBuilder&)> read_scene;     ///< declares everything a ray-tracing pass reads
-    std::function<void(PassBuilder&)> read_geometry;  ///< declares what the visibility pass pulls vertices from
+    std::function<void(PassBuilder&)> read_geometry;  ///< declares the mesh buffers, textures and records
     std::span<const std::uint32_t> meshlet_counts;    ///< per instance
     rhi::BufferHandle instances;
     rhi::BufferHandle materials;
     rhi::BufferHandle lights;
-    rhi::BufferHandle emissive;
-    rhi::BufferHandle alias;        ///< ReSTIR's light table: light_count + emissive_count AliasEntry (ADR 0041)
-    std::uint64_t lights_hash = 0;  ///< changes when any light does: reservoirs are dropped
     std::uint32_t light_count = 0;
-    std::uint32_t emissive_count = 0;
-    float emissive_total_weight = 0.0f;
-    std::uint32_t scene_flags = 0;
-    rhi::BufferHandle sky;                       ///< SkyFrame (ADR 0050)
+    rhi::BufferHandle sky;                       ///< SkyFrame (ADR 0038)
     std::function<void(PassBuilder&)> read_sky;  ///< declares it and the sky's LUTs
 };
 

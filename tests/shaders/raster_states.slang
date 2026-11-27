@@ -1,6 +1,6 @@
 // RHI raster state tests (tests/rhi_tests.cpp, rt.AC10/AC11): one flat triangle covering the lower-left half of
 // the target, at a given NDC depth, writing uint2(id, ~id) into an rg32_uint target. Layout must match
-// RasterStateParams in tests/rhi_tests.cpp (ADR 0024).
+// RasterStateParams in tests/rhi_tests.cpp (ADR 0027).
 
 struct Params {
     float depth;     // NDC z; reverse-Z: larger is nearer

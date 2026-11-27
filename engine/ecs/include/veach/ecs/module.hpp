@@ -1,6 +1,6 @@
 #pragma once
 
-// Veach modules (ADR 0015). A module is a Flecs module: a struct whose
+// Veach modules (ADR 0019). A module is a Flecs module: a struct whose
 // constructor takes World& and registers components, systems and observers.
 // Engine features are modules; the game is a module. Add one with
 // engine.import<MyModule>() before engine.run().

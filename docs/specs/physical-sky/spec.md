@@ -8,15 +8,16 @@
 
 Every scene gets a physically based sky by default: an Earth-like atmosphere (Rayleigh and Mie scattering, ozone)
 rendered from lookup tables after Hillaire 2020, in photometric units. The sun's direction comes from a time of day
-and its illuminance from the atmosphere's transmittance; the sky lights the real-time ambient stopgap and is the
-path tracer's environment, so the two renderers stay comparable. Time of day and the atmosphere's parameters are a
+and its illuminance from the atmosphere's transmittance. The real-time renderer and photo mode read the same sky,
+so the two stay comparable. Time of day and the atmosphere's parameters are a
 component, settable from Luau and MCP.
 
 ## Motivation
 
-A scene without a sky rendered its shadows black and its background a flat color (Bistro, 2026-11-25). The sky is
-also the main light source Candela (VCH-017) will gather, and aerial perspective (haze with distance) is part of how
-outdoor scenes read. Roadmap: VISION's rendering pillar; backlog VCH-019.
+A scene without a sky rendered its shadows black and its background a flat color. The sky is the main light
+source outdoors, and aerial perspective (haze with distance) is part of how outdoor scenes read. This is an
+Earth-at-ground-level model; atmospheres driven by a planet's composition, and seen from orbit, are a
+research-phase question ([ARCHITECTURE.md](../../ARCHITECTURE.md#open-questions-research-phase), VCH-070).
 
 ## Requirements
 
@@ -29,8 +30,9 @@ outdoor scenes read. Roadmap: VISION's rendering pillar; backlog VCH-019.
   `latitude`, `day_of_year` and `north`, its illuminance is the top-of-atmosphere illuminance times the transmittance
   toward it, and it replaces the scene's directional lights. Without a `Sky`, the default sky follows the scene's
   brightest directional light (its direction and ground illuminance).
-- Both renderers MUST use the same sky: the real-time renderer's background and ambient stopgap, and the path
-  tracer's escaped rays (camera rays also see the sun's disk); aerial perspective MUST apply to both.
+- Both renderers MUST read the same sky: the real-time renderer for its background (with the sun's disk), its
+  ambient term (the sky-irradiance texel) and aerial perspective; photo mode for its escaped rays (camera rays also
+  see the sun's disk) and aerial perspective on camera hits.
 - A scene with lights and no sky (`none`, or a black constant) MUST log a warning once: nothing then lights what
   the lights do not reach.
 - Time of day and atmosphere parameters MUST be settable from Luau and MCP (the component is Scriptable).
@@ -49,8 +51,8 @@ camera:set(c.Sky, { mode = "none" })  -- indoor test scenes
 - **sky.AC2**: The atmosphere's transmittance computed on the CPU (for the sun's illuminance) and on the GPU (the
   LUT) agree within 1%; the noon sky is blue (blue over red at the zenith) and the sun at sunset is red (its
   transmittance red over blue by at least 3x).
-- **sky.AC3**: Bistro at noon and at sunset: the real-time renderer's image against the path tracer's (direct light
-  plus sky light at the first hit, `PathTracer.mode = 3`) within the tolerance of ADR 0047, baselines recorded here.
+- **sky.AC3**: Removed at the reset ([ADR 0001](../../adr/0001-reset.md)): it compared the old real-time lighting
+  with the path tracer under an image-tolerance policy that no longer exists.
 - **sky.AC4**: Bistro at noon and at sunset have goldens (real-time, Metal).
 - **sky.AC5**: `Sky` is settable over MCP and from Luau: changing `time_of_day` moves the sun in the next frame.
 - **sky.AC6**: A scene with lights and `Sky.mode = "none"` logs `render: the scene has lights but no sky` once.
@@ -61,29 +63,15 @@ camera:set(c.Sky, { mode = "none" })  -- indoor test scenes
 |---|---|---|
 | sky.AC1 | `unit: [sky.AC1] ...` | zenith at 12:00, horizon at 18:00 within 1 degree, west is -X, `north` turns the frame |
 | sky.AC2 | `unit: [sky.AC2] ...` (x2), `mcp: sky set over MCP` | GPU and CPU transmittance within 1% at 24 points, two atmospheres; sunset sun red/blue > 3; noon sky mean blue 2.8x red |
-| sky.AC3 | `sky.AC3: bistro_noon/bistro_sunset final image within ADR 0047` | see below |
-| sky.AC4 | `golden: bistro at noon/sunset (realtime)` | `tests/golden/bistro_noon.png`, `bistro_sunset.png` (640x360, 32 frames) |
-| sky.AC5 | `mcp: sky set over MCP` | `time_of_day` 12:30 -> 23:00 over MCP: the next frame's zenith goes from 0.245 to 0.042 (what is left is the street's wires and lamps) |
+| sky.AC4 | `golden: bistro at noon/sunset (realtime)` | `tests/golden/bistro_noon.png`, `bistro_sunset.png` (the full test set) |
+| sky.AC5 | `mcp: sky set over MCP` | `time_of_day` 12:30 -> 23:00 over MCP: the next frame's zenith goes from 0.245 to 0.042 (what is left is the street's wires and lamps; measured before the reset) |
 | sky.AC6 | `lab: a scene with lights and no sky warns` | Cornell box (`Sky.mode = "none"`) |
-
-**sky.AC3 baselines** (ADR 0047, kept in `tests/tolerance.json` per ADR 0052; `compare_direct.py --sky --final`, 640x360, 1024 spp reference, 64 real-time
-frames). The real-time side runs the ambient stopgap with unlimited range, which is what mode 3 computes; its
-default 1 m range lights street canyons as if they saw the whole sky, a stopgap trade until Candela.
-
-| Scene | Mean FLIP | Limit | Luminance | Limit |
-|---|---|---|---|---|
-| bistro_noon | 0.0150 | 0.0160 | -0.67% | 2% |
-| bistro_sunset | 0.0217 | 0.0228 | -0.99% | 2% |
-
-The first baselines (0.0312 and 0.0406, with luminance exceptions of 3% and 9%) measured a fault in the reference:
-the path tracer's `trace()` gave up on a ray after 16 transparent leaf texels and reported a miss, so camera rays
-through the dense cypresses saw the sky as bright specks that looked like string-light bulbs (VCH-064). Before the
-stopgap saw the sky per direction, it applied the upward irradiance to every normal: +35% and +214%.
 
 ## Out of scope
 
-- Clouds, volumetric fog (VCH-020), a planet seen from space, night sky and moon.
-- Sky reflections in specular surfaces (the reflections milestone, VCH-018).
+- Clouds, volumetric fog, a planet seen from space, atmospheres of other compositions, night sky and moon: the
+  research phase (VCH-070).
+- Sky reflections in specular surfaces.
 
 ## Open questions
 
@@ -91,6 +79,6 @@ None.
 
 ## Links
 
-- ADRs: [0050 the atmosphere](../../adr/0050-physical-atmosphere.md), [0034 lights](../../adr/0034-lights-and-reference-path-tracer.md)
+- ADRs: [0038 the atmosphere](../../adr/0038-physical-sky.md), [0036 lights](../../adr/0036-lights-in-photometric-units.md), [0041 photo mode](../../adr/0041-photo-mode.md)
 - Backlog: VCH-019. Reference: S. Hillaire, "A Scalable and Production Ready Sky and Atmosphere Rendering
   Technique", EGSR 2020.

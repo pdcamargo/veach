@@ -1,6 +1,6 @@
 #pragma once
 
-// Windows are entities (ADR 0008). Set or change the Window component and the
+// Windows are entities (ADR 0012). Set or change the Window component and the
 // platform layer makes the OS window match during the Input phase; tools and
 // MCP control windows with ordinary set_component calls.
 

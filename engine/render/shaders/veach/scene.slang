@@ -1,14 +1,14 @@
-// The scene on the GPU, as both renderers read it (ADR 0034, ADR 0037): instance, material, light and emitter
-// records, surface reconstruction from barycentrics, alpha coverage and ray tracing with alpha continuation
-// (ADR 0035). Entry points fill `veach_scene` from their parameters before calling anything here. Layouts
-// mirror render::InstanceRecord, LightRecord and EmissiveTriangle (path_tracer.cpp).
+// The scene on the GPU, as both renderers read it (ADR 0040, ADR 0041): instance, material, light and emitter
+// records, surface reconstruction from barycentrics, alpha coverage, and photo mode's ray tracing with alpha
+// continuation. Entry points fill `veach_scene` from their parameters before calling anything here. Layouts
+// mirror render::InstanceRecord, LightRecord and EmissiveTriangle (render/src/scene_records.hpp).
 
 import veach.bindless;
 import veach.material;
 import veach.materials_generated;  // evaluateSurface(kind, c), evaluateAlpha(kind, c)
 import veach.random;
 
-/// Mirrors render::InstanceRecord: 208 bytes per instance.
+/// Mirrors render::InstanceRecord: 160 bytes per instance.
 struct InstanceRecord {
     DescriptorHandle<StructuredBuffer<float>> vertices;  ///< 12 floats per vertex: position, normal, tangent, uv
     DescriptorHandle<StructuredBuffer<uint>> indices;
@@ -17,14 +17,13 @@ struct InstanceRecord {
     uint flags;                                         ///< instance_has_alpha
     float4 object_to_world[3];  ///< rows of a 3x4 matrix
     float4 normal_to_world[3];  ///< rows of the inverse transpose
-    // Meshlets (ADR 0037): 8 uints per meshlet (offsets, counts, slot, lod, parent, flags), a mesh vertex index
+    // Meshlets (ADR 0011): 8 uints per meshlet (offsets, counts, slot, lod, parent, flags), a mesh vertex index
     // per meshlet vertex, 3 local vertex indices packed per triangle.
     DescriptorHandle<StructuredBuffer<uint>> meshlets;
     DescriptorHandle<StructuredBuffer<uint>> meshlet_vertices;
     DescriptorHandle<StructuredBuffer<uint>> meshlet_triangles;
     uint meshlet_count;
     uint pad;
-    float4 previous_object_to_world[3];  ///< last frame's object_to_world: motion vectors (ADR 0040)
 };
 
 static const uint instance_has_alpha = 1;  ///< some slot is alpha-masked or blended
@@ -41,7 +40,7 @@ struct LightRecord {
     float cos_inner;
     float cos_outer;
     uint kind;
-    float size;  ///< sphere radius (point, spot) or angular radius (directional); 0 = punctual (soft-shadows spec)
+    float size;  ///< sphere radius (point, spot) or angular radius (directional); 0 = punctual (ADR 0036)
 };
 
 /// Mirrors render::EmissiveTriangle: picked with probability proportional to area x material weight.
@@ -50,8 +49,7 @@ struct EmissiveTriangle {
     uint primitive;
     float cdf;  ///< inclusive running sum, normalized to 1
     float pad;
-    // World-space corners, so ReSTIR's candidates read one record (ADR 0046): w of p0 is the material's emissive
-    // weight, w of p1 is 1 if the material is double sided.
+    // World-space corners: w of p0 is the material's emissive weight, w of p1 is 1 if the material is double sided.
     float4 p0;
     float4 p1;
     float4 p2;
@@ -67,13 +65,9 @@ struct SceneData {
     uint light_count;
     uint emissive_count;
     float emissive_total_weight;  ///< sum of area x weight over every emissive triangle
-    uint debug_skip;              ///< debug_skip_*: parts left out to measure what they cost; 0 renders everything
     uint flags;                   ///< scene_has_alpha
 };
 static SceneData veach_scene;  // filled by the entry point before any use
-
-static const uint debug_skip_shadows = 1;  ///< light samples are never shadowed (no shadow rays)
-static const uint debug_skip_alpha = 2;    ///< rays treat every surface as opaque (no coverage tests)
 
 // TLAS instance masks (render::SceneRenderer): visibility rays find opaque occluders with a query that stops at
 // any hit, and only the alpha-tested instances need the closest-hit search with coverage tests.
@@ -195,7 +189,7 @@ TriangleHit surface_of(InstanceRecord inst, TriangleRef tri, float2 bary, float3
     return hit;
 }
 
-/// Alpha coverage at a hit: mask tests the cutoff, blend is stochastic (ADR 0034). Minimal on purpose (the
+/// Alpha coverage at a hit: mask tests the cutoff, blend is stochastic (ADR 0041). Minimal on purpose (the
 /// material and one UV): it runs for every masked or blended surface a ray meets.
 bool covered(uint instance_index, uint primitive, float2 bary, inout Rng rng) {
     const InstanceRecord inst = veach_scene.instances[instance_index];
@@ -264,9 +258,8 @@ Trace trace(float3 origin, float3 direction, float tmax, inout Rng rng, uint ins
         const float2 bary = query.CommittedTriangleBarycentrics();
         const float t = query.CommittedRayT();
         // Only instances with a masked or blended slot pay for the coverage test: an optimization. (WARP's
-        // device removal blamed on this test came from handles used without `nonuniform`, ADR 0039.)
-        const bool opaque = (veach_scene.instances[instance].flags & instance_has_alpha) == 0 ||
-                            (veach_scene.debug_skip & debug_skip_alpha) != 0;
+        // device removal blamed on this test came from handles used without `nonuniform`, ADR 0027.)
+        const bool opaque = (veach_scene.instances[instance].flags & instance_has_alpha) == 0;
         result.hit = true;
         result.instance = instance;
         result.primitive = primitive;
@@ -280,53 +273,16 @@ Trace trace(float3 origin, float3 direction, float tmax, inout Rng rng, uint ins
     return result;
 }
 
-/// The closest covered hit in one traversal (ADR 0048's approach for visibility, applied to the closest hit): masked
-/// and blended candidates are tested for coverage as the traversal meets them, and the covered ones committed.
-/// trace() re-traces once per transparent texel instead, which costs a traversal per leaf in dense foliage; this is
-/// for Candela's rays (ADR 0051), which cross foliage constantly. The path tracer keeps trace(): one closest-hit
-/// call site per kernel, deterministic on every backend.
-Trace trace_closest(float3 origin, float3 direction, float tmax, inout Rng rng) {
-    Trace result;
-    result.hit = false;
-    result.instance = 0;
-    result.primitive = 0;
-    result.bary = float2(0.0, 0.0);
-    result.t = 0.0;
-    RayDesc ray;
-    ray.Origin = origin;
-    ray.Direction = direction;
-    ray.TMin = 0.0;
-    ray.TMax = tmax;
-    RayQuery<RAY_FLAG_NONE> query;
-    query.TraceRayInline(veach_scene.tlas, RAY_FLAG_NONE, 0xFF, ray);
-    while (query.Proceed()) {
-        if (query.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE &&
-            covered(query.CandidateInstanceIndex(), query.CandidatePrimitiveIndex(),
-                    query.CandidateTriangleBarycentrics(), rng)) {
-            query.CommitNonOpaqueTriangleHit();
-        }
-    }
-    if (query.CommittedStatus() == COMMITTED_TRIANGLE_HIT) {
-        result.hit = true;
-        result.instance = query.CommittedInstanceIndex();
-        result.primitive = query.CommittedPrimitiveIndex();
-        result.bary = query.CommittedTriangleBarycentrics();
-        result.t = query.CommittedRayT();
-    }
-    return result;
-}
-
 /// Shadow rays start a little off the surface along the geometric normal, on the side they leave from.
 float3 offset_origin(float3 p, float3 geometric, float3 direction) {
     return p + geometric * (dot(geometric, direction) >= 0.0 ? 1e-3 : -1e-3);
 }
 
-/// Whether nothing covers the segment (ADR 0048). Opaque instances first, with a query that ends at the first hit
+/// Whether nothing covers the segment (ADR 0041). Opaque instances first, with a query that ends at the first hit
 /// it finds; then the alpha-tested ones in one traversal that tests each candidate's coverage and ends at the first
 /// covered texel. Rays that need the closest hit (trace()) force everything opaque and continue past transparent
 /// texels instead.
 bool visible(float3 from, float3 to_direction, float distance, inout Rng rng) {
-    const bool skip_alpha = (veach_scene.debug_skip & debug_skip_alpha) != 0;
     RayDesc ray;
     ray.Origin = from;
     ray.Direction = to_direction;
@@ -334,13 +290,13 @@ bool visible(float3 from, float3 to_direction, float distance, inout Rng rng) {
     ray.TMax = distance;
     RayQuery<RAY_FLAG_FORCE_OPAQUE> opaque;
     opaque.TraceRayInline(veach_scene.tlas, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,
-                          skip_alpha ? 0xFF : instance_mask_opaque, ray);
+                          instance_mask_opaque, ray);
     while (opaque.Proceed()) {
     }
     if (opaque.CommittedStatus() == COMMITTED_TRIANGLE_HIT) {
         return false;
     }
-    if (skip_alpha || (veach_scene.flags & scene_has_alpha) == 0) {
+    if ((veach_scene.flags & scene_has_alpha) == 0) {
         return true;
     }
     RayQuery<RAY_FLAG_NONE> alpha;
@@ -360,9 +316,6 @@ bool visible(float3 from, float3 to_direction, float distance, inout Rng rng) {
 /// keeping the unpushed direction and length would move the segment's end by the push, into an emitter that is
 /// close and oblique, which hid the brightest light samples of an emitter beside the surface.
 bool light_visible(float3 p, float3 g, float3 l, float distance, inout Rng rng) {
-    if ((veach_scene.debug_skip & debug_skip_shadows) != 0) {
-        return true;
-    }
     const float3 from = offset_origin(p, g, l);
     if (distance >= 1e29) {
         return visible(from, l, distance, rng);

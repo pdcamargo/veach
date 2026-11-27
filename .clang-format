@@ -1,4 +1,4 @@
-# Veach C++ style (ADR 0012). Format with clang-format 23 (LLVM 23 or pip clang-format==23.1.5).
+# Veach C++ style (ADR 0015). Format with clang-format 23 (LLVM 23 or pip clang-format==23.1.5).
 BasedOnStyle: Google
 Standard: c++20
 IndentWidth: 4

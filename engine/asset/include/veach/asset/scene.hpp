@@ -1,6 +1,6 @@
 #pragma once
 
-// Scenes imported from glTF 2.0 and cooked into runtime formats (ADR 0032).
+// Scenes imported from glTF 2.0 and cooked into runtime formats (ADR 0011).
 // Loading a .gltf/.glb gives a Handle<SceneAsset>. Its meshes, materials and
 // textures are sub-assets with derived ids (AssetId::derive(scene id,
 // "mesh/3")), loaded with it and reachable through their own typed handles.
@@ -33,8 +33,8 @@ inline constexpr std::uint32_t meshlet_max_vertices = 64;
 inline constexpr std::uint32_t meshlet_max_triangles = 124;
 inline constexpr std::uint32_t meshlet_no_parent = 0xFFFFFFFFu;
 
-/// A cluster of at most 64 vertices and 124 triangles from one material slot (ADR 0037). `lod`, `parent` and
-/// the bounds' `error` are what Tessera's cluster hierarchy fills; in v0 every meshlet is level 0 and a root.
+/// A cluster of at most 64 vertices and 124 triangles from one material slot (ADR 0011). `lod`, `parent` and the
+/// bounds' `error` are reserved for a cluster hierarchy; today every meshlet is level 0 and a root.
 struct Meshlet {
     std::uint32_t vertex_offset = 0;    ///< into MeshAsset::meshlet_vertices
     std::uint32_t triangle_offset = 0;  ///< into MeshAsset::meshlet_triangles
@@ -63,7 +63,7 @@ struct MeshAsset {
     std::uint32_t slot_count = 0;
     math::vec3 bounds_min{0.0f};
     math::vec3 bounds_max{0.0f};
-    // Meshlets (ADR 0037): every triangle exactly once, grouped by slot.
+    // Meshlets (ADR 0040): every triangle exactly once, grouped by slot.
     std::vector<Meshlet> meshlets;
     std::vector<std::uint32_t> meshlet_vertices;   ///< a mesh vertex index per meshlet vertex
     std::vector<std::uint32_t> meshlet_triangles;  ///< per triangle: 3 meshlet-local vertex indices, a byte each
@@ -75,7 +75,7 @@ void build_meshlets(MeshAsset& mesh);
 
 enum class AlphaMode : std::uint8_t { opaque, mask, blend };
 
-/// glTF metallic-roughness with emissive strength (ADR 0033). `kind` picks the Slang material type.
+/// glTF metallic-roughness with emissive strength (ADR 0035). `kind` picks the Slang material type.
 struct MaterialAsset {
     std::string name;
     std::string kind = "StandardMaterial";  ///< from extras.veach_material; the renderer checks the name
@@ -96,7 +96,7 @@ struct MaterialAsset {
 
 enum class LightKind : std::uint8_t { directional, point, spot };
 
-/// KHR_lights_punctual: lux for directional, candela for point and spot (ADR 0034).
+/// KHR_lights_punctual: lux for directional, candela for point and spot (ADR 0036).
 struct SceneLight {
     std::string name;
     LightKind kind = LightKind::point;
@@ -128,7 +128,7 @@ struct SceneAsset {
     bool from_cache = false;  ///< the cooked data came from .veach/cache
 };
 
-/// Imports .gltf and .glb, cooking through the cache in `<project>/.veach/cache` (ADR 0032).
+/// Imports .gltf and .glb, cooking through the cache in `<project>/.veach/cache` (ADR 0011).
 class GltfLoader final : public TypedAssetLoader<SceneAsset> {
 public:
     [[nodiscard]] std::string_view name() const override { return "gltf"; }

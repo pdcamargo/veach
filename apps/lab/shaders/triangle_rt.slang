@@ -2,7 +2,7 @@
 // inline ray query against a TLAS. Rays go through pixel centers, unprojected
 // with the primary camera's inverse view-projection, so both paths agree. With
 // no camera it is the identity, and rays are orthographic through NDC. Layout
-// must match TraceParams in apps/lab/src/triangle_feature.cpp (ADR 0024).
+// must match TraceParams in apps/lab/src/triangle_feature.cpp (ADR 0027).
 
 import veach.bindless;
 

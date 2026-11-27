@@ -1,6 +1,6 @@
 #pragma once
 
-// Reflection helpers on top of Flecs meta (ADR 0022, "every component is
+// Reflection helpers on top of Flecs meta (ADR 0026, "every component is
 // reflected"). One walker serves JSON data files, JSON Schema generation, Luau
 // marshalling and Luau type generation, so all of them agree on what a type is.
 //

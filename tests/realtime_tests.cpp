@@ -1,4 +1,4 @@
-// The real-time renderer v0 (docs/specs/realtime-renderer-v0/spec.md).
+// The real-time renderer (docs/specs/realtime-renderer/spec.md).
 
 #include <veach/asset/scene.hpp>
 #include <veach/render/camera.hpp>
@@ -83,7 +83,7 @@ TEST_CASE("[rt.AC1] meshlets cover every triangle once, within the limits, one s
     CHECK(again.meshlet_vertices == mesh.meshlet_vertices);
 }
 
-TEST_CASE("[rt.AC6] exposure follows the physical camera") {
+TEST_CASE("[rt.AC4] exposure follows the physical camera") {
     Camera camera;
     CHECK(ev100_of(camera) == doctest::Approx(0.0));  // f/1, 1 s, ISO 100: existing scenes keep their exposure
     camera.aperture = 16.0f;

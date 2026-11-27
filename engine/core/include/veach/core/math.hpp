@@ -1,6 +1,6 @@
 #pragma once
 
-// veach::math — glm, plus the engine conventions (ADR 0010). Match glTF:
+// veach::math — glm, plus the engine conventions (ADR 0013). Match glTF:
 //   * right-handed, +Y up, cameras look down -Z, +X right
 //   * meters, seconds, radians
 //   * column-major matrices, column vectors (v' = M * v)

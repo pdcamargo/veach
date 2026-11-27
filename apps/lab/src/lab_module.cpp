@@ -29,11 +29,11 @@ LabModule::LabModule(veach::World& world) {
 
     register_triangle_demo(world);
 
-    // The reference path tracer, with the lab's materials (scenes/*.luau put a PathTracer on their camera).
+    // glTF scenes, with the lab's materials: in real time, or in photo mode (scripts put a PhotoMode on the camera).
     auto& renderer = veach::services(world).get<veach::render::Renderer>();
     renderer.add_feature(std::make_unique<veach::render::SceneRenderer>(
         veach::render::SceneShaders{lab_shaders::path_tracer(), lab_shaders::realtime_visibility(),
-                                    lab_shaders::realtime_shade(), lab_shaders::candela()},
+                                    lab_shaders::realtime_shade()},
         lab_shaders::material_kinds, veach::services(world).get<veach::AssetServer>()));
 
     world.system<const Spinner>("ReportSpinner").kind<veach::phase::Shutdown>().each([](const Spinner& s) {

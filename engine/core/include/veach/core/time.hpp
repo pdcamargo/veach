@@ -1,6 +1,6 @@
 #pragma once
 
-// Simulation time. The simulation advances in fixed steps of 1/60 s (ADR 0010).
+// Simulation time. The simulation advances in fixed steps of 1/60 s (ADR 0013).
 // Wall-clock time only decides *how many* fixed steps run in a frame; it never
 // reaches simulation code. Headless runs use exactly one step per frame, which
 // makes them deterministic regardless of machine speed.

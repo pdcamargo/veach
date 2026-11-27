@@ -1,6 +1,6 @@
 #pragma once
 
-// The fixed phases (ADR 0014, docs/specs/ecs-and-phases/spec.md). User systems
+// The fixed phases (ADR 0018, docs/specs/ecs-and-phases/spec.md). User systems
 // attach to a phase; only the engine decides when phases run:
 //
 //   Startup                                   once, before the first frame

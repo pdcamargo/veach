@@ -22,7 +22,7 @@ struct AssetId {
     /// once, when a source asset is first seen, and then live in its .meta file.
     [[nodiscard]] static AssetId generate();
     /// A name-based (version 5, SHA-1) id under `parent`: the same parent and name always give the same id.
-    /// Sub-assets use it: AssetId::derive(gltf id, "mesh/3") (ADR 0032).
+    /// Sub-assets use it: AssetId::derive(gltf id, "mesh/3") (ADR 0011).
     [[nodiscard]] static AssetId derive(const AssetId& parent, std::string_view name);
     /// Parses "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" (case-insensitive).
     [[nodiscard]] static std::optional<AssetId> parse(std::string_view text);

@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   changes:
-    # Docs-only changes skip the build jobs (ADR 0030). "Changed" is measured from the last commit whose hosted
+    # Docs-only changes skip the build jobs (ADR 0032). "Changed" is measured from the last commit whose hosted
     # jobs passed, so a docs push that cancels a code push's run still builds that code.
     name: Detect code changes
     runs-on: ubuntu-latest
@@ -74,7 +74,7 @@ jobs:
           - name: Windows (Debug, MSVC, DX12 on WARP)
             os: windows-2025
             preset: debug
-            require_gpu: "1"  # DX12 goldens run on WARP (ADR 0031): a skip is a failure
+            require_gpu: "1"  # DX12 goldens run on WARP (ADR 0033): a skip is a failure
             hosted_windows: "1"  # tests/cmake/windowed_test.cmake: the runner's Present quirk (VCH-050)
     env:
       CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache
@@ -84,7 +84,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       # Only the Git LFS files CI's tests read: the large scenes (Bistro, Sponza) stay out of CI's bandwidth and
-      # run in the pre-push gate (ADR 0036). Every download counts against the account's LFS bandwidth, so the
+      # run in the pre-push gate (ADR 0034). Every download counts against the account's LFS bandwidth, so the
       # objects are cached, keyed on the list of those files: a run downloads only what changed since the cache.
       - name: List Git LFS files used by CI
         shell: bash
@@ -116,6 +116,6 @@ jobs:
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}
       # Metal goldens report SKIPPED on hosted macOS (a paravirtual GPU without Metal 3 / ray tracing; the
-      # pre-push gate runs them on a real Mac, ADR 0036). Windows runs the DX12 goldens on WARP and requires them.
+      # pre-push gate runs them on a real Mac, ADR 0034). Windows runs the DX12 goldens on WARP and requires them.
       - name: Test (unit, hello world, luau-analyze, generated files, goldens, hygiene)
         run: ctest --preset ${{ matrix.preset }}

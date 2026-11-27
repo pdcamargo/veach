@@ -1,6 +1,6 @@
 #pragma once
 
-// A transactional list of world writes (ADR 0006). Scripts never write the world
+// A transactional list of world writes (ADR 0007). Scripts never write the world
 // directly: each script invocation records into a CommandBuffer, which is
 // applied if the invocation succeeds and discarded if it raises an error.
 // The same mechanism will back MCP `eval` and record/replay.

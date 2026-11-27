@@ -1,4 +1,4 @@
-// The atmosphere's lookup tables (ADR 0050), after Hillaire 2020. One compute entry per table; all read this frame's
+// The atmosphere's lookup tables (ADR 0038), after Hillaire 2020. One compute entry per table; all read this frame's
 // SkyFrame (veach/atmosphere.slang). Mirrors render::AtmosphereLutParams.
 
 import veach.atmosphere;
@@ -164,7 +164,7 @@ void aerial_lut(uint3 id: SV_DispatchThreadID) {
     lut_params.output[id.xy] = float4(luminance, dot(transmittance, float3(1.0, 1.0, 1.0)) / 3.0);
 }
 
-/// The sky's cosine-weighted average over the upper hemisphere, for an upward normal (the ambient stopgap).
+/// The sky's cosine-weighted average over the upper hemisphere, for an upward normal (the real-time renderer's ambient light).
 [shader("compute")]
 [numthreads(1, 1, 1)]
 void sky_irradiance(uint3 id: SV_DispatchThreadID) {

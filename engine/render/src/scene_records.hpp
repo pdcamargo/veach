@@ -1,7 +1,7 @@
 #pragma once
 
-// GPU records the scene renderer uploads and both renderers read (ADR 0034, ADR 0037, ADR 0040). Each mirrors a
-// Slang struct in shaders/veach/scene.slang; the sizes are asserted here.
+// GPU records the scene renderer uploads and both renderers read (ADR 0040, ADR 0041). Each mirrors a Slang struct in
+// shaders/veach/scene.slang; the sizes are asserted here.
 
 #include <veach/core/math.hpp>
 #include <veach/rhi/shader.hpp>
@@ -44,9 +44,8 @@ struct InstanceRecord {
     rhi::DescriptorHandle meshlet_triangles;
     std::uint32_t meshlet_count = 0;
     std::uint32_t pad = 0;
-    std::array<math::vec4, 3> previous_object_to_world{};  ///< last frame's object_to_world (ADR 0040)
 };
-static_assert(sizeof(InstanceRecord) == 208);
+static_assert(sizeof(InstanceRecord) == 160);
 
 /// Mirrors LightRecord.
 struct LightRecord {
@@ -71,15 +70,6 @@ struct EmissiveTriangle {
     math::vec4 p2{0.0f};
 };
 static_assert(sizeof(EmissiveTriangle) == 64);
-
-/// Mirrors AliasEntry in shaders/veach/realtime.slang: ReSTIR's light table (ADR 0041).
-struct AliasEntry {
-    float threshold = 1.0f;
-    std::uint32_t alias = 0;
-    float pdf = 0.0f;
-    std::uint32_t pad = 0;
-};
-static_assert(sizeof(AliasEntry) == 16);
 
 /// The rows of the upper 3x4 of a column-major matrix.
 inline std::array<math::vec4, 3> rows_of(const math::mat4& m) {

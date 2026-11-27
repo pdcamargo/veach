@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.29)
 
 project(veach
     VERSION 0.1.0
-    DESCRIPTION "AI-native C++ game engine with a raytracing-first renderer"
+    DESCRIPTION "AI-native C++ game engine, the foundation of a space-game toolbox"
     LANGUAGES C CXX)
 
 if(APPLE)
@@ -22,6 +22,7 @@ if(VEACH_BUILD_TESTS)
 endif()
 
 add_subdirectory(engine)
+add_subdirectory(space)  # the space toolbox: above the engine, never below it (ADR 0042)
 add_subdirectory(apps)
 add_subdirectory(tools)
 

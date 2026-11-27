@@ -1,5 +1,5 @@
 // Copies the scene color into the swapchain image with a fullscreen triangle.
-// Parameter layout must match PresentParams in renderer.cpp (ADR 0024).
+// Parameter layout must match PresentParams in renderer.cpp (ADR 0027).
 
 import veach.bindless;
 

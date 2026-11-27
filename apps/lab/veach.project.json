@@ -3,8 +3,7 @@
   "name": "veach-lab",
   "script": "scripts/hello.luau",
   "dev_scripts": [
-    "scripts/dev/fly_camera.luau",
-    "scripts/dev/gi_modes.luau"
+    "scripts/dev/fly_camera.luau"
   ],
   "window": {
     "title": "Veach Lab",
@@ -45,24 +44,6 @@
     "sprint": [
       "left_shift",
       "right_shift"
-    ],
-    "gi_off": [
-      "digit1"
-    ],
-    "gi_candela": [
-      "digit2"
-    ],
-    "gi_cache": [
-      "digit3"
-    ],
-    "gi_path_traced": [
-      "digit4"
-    ],
-    "gi_reference": [
-      "digit5"
-    ],
-    "gi_indirect": [
-      "digit6"
     ]
   }
 }

@@ -1,16 +1,14 @@
-# DX12 port (VCH-012)
+# The DX12 backend
 
-**Status:** done (2026-11-25). Every step below is green in the hosted Windows job. Kept as the map of the
-backend and of what DX12 resists.
+A map of `Dx12Device` (VCH-012, done) for whoever touches it: where things are, what is decided, and what DX12
+resists. Nobody has a Windows machine ([ADR 0032](../adr/0032-windows-verified-in-hosted-ci.md)): every change is
+proven by the hosted Windows job on WARP ([ADR 0033](../adr/0033-dx12-on-warp-in-ci.md)), so keep each
+Windows-touching commit small and a red job points at one change. Spec and criteria:
+[dx12-backend](../specs/dx12-backend/spec.md).
 
-How `Dx12Device` is built. The design is final; this guide gives the order, what DX12 resists, and which CI job
-proves each step. Nobody has a Windows machine ([ADR 0030](../adr/0030-windows-verified-in-hosted-ci.md)): every
-step is one small commit, proven by the hosted Windows job on WARP ([ADR 0031](../adr/0031-dx12-on-warp-in-ci.md)),
-so a red job points at one change. Spec and criteria: [dx12-backend](../specs/dx12-backend/spec.md).
-
-Read first: [ADR 0024](../adr/0024-resource-binding-model.md) (binding),
-[ADR 0025](../adr/0025-sync-and-barrier-model.md) (barriers), [ADR 0029](../adr/0029-frame-and-sync-model.md)
-(frames and fences), [ADR 0026](../adr/0026-shader-compilation.md) (shaders).
+Read first: [ADR 0027](../adr/0027-resource-binding-model.md) (binding),
+[ADR 0029](../adr/0029-render-graph-sync-and-barriers.md) (barriers), [ADR 0030](../adr/0030-frame-and-sync-model.md)
+(frames and fences), [ADR 0009](../adr/0009-shader-compilation.md) (shaders).
 
 ## Where things are
 
@@ -34,16 +32,20 @@ is still the judge, so watch the Windows job.
 ## Decisions already made
 
 - **Feature floor:** Shader Model 6.6 (`ResourceDescriptorHeap`), resource binding tier 3, enhanced barriers.
-  DXR 1.1 sets `hardware_ray_tracing`. Adapter: the best hardware one that qualifies, else WARP.
-- **One direct queue, one `ID3D12Fence`.** `SubmissionId` values are the fence values (ADR 0029).
+  DXR 1.1 is optional and sets `hardware_ray_tracing`, which only photo mode needs
+  ([ADR 0003](../adr/0003-platforms-and-hardware-target.md)). Adapter: the best hardware one that qualifies,
+  else WARP. `VEACH_DX12_ADAPTER=warp` forces WARP.
+- **One direct queue, one `ID3D12Fence`.** `SubmissionId` values are the fence values (ADR 0030).
   Command allocators come from a pool. Each one remembers its last submission, and is reset only after that
   submission completes.
 - **Descriptor handles:** `DescriptorHandle::value` holds the heap index in its low 32 bits. Slang reads it as
   `uint2` and indexes `ResourceDescriptorHeap[h.x]` or `SamplerDescriptorHeap[h.x]` (checked in the generated
-  HLSL). Index 0 of each heap is reserved, so a zero handle stays "none" as on Metal.
-- **Parameter blocks** are root constants at `b0` (Slang emits `cbuffer params : register(b0)`), at most 64
-  DWORDs (`rhi::max_parameter_bytes == 256`). The C++ structs are checked against the HLSL layout at compile time
-  (VCH-041).
+  HLSL). Index 0 of each heap is reserved, so a zero handle is invalid as on Metal. Slots 1 to 4 of the view heap
+  and slot 1 of the sampler heap hold the null descriptors; debug builds validate every handle a shader reads
+  against a live-descriptor table ([ADR 0027](../adr/0027-resource-binding-model.md)).
+- **Parameter blocks** are root constants at `b0` (Slang emits `cbuffer params : register(b0)`), at most 60
+  DWORDs (`rhi::max_parameter_bytes == 240`); the other root slots are the validation table (`t30`) and error
+  record (`u31`). The C++ structs are checked against the HLSL layout at compile time (VCH-041).
 
 ## Things DX12 will resist (and the answer)
 
@@ -53,20 +55,21 @@ is still the judge, so watch the Windows job.
    UAV index. Create both at creation when the usage allows both. Upload and readback heaps can't have UAVs.
 3. **Descriptor-slot lifetime.** Free a slot in the `SubmissionTracker::retire()` callback, together with the
    resource. Never free it directly in `destroy()`.
-4. **Root signature.** One global signature: 64 root-constant DWORDs at `b0`, flags
+4. **Root signature.** One global signature: 60 root-constant DWORDs at `b0` and the two validation root
+   descriptors, flags
    `CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED | SAMPLER_HEAP_DIRECTLY_INDEXED`. Each list calls `SetDescriptorHeaps`
    *before* `SetGraphicsRootSignature`/`SetComputeRootSignature`, which directly indexed heaps require. Then it
    sets both signatures once.
-5. **Barriers.** `rhi::Barrier` maps to `D3D12_TEXTURE_BARRIER`/`D3D12_BUFFER_BARRIER` with ADR 0025's table:
+5. **Barriers.** `rhi::Barrier` maps to `D3D12_TEXTURE_BARRIER`/`D3D12_BUFFER_BARRIER` with ADR 0029's table:
    - `before == after == shader_write` is a UAV barrier.
    - `discard` is honored as a plain transition from the real `before` state, which keeps the contents. That is
      always correct; discarding is an optimization for later. The real `before` matters because the previous
-     frame may still use the transient (ADR 0029).
+     frame may still use the transient (ADR 0030).
    - `present` is layout `PRESENT` with no access and sync `NONE`.
    - Buffers have no layouts.
    - New textures start in `COMMON`. The first barrier says `before = undefined`, which is legal from any layout.
-6. **BLAS → TLAS in one pass.** The lab builds both in one graph pass, so the graph emits no barrier between
-   them. Metal orders them through tracked encoders. DX12 needs a global barrier (AS write → AS read, sync
+6. **BLAS → TLAS in one pass.** A pass that builds both (the lab's triangle demo does) gets no barrier between
+   them from the graph. Metal orders them through tracked encoders. DX12 needs a global barrier (AS write → AS read, sync
    `BUILD_RAYTRACING_ACCELERATION_STRUCTURE`) before every TLAS build or refit.
 7. **Render passes.** `OMSetRenderTargets`, then `ClearRenderTargetView` for `LoadOp::clear`. RTVs live in a small
    CPU-only heap, because attachments are not bindless. Set the viewport and scissor to the attachment size, which
@@ -93,32 +96,7 @@ is still the judge, so watch the Windows job.
     debug layer on, DRED is too: a device removal names the command list and command that did not finish and the
     allocation at a faulting address. `VEACH_DX12_GPU_VALIDATION=1` adds GPU-based validation (slow). Neither
     helps on WARP: it records no DRED data, and GPU-based validation of the path tracer overflows its stack.
+14. **GPU timestamps.** Per-pass timings (VCH-049) use a timestamp query heap per frame slot, and
+    `last_frame_gpu_ms` is the span of the frame's timed passes. `mcp: per-pass gpu_timings (dx12)` checks them.
 
-## Steps, and the CI job that proves each
-
-Each step is one commit (or a few, all small) and ends when the **Windows** job of `.github/workflows/ci.yml` is
-green with its proof. From step 3 on, the Windows job sets `VEACH_REQUIRE_GPU=1`, so a DX12 golden that skips
-counts as a failure. The lab sets up all its render features at startup, even when it draws nothing. That
-includes the ray-traced one whenever the device can ray trace, as WARP can. So every lab golden, `background`
-included, needs steps 3 to 5 together: step 3 also has its own unit test, and step 4 is proven together with
-step 5. Learned the hard way: plan a unit test for any step that comes before the first full lab run.
-
-| # | Step | Proof in the Windows job | Criterion |
-|---|---|---|---|
-| 1 | Agility SDK + WARP pinned and deployed; adapter choice; debug layer to logs; queue, fence, frames, command-list pool | `unit: [dx12.AC1] ...` | dx12.AC1 |
-| 2 | Descriptor heaps and slot allocator (freed via `retire()`); buffers (`stride`), textures, samplers; upload path | `unit: [dx12.AC2] ...` | dx12.AC2 |
-| 3 | Barriers (the ADR 0025 table); render passes with clear; RTVs; readback with repack | `unit: [dx12.AC3] ...` | dx12.AC3 |
-| 4 | Root signature, root constants, graphics pipelines from DXIL, viewport and scissor | `golden: background (dx12)`, `golden: triangle (raster, dx12)` (pass once step 5 is in) | dx12.AC4 |
-| 5 | Compute pipelines and UAVs; BLAS and TLAS build and refit; the BLAS → TLAS barrier | `golden: triangle (raytraced, dx12)` | dx12.AC5 |
-| 6 | Two frames in flight under load | `dx12: ray-traced soak` (300 frames) | dx12.AC6 |
-| 7 | MCP on DX12 | `mcp: golden through MCP (dx12)` | dx12.AC7 |
-| 8 | Swapchain, present, resize (VCH-002) | `lab: windowed DX12 run`, or the criterion moves to VCH-050 with the reason | dx12.AC8 |
-
-GPU timestamps are not a step: per-pass timings (VCH-049) use a timestamp query heap per frame slot, and
-`last_frame_gpu_ms` is the span of the frame's timed passes. `mcp: per-pass gpu_timings (dx12)` checks them.
-
-## Definition of done
-
-Both shared goldens pass on DX12 (WARP) with the default tolerance and no per-backend override, and the debug
-layer reports nothing in any DX12 test. ADRs 0024, 0025 and 0029 need no change; if one does, write the
-superseding ADR first.
+Changing the binding, barrier or frame model (ADRs 0027, 0029, 0030) means writing the superseding ADR first.

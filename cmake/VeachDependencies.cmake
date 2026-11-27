@@ -1,5 +1,5 @@
 # Third-party dependencies, pinned by version and SHA256.
-# Policy: docs/adr/0001-language-and-build-system.md and docs/adr/0013-dependency-set.md.
+# Policy: docs/adr/0002-language-and-build-system.md and docs/adr/0017-dependency-set.md.
 # When bumping a version, update the hash, THIRD_PARTY_NOTICES.md and the ADR table.
 
 if(NOT DEFINED CPM_SOURCE_CACHE AND NOT DEFINED ENV{CPM_SOURCE_CACHE})
@@ -8,7 +8,7 @@ if(NOT DEFINED CPM_SOURCE_CACHE AND NOT DEFINED ENV{CPM_SOURCE_CACHE})
 endif()
 include(CPM)
 
-# Flecs: ECS (docs/adr/0004-ecs-flecs-v4.md). Never write v3 API code.
+# Flecs: ECS (docs/adr/0005-ecs-flecs-v4.md). Never write v3 API code.
 CPMAddPackage(
     NAME flecs
     VERSION 4.2.0
@@ -18,7 +18,7 @@ CPMAddPackage(
     EXCLUDE_FROM_ALL YES
     OPTIONS "FLECS_STATIC ON" "FLECS_SHARED OFF" "FLECS_TESTS OFF")
 
-# Luau: scripting VM, compiler and analyzer (docs/adr/0006-scripting-luau.md).
+# Luau: scripting VM, compiler and analyzer (docs/adr/0007-scripting-luau.md).
 CPMAddPackage(
     NAME luau
     VERSION 0.748
@@ -28,7 +28,7 @@ CPMAddPackage(
     EXCLUDE_FROM_ALL YES
     OPTIONS "LUAU_BUILD_CLI ON" "LUAU_BUILD_TESTS OFF" "LUAU_BUILD_WEB OFF")
 
-# SDL3: windowing and input, only inside engine/platform (docs/adr/0008-platform-sdl3.md).
+# SDL3: windowing and input, only inside engine/platform (docs/adr/0012-platform-sdl3.md).
 if(VEACH_SDL)
     CPMAddPackage(
         NAME SDL3
@@ -43,7 +43,7 @@ if(VEACH_SDL)
             "SDL_AUDIO OFF" "SDL_GPU OFF" "SDL_RENDER OFF" "SDL_CAMERA OFF")
 endif()
 
-# glm: math, exposed as veach::math (docs/adr/0010-conventions-and-math.md).
+# glm: math, exposed as veach::math (docs/adr/0013-conventions-and-math.md).
 CPMAddPackage(
     NAME glm
     VERSION 1.0.3
@@ -63,7 +63,7 @@ CPMAddPackage(
     EXCLUDE_FROM_ALL YES
     OPTIONS "JSON_BuildTests OFF" "JSON_Install OFF")
 
-# Tracy: profiler client, only when VEACH_TRACY=ON (docs/adr/0011-profiling-tracy.md).
+# Tracy: profiler client, only when VEACH_TRACY=ON (docs/adr/0014-profiling-tracy.md).
 if(VEACH_TRACY)
     CPMAddPackage(
         NAME tracy
@@ -87,7 +87,7 @@ if(VEACH_BUILD_TESTS)
         OPTIONS "DOCTEST_WITH_TESTS OFF" "DOCTEST_NO_INSTALL ON")
 endif()
 
-# Slang: shader compiler, prebuilt (docs/adr/0026-shader-compilation.md). Build-time only (slangc).
+# Slang: shader compiler, prebuilt (docs/adr/0009-shader-compilation.md). Build-time only (slangc).
 if(APPLE)
     CPMAddPackage(
         NAME slang
@@ -109,7 +109,7 @@ elseif(WIN32)
         URL https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/dxc_2026_09_29.zip
         URL_HASH SHA256=ad31b1fc8443175d204f77a611fdb3ef2ec42759bdc2f1167368de24a4a7e7f1
         DOWNLOAD_ONLY YES)
-    # D3D12 Agility SDK (docs/adr/0031-dx12-on-warp-in-ci.md): headers plus D3D12Core.dll and the debug layer,
+    # D3D12 Agility SDK (docs/adr/0033-dx12-on-warp-in-ci.md): headers plus D3D12Core.dll and the debug layer,
     # deployed next to each executable by veach_deploy_d3d12(). A .nupkg is a zip; DOWNLOAD_NAME makes CMake
     # extract it.
     CPMAddPackage(
@@ -150,7 +150,7 @@ add_library(veach_flip INTERFACE)
 target_include_directories(veach_flip SYSTEM INTERFACE "${flip_SOURCE_DIR}/src/cpp")
 
 # bc7enc (richgel999/bc7enc_rdo, MIT): BC7 encoding when cooking textures, and its decoder for tests
-# (docs/adr/0032-asset-import-and-cooking.md). Only bc7enc.cpp and bc7decomp.cpp are built.
+# (docs/adr/0011-gltf-import-and-cooking.md). Only bc7enc.cpp and bc7decomp.cpp are built.
 CPMAddPackage(
     NAME bc7enc
     VERSION 0.0.0-b943862
@@ -161,7 +161,7 @@ add_library(veach_bc7enc STATIC "${bc7enc_SOURCE_DIR}/bc7enc.cpp" "${bc7enc_SOUR
 target_include_directories(veach_bc7enc SYSTEM PUBLIC "${bc7enc_SOURCE_DIR}")
 set_target_properties(veach_bc7enc PROPERTIES FOLDER "third_party")
 
-# fastgltf (MIT): glTF 2.0 import (ADR 0032). Its CMake fetches simdjson 5.1.0 and simdutf 9.3.3 and checks
+# fastgltf (MIT): glTF 2.0 import (ADR 0011). Its CMake fetches simdjson 5.1.0 and simdutf 9.3.3 and checks
 # their SHA256. find_package is disabled for both, so a copy installed on the machine (Homebrew) is never used
 # instead of the pinned one.
 set(CMAKE_DISABLE_FIND_PACKAGE_simdjson ON)
@@ -176,7 +176,7 @@ CPMAddPackage(
     OPTIONS "FASTGLTF_DOWNLOAD_SIMDJSON ON" "FASTGLTF_DOWNLOAD_SIMDUTF ON" "FASTGLTF_ENABLE_TESTS OFF" "FASTGLTF_ENABLE_EXAMPLES OFF"
             "FASTGLTF_ENABLE_DOCS OFF")
 
-# meshoptimizer (MIT): meshlets at cook time for the real-time renderer (ADR 0037).
+# meshoptimizer (MIT): meshlets at cook time for the real-time renderer (ADR 0040).
 CPMAddPackage(
     NAME meshoptimizer
     VERSION 1.3

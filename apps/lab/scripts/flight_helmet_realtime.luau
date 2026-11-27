@@ -1,7 +1,7 @@
 --!strict
--- Khronos's FlightHelmet (CC0) through the real-time renderer, with the ambient stopgap on (docs/specs/first-real-scene/spec.md,
--- scene.AC6): textured and normal-mapped, lit by a directional key light and a warm spot.
--- Golden image: tests/golden/flight_helmet_realtime.png (256x256; rt.AC2 in docs/specs/realtime-renderer-v0/spec.md).
+-- Khronos's FlightHelmet (CC0) through the real-time renderer (docs/specs/realtime-renderer/spec.md, rt.AC3): textured
+-- and normal-mapped, lit by a directional key light and a warm spot, unshadowed, plus the constant sky as ambient.
+-- Golden image: tests/golden/flight_helmet_realtime.png (256x256).
 -- Run: veach-lab --rhi metal --headless --frames 3 --script scripts/flight_helmet_realtime.luau --screenshot out.png
 local veach = require("@veach")
 local quat = veach.quat
@@ -17,7 +17,6 @@ camera:set(c.Transform, {
 })
 camera:set(c.Camera, { fov_y = math.rad(35), near_plane = 0.05, active = true, ev100 = 0 })
 camera:set(c.Sky, { mode = "constant", color = vector.create(0.12, 0.13, 0.15) })
-camera:set(c.RealtimeLighting, { gi = "off", ao_rays = 4, ao_radius = 0.5 })
 
 -- Lights shine down their -Z: look_rotation points it.
 local key = veach.spawn("key light")
@@ -31,9 +30,6 @@ spot:set(c.Transform, {
 	scale = vector.one,
 })
 spot:set(c.SpotLight, { color = vector.create(1, 0.8, 0.6), intensity = 1.5, inner_angle = 0.3, outer_angle = 0.5 })
-
--- The temporal path with Veach's own upscaler, on every backend: one golden for Metal and DX12 (ADR 0043).
-camera:set(c.Upscaling, { mode = "temporal" })
 
 veach.system("FlightHelmetSize", "Startup", veach.query(c.Window), function(e, w)
 	e:set(c.Window, { title = w.title, width = 256, height = 256, mode = w.mode, vsync = w.vsync })

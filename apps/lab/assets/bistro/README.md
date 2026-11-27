@@ -13,4 +13,4 @@ camera dropped. The source scale is kept (props are about 1.6x real size, as in 
 
 `BistroExterior.gltf.meta` caps textures at 1024 so cooking stays practical. Not downloaded by CI (Git LFS
 fetches only what CI tests use); its goldens and benchmarks run in the pre-push gate
-([ADR 0036](../../../../docs/adr/0036-no-self-hosted-gpu-runner.md)).
+([ADR 0034](../../../../docs/adr/0034-pre-push-gate-no-gpu-runner.md)).

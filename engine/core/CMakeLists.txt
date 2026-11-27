@@ -7,7 +7,7 @@ veach_add_engine_library(core
         src/suggest.cpp
     PUBLIC_DEPS glm::glm)
 
-# Conventions from ADR 0010 must be identical in every translation unit.
+# Conventions from ADR 0013 must be identical in every translation unit.
 target_compile_definitions(veach_core PUBLIC GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_RADIANS GLM_FORCE_XYZW_ONLY)
 
 if(VEACH_TRACY)

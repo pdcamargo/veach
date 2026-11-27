@@ -1,4 +1,4 @@
-// The reference path tracer (docs/adr/0034-lights-and-reference-path-tracer.md).
+// Photo mode's path tracer (docs/adr/0041-photo-mode.md): the reference renderer and ground truth.
 // Unidirectional, progressive, unbiased: next-event estimation to punctual
 // lights and emissive triangles, MIS against BSDF sampling, Russian roulette.
 // Inline ray queries, so it runs as one compute dispatch. Compiled into each
@@ -10,7 +10,6 @@ import veach.bindless;
 import veach.material;
 import veach.materials_generated;  // evaluateSurface(kind, c), evaluateAlpha(kind, c)
 import veach.brdf;
-import veach.diffuse_path;  // cosine_direction
 import veach.lights;
 import veach.random;
 import veach.scene;
@@ -18,7 +17,7 @@ import veach.scene;
 struct Params {
     float4x4 inverse_view_projection;
     float4 camera_position_exposure;  ///< xyz, w = exposure scale (1 / (1.2 * 2^ev100))
-    float4 sky_bounces;               ///< w = max bounces (xyz unused: the sky is `sky`, ADR 0050)
+    float4 sky_bounces;               ///< w = max bounces (xyz unused: the sky is `sky`, ADR 0038)
     DescriptorHandle<RWTexture2D<float4>> accumulation;  ///< rgba32f running mean of radiance (nits), w = samples
     DescriptorHandle<RaytracingAccelerationStructure> scene;
     DescriptorHandle<StructuredBuffer<InstanceRecord>> instances;
@@ -31,13 +30,9 @@ struct Params {
     uint light_count;
     uint emissive_count;
     float emissive_total_weight;  ///< sum of area x weight over every emissive triangle
-    uint mode;  ///< PathTracer.mode: 0 full, 1 direct (first-bounce lights only, no sky), 2 AO debug view,
-                ///< 3 direct + sky (mode 1 plus the sky on the first hit's diffuse lobe), 4 direct + diffuse GI
-                ///< (mode 1 plus diffuse indirect light on the first hit's diffuse lobe: what Candela estimates)
-    DescriptorHandle<RWStructuredBuffer<uint>> diagnostics;  ///< [0] lost history, [1] non-finite samples; never reset
-    uint jitter;  ///< 1: rays spread over the pixel (anti-aliased); 0: through its center, as the real-time renderer
     uint scene_flags;  ///< SceneData::flags (veach/scene.slang)
-    DescriptorHandle<StructuredBuffer<SkyFrame>> sky;  ///< the environment (ADR 0050)
+    DescriptorHandle<RWStructuredBuffer<uint>> diagnostics;  ///< [0] lost history, [1] non-finite samples; never reset
+    DescriptorHandle<StructuredBuffer<SkyFrame>> sky;  ///< the environment (ADR 0038)
 };
 [[vk::push_constant]] ConstantBuffer<Params> params;
 
@@ -49,25 +44,14 @@ float3 radiance(float3 origin, float3 direction, inout Rng rng, out float first_
     float3 throughput = float3(1.0, 1.0, 1.0);
     float previous_bsdf_pdf = 0.0;  // 0 for the camera ray: emission it sees is not MIS-weighted
     first_hit = 0.0;
-    // Direct mode: light from light sources reaching the first surface (next-event estimation, and BSDF rays
-    // that hit an emitter), with no sky and no further bounces: what the real-time renderer's direct lighting
-    // estimates. Direct + sky (mode 3) adds the sky on the first hit's diffuse lobe, through a cosine ray: what its
-    // ambient stopgap estimates (the sky in specular reflections waits for the reflections milestone, VCH-018).
-    // Direct + diffuse GI (mode 4) follows the first hit's diffuse lobe instead of its BSDF: Lambertian bounces past
-    // it, which see the sky and every surface's reflected light (veach/diffuse_path.slang's rules): what Candela
-    // estimates (docs/specs/candela/spec.md). One trace() call site: Metal's compiler gives up on more.
-    const bool direct = params.mode == 1 || params.mode == 3;
-    const bool gi = params.mode == 4;
-    const uint max_bounces = direct ? 1 : uint(params.sky_bounces.w);
+    // One trace() call site: Metal's compiler gives up on more (tools/metal-repros/path-tracer-second-trace).
+    const uint max_bounces = uint(params.sky_bounces.w);
     const SkyFrame sky = params.sky[0];
-    bool diffuse = false;  // mode 4 past the first surface
     for (uint bounce = 0; bounce <= max_bounces; ++bounce) {
         const Trace t = trace(origin, direction, 1e30, rng);
         if (!t.hit) {
             // The sun is the directional light (next-event estimation): only camera rays see its disk.
-            if (params.mode == 0 || diffuse || (bounce == 0 && (params.mode == 3 || gi))) {
-                result += throughput * sky_radiance(sky, direction, bounce == 0);
-            }
+            result += throughput * sky_radiance(sky, direction, bounce == 0);
             break;
         }
         if (bounce == 0) {
@@ -77,10 +61,8 @@ float3 radiance(float3 origin, float3 direction, inout Rng rng, out float first_
         MaterialContext ctx = { hit.surface, hit.material };
         const SurfaceSample s = evaluateSurface(hit.material.kind, ctx);
 
-        // Emission found by BSDF sampling, weighted against light sampling. In mode 4 what the first diffuse bounce
-        // finds is the first surface's direct light, which light sampling counted there in full.
-        if (any(s.emission > 0.0) && (hit.front || (hit.material.flags & material_double_sided) != 0) &&
-            !(gi && bounce == 1)) {
+        // Emission found by BSDF sampling, weighted against light sampling.
+        if (any(s.emission > 0.0) && (hit.front || (hit.material.flags & material_double_sided) != 0)) {
             float weight = 1.0;
             if (previous_bsdf_pdf > 0.0 && (hit.material.flags & material_emissive) != 0) {
                 const float light_pdf = emissive_light_pdf(hit.material, hit.area, t.t, dot(hit.surface.geometric_normal, -direction));
@@ -93,46 +75,16 @@ float3 radiance(float3 origin, float3 direction, inout Rng rng, out float first_
         }
 
         const Frame frame = frame_of(s.normal);
-        if (params.mode == 2) {
-            // AO debug view: the fraction of cosine rays that leave 1 m unoccluded, shown as is (exposure undone).
-            // Never part of the lighting: the path tracer's light transport already accounts for occlusion.
-            const float2 u = float2(rng.next(), rng.next());
-            const float r = sqrt(u.x);
-            const float3 l = frame.to_world(float3(r * cos(2.0 * pi * u.y), r * sin(2.0 * pi * u.y), sqrt(1.0 - u.x)));
-            const bool open = visible(offset_origin(hit.surface.position, hit.surface.geometric_normal, l), l, 1.0, rng);
-            return float3(open ? 1.0 : 0.0) / max(params.camera_position_exposure.w, 1e-12);
-        }
         const float3 v = frame.to_local(hit.surface.view);
         if (v.z <= 0.0) {
             break;
         }
-        Brdf b = brdf_of(s, v.z);
-        if (diffuse) {
-            b.f0 = float3(0.0, 0.0, 0.0);
-            b.specular_probability = 0.0;
-        }
-        result += throughput * sample_light(hit.surface.position, hit.surface.geometric_normal, frame, b, v, rng,
-                                            diffuse, !(gi && bounce == 0));
-        if (params.mode == 3) {
-            const float2 u = float2(rng.next(), rng.next());
-            const float r = sqrt(u.x);
-            const float3 l = frame.to_world(float3(r * cos(2.0 * pi * u.y), r * sin(2.0 * pi * u.y), sqrt(1.0 - u.x)));
-            if (visible(offset_origin(hit.surface.position, hit.surface.geometric_normal, l), l, 1e30, rng)) {
-                result += throughput * b.diffuse * sky_radiance(sky, l, false);
-            }
-        }
+        const Brdf b = brdf_of(s, v.z);
+        result += throughput * sample_light(hit.surface.position, hit.surface.geometric_normal, frame, b, v, rng);
 
-        float3 l;
+        const float3 l = brdf_sample(b, v, rng);
         float pdf;
-        float3 f;
-        if (gi) {  // the diffuse lobe: cosine sampling, albedo / pi
-            l = frame.to_local(cosine_direction(frame, rng, pdf));
-            f = lambert_eval(b.diffuse, l, pdf);
-            diffuse = true;
-        } else {
-            l = brdf_sample(b, v, rng);
-            f = brdf_eval(b, v, l, pdf);
-        }
+        const float3 f = brdf_eval(b, v, l, pdf);
         if (pdf <= 0.0 || all(f <= 0.0)) {
             break;
         }
@@ -178,22 +130,20 @@ void trace_pixels(uint3 id : SV_DispatchThreadID) {
     veach_scene.light_count = params.light_count;
     veach_scene.emissive_count = params.emissive_count;
     veach_scene.emissive_total_weight = params.emissive_total_weight;
-    veach_scene.debug_skip = 0;
     veach_scene.flags = params.scene_flags;
     float3 sum = float3(0.0, 0.0, 0.0);
     uint nonfinite = 0;
     for (uint k = 0; k < params.samples_per_frame; ++k) {
         const uint sample = params.sample_index + k;
         Rng rng = { pcg(id.x + pcg(id.y + pcg(sample))) };
-        const float2 u = float2(rng.next(), rng.next());
-        const float2 jitter = params.jitter != 0 ? u : float2(0.5, 0.5);
+        const float2 jitter = float2(rng.next(), rng.next());
         const float2 ndc = float2((float(id.x) + jitter.x) / float(params.size.x) * 2.0 - 1.0,
                                   1.0 - (float(id.y) + jitter.y) / float(params.size.y) * 2.0);
         const float3 near_point = unproject(ndc, 1.0);  // reverse-Z: the near plane is depth 1
         const float3 direction = normalize(unproject(ndc, 0.5) - near_point);
         float first_hit;
         float3 l = radiance(params.camera_position_exposure.xyz, direction, rng, first_hit);
-        if (first_hit > 0.0 && params.mode != 1 && params.mode != 2) {  // aerial perspective, as the real-time renderer
+        if (first_hit > 0.0) {  // aerial perspective, as the real-time renderer
             const float4 air = aerial_perspective(params.sky[0], (float2(id.xy) + jitter) / float2(params.size), first_hit);
             l = l * air.a + air.rgb;
         }
@@ -222,5 +172,5 @@ void trace_pixels(uint3 id : SV_DispatchThreadID) {
         InterlockedAdd(params.diagnostics[1], nonfinite);
     }
     const float3 mean = (previous * n + sum) / (n + k);
-    params.accumulation[id.xy] = float4(mean, n + k);  // the display pass shows it (ADR 0038)
+    params.accumulation[id.xy] = float4(mean, n + k);  // the display pass shows it (ADR 0037)
 }

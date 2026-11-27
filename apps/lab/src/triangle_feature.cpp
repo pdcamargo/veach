@@ -16,7 +16,7 @@ namespace {
 namespace rhi = veach::rhi;
 namespace render = veach::render;
 
-/// What the extractor hands the renderer (render::RenderWorld, ADR 0016).
+/// What the extractor hands the renderer (render::RenderWorld, ADR 0020).
 struct TriangleState {
     TriangleMode mode = TriangleMode::raster;
 };
@@ -34,7 +34,7 @@ constexpr std::array<Vertex, 3> triangle{{
     {{0.7f, -0.6f, 0.5f, 1.0f}, {0.0f, 0.0f, 1.0f, 1.0f}},
 }};
 
-/// Mirrors `Params` in shaders/triangle.slang (ADR 0024 layout rules).
+/// Mirrors `Params` in shaders/triangle.slang (ADR 0027 layout rules).
 struct alignas(16) RasterParams {       // Metal rounds a struct with a float4x4 up to 16 bytes
     veach::math::mat4 view_projection;  ///< identity without a camera: the vertices are already NDC
     rhi::DescriptorHandle vertices;

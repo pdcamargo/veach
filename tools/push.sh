@@ -19,7 +19,7 @@ if [ "${1:-}" = "--full" ]; then
 fi
 upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || echo origin/main)
 if git diff --name-only "$upstream"..HEAD |
-    grep -qE '^(engine/render/|engine/rhi/|apps/lab/scripts/|apps/lab/shaders/|tests/golden/|tests/tolerance\.json)'; then
+    grep -qE '^(engine/render/|engine/rhi/|apps/lab/scripts/|apps/lab/shaders/|tests/golden/)'; then
     tests=full  # rendering changed: the full set, Bistro included
 fi
 VEACH_TESTS=$tests sh tools/scripts/pre-push.sh

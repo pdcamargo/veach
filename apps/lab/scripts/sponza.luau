@@ -1,7 +1,7 @@
 --!strict
 -- Intel's Sponza (local only until its license question is settled, VCH-055): the atrium from the scene's
--- first camera, lit by a sun through the open roof. 2560x1440, the real-time renderer's benchmark size
--- (docs/specs/realtime-renderer-v0/spec.md). Needs apps/lab/assets/sponza (not in git).
+-- first camera, lit by a sun through the open roof. 2560x1440, a large scene for the real-time renderer
+-- (docs/specs/realtime-renderer/spec.md). Needs apps/lab/assets/sponza (not in git).
 -- Run: veach-lab --rhi metal --window --script scripts/sponza.luau
 local veach = require("@veach")
 local c = veach.components

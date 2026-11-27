@@ -1,82 +1,88 @@
 # Veach vision
 
-Veach is an **AI-native C++ game engine with a raytracing-first renderer for real-time games**. It is named
+Veach is an **AI-native C++ game engine, and the foundation of a reusable toolbox for space games**. It is named
 after Eric Veach, whose thesis underlies modern path tracing.
 
-Changing anything in this file is a product decision: the product owner signs off.
+Changing anything in this file is a product decision: the product owner signs off. The current direction was set at
+the reset ([ADR 0001](adr/0001-reset.md)); the raytracing-first plan before it is preserved in the `pathtracer-era`
+git tag.
 
 ## What Veach is
 
-- **A game engine, not a renderer for film.** Global illumination, raytraced reflections, screen-space
-  reflections as a hybrid or fallback, volumetric fog, physical sky and atmosphere, soft shadows from area
-  lights, denoising and upscaling all have to look as good as possible *within real-time frame budgets*.
-  Performance is a feature. Offline or reference-quality rendering exists only as a debugging tool.
-- **AI-native.** Agents are first-class users. They write the code, drive the running engine, inspect it and
-  verify their own work. Humans and agents use **the same API**; there is no separate AI layer. Everything
-  that makes the engine good for agents (text formats, reflection, strict types, actionable errors, headless
-  runs, structured logs, measurable performance) also makes it pleasant for humans.
+- **The engine under a space-game toolbox.** The toolbox (in `space/`, on top of the engine) is in the spirit of No
+  Man's Sky: procedural planets and solar systems with orbits; editable volumetric terrain with caves; underground and
+  aquatic ecosystems; earth-like and alien planets whose atmosphere (or lack of one) drives the look; volumetric
+  clouds and weather; oceans, lakes and rivers; volcanic activity; procedural vegetation, and eventually a nature
+  editor; fauna and flora; NPC and faction simulation; base building and light terraforming (flatten, smooth, raise,
+  lower); ship building; multiplayer.
+- **A toolbox for other people.** Others build their own games with it and extend it: new features as modules, and
+  procgen extended through Luau hooks and scripts. The engine never depends on the toolbox; whatever the toolbox needs
+  that is generic becomes part of the engine ([ADR 0042](adr/0042-space-toolbox-layering.md)).
+- **AI-native.** Agents are first-class users. They write the code, drive the running engine, inspect it and verify
+  their own work. Humans and agents use **the same API**; there is no separate AI layer. Everything that makes the
+  engine good for agents (text formats, reflection, strict types, actionable errors, headless runs, structured logs,
+  measurable performance) also makes it pleasant for humans.
 - **Pleasant to write by hand.** One obvious way to do each thing, explicit over magic, consistent verbs
   (`spawn/despawn`, `get/set/has/remove`, `on/emit`), strict types by default.
-- **Customizable and extensible to the core.** Engine features are modules, and so is the game. Users extend
-  the parts they care about instead of forking. The model is Bevy's `ExtendedMaterial`: in Veach, materials are
-  Slang modules implementing interfaces with default implementations, so a user overrides exactly
-  `evalAlbedo`, `evalEmission` or `displaceVertex` and nothing else. Render passes, extraction and components
-  are extensible in the same spirit.
+- **Customizable and extensible to the core.** Engine features are modules, and so is the game. Users extend the parts
+  they care about instead of forking. Materials are Slang modules implementing interfaces with default
+  implementations, so a user overrides exactly `evalBaseColor` or `evalEmission` and nothing else. Render features,
+  extraction and components are extensible in the same spirit.
 
 ## AI-native principles
 
-1. **Text everywhere.** Scenes and prefabs are Flecs Script; configs, metadata and materials are JSON with
-   schemas generated from reflection. Logs are JSON lines for machines and readable lines for humans.
-2. **Everything is inspectable.** Every component is reflected, so it is printable, serializable, and visible
-   to tools, scripts, schemas and the MCP server.
-3. **Strict by default.** Luau `--!strict`, with types generated from the engine's reflection; JSON validated
-   against generated schemas.
-4. **Errors tell you the fix.** Stable codes, a concrete message and a hint (`Unknown component 'Tranform' —
-   did you mean 'Transform'?`).
-5. **Headless first.** Every app runs with no window and no GPU for a fixed number of frames, deterministically.
-   That is how agents and CI verify work.
-6. **Measured, not claimed.** Tracy is in from day one; performance claims cite a capture.
+1. **Text everywhere.** Scenes and prefabs are Flecs Script; configs, metadata and materials are JSON with schemas
+   generated from reflection. Logs are JSON lines for machines and readable lines for humans.
+2. **Everything is inspectable.** Every component is reflected, so it is printable, serializable, and visible to
+   tools, scripts, schemas and the MCP server.
+3. **Strict by default.** Luau `--!strict`, with types generated from the engine's reflection; JSON validated against
+   generated schemas.
+4. **Errors tell you the fix.** Stable codes, a concrete message and a hint (`Unknown component 'Tranform' — did you
+   mean 'Transform'?`).
+5. **Headless first, deterministic.** Every app runs with no window and no GPU for a fixed number of frames,
+   deterministically. That is how agents and CI verify work, and what record/replay and procgen from seeds rest on.
+6. **Measured, not claimed.** Tracy and per-pass GPU timings are in from day one; performance claims cite a capture.
 7. **Transactional by default.** Script and tool writes go through a command buffer and apply all-or-nothing.
 
 ## Rendering goals
 
-- Hardware raytracing is the baseline, not an add-on: DXR 1.1-class GPUs on Windows, Apple M3 or newer on
-  Mac. M1/M2 may run but are not optimized for.
-- Initial target: **60 fps at 1440p output** (with upscaling) on current mid/high-end RT GPUs. Refined with
-  real measurements: two quality tiers, Performance (60 fps, the default) and Quality (30 fps)
-  ([ADR 0049](adr/0049-frame-budget-and-quality-tiers.md)). Base M3/M4 Macs are expected at about **30 fps** in
-  Performance until dynamic resolution (VCH-065) holds the frame rate by lowering the render scale.
-- **The real-time renderer**: a visibility buffer over meshlets, lit with the same Slang materials and lights as
-  the reference path tracer.
-- **Tessera**: virtualized geometry (our Nanite): cluster hierarchies, GPU culling and streaming, taking over the
-  renderer's meshlets. The name means only this system.
-- **Candela**: real-time global illumination (our Lumen). Raytraced and denoised.
-- Plus RT reflections with SSR fallback, physical sky and atmosphere, volumetric fog, area-light soft shadows,
-  a shared denoiser and a temporal upscaler.
+- **The real-time renderer is a well-made PBR rasterizer** with a stylized-but-not-cartoony look (reference: No Man's
+  Sky): physically based materials, photometric lights and exposure, with artistic grading on top. Planet-scale
+  features (atmosphere driven by composition, terrain, vegetation, oceans, clouds) plug into it as render features
+  ([ADR 0039](adr/0039-realtime-renderer-is-raster-pbr.md)).
+- **No real-time GI and no real-time path tracing.** Real-time features never require hardware ray tracing.
+- **Photo mode:** the progressive reference path tracer, accumulating a path-traced image while the camera is still.
+  No denoiser, no temporal tricks. It is also the engine's ground truth for debugging materials, lights and the sky
+  ([ADR 0041](adr/0041-photo-mode.md)).
+- **Hardware:** every Apple silicon Mac and DX12 GPUs with Shader Model 6.6; ray tracing optional, for photo mode.
+  Design target: 60 fps at 1080p on a base Apple M1-class GPU ([ADR 0003](adr/0003-platforms-and-hardware-target.md)).
 
 ## Roadmap
 
-In rough order (details and ids in [backlog/BACKLOG.md](backlog/BACKLOG.md)):
+In order (details and ids in [backlog/BACKLOG.md](backlog/BACKLOG.md)):
 
-1. Foundation (done): lifecycle, ECS and phases, Luau API v0, assets with stable ids, platform layer, RHI seam,
-   extraction boundary, CI on macOS and Windows.
-2. First light (done): Metal RHI resources and swapchain, render graph, Slang pipeline,
-   golden-image tests, a ray-traced first image.
-3. Agents in the loop (MCP server v0 and hot reload done): MCP server (`query_entities`, `get/set_component`, `step_frames`, `screenshot`,
-   `gpu_timings`, `load_scene`, sandboxed transactional `eval`), hot reload, record/replay.
-4. Content (glTF import, KTX2/BC7 and extendable materials done): glTF (fastgltf, meshoptimizer), KTX2/BC7
-   textures, Flecs Script scenes and prefabs, extendable materials.
-5. The renderer: a reference path tracer as ground truth (done), the real-time renderer, then Tessera, Candela, RT reflections, sky and
-   atmosphere, volumetric fog, area lights, denoiser, upscaler. DX12 backend alongside Metal (done early,
-   verified on WARP in CI).
-6. The rest of a game engine: physics with Box3D (deterministic, MIT), audio, UI, an editor built on the same
-   reflection and MCP machinery.
+1. **Foundation (done):** lifecycle, ECS and phases, Luau API v0 with script components and transactional writes,
+   assets with stable ids, the platform layer, input actions, transforms, the RHI seam, the extraction boundary, CI on
+   macOS and Windows.
+2. **First light (done):** Metal and DX12 backends (DX12 verified on WARP), bindless resources, the render graph and
+   its barrier model, frames in flight, the Slang pipeline, golden-image tests with FLIP.
+3. **Agents in the loop (done):** the MCP server (query and edit the world, step frames, screenshots, render-graph
+   plan, per-pass GPU timings, sandboxed transactional `eval`), hot reload, record/replay.
+4. **Content (done):** glTF import with cooked meshes, meshlets and BC7/KTX2 textures, extendable Slang materials,
+   photometric lights, the physical sky.
+5. **Renderers for now (done):** photo mode, and an interim real-time path (a visibility buffer with basic shading)
+   so every scene can be looked at in real time.
+6. **Research phase (next):** answer the open questions in
+   [ARCHITECTURE.md](ARCHITECTURE.md#open-questions-research-phase) (large-world coordinates, volumetric terrain,
+   procgen determinism and the procgen graph, networking, simulation LOD, the real-time renderer, planetary physics)
+   with ADRs and spikes, before any toolbox feature is built.
 
 ## Non-goals
 
-- Offline, film or video rendering as a product. A reference path tracer may exist for debugging.
-- Non-RT hardware as a target. No legacy rendering paths.
-- Platforms beyond macOS (Apple Silicon) and Windows for now: no Linux, mobile, web or consoles.
+- Real-time global illumination, real-time path tracing, and offline or film rendering as a product.
+- Hardware ray tracing as a requirement for anything but photo mode.
+- Platforms beyond macOS (Apple silicon) and Windows for now: no Linux, mobile, web or consoles.
 - A "Bevy clone" plugin/app model. Veach is built on Flecs modules and Flecs idioms.
 - Multiple scripting languages, or a custom shader language. Luau and Slang, directly.
 - An AI layer separate from the human API.
+- A toolbox the engine depends on: the engine stays usable without it.

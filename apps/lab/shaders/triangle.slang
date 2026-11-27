@@ -1,7 +1,7 @@
 // First light, rasterized: one triangle with per-vertex colors, vertices pulled
 // through a bindless handle, seen through the primary camera (identity without
 // one: the positions are already NDC). Layout must match RasterParams in
-// apps/lab/src/triangle_feature.cpp (ADR 0024).
+// apps/lab/src/triangle_feature.cpp (ADR 0027).
 
 import veach.bindless;
 

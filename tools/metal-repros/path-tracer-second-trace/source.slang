@@ -1,4 +1,4 @@
-// The reference path tracer (docs/adr/0034-lights-and-reference-path-tracer.md).
+// The reference path tracer (docs/adr/0041-photo-mode.md).
 // Unidirectional, progressive, unbiased: next-event estimation to punctual
 // lights and emissive triangles, MIS against BSDF sampling, Russian roulette.
 // Inline ray queries, so it runs as one compute dispatch. Compiled into each
@@ -18,7 +18,7 @@ import veach.scene;
 struct Params {
     float4x4 inverse_view_projection;
     float4 camera_position_exposure;  ///< xyz, w = exposure scale (1 / (1.2 * 2^ev100))
-    float4 sky_bounces;               ///< w = max bounces (xyz unused: the sky is `sky`, ADR 0050)
+    float4 sky_bounces;               ///< w = max bounces (xyz unused: the sky is `sky`, ADR 0038)
     DescriptorHandle<RWTexture2D<float4>> accumulation;  ///< rgba32f running mean of radiance (nits), w = samples
     DescriptorHandle<RaytracingAccelerationStructure> scene;
     DescriptorHandle<StructuredBuffer<InstanceRecord>> instances;
@@ -33,11 +33,10 @@ struct Params {
     float emissive_total_weight;  ///< sum of area x weight over every emissive triangle
     uint mode;  ///< PathTracer.mode: 0 full, 1 direct (first-bounce lights only, no sky), 2 AO debug view,
                 ///< 3 direct + sky (mode 1 plus the sky on the first hit's diffuse lobe), 4 direct + diffuse GI
-                ///< (mode 1 plus diffuse indirect light on the first hit's diffuse lobe: what Candela estimates)
     DescriptorHandle<RWStructuredBuffer<uint>> diagnostics;  ///< [0] lost history, [1] non-finite samples; never reset
     uint jitter;  ///< 1: rays spread over the pixel (anti-aliased); 0: through its center, as the real-time renderer
     uint scene_flags;  ///< SceneData::flags (veach/scene.slang)
-    DescriptorHandle<StructuredBuffer<SkyFrame>> sky;  ///< the environment (ADR 0050)
+    DescriptorHandle<StructuredBuffer<SkyFrame>> sky;  ///< the environment (ADR 0038)
 };
 [[vk::push_constant]] ConstantBuffer<Params> params;
 
@@ -77,13 +76,8 @@ float3 radiance(float3 origin, float3 direction, inout Rng rng, out float first_
     float3 throughput = float3(1.0, 1.0, 1.0);
     float previous_bsdf_pdf = 0.0;  // 0 for the camera ray: emission it sees is not MIS-weighted
     first_hit = 0.0;
-    // Direct mode: light from light sources reaching the first surface (next-event estimation, and BSDF rays
-    // that hit an emitter), with no sky and no further bounces: what the real-time renderer's direct lighting
-    // estimates. Direct + sky (mode 3) adds the sky on the first hit's diffuse lobe, through a cosine ray: what its
-    // ambient stopgap estimates (the sky in specular reflections waits for the reflections milestone, VCH-018).
-    // Direct + diffuse GI (mode 4) follows the first hit's diffuse lobe instead of its BSDF: Lambertian bounces past
-    // it, which see the sky and every surface's reflected light (veach/diffuse_path.slang's rules): what Candela
-    // estimates (docs/specs/candela/spec.md). One trace() call site: Metal's compiler gives up on more.
+    // (Snapshot of the path tracer as it crashed; its comparison modes were removed at the reset. kernel.metal is
+    // the repro.)
     const bool direct = params.mode == 1 || params.mode == 3;
     const bool gi = params.mode == 4;
     const uint max_bounces = direct ? 1 : uint(params.sky_bounces.w);
@@ -255,5 +249,5 @@ void trace_pixels(uint3 id : SV_DispatchThreadID) {
         InterlockedAdd(params.diagnostics[1], nonfinite);
     }
     const float3 mean = (previous * n + sum) / (n + k);
-    params.accumulation[id.xy] = float4(mean, n + k);  // the display pass shows it (ADR 0038)
+    params.accumulation[id.xy] = float4(mean, n + k);  // the display pass shows it (ADR 0037)
 }

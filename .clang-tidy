@@ -1,4 +1,4 @@
-# Veach clang-tidy rules (ADR 0012). Run: run-clang-tidy -p build/debug engine apps tools
+# Veach clang-tidy rules (ADR 0015). Run: run-clang-tidy -p build/debug engine apps tools
 # Kept deliberately small: every enabled check must be worth fixing, not silencing.
 Checks: >
   -*,

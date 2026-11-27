@@ -1,6 +1,6 @@
 # Conventions cheat sheet
 
-## Space, units, time ([ADR 0010](../adr/0010-conventions-and-math.md))
+## Space, units, time ([ADR 0013](../adr/0013-conventions-and-math.md))
 
 We match glTF so imported assets never need conversion.
 
@@ -33,7 +33,7 @@ We match glTF so imported assets never need conversion.
 Reflected names are what tools, JSON and Luau see, so C++ field and enumerator names are
 the public data names.
 
-## Errors ([ADR 0021](../adr/0021-structured-logging-and-errors.md))
+## Errors ([ADR 0025](../adr/0025-structured-logging-and-errors.md))
 
 - Fallible functions return `veach::Result<T>` (`std::expected<T, veach::Error>`).
 - `veach::Error{code, message, hint}`: `message` says what happened with the concrete values;

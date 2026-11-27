@@ -5,11 +5,11 @@
   python3 tests/mcp/test_mcp_lab.py --lab <veach-lab> --imgdiff <veach> --golden <png> --out <png> golden
   python3 tests/mcp/test_mcp_lab.py --lab <veach-lab> fly
   python3 tests/mcp/test_mcp_lab.py --lab <veach-lab> reload
-  python3 tests/mcp/test_mcp_lab.py --lab <veach-lab> --imgdiff <veach> --golden <png> --out <dir> --rhi metal path_trace
+  python3 tests/mcp/test_mcp_lab.py --lab <veach-lab> --imgdiff <veach> --golden <png> --out <dir> --rhi metal photo_mode
   python3 tests/mcp/test_mcp_lab.py --lab <veach-lab> --rhi metal gpu_timings
 
 `protocol`, `fly` (the input spec's fly camera, input.AC5) and `reload` (hot reload, reload.AC5) run on the
-null RHI anywhere. `golden` needs Metal 3 + ray tracing; on other GPUs it prints
+null RHI anywhere. `golden` and `photo_mode` need Metal 3 (or DX12) with ray tracing; on other GPUs they print
 VEACH_GPU_UNAVAILABLE (CTest: skipped) unless VEACH_REQUIRE_GPU=1, which makes that a failure.
 """
 
@@ -129,7 +129,7 @@ def protocol(lab: str) -> None:
     timings = client.call_json("gpu_timings")
     check(timings["backend"] == "null" and timings["frames_in_flight"] == 2, "[mcp.AC8] gpu_timings reports the backend")
     check(timings["passes"] == [] and timings["passes_unavailable"],
-          "[rt.AC7] without a GPU, gpu_timings says why there are no per-pass times")
+          "[rt.AC5] without a GPU, gpu_timings says why there are no per-pass times")
     check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
 
 
@@ -328,7 +328,7 @@ def flip(imgdiff: str, a: str, b: str) -> float:
     return float(out.split("mean FLIP ")[1].split()[0])
 
 
-def path_trace(lab: str, imgdiff: str, golden_path: str, out_dir: str, rhi: str) -> None:
+def photo_mode(lab: str, imgdiff: str, golden_path: str, out_dir: str, rhi: str) -> None:
     client = McpClient([lab, "--mcp", "--headless", "--rhi", rhi, "--script", "scripts/cornell_box.luau"])
     try:
         client.initialize()
@@ -341,36 +341,36 @@ def path_trace(lab: str, imgdiff: str, golden_path: str, out_dir: str, rhi: str)
 
     def shot(samples: int, name: str) -> str:
         path = os.path.join(out_dir, name)
-        result = client.call("path_trace", samples=samples, path=path)
-        check(not result.get("isError"), f"path_trace {samples} succeeds: {result['content'][-1]['text']}")
+        result = client.call("photo_mode", samples=samples, path=path)
+        check(not result.get("isError"), f"photo_mode {samples} succeeds: {result['content'][-1]['text']}")
         return path
 
     same = shot(64, "cornell_64.png")
-    check(flip(imgdiff, golden_path, same) <= 0.01, "[scene.AC7] path_trace 64 matches the golden run")
+    check(flip(imgdiff, golden_path, same) <= 0.01, "[photo.AC2] photo_mode 64 matches the golden run")
 
     client.call_json("step_frames", count=2)
-    check(client.call_json("gpu_timings")["path_tracer_samples"] == 64 + 32,
-          "[scene.AC8] accumulation continues while nothing changes")
+    check(client.call_json("gpu_timings")["photo_mode_samples"] == 64 + 32,
+          "[photo.AC2] accumulation continues while nothing changes")
     client.call_json("set_component", entity="camera", component="Transform",
                      value={"translation": [0.0, 1.0, 3.8]})
     client.call_json("step_frames", count=1)
-    check(client.call_json("gpu_timings")["path_tracer_samples"] == 16,
-          "[scene.AC8] moving the camera restarts the accumulation")
+    check(client.call_json("gpu_timings")["photo_mode_samples"] == 16,
+          "[photo.AC2] moving the camera restarts the accumulation")
 
     reference = shot(256, "cornell_256.png")
     few = flip(imgdiff, reference, shot(8, "cornell_8.png"))
     more = flip(imgdiff, reference, shot(32, "cornell_32.png"))
-    check(more < few, f"[scene.AC8] 4x the samples converges towards the reference (FLIP {few:.4f} -> {more:.4f})")
+    check(more < few, f"[photo.AC2] 4x the samples converges towards the reference (FLIP {few:.4f} -> {more:.4f})")
     check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
 
 
 def gpu_timings(lab: str, rhi: str) -> None:
-    client = McpClient([lab, "--mcp", "--headless", "--rhi", rhi, "--script", "scripts/triangle_raytraced.luau"])
+    client = McpClient([lab, "--mcp", "--headless", "--rhi", rhi, "--script", "scripts/cornell_box_realtime.luau"])
     try:
         client.initialize()
     except RuntimeError as error:
         if "rhi.backend_unavailable" in str(error) and os.environ.get("VEACH_REQUIRE_GPU") != "1":
-            print(f"VEACH_GPU_UNAVAILABLE: skipped (the {rhi} device can't ray trace)")
+            print(f"VEACH_GPU_UNAVAILABLE: skipped (no {rhi} GPU)")
             return
         raise
     client.call_json("step_frames", count=3)
@@ -378,74 +378,15 @@ def gpu_timings(lab: str, rhi: str) -> None:
     planned = re.findall(r"^\s+\d+\. (.+) \[(?:graphics|compute|transfer)\]$", plan, re.MULTILINE)
     timings = client.call_json("gpu_timings")
     print(json.dumps(timings, indent=2))
-    check("passes_unavailable" not in timings, f"[rt.AC7] {rhi} times passes")
-    check(timings["frame"] >= 3, "[rt.AC7] the timings are from the last frame stepped")
+    check("passes_unavailable" not in timings, f"[rt.AC5] {rhi} times passes")
+    check(timings["frame"] >= 3, "[rt.AC5] the timings are from the last frame stepped")
     names = [p["name"] for p in timings["passes"]]
-    check(planned and names == planned, f"[rt.AC7] gpu_timings lists every pass of the frame, in order: {names}")
+    check(planned and names == planned, f"[rt.AC5] gpu_timings lists every pass of the frame, in order: {names}")
     check(all(isinstance(p["gpu_ms"], (int, float)) and math.isfinite(p["gpu_ms"]) and 0 <= p["gpu_ms"] < 10_000
-              for p in timings["passes"]), "[rt.AC7] every pass has a GPU time in milliseconds")
-    check(any(p["gpu_ms"] > 0 for p in timings["passes"]), "[rt.AC7] the passes that draw take GPU time")
+              for p in timings["passes"]), "[rt.AC5] every pass has a GPU time in milliseconds")
+    check(any(p["gpu_ms"] > 0 for p in timings["passes"]), "[rt.AC5] the passes that draw take GPU time")
     check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
 
-
-def budget(lab: str, rhi: str) -> None:
-    """ADR 0049: frame_budget maps every pass and GPU resource of a real-time and a path-traced frame to a subsystem,
-    and shows the GI mode. CI runs it on WARP, whose timings mean nothing, so the slices are not checked here."""
-    for script, reference in (("scripts/cornell_box_realtime.luau", False), ("scripts/cornell_box.luau", True)):
-        client = McpClient([lab, "--mcp", "--headless", "--rhi", rhi, "--script", script])
-        try:
-            client.initialize()
-        except RuntimeError as error:
-            if "rhi.backend_unavailable" in str(error) and os.environ.get("VEACH_REQUIRE_GPU") != "1":
-                print(f"VEACH_GPU_UNAVAILABLE: skipped (the {rhi} device can't ray trace)")
-                return
-            raise
-        client.call_json("step_frames", count=3)
-        report = client.call_json("frame_budget", frames=2)
-        print(json.dumps({k: report[k] for k in ("tier", "ok", "frame_gpu_ms", "settings", "unmapped_passes")}))
-        passes = {s["name"]: [p["name"] for p in s["passes"]] for s in report["subsystems"]}
-        check(report["unmapped_passes"] == [], f"[ADR 0049] every pass has a subsystem: {report['unmapped_passes']}")
-        check(report["memory"]["unmapped"] == [], f"[ADR 0049] every GPU resource has a memory kind: "
-                                                  f"{report['memory']['unmapped']}")
-        check(report["memory"]["mib"] > 0, "[ADR 0049] the report counts GPU memory")
-        if reference:
-            check(report["settings"]["gi"] == "path tracer" and "path tracer" in passes.get("reference", []),
-                  "[ADR 0049] the path tracer is reported apart, unbudgeted")
-        else:
-            check(report["settings"]["gi"] == "off (ambient stopgap)" and passes["gi"] == ["gi: ambient"],
-                  f"[ADR 0049] GI off is the ambient stopgap, shown in the report: {passes['gi']}")
-            # The scene pins the Quality tier (its golden); the report measures against the active tier.
-            settings = report["settings"]
-            check(report["tier"] == "quality" and settings["active_tier"] == "quality" and
-                  settings["matches_tier"] and settings["render_scale"] == 0.75,
-                  f"[ADR 0049] the report uses the active tier and the settings follow it: {settings}")
-            # RealtimeLighting's own candidates give way to the tier's.
-            client.call_json("set_component", entity="camera", component="RealtimeLighting",
-                             value={"gi": "direct_only", "light_candidates": 3})
-            client.call_json("set_component", entity="camera", component="RenderQuality",
-                             value={"tier": "performance"})
-            client.call_json("step_frames", count=1)
-            report = client.call_json("frame_budget", frames=1)
-            passes = {s["name"]: [p["name"] for p in s["passes"]] for s in report["subsystems"]}
-            settings = report["settings"]
-            check(report["tier"] == "performance" and settings["matches_tier"] and
-                  settings["light_candidates"] == 8 and settings["render_scale"] == 0.5,
-                  f"[ADR 0049] the Performance tier's settings apply: {settings}")
-            check(settings["gi"] == "direct only" and passes["gi"] == [], "[ADR 0049] gi = direct_only runs no GI pass")
-            result = client.call("frame_budget", tier="cinematic")
-            check(result.get("isError") is True, "[ADR 0049] an unknown tier is a tool error")
-        check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
-    # A camera without RenderQuality renders in the Performance tier, with its settings.
-    client = McpClient([lab, "--mcp", "--headless", "--rhi", rhi, "--script", "scripts/flight_helmet_realtime.luau"])
-    client.initialize()
-    client.call_json("step_frames", count=2)
-    settings = client.call_json("frame_budget", frames=1)["settings"]
-    check(settings["active_tier"] == "performance" and settings["matches_tier"] and settings["render_scale"] == 0.5,
-          f"[ADR 0049] Performance is the default tier: {settings}")
-    check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
-
-
-# ---- the temporal renderer (docs/specs/temporal-direct-lighting/spec.md) --------------------------------------
 
 def read_png(path: str) -> tuple[int, int, list[tuple[int, int, int]]]:
     """An 8-bit RGB or RGBA PNG (what screenshots write) as rows of RGB tuples, top row first."""
@@ -496,7 +437,7 @@ def realtime_client(lab: str, script: str = "scripts/cornell_box_realtime.luau")
         client.initialize()
     except RuntimeError as error:
         if "rhi.backend_unavailable" in str(error) and os.environ.get("VEACH_REQUIRE_GPU") != "1":
-            print("VEACH_GPU_UNAVAILABLE: skipped (no Metal ray tracing)")
+            print("VEACH_GPU_UNAVAILABLE: skipped (no Metal 3 GPU)")
             return None
         raise
     return client
@@ -506,14 +447,6 @@ def shot(client: McpClient, out_dir: str, name: str) -> list[tuple[int, int, int
     path = os.path.join(out_dir, name + ".png")
     client.call("screenshot", path=path)
     return read_png(path)[2]
-
-
-def set_view(client: McpClient, view: str) -> None:
-    client.call_json("set_component", entity="camera", component="RealtimeLighting", value={"view": view})
-
-
-def yaw(angle: float) -> dict:
-    return {"x": 0.0, "y": math.sin(angle / 2), "z": 0.0, "w": math.cos(angle / 2)}
 
 
 def sky(lab: str, out_dir: str) -> None:
@@ -540,186 +473,6 @@ def sky(lab: str, out_dir: str) -> None:
     check(sum(dusk) < 0.2 * sum(noon), f"[sky.AC5] setting time_of_day to 23:00 darkens the sky the next frame: "
                                        f"{noon} -> {dusk}")
     check(client.close() == 0, "the lab exits 0")
-
-
-def temporal_motion(lab: str, out_dir: str) -> None:
-    """temporal.AC1-AC3: motion vectors, disocclusion and history resets, read from the debug views."""
-    os.makedirs(out_dir, exist_ok=True)
-    client = realtime_client(lab)
-    if client is None:
-        return
-    size, fov = 256, math.radians(40)  # cornell_box_realtime.luau's window and camera
-    client.call_json("set_component", entity="camera", component="Upscaling", value={"mode": "none"})
-
-    # AC3: the first frame has no history; the next one has it all.
-    set_view(client, "history")
-    geometry = lambda img: [p for p in img if p[2] < 128]  # blue marks pixels without geometry
-    valid = lambda img: sum(1 for p in geometry(img) if p[1] > 128) / max(1, len(geometry(img)))
-    first = shot(client, out_dir, "history_first")
-    second = shot(client, out_dir, "history_second")
-    check(valid(first) == 0.0 and valid(second) > 0.99,
-          f"[temporal.AC3] no history on the first frame, all of it on the next ({valid(first):.3f}, {valid(second):.3f})")
-    window = client.call_json("get_component", entity="primary_window", component="Window")
-    for what, change in [("a resize", lambda: client.call_json("set_component", entity="primary_window",
-                                                               component="Window", value={**window, "width": 192, "height": 192})),
-                         ("an upscaler change", lambda: client.call_json("set_component", entity="camera",
-                                                                         component="Upscaling", value={"mode": "temporal"})),
-                         ("a camera cut", lambda: client.call_json("set_component", entity="camera", component="Transform",
-                                                                   value={"translation": [0, 1, 6.9]}))]:
-        change()
-        after = shot(client, out_dir, "history_after")
-        next_frame = shot(client, out_dir, "history_next")
-        check(valid(after) == 0.0 and valid(next_frame) > 0.99,
-              f"[temporal.AC3] {what} drops history for one frame ({valid(after):.3f}, then {valid(next_frame):.3f})")
-    check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
-
-    # AC1: motion vectors. A still frame has none; a known yaw gives every pixel an analytic motion (depth-free).
-    def session(view: str, moves: int) -> tuple[list, list]:
-        c = realtime_client(lab)
-        c.call_json("set_component", entity="camera", component="Upscaling", value={"mode": "none"})
-        set_view(c, "motion")
-        c.call_json("step_frames", count=2)
-        still = shot(c, out_dir, "motion_still")
-        box = c.call_json("get_component", entity="cornell box::tall box", component="Transform")
-        images = []
-        for k in range(moves):
-            moved = dict(box, translation=[box["translation"][0] + 0.02 * (k + 1)] + box["translation"][1:])
-            c.call_json("set_component", entity="cornell box::tall box", component="Transform", value=moved)
-            if k == moves - 1:
-                set_view(c, view)
-            images.append(shot(c, out_dir, f"{view}_{k}"))
-        c.close()
-        return still, images
-
-    client = realtime_client(lab)
-    client.call_json("set_component", entity="camera", component="Upscaling", value={"mode": "none"})
-    set_view(client, "motion")
-    client.call_json("step_frames", count=2)
-    still = shot(client, out_dir, "motion_still")
-    check(all(p[0] == 0 and p[1] == 0 for p in geometry(still)), "[temporal.AC1] a still camera and scene have no motion")
-    angle = 0.004
-    camera = client.call_json("get_component", entity="camera", component="Transform")
-    client.call_json("set_component", entity="camera", component="Transform", value=dict(camera, rotation=yaw(angle)))
-    turned = shot(client, out_dir, "motion_turned")
-    client.close()
-    f = (size / 2) / math.tan(fov / 2)
-    worst = 0.0
-    for y in range(size):
-        for x in range(size):
-            r, g, b = turned[y * size + x]
-            if b >= 128:
-                continue
-            # The pixel center's ray, rotated by the yaw, seen by the previous (unrotated) camera.
-            dx, dy = (x + 0.5 - size / 2) / f, (size / 2 - y - 0.5) / f
-            c, s = math.cos(angle), math.sin(angle)
-            wx, wz = c * dx - s * 1.0, -s * dx - c * 1.0  # R_y(angle) * (dx, dy, -1)
-            px = size / 2 + f * wx / -wz
-            py = size / 2 - f * dy / -wz
-            expected = (abs(px - (x + 0.5)), abs(py - (y + 0.5)))
-            measured = (srgb_to_linear(r) * 4.0, srgb_to_linear(g) * 4.0)
-            worst = max(worst, abs(measured[0] - expected[0]), abs(measured[1] - expected[1]))
-    check(worst < 0.05, f"[temporal.AC1] a camera yaw's motion matches the analytic one within 0.05 px (worst {worst:.3f})")
-
-    # AC1 (objects) and AC2: the tall box moves 2 cm sideways twice. Motion run first, then the same moves (the lab
-    # is deterministic) ending in the history view.
-    _, motion = session("motion", 2)
-    _, history = session("history", 2)
-    moving = lambda img: {i for i, p in enumerate(img) if p[2] < 128 and (p[0] > 0 or p[1] > 0)}
-    box1, box2 = moving(motion[0]), moving(motion[1])
-    still_pixels = [i for i, p in enumerate(motion[1]) if p[2] < 128 and i not in box2]
-    check(box2 and all(motion[1][i][0] == 0 and motion[1][i][1] == 0 for i in still_pixels),
-          "[temporal.AC1] an object's motion is on the object only")
-    depth_range = (3.8, 4.6)  # the tall box's distance from the camera, meters
-    xs = [srgb_to_linear(motion[1][i][0]) * 4.0 for i in box2]
-    lo, hi = 0.02 * f / depth_range[1], 0.02 * f / depth_range[0]
-    check(all(lo - 0.05 <= m <= hi + 0.05 for m in xs),
-          f"[temporal.AC1] the box's motion is its 2 cm over its depth ({min(xs):.3f}..{max(xs):.3f} px, {lo:.3f}..{hi:.3f})")
-    uncovered = box1 - box2
-    # Red (none) or yellow (borrowed from the same surface next to it): this point had no history.
-    invalid = {i for i, p in enumerate(history[1]) if p[2] < 128 and p[0] > 128}
-    kept = [i for i in range(len(history[1])) if history[1][i][2] < 128 and i not in box1 and i not in box2]
-    found = len(uncovered & invalid) / max(1, len(uncovered))
-    kept_valid = sum(1 for i in kept if history[1][i][1] > 128 and history[1][i][0] < 128) / max(1, len(kept))
-    check(uncovered and found >= 0.95, f"[temporal.AC2] the pixels the box uncovered are disoccluded ({found:.3f})")
-    check(kept_valid >= 0.99, f"[temporal.AC2] pixels that stayed visible keep their history ({kept_valid:.4f})")
-
-
-def temporal_stability(lab: str, imgdiff: str, out_dir: str) -> None:
-    """temporal.AC5, AC7, AC12: one shadow ray per pixel, a stable final image, every new pass timed."""
-    os.makedirs(out_dir, exist_ok=True)
-    client = realtime_client(lab)
-    if client is None:
-        return
-    # The denoiser alone: no upscaler, so no jitter (edges shimmering with the jitter are the upscaler's business).
-    client.call_json("set_component", entity="camera", component="Upscaling", value={"mode": "none"})
-    client.call_json("step_frames", count=64)
-    a = os.path.join(out_dir, "final_a.png")
-    b = os.path.join(out_dir, "final_b.png")
-    client.call("screenshot", path=a)
-    client.call("screenshot", path=b)
-    mean = flip(imgdiff, a, b)
-    # 0.01 is where FLIP differences become visible (docs/guides/rendering.md); measured 0.006 on the M5 Max.
-    check(mean <= 0.01, f"[temporal.AC7] consecutive final frames of a still camera differ by FLIP {mean:.4f} <= 0.01")
-    names = [p["name"] for p in client.call_json("gpu_timings")["passes"]]
-    expected = ["visibility", "surface", "restir: candidates and temporal reuse", "restir: spatial reuse", "shade",
-                "denoise: temporal", "denoise: variance", "denoise: a-trous 1", "denoise: combine"]
-    check(all(n in names for n in expected), f"[temporal.AC12] gpu_timings names every new pass: {names}")
-    check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
-    rays = [line for line in client.stderr if "shadow rays per lit pixel" in line]
-    per_pixel = float(rays[-1].split("direct light: ")[1].split()[0]) if rays else 99.0
-    check(per_pixel <= 1.05, f"[temporal.AC5] ReSTIR traces {per_pixel:.3f} shadow rays per lit pixel (<= 1.05)")
-
-
-def temporal_ghosting(lab: str, imgdiff: str, out_dir: str) -> None:
-    """temporal.AC10: after 30 frames of camera motion, the image is as close to the reference as a still camera's."""
-    os.makedirs(out_dir, exist_ok=True)
-    final = {"translation": [0.0, 1.0, 3.9], "rotation": yaw(0.0), "scale": [1, 1, 1]}
-    images = {}
-    for run in ("moving", "still"):
-        client = realtime_client(lab)
-        if client is None:
-            return
-        for k in range(30):
-            t = (k + 1) / 30 if run == "moving" else 1.0
-            pose = {"translation": [-0.6 * (1 - t), 1.0, 3.9], "rotation": yaw(0.15 * (1 - t)), "scale": [1, 1, 1]}
-            client.call_json("set_component", entity="camera", component="Transform", value=pose)
-            client.call_json("step_frames", count=1)
-        images[run] = os.path.join(out_dir, f"{run}.png")
-        client.call("screenshot", path=images[run])
-        if run == "still":
-            client.call_json("set_component", entity="camera", component="PathTracer",
-                             value={"samples_per_frame": 16, "max_bounces": 1, "mode": 1, "jitter": True})
-            images["reference"] = os.path.join(out_dir, "reference.png")
-            client.call("path_trace", samples=512, path=images["reference"])
-        client.close()
-    moving = flip(imgdiff, images["reference"], images["moving"])
-    still = flip(imgdiff, images["reference"], images["still"])
-    check(moving <= still + 0.01, f"[temporal.AC10] no ghosting: FLIP {moving:.4f} after motion, {still:.4f} still")
-
-
-def upscalers(lab: str, imgdiff: str, out_dir: str) -> None:
-    """temporal.AC8: MetalFX's temporal scaler and Veach's TAAU make the same image from the same frames."""
-    client = McpClient([lab, "--mcp", "--headless", "--rhi", "metal", "--script", "scripts/flight_helmet_realtime.luau"])
-    try:
-        client.initialize()
-    except RuntimeError as error:
-        if "rhi.backend_unavailable" in str(error) and os.environ.get("VEACH_REQUIRE_GPU") != "1":
-            print("VEACH_GPU_UNAVAILABLE: skipped (no Metal ray tracing)")
-            return
-        raise
-    os.makedirs(out_dir, exist_ok=True)
-    window = client.call_json("get_component", entity="primary_window", component="Window")
-    window.update(width=512, height=512)
-    client.call_json("set_component", entity="primary_window", component="Window", value=window)
-    images = {}
-    for mode in ("metalfx", "temporal"):
-        client.call_json("set_component", entity="camera", component="Upscaling", value={"mode": mode})
-        client.call_json("step_frames", count=40)
-        images[mode] = os.path.join(out_dir, f"{mode}.png")
-        client.call("screenshot", path=images[mode])
-    check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
-    mean = flip(imgdiff, images["temporal"], images["metalfx"])
-    check(mean <= 0.02, f"[temporal.AC8] MetalFX and TAAU agree within mean FLIP 0.02 (measured {mean:.4f})")
 
 
 def golden(lab: str, imgdiff: str, golden_path: str, out: str, rhi: str) -> None:
@@ -756,9 +509,8 @@ def main() -> int:
     parser.add_argument("--golden")
     parser.add_argument("--out")
     parser.add_argument("--rhi", default="metal")
-    parser.add_argument("mode", choices=["protocol", "golden", "fly", "reload", "path_trace", "gpu_timings", "replay",
-                                         "replay_windowed", "upscalers", "temporal_motion", "temporal_stability",
-                                         "temporal_ghosting", "sky", "budget"])
+    parser.add_argument("mode", choices=["protocol", "golden", "fly", "reload", "photo_mode", "gpu_timings", "replay",
+                                         "replay_windowed", "sky"])
     args = parser.parse_args()
     if args.mode == "protocol":
         protocol(args.lab)
@@ -772,20 +524,10 @@ def main() -> int:
         reload(args.lab)
     elif args.mode == "gpu_timings":
         gpu_timings(args.lab, args.rhi)
-    elif args.mode == "upscalers":
-        upscalers(args.lab, args.imgdiff, args.out)
-    elif args.mode == "temporal_motion":
-        temporal_motion(args.lab, args.out)
-    elif args.mode == "temporal_stability":
-        temporal_stability(args.lab, args.imgdiff, args.out)
-    elif args.mode == "temporal_ghosting":
-        temporal_ghosting(args.lab, args.imgdiff, args.out)
-    elif args.mode == "budget":
-        budget(args.lab, args.rhi)
     elif args.mode == "sky":
         sky(args.lab, args.out)
-    elif args.mode == "path_trace":
-        path_trace(args.lab, args.imgdiff, args.golden, args.out, args.rhi)
+    elif args.mode == "photo_mode":
+        photo_mode(args.lab, args.imgdiff, args.golden, args.out, args.rhi)
     else:
         golden(args.lab, args.imgdiff, args.golden, args.out, args.rhi)
     return 0

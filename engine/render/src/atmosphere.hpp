@@ -1,6 +1,6 @@
 #pragma once
 
-// The physical atmosphere's lookup tables (ADR 0050), built by compute passes each frame for both renderers. The
+// The physical atmosphere's lookup tables (ADR 0038), built by compute passes each frame for both renderers. The
 // CPU side (the sun, transmittance) is public: <veach/render/atmosphere.hpp>.
 
 #include <veach/core/error.hpp>

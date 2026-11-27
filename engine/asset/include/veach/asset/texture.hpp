@@ -1,6 +1,6 @@
 #pragma once
 
-// Textures as the runtime uses them (ADR 0032): a full mip chain in one GPU
+// Textures as the runtime uses them (ADR 0011): a full mip chain in one GPU
 // format, stored as KTX2. Cooking turns a decoded RGBA8 image into BC7 with
 // box-filtered mips (in linear light for sRGB data).
 

@@ -42,78 +42,21 @@ struct alignas(16) PathTraceParams {
     std::uint32_t light_count;
     std::uint32_t emissive_count;
     float emissive_total_weight;
-    std::uint32_t mode;
-    rhi::DescriptorHandle diagnostics;
-    std::uint32_t jitter = 1;
     std::uint32_t scene_flags = 0;
-    rhi::DescriptorHandle sky;  ///< SkyFrame (ADR 0050)
+    rhi::DescriptorHandle diagnostics;
+    rhi::DescriptorHandle sky;  ///< SkyFrame (ADR 0038)
 };
-static_assert(rhi::parameters_match<PathTraceParams>(veach_render_shaders::layout::path_tracer,
-                                                     {VEACH_PARAM(PathTraceParams, inverse_view_projection),
-                                                      VEACH_PARAM(PathTraceParams, camera_position_exposure),
-                                                      VEACH_PARAM(PathTraceParams, sky_bounces),
-                                                      VEACH_PARAM(PathTraceParams, accumulation),
-                                                      VEACH_PARAM(PathTraceParams, scene),
-                                                      VEACH_PARAM(PathTraceParams, instances),
-                                                      VEACH_PARAM(PathTraceParams, materials),
-                                                      VEACH_PARAM(PathTraceParams, lights),
-                                                      VEACH_PARAM(PathTraceParams, emissive),
-                                                      VEACH_PARAM(PathTraceParams, size),
-                                                      VEACH_PARAM(PathTraceParams, sample_index),
-                                                      VEACH_PARAM(PathTraceParams, samples_per_frame),
-                                                      VEACH_PARAM(PathTraceParams, light_count),
-                                                      VEACH_PARAM(PathTraceParams, emissive_count),
-                                                      VEACH_PARAM(PathTraceParams, emissive_total_weight),
-                                                      VEACH_PARAM(PathTraceParams, mode),
-                                                      VEACH_PARAM(PathTraceParams, diagnostics),
-                                                      VEACH_PARAM(PathTraceParams, jitter),
-                                                      VEACH_PARAM(PathTraceParams, scene_flags),
-                                                      VEACH_PARAM(PathTraceParams, sky)}));
-
-constexpr float pi = 3.14159265358979f;
-
-/// Vose's alias table over `weights`: O(1) sampling proportional to them (ADR 0041). All zero: every pdf is 0.
-std::vector<AliasEntry> build_alias_table(const std::vector<float>& weights) {
-    const std::size_t n = weights.size();
-    std::vector<AliasEntry> table(n);
-    double sum = 0.0;
-    for (const float w : weights) {
-        sum += std::max(w, 0.0f);
-    }
-    if (n == 0 || sum <= 0.0) {
-        for (std::size_t i = 0; i < n; ++i) {
-            table[i] = {1.0f, static_cast<std::uint32_t>(i), 0.0f, 0};
-        }
-        return table;
-    }
-    std::vector<double> scaled(n);
-    std::vector<std::uint32_t> small;
-    std::vector<std::uint32_t> large;
-    for (std::size_t i = 0; i < n; ++i) {
-        table[i].pdf = static_cast<float>(std::max(weights[i], 0.0f) / sum);
-        scaled[i] = std::max(weights[i], 0.0f) * static_cast<double>(n) / sum;
-        (scaled[i] < 1.0 ? small : large).push_back(static_cast<std::uint32_t>(i));
-    }
-    while (!small.empty() && !large.empty()) {
-        const std::uint32_t s = small.back();
-        small.pop_back();
-        const std::uint32_t l = large.back();
-        table[s].threshold = static_cast<float>(scaled[s]);
-        table[s].alias = l;
-        scaled[l] -= 1.0 - scaled[s];
-        if (scaled[l] < 1.0) {
-            large.pop_back();
-            small.push_back(l);
-        }
-    }
-    for (const std::uint32_t i : large) {
-        table[i] = {1.0f, i, table[i].pdf, 0};
-    }
-    for (const std::uint32_t i : small) {  // rounding leftovers
-        table[i] = {1.0f, i, table[i].pdf, 0};
-    }
-    return table;
-}
+static_assert(rhi::parameters_match<PathTraceParams>(
+    veach_render_shaders::layout::path_tracer,
+    {VEACH_PARAM(PathTraceParams, inverse_view_projection), VEACH_PARAM(PathTraceParams, camera_position_exposure),
+     VEACH_PARAM(PathTraceParams, sky_bounces), VEACH_PARAM(PathTraceParams, accumulation),
+     VEACH_PARAM(PathTraceParams, scene), VEACH_PARAM(PathTraceParams, instances),
+     VEACH_PARAM(PathTraceParams, materials), VEACH_PARAM(PathTraceParams, lights),
+     VEACH_PARAM(PathTraceParams, emissive), VEACH_PARAM(PathTraceParams, size),
+     VEACH_PARAM(PathTraceParams, sample_index), VEACH_PARAM(PathTraceParams, samples_per_frame),
+     VEACH_PARAM(PathTraceParams, light_count), VEACH_PARAM(PathTraceParams, emissive_count),
+     VEACH_PARAM(PathTraceParams, emissive_total_weight), VEACH_PARAM(PathTraceParams, scene_flags),
+     VEACH_PARAM(PathTraceParams, diagnostics), VEACH_PARAM(PathTraceParams, sky)}));
 
 float luminance(math::vec3 c) {
     return 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z;  // GLM_FORCE_XYZW_ONLY
@@ -156,7 +99,7 @@ struct SceneRenderer::Impl {
         rhi::BufferHandle vertices;
         rhi::BufferHandle indices;
         rhi::BufferHandle slots;
-        rhi::BufferHandle meshlets;  ///< ADR 0037: Meshlet records, 8 uints each
+        rhi::BufferHandle meshlets;  ///< ADR 0040: Meshlet records, 8 uints each
         rhi::BufferHandle meshlet_vertices;
         rhi::BufferHandle meshlet_triangles;
         std::uint32_t meshlet_count = 0;
@@ -174,10 +117,9 @@ struct SceneRenderer::Impl {
     rhi::Device* device = nullptr;
     rhi::PipelineHandle pipeline;
     rhi::PipelineHandle display_pipeline;
-    RealtimeRenderer realtime;      ///< ADR 0037, ADR 0040
-    AtmosphereRenderer atmosphere;  ///< ADR 0050
+    RealtimeRenderer realtime;      ///< ADR 0040
+    AtmosphereRenderer atmosphere;  ///< ADR 0038
     bool warned_no_sky = false;
-    std::unordered_map<std::uint64_t, math::mat4> previous_world;  ///< last frame's transform per draw entity
     rhi::SamplerHandle sampler;
     std::unordered_map<AssetId, GpuMesh> meshes;
     std::unordered_map<AssetId, GpuTexture> textures;
@@ -205,7 +147,7 @@ struct SceneRenderer::Impl {
     std::vector<Readback> readbacks;
     std::array<std::uint32_t, 2> seen{};  ///< counter values already reported
     std::set<std::string> reported;
-    std::optional<Error> unavailable;  ///< why this device cannot path trace; reported when a camera asks
+    std::optional<Error> unavailable;  ///< why this device has no photo mode; reported when a camera asks
 
     Impl(SceneShaders lib, std::span<const MaterialKind> k, AssetServer& a)
         : shaders(lib), kinds(k.begin(), k.end()), assets(a) {}
@@ -316,16 +258,17 @@ struct SceneRenderer::Impl {
         destroy(gpu);  // new or reloaded
         gpu.source = source;
         gpu.built = false;
+        // Acceleration-structure input only where photo mode can build one (ADR 0041).
+        const rhi::BufferUsage usage =
+            unavailable ? rhi::BufferUsage::storage : rhi::BufferUsage::storage | rhi::BufferUsage::accel_input;
         auto vertices = device->create_buffer({.size = source->vertices.size() * sizeof(MeshVertex),
-                                               .usage = rhi::BufferUsage::storage | rhi::BufferUsage::accel_input,
+                                               .usage = usage,
                                                .debug_name = "mesh vertices",
                                                .stride = 4},
                                               bytes_of(source->vertices));
-        auto indices = device->create_buffer({.size = source->indices.size() * 4,
-                                              .usage = rhi::BufferUsage::storage | rhi::BufferUsage::accel_input,
-                                              .debug_name = "mesh indices",
-                                              .stride = 4},
-                                             bytes_of(source->indices));
+        auto indices = device->create_buffer(
+            {.size = source->indices.size() * 4, .usage = usage, .debug_name = "mesh indices", .stride = 4},
+            bytes_of(source->indices));
         auto slots =
             device->create_buffer({.size = source->triangle_slots.size() * 4, .debug_name = "mesh slots", .stride = 4},
                                   bytes_of(source->triangle_slots));
@@ -353,24 +296,33 @@ struct SceneRenderer::Impl {
         gpu.meshlet_vertices = *meshlet_vertices;
         gpu.meshlet_triangles = *meshlet_triangles;
         gpu.meshlet_count = static_cast<std::uint32_t>(source->meshlets.size());
+        tlas_meshes.clear();  // a photo-mode TLAS must be recreated with the new mesh's BLAS
+        return &gpu;
+    }
+
+    /// The mesh's BLAS, created the first time photo mode needs it (ADR 0041).
+    bool ensure_blas(GpuMesh& gpu) {
+        if (gpu.blas.is_valid()) {
+            return true;
+        }
         auto blas =
             device->create_blas({.vertices = gpu.vertices,
-                                 .vertex_count = static_cast<std::uint32_t>(source->vertices.size()),
+                                 .vertex_count = static_cast<std::uint32_t>(gpu.source->vertices.size()),
                                  .vertex_stride = sizeof(MeshVertex),
                                  .indices = gpu.indices,
-                                 .index_count = static_cast<std::uint32_t>(source->indices.size()),
+                                 .index_count = static_cast<std::uint32_t>(gpu.source->indices.size()),
                                  .opaque = true,  // alpha: rays continue past transparent texels (path_tracer.slang)
                                  .debug_name = "mesh BLAS"});
         if (!blas) {
             report("blas", blas.error());
-            return nullptr;
+            return false;
         }
         gpu.blas = *blas;
-        tlas_meshes.clear();  // the TLAS must be recreated with the new BLAS
-        return &gpu;
+        gpu.built = false;
+        return true;
     }
 
-    /// The texture's handle, or the null texture's when there is none (ADR 0039): a handle in a record is never left
+    /// The texture's handle, or the null texture's when there is none (ADR 0027): a handle in a record is never left
     /// unwritten, since a compiler may load the descriptor before the shader tests the material's flags.
     rhi::DescriptorHandle texture(const std::optional<AssetId>& id, bool& present) {
         present = false;
@@ -418,7 +370,7 @@ struct SceneRenderer::Impl {
         }
         report("kind " + name, Error{ErrorCode::asset_load_failed,
                                      std::format("material kind '{}' is not registered; using StandardMaterial", name),
-                                     did_you_mean(name, names) + " Register it with veach_add_material() (ADR 0033)."});
+                                     did_you_mean(name, names) + " Register it with veach_add_material() (ADR 0035)."});
         return 0;
     }
 
@@ -490,17 +442,6 @@ std::uint64_t SceneRenderer::samples() const {
 Result<> SceneRenderer::prepare(rhi::Device& device) {
     Impl& s = *impl_;
     s.device = &device;
-    if (!device.capabilities().hardware_ray_tracing) {
-        s.unavailable = Error{ErrorCode::rhi_backend_unavailable,
-                              std::format("'{}' has no hardware ray tracing", device.capabilities().device_name),
-                              "The reference path tracer needs ray queries (Metal ray tracing or DXR 1.1)."};
-        return {};
-    }
-    auto pipeline = device.create_compute_pipeline({&s.shaders.path_tracer, "trace_pixels", {8, 8, 1}, "path tracer"});
-    if (!pipeline) {
-        return std::unexpected(pipeline.error());
-    }
-    s.pipeline = *pipeline;
     auto display = device.create_compute_pipeline({&veach_render_shaders::display(), "display", {8, 8, 1}, "display"});
     if (!display) {
         return std::unexpected(display.error());
@@ -517,6 +458,20 @@ Result<> SceneRenderer::prepare(rhi::Device& device) {
         return std::unexpected(sampler.error());
     }
     s.sampler = *sampler;
+    // Photo mode (ADR 0041) needs ray queries; without them every camera renders in real time.
+    if (!device.capabilities().hardware_ray_tracing) {
+        s.unavailable =
+            Error{ErrorCode::rhi_backend_unavailable,
+                  std::format("photo mode: '{}' has no hardware ray tracing", device.capabilities().device_name),
+                  "Photo mode needs ray queries (Metal ray tracing or DXR 1.1). The camera renders with the "
+                  "real-time renderer instead."};
+        return {};
+    }
+    auto pipeline = device.create_compute_pipeline({&s.shaders.path_tracer, "trace_pixels", {8, 8, 1}, "path tracer"});
+    if (!pipeline) {
+        return std::unexpected(pipeline.error());
+    }
+    s.pipeline = *pipeline;
     const std::array<std::uint32_t, 4> zeros{};
     auto diagnostics = device.create_buffer({.size = sizeof(zeros),
                                              .usage = rhi::BufferUsage::storage | rhi::BufferUsage::copy_src,
@@ -547,19 +502,19 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
     if (view == nullptr || frame.world.meshes.empty()) {
         return;
     }
-    if (s.unavailable) {
+    // A PhotoMode on the camera selects the path tracer (ADR 0041), where the device can ray trace; otherwise the
+    // real-time renderer draws (ADR 0040).
+    bool photo = view->photo_mode.has_value();
+    if (photo && s.unavailable) {
         s.report("unavailable", *s.unavailable);
-        return;
+        photo = false;
     }
-    // A PathTracer on the camera selects the reference; otherwise the real-time renderer draws (ADR 0037).
-    const bool path_traced = view->path_tracer.has_value();
-    const PathTracer settings = view->path_tracer.value_or(PathTracer{});
+    const PhotoMode settings = view->photo_mode.value_or(PhotoMode{});
     s.release_frame_buffers();  // last frame's: their submission is made, so destroy() waits for the GPU
 
-    // The scene on the GPU: meshes and their BLASes, materials (with textures), instances.
+    // The scene on the GPU: meshes, materials (with textures), instances.
     std::vector<MaterialRecord> materials;
     std::vector<InstanceRecord> instances;
-    std::vector<rhi::TlasInstance> tlas_instances;
     std::vector<AssetId> used_meshes;
     std::vector<const MeshDraw*> draws;
     for (const MeshDraw& draw : frame.world.meshes) {
@@ -588,23 +543,8 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
         }
         inst.object_to_world = rows_of(draw.world);
         inst.normal_to_world = rows_of(math::mat4(math::transpose(math::inverse(math::mat3(draw.world)))));
-        const auto previous = s.previous_world.find(draw.entity);
-        inst.previous_object_to_world =
-            previous != s.previous_world.end() ? rows_of(previous->second) : inst.object_to_world;
         instances.push_back(inst);
         draws.push_back(&draw);
-        rhi::TlasInstance t;
-        t.mask = (inst.flags & instance_has_alpha) != 0 ? instance_mask_alpha : instance_mask_opaque;
-        t.opaque = (inst.flags & instance_has_alpha) == 0;  // alpha-tested: candidates for visibility rays (ADR 0048)
-        const auto rows = inst.object_to_world;
-        for (std::size_t r = 0; r < 3; ++r) {
-            t.transform.at(r) = {rows.at(r).x, rows.at(r).y, rows.at(r).z, rows.at(r).w};
-        }
-        tlas_instances.push_back(t);  // blas_index set below, once the BLAS list is final
-    }
-    s.previous_world.clear();
-    for (const MeshDraw* draw : draws) {
-        s.previous_world[draw->entity] = draw->world;
     }
     if (instances.empty()) {
         return;
@@ -613,6 +553,95 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
         std::ranges::any_of(instances, [](const InstanceRecord& i) { return (i.flags & instance_has_alpha) != 0; })
             ? scene_has_alpha
             : 0u;
+
+    std::vector<LightRecord> lights;
+    for (const RenderLight& l : frame.world.lights) {
+        LightRecord r;
+        r.position = math::vec4(l.position, 1.0f);
+        r.direction = math::vec4(l.direction, 0.0f);
+        r.radiance = math::vec4(l.radiance, 0.0f);
+        r.cos_inner = l.cos_inner;
+        r.cos_outer = l.cos_outer;
+        r.kind = l.kind == LightKind::directional ? 0u : l.kind == LightKind::point ? 1u : 2u;
+        r.size = l.size;
+        lights.push_back(r);
+    }
+
+    const rhi::BufferHandle instance_buffer = s.upload(instances, sizeof(InstanceRecord), "scene instances");
+    const rhi::BufferHandle material_buffer = s.upload(materials, sizeof(MaterialRecord), "scene materials");
+    const rhi::BufferHandle light_buffer = s.upload(lights, sizeof(LightRecord), "scene lights");
+    if (!instance_buffer.is_valid() || !material_buffer.is_valid() || !light_buffer.is_valid()) {
+        return;
+    }
+
+    std::vector<GraphResource> buffers;
+    for (const AssetId id : used_meshes) {
+        const Impl::GpuMesh& mesh = s.meshes.at(id);
+        for (const rhi::BufferHandle b :
+             {mesh.vertices, mesh.indices, mesh.slots, mesh.meshlets, mesh.meshlet_vertices, mesh.meshlet_triangles}) {
+            buffers.push_back(graph.import(b, "mesh data", rhi::ResourceState::shader_read));
+        }
+    }
+    std::vector<GraphResource> textures;
+    for (const auto& [id, texture] : s.textures) {
+        if (texture.texture.is_valid()) {
+            textures.push_back(graph.import(texture.texture, "scene texture", rhi::ResourceState::shader_read));
+        }
+    }
+    std::vector<GraphResource> frame_data;
+    for (const rhi::BufferHandle b : {instance_buffer, material_buffer, light_buffer}) {
+        frame_data.push_back(graph.import(b, "scene frame data", rhi::ResourceState::shader_read));
+    }
+    const auto read_geometry = [&](PassBuilder& b) {
+        for (const GraphResource& r : buffers) {
+            b.read(r);
+        }
+        for (const GraphResource& r : textures) {
+            b.read(r);
+        }
+        for (const GraphResource& r : frame_data) {
+            b.read(r);
+        }
+    };
+    // The sky (ADR 0038): its LUTs for this view. A lit scene without one is dark wherever lights do not reach.
+    const ResolvedSky& resolved_sky = frame.world.sky;
+    if (!s.warned_no_sky && !frame.world.lights.empty() &&
+        (resolved_sky.mode == SkyMode::none ||
+         (resolved_sky.mode == SkyMode::constant && resolved_sky.settings.color == math::vec3(0.0f)))) {
+        log::warn("render",
+                  "the scene has lights but no sky (Sky.mode = none): whatever they do not reach directly "
+                  "renders black. Leave Sky out for the physical sky, or set a constant one.");
+        s.warned_no_sky = true;
+    }
+    const SkyResources sky = s.atmosphere.record(graph, resolved_sky, *view);
+    if (!sky.read) {
+        return;
+    }
+
+    if (!photo) {
+        // ---- the real-time renderer (ADR 0040).
+        std::vector<std::uint32_t> meshlet_counts;
+        for (const InstanceRecord& inst : instances) {
+            meshlet_counts.push_back(inst.meshlet_count);
+        }
+        const RealtimeScene realtime{.read_geometry = read_geometry,
+                                     .meshlet_counts = meshlet_counts,
+                                     .instances = instance_buffer,
+                                     .materials = material_buffer,
+                                     .lights = light_buffer,
+                                     .light_count = static_cast<std::uint32_t>(lights.size()),
+                                     .sky = sky.frame,
+                                     .read_sky = sky.read};
+        s.realtime.record(graph, frame, *view, realtime);
+        return;
+    }
+
+    // ---- photo mode (ADR 0041): BLASes, the TLAS, emissive triangles as lights, then the path tracer.
+    for (const AssetId id : used_meshes) {
+        if (!s.ensure_blas(s.meshes.at(id))) {
+            return;
+        }
+    }
     if (s.tlas_meshes != used_meshes || s.tlas_capacity < instances.size()) {
         s.destroy_if(s.tlas);
         std::vector<rhi::AccelHandle> blases;
@@ -630,29 +659,23 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
         s.tlas_meshes = used_meshes;
         s.tlas_built = false;
     }
+    std::vector<rhi::TlasInstance> tlas_instances;
     for (std::size_t i = 0; i < draws.size(); ++i) {
-        tlas_instances[i].blas_index =
+        const InstanceRecord& inst = instances[i];
+        rhi::TlasInstance t;
+        t.blas_index =
             static_cast<std::uint32_t>(std::ranges::find(s.tlas_meshes, draws[i]->mesh) - s.tlas_meshes.begin());
+        t.mask = (inst.flags & instance_has_alpha) != 0 ? instance_mask_alpha : instance_mask_opaque;
+        t.opaque = (inst.flags & instance_has_alpha) == 0;  // alpha-tested: candidates for visibility rays
+        for (std::size_t r = 0; r < 3; ++r) {
+            t.transform.at(r) = {inst.object_to_world.at(r).x, inst.object_to_world.at(r).y,
+                                 inst.object_to_world.at(r).z, inst.object_to_world.at(r).w};
+        }
+        tlas_instances.push_back(t);
     }
 
-    // Lights: punctual ones, and every triangle whose material emits.
-    std::vector<LightRecord> lights;
-    for (const RenderLight& l : frame.world.lights) {
-        LightRecord r;
-        r.position = math::vec4(l.position, 1.0f);
-        r.direction = math::vec4(l.direction, 0.0f);
-        r.radiance = math::vec4(l.radiance, 0.0f);
-        r.cos_inner = l.cos_inner;
-        r.cos_outer = l.cos_outer;
-        r.kind = l.kind == LightKind::directional ? 0u : l.kind == LightKind::point ? 1u : 2u;
-        r.size = l.size;
-        lights.push_back(r);
-    }
+    // Every triangle whose material emits is a light.
     std::vector<EmissiveTriangle> emitters;
-    std::vector<float> emitter_weights;  ///< area x the material's emissive weight
-    Fnv64 lights_hash;                   ///< what ReSTIR's reservoirs depend on (ADR 0041)
-    lights_hash.add_all(lights);
-    lights_hash.add_all(materials);
     float total = 0.0f;
     for (std::size_t i = 0; i < instances.size(); ++i) {
         const MeshAsset& mesh = *s.meshes.at(draws[i]->mesh).source;
@@ -666,9 +689,7 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
                 return math::vec3(draws[i]->world * math::vec4(p[0], p[1], p[2], 1.0f));
             };
             const std::array<math::vec3, 3> corners{world(0), world(1), world(2)};
-            lights_hash.add(corners.data(), sizeof(corners));
             const float area = 0.5f * math::length(math::cross(corners[1] - corners[0], corners[2] - corners[0]));
-            emitter_weights.push_back(area * m.emissive_weight);
             total += area * m.emissive_weight;
             emitters.push_back({static_cast<std::uint32_t>(i), static_cast<std::uint32_t>(t), total, 0.0f,
                                 math::vec4(corners[0], m.emissive_weight),
@@ -679,92 +700,61 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
     for (EmissiveTriangle& e : emitters) {
         e.cdf /= total;
     }
-    // ReSTIR's candidates (ADR 0041): every light by the power it sends into the scene, except directional lights,
-    // which shading evaluates exactly (ADR 0046).
-    std::vector<float> light_power;
-    for (const RenderLight& l : frame.world.lights) {
-        const float lum = luminance(l.radiance);
-        switch (l.kind) {
-            case LightKind::directional: light_power.push_back(0.0f); break;  // evaluated exactly (ADR 0046)
-            case LightKind::point: light_power.push_back(lum * 4.0f * pi); break;
-            case LightKind::spot: light_power.push_back(lum * 2.0f * pi * (1.0f - l.cos_outer)); break;
-        }
-    }
-    for (const float w : emitter_weights) {
-        light_power.push_back(w * pi);
-    }
-    const std::vector<AliasEntry> alias_table = build_alias_table(light_power);
-
-    const auto [width, height] = std::pair{frame.width, frame.height};
-    if (path_traced) {
-        // Restart the accumulation when anything it depends on changed.
-        if (!s.accumulation.is_valid() || s.width != width || s.height != height) {
-            s.destroy_if(s.accumulation);
-            auto texture = s.device->create_texture({width, height, rhi::Format::rgba32_float,
-                                                     rhi::TextureUsage::storage | rhi::TextureUsage::sampled,
-                                                     "path tracer accumulation"});
-            if (!texture) {
-                s.report("accumulation", texture.error());
-                return;
-            }
-            s.accumulation = *texture;
-            s.width = width;
-            s.height = height;
-            s.accumulation_written = false;
-            s.reset = true;
-        }
-        Fnv64 hash;
-        hash.add(&view->view_projection, sizeof(math::mat4));
-        // Not samples_per_frame: it sets the pace, not the image (MCP path_trace changes it mid-accumulation).
-        hash.add(&settings.max_bounces, sizeof(settings.max_bounces));
-        const ResolvedSky& sky = frame.world.sky;
-        hash.add(&sky.mode, sizeof(sky.mode));
-        hash.add(&sky.settings, sizeof(sky.settings));
-        hash.add(&sky.sun_direction, sizeof(sky.sun_direction));
-        hash.add(&sky.sun_illuminance_top, sizeof(sky.sun_illuminance_top));
-        hash.add(&settings.mode, sizeof(settings.mode));
-        hash.add(&settings.jitter, sizeof(settings.jitter));
-        hash.add(&view->exposure, sizeof(float));
-        hash.add_all(materials);
-        hash.add_all(lights);
-        for (const InstanceRecord& inst : instances) {
-            hash.add(&inst.object_to_world, sizeof(inst.object_to_world));
-            hash.add(&inst.material_base, sizeof(std::uint32_t));
-        }
-        for (const AssetId id : used_meshes) {
-            hash.add(&id, sizeof(id));
-            const MeshAsset* source = s.meshes.at(id).source;
-            hash.add(&source, sizeof(source));  // a reload swaps the data
-        }
-        if (hash.h != s.scene_hash || s.reset) {
-            s.scene_hash = hash.h;
-            s.samples = 0;
-            s.reset = false;
-        }
-    }
-
-    const rhi::BufferHandle instance_buffer = s.upload(instances, sizeof(InstanceRecord), "scene instances");
-    const rhi::BufferHandle material_buffer = s.upload(materials, sizeof(MaterialRecord), "scene materials");
-    const rhi::BufferHandle light_buffer = s.upload(lights, sizeof(LightRecord), "scene lights");
     const rhi::BufferHandle emissive_buffer = s.upload(emitters, sizeof(EmissiveTriangle), "scene emitters");
-    const rhi::BufferHandle alias_buffer = s.upload(alias_table, sizeof(AliasEntry), "light alias table");
-    if (!instance_buffer.is_valid() || !material_buffer.is_valid() || !light_buffer.is_valid() ||
-        !emissive_buffer.is_valid() || !alias_buffer.is_valid()) {
+    if (!emissive_buffer.is_valid()) {
         return;
     }
+    frame_data.push_back(graph.import(emissive_buffer, "scene frame data", rhi::ResourceState::shader_read));
 
-    // ---- passes: build new BLASes, build the TLAS, trace.
+    // Restart the accumulation when anything it depends on changed.
+    const auto [width, height] = std::pair{frame.width, frame.height};
+    if (!s.accumulation.is_valid() || s.width != width || s.height != height) {
+        s.destroy_if(s.accumulation);
+        auto texture = s.device->create_texture({width, height, rhi::Format::rgba32_float,
+                                                 rhi::TextureUsage::storage | rhi::TextureUsage::sampled,
+                                                 "path tracer accumulation"});
+        if (!texture) {
+            s.report("accumulation", texture.error());
+            return;
+        }
+        s.accumulation = *texture;
+        s.width = width;
+        s.height = height;
+        s.accumulation_written = false;
+        s.reset = true;
+    }
+    Fnv64 hash;
+    hash.add(&view->view_projection, sizeof(math::mat4));
+    // Not samples_per_frame: it sets the pace, not the image (MCP photo_mode changes it mid-accumulation).
+    hash.add(&settings.max_bounces, sizeof(settings.max_bounces));
+    hash.add(&resolved_sky.mode, sizeof(resolved_sky.mode));
+    hash.add(&resolved_sky.settings, sizeof(resolved_sky.settings));
+    hash.add(&resolved_sky.sun_direction, sizeof(resolved_sky.sun_direction));
+    hash.add(&resolved_sky.sun_illuminance_top, sizeof(resolved_sky.sun_illuminance_top));
+    hash.add(&view->exposure, sizeof(float));
+    hash.add_all(materials);
+    hash.add_all(lights);
+    for (const InstanceRecord& inst : instances) {
+        hash.add(&inst.object_to_world, sizeof(inst.object_to_world));
+        hash.add(&inst.material_base, sizeof(std::uint32_t));
+    }
+    for (const AssetId id : used_meshes) {
+        hash.add(&id, sizeof(id));
+        const MeshAsset* source = s.meshes.at(id).source;
+        hash.add(&source, sizeof(source));  // a reload swaps the data
+    }
+    if (hash.h != s.scene_hash || s.reset) {
+        s.scene_hash = hash.h;
+        s.samples = 0;
+        s.reset = false;
+    }
+
     std::vector<GraphResource> blases;
-    std::vector<GraphResource> buffers;
     std::vector<rhi::AccelHandle> to_build;
     for (const AssetId id : used_meshes) {
         Impl::GpuMesh& mesh = s.meshes.at(id);
         blases.push_back(graph.import(mesh.blas, "mesh BLAS",
                                       mesh.built ? rhi::ResourceState::accel_read : rhi::ResourceState::undefined));
-        for (const rhi::BufferHandle b :
-             {mesh.vertices, mesh.indices, mesh.slots, mesh.meshlets, mesh.meshlet_vertices, mesh.meshlet_triangles}) {
-            buffers.push_back(graph.import(b, "mesh data", rhi::ResourceState::shader_read));
-        }
         if (!mesh.built) {
             to_build.push_back(mesh.blas);
             mesh.built = true;
@@ -802,106 +792,6 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
         },
         [tlas_handle = s.tlas, tlas_instances](PassContext& ctx) { ctx.cmd.build_tlas(tlas_handle, tlas_instances); });
 
-    std::vector<GraphResource> textures;
-    for (const auto& [id, texture] : s.textures) {
-        if (texture.texture.is_valid()) {
-            textures.push_back(graph.import(texture.texture, "scene texture", rhi::ResourceState::shader_read));
-        }
-    }
-    std::vector<GraphResource> frame_data;
-    for (const rhi::BufferHandle b : {instance_buffer, material_buffer, light_buffer, emissive_buffer}) {
-        frame_data.push_back(graph.import(b, "scene frame data", rhi::ResourceState::shader_read));
-    }
-    // The sky (ADR 0050): its LUTs for this view, read by every ray-tracing pass. A lit scene without one is dark.
-    const ResolvedSky& resolved_sky = frame.world.sky;
-    if (!s.warned_no_sky && !frame.world.lights.empty() &&
-        (resolved_sky.mode == SkyMode::none ||
-         (resolved_sky.mode == SkyMode::constant && resolved_sky.settings.color == math::vec3(0.0f)))) {
-        log::warn("render",
-                  "the scene has lights but no sky (Sky.mode = none): whatever they do not reach directly "
-                  "renders black. Leave Sky out for the physical sky, or set a constant one.");
-        s.warned_no_sky = true;
-    }
-    const SkyResources sky = s.atmosphere.record(graph, resolved_sky, *view);
-    if (!sky.read) {
-        return;
-    }
-    const auto read_scene = [&](PassBuilder& b) {
-        sky.read(b);
-        b.read(tlas, rhi::ResourceState::accel_read);
-        for (const GraphResource& r : blases) {
-            b.read(r, rhi::ResourceState::accel_read);
-        }
-        for (const GraphResource& r : buffers) {
-            b.read(r);
-        }
-        for (const GraphResource& r : textures) {
-            b.read(r);
-        }
-        for (const GraphResource& r : frame_data) {
-            b.read(r);
-        }
-    };
-    // Exposure and AgX turn linear radiance into scene_color (ADR 0038); `tonemap` 0 shows debug values as is.
-    const auto add_display = [&](GraphResource radiance, std::uint32_t tonemap) {
-        DisplayParams display{};
-        display.size = {width, height};
-        display.input_size = {width, height};
-        display.exposure = view->exposure;
-        display.tonemap = tonemap;
-        graph.add_compute_pass(
-            "display",
-            [&](PassBuilder& b) {
-                b.read(radiance);
-                b.write(frame.scene_color, rhi::ResourceState::shader_write);
-            },
-            [display, pipeline = s.display_pipeline, radiance, color = frame.scene_color](PassContext& ctx) mutable {
-                display.radiance = ctx.device.descriptor(ctx.texture(radiance));
-                display.output = ctx.device.descriptor(ctx.texture(color), rhi::View::storage);
-                ctx.cmd.set_pipeline(pipeline);
-                ctx.cmd.set_parameters(display);
-                ctx.cmd.dispatch((display.size[0] + 7) / 8, (display.size[1] + 7) / 8);
-            });
-    };
-
-    if (!path_traced) {
-        // ---- the real-time renderer (ADR 0037, ADR 0040).
-        std::vector<std::uint32_t> meshlet_counts;
-        for (const InstanceRecord& inst : instances) {
-            meshlet_counts.push_back(inst.meshlet_count);
-        }
-        RealtimeScene realtime{.tlas = tlas,
-                               .tlas_handle = s.tlas,
-                               .read_scene = read_scene,
-                               .read_geometry =
-                                   [&](PassBuilder& b) {
-                                       for (const GraphResource& r : buffers) {
-                                           b.read(r);
-                                       }
-                                       for (const GraphResource& r : textures) {
-                                           b.read(r);
-                                       }
-                                       for (const GraphResource& r : frame_data) {
-                                           b.read(r);
-                                       }
-                                   },
-                               .meshlet_counts = meshlet_counts,
-                               .instances = instance_buffer,
-                               .materials = material_buffer,
-                               .lights = light_buffer,
-                               .emissive = emissive_buffer,
-                               .alias = alias_buffer,
-                               .lights_hash = lights_hash.h,
-                               .light_count = static_cast<std::uint32_t>(lights.size()),
-                               .emissive_count = static_cast<std::uint32_t>(emitters.size()),
-                               .emissive_total_weight = total,
-                               .scene_flags = scene_flags,
-                               .sky = sky.frame,
-                               .read_sky = sky.read};
-        s.realtime.record(graph, frame, *view, realtime);
-        return;
-    }
-
     const GraphResource accumulation =
         graph.import(s.accumulation, "path tracer accumulation",
                      s.accumulation_written ? rhi::ResourceState::shader_read : rhi::ResourceState::undefined);
@@ -920,8 +810,6 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
     params.camera_position_exposure = math::vec4(view->position, view->exposure);
     params.sky_bounces = math::vec4(0.0f, 0.0f, 0.0f, static_cast<float>(settings.max_bounces));
     params.sky = s.device->descriptor(sky.frame);
-    params.mode = settings.mode;
-    params.jitter = settings.jitter ? 1u : 0u;
     params.scene_flags = scene_flags;
     params.size = {width, height};
     params.sample_index = static_cast<std::uint32_t>(s.samples);
@@ -934,7 +822,12 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
     graph.add_compute_pass(
         "path tracer",
         [&](PassBuilder& b) {
-            read_scene(b);
+            sky.read(b);
+            b.read(tlas, rhi::ResourceState::accel_read);
+            for (const GraphResource& r : blases) {
+                b.read(r, rhi::ResourceState::accel_read);
+            }
+            read_geometry(b);
             b.write(accumulation, rhi::ResourceState::shader_write);
             b.write(diagnostics, rhi::ResourceState::shader_write);
         },
@@ -952,8 +845,25 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
             ctx.cmd.dispatch((params.size[0] + 7) / 8, (params.size[1] + 7) / 8);
         });
 
-    // The accumulation is the image (ADR 0038). The AO debug view is shown as is.
-    add_display(accumulation, settings.mode == path_tracer_mode::ao ? 0u : 1u);
+    // The accumulation is the image: exposure and AgX turn it into scene_color (ADR 0037).
+    DisplayParams display{};
+    display.size = {width, height};
+    display.input_size = {width, height};
+    display.exposure = view->exposure;
+    display.tonemap = 1;
+    graph.add_compute_pass(
+        "display",
+        [&](PassBuilder& b) {
+            b.read(accumulation);
+            b.write(frame.scene_color, rhi::ResourceState::shader_write);
+        },
+        [display, pipeline = s.display_pipeline, accumulation, color = frame.scene_color](PassContext& ctx) mutable {
+            display.radiance = ctx.device.descriptor(ctx.texture(accumulation));
+            display.output = ctx.device.descriptor(ctx.texture(color), rhi::View::storage);
+            ctx.cmd.set_pipeline(pipeline);
+            ctx.cmd.set_parameters(display);
+            ctx.cmd.dispatch((display.size[0] + 7) / 8, (display.size[1] + 7) / 8);
+        });
 
     const GraphResource readback =
         graph.import(slot.buffer, "path tracer diagnostics readback", rhi::ResourceState::undefined);

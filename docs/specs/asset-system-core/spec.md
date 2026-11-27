@@ -62,7 +62,7 @@ assets.add_loader(std::make_unique<TextLoader>());
 ## Out of scope
 
 - Async loading, ref-counting and unloading (VCH-031). Id index and `load_by_id` (VCH-032). Hot reload (VCH-004).
-  glTF, textures and scenes (VCH-025, VCH-026, VCH-027).
+  glTF and textures (done in VCH-051), scenes and prefabs (VCH-027).
 
 ## Open questions
 
@@ -70,5 +70,5 @@ None.
 
 ## Links
 
-- ADRs: [0007 asset formats and identity](../../adr/0007-asset-formats-and-identity.md)
+- ADRs: [0010 asset formats and identity](../../adr/0010-asset-formats-and-identity.md)
 - Code: `engine/asset/`, `engine/script/src/script_asset.cpp`

@@ -1,15 +1,16 @@
 #pragma once
 
-// The scene renderer: the scene on the GPU (meshes, meshlets, BLASes and the TLAS, materials, lights) drawn by
-// the camera's choice of renderer. A PathTracer component on the camera selects the reference path tracer
-// (docs/adr/0034-lights-and-reference-path-tracer.md), which accumulates while nothing changes; otherwise the
-// real-time renderer draws it (docs/adr/0037-realtime-renderer-visibility-buffer.md). Both write linear radiance
-// that the display pass turns into scene_color (ADR 0038). The shaders come from the app's library
-// (veach_add_scene_shaders), compiled with its materials.
+// The scene renderer: the scene on the GPU (meshes, meshlets, materials, lights) drawn by the camera's choice of
+// renderer. A PhotoMode component on the camera selects photo mode, the reference path tracer
+// (docs/adr/0041-photo-mode.md), which accumulates while nothing changes and is the only user of ray tracing:
+// BLASes and the TLAS exist only for it. Otherwise the real-time renderer draws the view
+// (docs/adr/0040-interim-realtime-path-visibility-buffer.md). Both write linear radiance that the display pass turns
+// into scene_color (ADR 0037). The shaders come from the app's library (veach_add_scene_shaders), compiled with its
+// materials.
 //
 //   renderer.add_feature(std::make_unique<veach::render::SceneRenderer>(
 //       veach::render::SceneShaders{lab_shaders::path_tracer(), lab_shaders::realtime_visibility(),
-//                                   lab_shaders::realtime_shade(), lab_shaders::candela()},
+//                                   lab_shaders::realtime_shade()},
 //       lab_shaders::material_kinds, assets));
 
 #include <veach/core/math.hpp>
@@ -26,7 +27,7 @@ class AssetServer;
 
 namespace veach::render {
 
-/// A material kind (ADR 0033), in kind order. EMISSIVE kinds are sampled as lights even with a zero factor.
+/// A material kind (ADR 0035), in kind order. EMISSIVE kinds are sampled as lights even with a zero factor.
 struct MaterialKind {
     std::string_view name;
     bool emissive = false;
@@ -55,13 +56,12 @@ static_assert(offsetof(MaterialRecord, roughness) == 48);
 static_assert(offsetof(MaterialRecord, base_color_texture) == 64);
 static_assert(offsetof(MaterialRecord, custom0) == 96);
 
-/// The scene shaders, compiled with an app's materials (veach_add_scene_shaders): the reference path tracer and the
-/// real-time renderer's visibility and shading passes (ADR 0037).
+/// The scene shaders, compiled with an app's materials (veach_add_scene_shaders): photo mode's path tracer and the
+/// real-time renderer's visibility and shading passes (ADR 0040, ADR 0041).
 struct SceneShaders {
     const rhi::ShaderLibrary& path_tracer;
     const rhi::ShaderLibrary& visibility;
     const rhi::ShaderLibrary& shade;
-    const rhi::ShaderLibrary& candela;
 };
 
 class SceneRenderer final : public RenderFeature {
@@ -77,9 +77,9 @@ public:
     [[nodiscard]] Result<> prepare(rhi::Device& device) override;
     void record(RenderGraph& graph, const FrameContext& frame) override;
 
-    /// The next frame starts a new accumulation (MCP path_trace does this).
+    /// Photo mode's next frame starts a new accumulation (MCP photo_mode does this).
     void reset();
-    /// Samples per pixel accumulated so far, including the frame being recorded.
+    /// Photo mode's samples per pixel accumulated so far, including the frame being recorded.
     [[nodiscard]] std::uint64_t samples() const;
 
 private:

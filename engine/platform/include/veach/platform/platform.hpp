@@ -1,6 +1,6 @@
 #pragma once
 
-// The platform backend interface (ADR 0008). Two backends exist:
+// The platform backend interface (ADR 0012). Two backends exist:
 //   * sdl      — SDL3 windows and input. SDL never appears outside engine/platform.
 //   * headless — no SDL video, no OS windows, no events. Used by CI and agents.
 // Engine and gameplay code talk to windows through the Window component; only

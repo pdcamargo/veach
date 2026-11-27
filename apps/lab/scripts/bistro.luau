@@ -1,7 +1,7 @@
 --!strict
 -- Amazon Lumberyard Bistro, exterior (CC BY 4.0, apps/lab/assets/bistro): the terrace from the street at eye level, lit by the
--- scene's own sun (102,450 lux). 2560x1440, the real-time renderer's benchmark size
--- (docs/specs/realtime-renderer-v0/spec.md).
+-- scene's own sun (102,450 lux). 2560x1440, a large scene for the real-time renderer
+-- (docs/specs/realtime-renderer/spec.md).
 -- Run: veach-lab --rhi metal --window --script scripts/bistro.luau
 local veach = require("@veach")
 local c = veach.components

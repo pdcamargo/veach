@@ -186,7 +186,10 @@ The field type cannot be represented in Luau (arrays, maps, opaque types other t
 
 **The requested RHI backend is not available on this platform.**
 
-The backend does not exist on this OS (Metal is macOS only, DX12 Windows only) or no GPU was found. `null` works everywhere.
+The backend does not exist on this OS (Metal is macOS only, DX12 Windows only), no GPU meets the feature floor
+([ADR 0003](../adr/0003-platforms-and-hardware-target.md)), or a feature needs a capability the device lacks: photo
+mode needs hardware ray tracing (`VEACH_DISABLE_RAY_TRACING=1` turns it off on purpose). `null` works everywhere.
+Golden tests treat this error as a skip, unless `VEACH_REQUIRE_GPU=1`.
 
 ## rhi.not_implemented
 
@@ -205,7 +208,7 @@ Surfaces need a window from the SDL platform backend. Headless runs have no nati
 
 **A shader used a descriptor handle that names no live resource of its kind.**
 
-Debug builds check every `DescriptorHandle` a shader dereferences (ADR 0039): a handle never set (0), past the
+Debug builds check every `DescriptorHandle` a shader dereferences (ADR 0027): a handle never set (0), past the
 end of the heap, of the wrong kind (a buffer handle used as a texture), or kept after its resource was destroyed.
 The shader goes on with the kind's null descriptor, and the message names the first bad handle and the frame.
 Set every handle a shader can read, including in records it may only read behind a flag, and use
@@ -271,7 +274,7 @@ resource. `RenderGraph::describe()` (logged at debug level) shows the compiled o
 
 **Path-traced pixels read back something other than the accumulation they last wrote.**
 
-The path tracer keeps a running mean per pixel and stores the sample count next to it. Every frame checks
+Photo mode's path tracer keeps a running mean per pixel and stores the sample count next to it. Every frame checks
 that each pixel reads back the count it wrote, and that the mean is finite and not negative. A mismatch means
 the accumulation memory was lost or overwritten between frames (a synchronization, residency or aliasing bug),
 which shows as dark blocks that fade slowly. The message gives the number of pixels and the frame. Rerun with
@@ -281,7 +284,7 @@ which shows as dark blocks that fade slowly. The message gives the number of pix
 
 **The path tracer produced NaN or infinite samples.**
 
-They are left out of the image, so one bad sample cannot blacken a pixel for good, but they are counted and
+Photo mode leaves them out of the image, so one bad sample cannot blacken a pixel for good, but they are counted and
 logged with the frame: a NaN means a bug in a material, a light or the path tracer (a division by a zero pdf,
 the normal of a degenerate triangle, a NaN light intensity). The run exits with code 1.
 

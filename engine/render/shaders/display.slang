@@ -1,4 +1,4 @@
-// The display transform (docs/adr/0038-exposure-and-tonemapping.md): linear radiance in nits, times the camera's
+// The display transform (docs/adr/0037-exposure-and-agx.md): linear radiance in nits, times the camera's
 // exposure, through AgX (base look), sRGB-encoded into scene_color. Both renderers go through it.
 
 import veach.bindless;

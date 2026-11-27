@@ -1,11 +1,11 @@
 # Flecs v4 in Veach
 
-Veach pins **Flecs v4.2.0** ([ADR 0004](../../adr/0004-ecs-flecs-v4.md)). Always write v4 code:
+Veach pins **Flecs v4.2.0** ([ADR 0005](../../adr/0005-ecs-flecs-v4.md)). Always write v4 code:
 most Flecs snippets online (and in model training data) are v3 and do not compile,
 or compile and do the wrong thing. The upstream docs for exactly our version are
 vendored in [upstream/](upstream/README.md).
 
-Naming rule ([ADR 0005](../../adr/0005-flecs-barrel-not-wrapper.md)): inside `engine/` Flecs is
+Naming rule ([ADR 0006](../../adr/0006-flecs-barrel-not-wrapper.md)): inside `engine/` Flecs is
 used directly. Outside `engine/` (apps, games) write the `veach::` aliases from
 `<veach/ecs/flecs.hpp>` — `veach::World`, `veach::Entity`, `veach::Iter`,
 `veach::Query<...>`, `veach::OnSet`, ... — and `veach::ecs::` for anything without
@@ -16,7 +16,7 @@ an alias. They are the same types; this is a barrel, not a wrapper.
 ### Components and reflection
 
 Every component with data is reflected; the engine refuses to start otherwise
-([ADR 0022](../../adr/0022-reflection-everywhere.md)). In v4.2 the member-pointer overload takes
+([ADR 0026](../../adr/0026-reflection-everywhere.md)). In v4.2 the member-pointer overload takes
 the **pointer first**:
 
 ```cpp
@@ -100,7 +100,7 @@ world.observer<const veach::Window>("CloseOsWindow")
 
 ### Modules
 
-A Veach module is a Flecs module ([ADR 0015](../../adr/0015-veach-modules-and-services.md)):
+A Veach module is a Flecs module ([ADR 0019](../../adr/0019-veach-modules-and-services.md)):
 a struct whose constructor takes `veach::World&` and calls `world.module<Self>()` first.
 Keep module structs empty (state goes in components or engine services).
 Import with `engine.import<MyModule>()`. See [../extending.md](../extending.md).
@@ -115,7 +115,7 @@ Import with `engine.import<MyModule>()`. See [../extending.md](../extending.md).
 | `it.term<T>(1)`, `term_id`, 1-based terms | `it.field<T>(0)`; field indices are 0-based. |
 | `.member<float>("x")` only, or `.member("x", &T::x)` | `.member(&T::x, "x")` (pointer first) or `.member<float>("x")`. |
 | `ecs_value_new(world, type)` returning `void*` | In 4.2 `ecs_value_*` works on `ecs_value_t`; raw pointers use `ecs_ptr_new` / `ecs_ptr_copy` / `ecs_ptr_free`. |
-| `world.progress()` in your own loop | Never. The engine owns the loop and runs one pipeline per phase ([ADR 0014](../../adr/0014-engine-lifecycle-and-phases.md)). |
+| `world.progress()` in your own loop | Never. The engine owns the loop and runs one pipeline per phase ([ADR 0018](../../adr/0018-engine-lifecycle-and-phases.md)). |
 | Phases as `flecs::OnUpdate` etc. | Use `veach::phase::*`. They are deliberately not `flecs::Phase` entities, so Flecs's builtin pipeline never runs user systems. |
 
 Reflection traps we hit:

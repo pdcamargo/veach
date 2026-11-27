@@ -11,7 +11,7 @@
 
 namespace veach {
 
-/// Local pose, glTF-style: scale, then rotation, then translation (meters, radians; ADR 0010).
+/// Local pose, glTF-style: scale, then rotation, then translation (meters, radians; ADR 0013).
 struct Transform {
     math::vec3 translation{0.0f};
     math::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};  ///< identity; glm's constructor takes (w, x, y, z)

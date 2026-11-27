@@ -30,14 +30,10 @@ Developer Tools > Metal), attach its directory.
 
 | Repro | What triggers it | Workaround in Veach |
 |---|---|---|
-| `path-tracer-second-trace` | The reference path tracer (`trace_pixels`) with a second closest-hit `trace()` call site: mode 4's diffuse bounces as a function, `[noinline]` or not | Mode 4 runs inside the path tracer's main loop, which has the only `trace()` call (`engine/render/shaders/path_tracer.slang`) |
-| `candela-gather-inline-shading` | Candela's `gather` lighting the hit points no cache level knows inline: a material evaluation and a light sample after its ray | A separate `candela: misses` pass (`engine/render/shaders/candela.slang`) |
+| `path-tracer-second-trace` | Photo mode's path tracer (`trace_pixels`) with a second closest-hit `trace()` call site, as a function, `[noinline]` or not | The path tracer keeps its only `trace()` call in its main loop (`engine/render/shaders/path_tracer.slang`) |
 
-Not a crash: `candela: temporal` is its own pass because misses must be lit before temporal reuse combines them.
-A gather with temporal reuse inlined compiles.
-
-Earlier, `veach/scene.slang`'s comment on `trace()` records a third case: an inlined candidate loop for the closest
-hit crashed the compiler (2026-11, not kept). `trace_closest()` now does exactly that and compiles in Candela.
+Earlier, `veach/scene.slang`'s comment on `trace()` records another case: an inlined candidate loop for the closest
+hit crashed the compiler (2026-11, not kept).
 
 ## When a new Xcode ships
 

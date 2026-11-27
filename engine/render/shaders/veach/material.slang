@@ -1,4 +1,4 @@
-// The material model (docs/adr/0033-material-model.md). A material is a type
+// The material model (docs/adr/0035-material-model.md). A material is a type
 // conforming to IMaterial; every function has a default, and a material
 // overrides only what it changes:
 //
@@ -11,7 +11,7 @@
 // functions are pure and sample textures with explicit gradients (SurfaceInput's
 // uv_dx/uv_dy; zero samples mip 0): they run in compute and ray-query shaders.
 
-import veach.bindless;  // every DescriptorHandle dereference is checked in debug builds (ADR 0039)
+import veach.bindless;  // every DescriptorHandle dereference is checked in debug builds (ADR 0027)
 
 /// Where on a surface the material is evaluated. World space.
 struct SurfaceInput {
@@ -32,7 +32,7 @@ static const uint material_has_emissive_texture = 1u << 3;
 static const uint material_alpha_mask = 1u << 4;
 static const uint material_alpha_blend = 1u << 5;
 static const uint material_double_sided = 1u << 6;
-static const uint material_emissive = 1u << 7;  ///< sampled as a light (ADR 0034)
+static const uint material_emissive = 1u << 7;  ///< sampled as a light (ADR 0041)
 
 /// 128 bytes, one per material in the scene's material buffer. Mirrors render::MaterialRecord (C++).
 /// Only float4, uint2 handles and scalars: identical layout on DXIL and Metal.

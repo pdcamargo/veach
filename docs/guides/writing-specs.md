@@ -1,6 +1,6 @@
 # Writing specs
 
-Veach uses spec-driven development for capabilities ([ADR 0018](../adr/0018-process-sdd-adrs-backlog.md)). A spec says what a
+Veach uses spec-driven development for capabilities ([ADR 0022](../adr/0022-process-sdd-adrs-backlog.md)). A spec says what a
 capability must do, in testable terms, before (or while) it is built.
 
 ## When you need one

@@ -80,8 +80,8 @@ None.
 
 ## Links
 
-- ADRs: [0004 Flecs v4](../../adr/0004-ecs-flecs-v4.md), [0005 barrel](../../adr/0005-flecs-barrel-not-wrapper.md),
-  [0014 phases](../../adr/0014-engine-lifecycle-and-phases.md), [0015 modules](../../adr/0015-veach-modules-and-services.md),
-  [0022 reflection](../../adr/0022-reflection-everywhere.md)
+- ADRs: [0005 Flecs v4](../../adr/0005-ecs-flecs-v4.md), [0006 barrel](../../adr/0006-flecs-barrel-not-wrapper.md),
+  [0018 phases](../../adr/0018-engine-lifecycle-and-phases.md), [0019 modules](../../adr/0019-veach-modules-and-services.md),
+  [0026 reflection](../../adr/0026-reflection-everywhere.md)
 - Guides: [Flecs v4 notes](../../guides/flecs-v4/README.md), [extending](../../guides/extending.md)
 - Code: `engine/ecs/`

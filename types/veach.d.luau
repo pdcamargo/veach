@@ -36,7 +36,7 @@ export type LogApi = {
 	read error: (message: string) -> (),
 }
 
---- Quaternion helpers over { x, y, z, w } tables (ADR 0010: right-handed, +Y up, -Z forward, radians).
+--- Quaternion helpers over { x, y, z, w } tables (ADR 0013: right-handed, +Y up, -Z forward, radians).
 export type QuatApi = {
 	read identity: () -> quat,
 	read from_axis_angle: (axis: vector, angle: number) -> quat,
@@ -82,46 +82,19 @@ export type Camera = {
 	shutter: number,
 	iso: number,
 }
-export type CandelaGather = "restir" | "surface_cache" | "no_reuse"
-export type Candela = {
-	gather: CandelaGather,
-	ray_rate: number,
-	spatial_samples: number,
-	cache_bounces: number,
-	freeze_cache: boolean,
-}
 export type DirectionalLight = {
 	color: vector,
 	illuminance: number,
 	angle: number,
 }
-export type PathTracer = {
+export type PhotoMode = {
 	samples_per_frame: number,
 	max_bounces: number,
-	mode: number,
-	jitter: boolean,
 }
 export type PointLight = {
 	color: vector,
 	intensity: number,
 	radius: number,
-}
-export type GlobalIllumination = "off" | "direct_only" | "candela"
-export type RealtimeView = "final" | "noisy" | "motion" | "history" | "accumulated" | "indirect"
-export type RealtimeLighting = {
-	light_candidates: number,
-	temporal_reuse: boolean,
-	spatial_samples: number,
-	denoise: boolean,
-	gi: GlobalIllumination,
-	ao_rays: number,
-	ao_radius: number,
-	debug_skip: number,
-	view: RealtimeView,
-}
-export type RenderTier = "performance" | "quality" | "custom"
-export type RenderQuality = {
-	tier: RenderTier,
 }
 export type SceneInstance = {
 	path: string,
@@ -161,11 +134,6 @@ export type Transform = {
 	rotation: quat,
 	scale: vector,
 }
-export type UpscalerMode = "automatic" | "metalfx" | "temporal" | "none"
-export type Upscaling = {
-	mode: UpscalerMode,
-	render_scale: number,
-}
 export type WindowMode = "windowed" | "fullscreen"
 export type Window = {
 	title: string,
@@ -202,17 +170,13 @@ export type Veach = {
 	read time: TimeApi,
 	read components: {
 		read Camera: Component<Camera>,
-		read Candela: Component<Candela>,
 		read DirectionalLight: Component<DirectionalLight>,
-		read PathTracer: Component<PathTracer>,
+		read PhotoMode: Component<PhotoMode>,
 		read PointLight: Component<PointLight>,
-		read RealtimeLighting: Component<RealtimeLighting>,
-		read RenderQuality: Component<RenderQuality>,
 		read SceneInstance: Component<SceneInstance>,
 		read Sky: Component<Sky>,
 		read SpotLight: Component<SpotLight>,
 		read Transform: Component<Transform>,
-		read Upscaling: Component<Upscaling>,
 		read Window: Component<Window>,
 	},
 }

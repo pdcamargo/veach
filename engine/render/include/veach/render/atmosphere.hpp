@@ -1,6 +1,6 @@
 #pragma once
 
-// The physical atmosphere on the CPU (ADR 0050, docs/specs/physical-sky/spec.md): the sun's position for a time of
+// The physical atmosphere on the CPU (ADR 0038, docs/specs/physical-sky/spec.md): the sun's position for a time of
 // day, and transmittance through the atmosphere, integrated like the GPU's transmittance LUT.
 
 #include <veach/core/math.hpp>

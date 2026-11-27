@@ -1,5 +1,5 @@
 // Every DescriptorHandle dereference in Veach's shaders goes through getDescriptorFromHandle, so this module is
-// imported by all of them (ADR 0039). In debug builds (VEACH_VALIDATE_BINDLESS) a DX12 handle is checked against
+// imported by all of them (ADR 0027). In debug builds (VEACH_VALIDATE_BINDLESS) a DX12 handle is checked against
 // the RHI's table of live descriptors before use; a bad one is counted, the first recorded, and the kind's null
 // descriptor used instead, and the RHI reports it as rhi.invalid_descriptor. Metal handles are opaque resource
 // IDs there: Metal's own shader validation covers them in debug builds.

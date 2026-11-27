@@ -105,7 +105,7 @@ TEST_CASE("[frames.AC4] frames_in_flight is validated and reaches the device") {
 }
 
 // ---- Raster state on the platform's GPU
-// (docs/specs/realtime-renderer-v0/spec.md) --------------------------------
+// (docs/specs/realtime-renderer/spec.md) -----------------------------------
 
 namespace {
 
@@ -224,7 +224,7 @@ std::size_t count_wrong(const RasterResult& r, int which, std::array<std::uint32
 }  // namespace
 
 TEST_CASE(
-    "[rt.AC10] reverse-Z depth test: the nearer triangle wins in any "
+    "[rt.AC6] reverse-Z depth test: the nearer triangle wins in any "
     "draw order, and back faces are culled") {
     test::LogCapture logs;
     {
@@ -261,7 +261,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "[rt.AC11] an rg32_uint target clears to 0xFFFFFFFF and keeps what "
+    "[rt.AC7] an rg32_uint target clears to 0xFFFFFFFF and keeps what "
     "the fragment shader writes, exactly") {
     test::LogCapture logs;
     {
@@ -277,7 +277,7 @@ TEST_CASE(
         CHECK(count_wrong(r, 1, {0x89ABCDEFu, 0x76543210u}) == 0);
         CHECK(count_wrong(r, -1, {cleared, cleared}) == 0);
 
-        // rt.AC7 at the RHI: the render graph timed both passes of that frame.
+        // rt.AC5 at the RHI: the render graph timed both passes of that frame.
         CHECK(r.timings.unavailable.empty());
         REQUIRE(r.timings.passes.size() == 2);
         CHECK(r.timings.passes[0].name == "draw");
@@ -289,7 +289,7 @@ TEST_CASE(
     CHECK_MESSAGE(logs.errors().empty(), logs.errors());
 }
 
-TEST_CASE("[rt.AC10] a pipeline that tests depth without a depth format is rejected on every backend") {
+TEST_CASE("[rt.AC6] a pipeline that tests depth without a depth format is rejected on every backend") {
     auto device = std::move(*rhi::create_device({}));
     rhi::GraphicsPipelineDesc desc;
     desc.depth_test = true;

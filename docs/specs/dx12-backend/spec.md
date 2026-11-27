@@ -8,21 +8,23 @@
 
 `--rhi dx12` runs Veach on D3D12 through the pinned Agility SDK. It renders the same images as Metal: the shared
 goldens pass unchanged. There is no Windows machine, so every criterion is proven by a test in the hosted Windows
-CI job, on WARP ([ADR 0030](../../adr/0030-windows-verified-in-hosted-ci.md),
-[ADR 0031](../../adr/0031-dx12-on-warp-in-ci.md)). How to build it: [dx12-port](../../guides/dx12-port.md).
+CI job, on WARP ([ADR 0032](../../adr/0032-windows-verified-in-hosted-ci.md),
+[ADR 0033](../../adr/0033-dx12-on-warp-in-ci.md)). How to build it: [dx12-port](../../guides/dx12-port.md).
 
 ## Motivation
 
-Windows is a target platform ([ADR 0002](../../adr/0002-target-platforms-and-hardware.md)). The RHI, the render
-graph's barriers and the frame model were designed for DX12 from the start (ADRs 0024, 0025, 0029). This spec
+Windows is a target platform ([ADR 0003](../../adr/0003-platforms-and-hardware-target.md)). The RHI, the render
+graph's barriers and the frame model were designed for DX12 from the start (ADRs 0027, 0029, 0030). This spec
 makes the backend real. Backlog: VCH-012, VCH-002.
 
 ## Requirements
 
 - MUST implement every `rhi::Device` and `rhi::CommandList` call, with the binding, barrier and frame models of
-  ADRs 0024, 0025 and 0029 unchanged.
+  ADRs 0027, 0029 and 0030 unchanged.
 - MUST run on any adapter that has Shader Model 6.6, resource binding tier 3 and enhanced barriers. It MUST fall
   back to WARP when no hardware adapter qualifies, and MUST fail with `rhi.backend_unavailable` otherwise.
+- DXR 1.1 is optional: it is reported as `Capabilities::hardware_ray_tracing`, and only photo mode needs it
+  ([ADR 0003](../../adr/0003-platforms-and-hardware-target.md)).
 - MUST route debug-layer errors to error logs (`rhi.gpu_error`), so a debug-layer error fails the run.
 - MUST pass the shared goldens (`tests/golden/*.png`) at the default tolerance, with no `.dx12` override.
 
@@ -56,8 +58,8 @@ Each is one step of [dx12-port](../../guides/dx12-port.md), proven in the Window
 
 ## Out of scope
 
-- Real DXR hardware, vendor drivers, performance: VCH-050 (blocked, ADR 0030).
-- Async compute, copy queues, placed resources and aliasing: not modeled by the RHI yet (ADR 0025).
+- Real DX12 hardware, vendor drivers, performance: VCH-050 (blocked, ADR 0032).
+- Async compute, copy queues, placed resources and aliasing: not modeled by the RHI yet (ADR 0029).
 
 ## Open questions
 
@@ -65,8 +67,8 @@ None.
 
 ## Links
 
-- ADRs: [0024](../../adr/0024-resource-binding-model.md), [0025](../../adr/0025-sync-and-barrier-model.md),
-  [0028](../../adr/0028-golden-images-across-backends.md), [0029](../../adr/0029-frame-and-sync-model.md),
-  [0030](../../adr/0030-windows-verified-in-hosted-ci.md), [0031](../../adr/0031-dx12-on-warp-in-ci.md)
+- ADRs: [0027](../../adr/0027-resource-binding-model.md), [0029](../../adr/0029-render-graph-sync-and-barriers.md),
+  [0031](../../adr/0031-image-comparison-and-goldens.md), [0030](../../adr/0030-frame-and-sync-model.md),
+  [0032](../../adr/0032-windows-verified-in-hosted-ci.md), [0033](../../adr/0033-dx12-on-warp-in-ci.md)
 - Backlog: VCH-012, VCH-002, VCH-049, VCH-050
 - Guide: [dx12-port](../../guides/dx12-port.md)

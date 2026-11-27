@@ -1,4 +1,4 @@
-// DX12 backend (docs/specs/dx12-backend/spec.md). Windows only; hosted CI runs these on WARP (ADR 0031).
+// DX12 backend (docs/specs/dx12-backend/spec.md). Windows only; hosted CI runs these on WARP (ADR 0033).
 
 #include "support/test_support.hpp"
 

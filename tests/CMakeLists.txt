@@ -16,7 +16,7 @@ add_executable(veach-tests
     sky_tests.cpp
     transform_tests.cpp)
 if(WIN32)
-    target_sources(veach-tests PRIVATE dx12_tests.cpp)  # DX12 on WARP in hosted CI (ADR 0031)
+    target_sources(veach-tests PRIVATE dx12_tests.cpp)  # DX12 on WARP in hosted CI (ADR 0033)
 endif()
 target_link_libraries(veach-tests PRIVATE veach::veach doctest::doctest veach_bc7enc)
 # Shaders for RHI tests (tests/rhi_tests.cpp): <test_shaders.hpp>.
@@ -105,197 +105,37 @@ if(Python3_FOUND)
             WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
         set_tests_properties("mcp: golden through MCP (GPU)" PROPERTIES SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE")
     endif()
-    # scene.AC7/AC8: path_trace over MCP matches the golden run; accumulation restarts and converges.
+    # photo.AC2: photo_mode over MCP matches the golden run; accumulation restarts and converges.
     if(APPLE OR WIN32)
         if(APPLE)
             set(_pt_rhi metal)
         else()
             set(_pt_rhi dx12)
         endif()
-        add_test(NAME "mcp: path_trace (${_pt_rhi})"
+        add_test(NAME "mcp: photo_mode (${_pt_rhi})"
             COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
                     --lab $<TARGET_FILE:veach-lab> --imgdiff $<TARGET_FILE:veach-cli> --rhi ${_pt_rhi}
                     --golden "${PROJECT_SOURCE_DIR}/tests/golden/cornell_box.png"
-                    --out "${CMAKE_CURRENT_BINARY_DIR}/mcp/path_trace" path_trace
+                    --out "${CMAKE_CURRENT_BINARY_DIR}/mcp/photo_mode" photo_mode
             WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
-        set_tests_properties("mcp: path_trace (${_pt_rhi})" PROPERTIES SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE"
+        set_tests_properties("mcp: photo_mode (${_pt_rhi})" PROPERTIES SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE"
             TIMEOUT 1200)
-        # rt.AC7: gpu_timings lists every render-graph pass of the frame with its GPU time (VCH-049).
+        # rt.AC5: gpu_timings lists every render-graph pass of the frame with its GPU time.
         add_test(NAME "mcp: per-pass gpu_timings (${_pt_rhi})"
             COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
                     --lab $<TARGET_FILE:veach-lab> --rhi ${_pt_rhi} gpu_timings
             WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
         set_tests_properties("mcp: per-pass gpu_timings (${_pt_rhi})" PROPERTIES
             SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE")
-        # ADR 0049: the frame budget report maps every pass and GPU resource to a subsystem.
-        add_test(NAME "mcp: frame_budget maps every pass and resource (${_pt_rhi})"
-            COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
-                    --lab $<TARGET_FILE:veach-lab> --rhi ${_pt_rhi} budget
-            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
-        set_tests_properties("mcp: frame_budget maps every pass and resource (${_pt_rhi})" PROPERTIES
-            SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE")
     endif()
     if(APPLE)
-        # temporal.AC8: MetalFX's temporal scaler against Veach's TAAU on the same frames (ADR 0043).
-        add_test(NAME "mcp: MetalFX and TAAU agree (metal)"
-            COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
-                    --lab $<TARGET_FILE:veach-lab> --imgdiff $<TARGET_FILE:veach-cli>
-                    --out "${CMAKE_CURRENT_BINARY_DIR}/mcp/upscalers" upscalers
-            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
-        set_tests_properties("mcp: MetalFX and TAAU agree (metal)" PROPERTIES
-            SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" ENVIRONMENT "MTL_SHADER_VALIDATION=0")
-        # temporal.AC4: ReSTIR DI is unbiased: 256 undenoised frames averaged match the path tracer's direct light
-        # (Bistro is measured in the spec: too slow for a debug build).
-        add_test(NAME "temporal.AC4: ReSTIR DI converges to the direct-light reference (metal)"
-            COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/bench/compare_direct.py" --rhi metal
-                    --lab $<TARGET_FILE:veach-lab> --imgdiff $<TARGET_FILE:veach-cli>
-                    --out "${CMAKE_CURRENT_BINARY_DIR}/compare/unbiased" --size 320x180 --frames 32 --spf 16
-                    --realtime-frames 256 --max-mean 0.02 --max-luminance-error 0.02
-                    "${PROJECT_SOURCE_DIR}/apps/lab/scripts/cornell_box.luau"
-                    "${PROJECT_SOURCE_DIR}/apps/lab/scripts/flight_helmet.luau")
-        set_tests_properties("temporal.AC4: ReSTIR DI converges to the direct-light reference (metal)" PROPERTIES
-            SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable")
-        # The image tolerance policy (ADR 0047, ADR 0052): each 'gate' scene of tests/tolerance.json, its denoised
-        # final image within its baseline's limits of the path tracer (direct light; with "sky", direct plus sky
-        # light: the stopgap with unlimited range against the path tracer's mode 3, sky.AC3; with "candela", Candela
-        # against mode 4, candela.AC1/AC7). Labeled: other tests
-        # render variants of the same scripts in parallel.
-        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tolerance.json")
-        file(READ "${CMAKE_CURRENT_SOURCE_DIR}/tolerance.json" _tolerance)
-        string(JSON _count LENGTH "${_tolerance}" scenes)
-        math(EXPR _last "${_count} - 1")
-        foreach(_i RANGE ${_last})
-            string(JSON _check GET "${_tolerance}" scenes ${_i} check)
-            if(NOT _check STREQUAL "gate")
-                continue()
-            endif()
-            string(JSON _scene GET "${_tolerance}" scenes ${_i} name)
-            string(JSON _criterion ERROR_VARIABLE _none GET "${_tolerance}" scenes ${_i} criterion)
-            if(_none)
-                set(_criterion "tolerance")
-            endif()
-            set(_sky_flag "")
-            foreach(_mode sky candela)
-                string(JSON _on ERROR_VARIABLE _none GET "${_tolerance}" scenes ${_i} ${_mode})
-                if(NOT _none AND _on)
-                    set(_sky_flag "--${_mode}")
-                endif()
-            endforeach()
-            string(JSON _frames ERROR_VARIABLE _none GET "${_tolerance}" scenes ${_i} realtime_frames)
-            if(_none)
-                set(_frames 64)
-            endif()
-            set(_name "${_criterion}: ${_scene} final image within ADR 0047 (metal)")
-            add_test(NAME "${_name}"
-                COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/bench/compare_direct.py" --rhi metal
-                        --lab $<TARGET_FILE:veach-lab> --imgdiff $<TARGET_FILE:veach-cli>
-                        --out "${CMAKE_CURRENT_BINARY_DIR}/compare/tolerance" --size 640x360 --frames 64 --spf 16
-                        --final --realtime-frames ${_frames} ${_sky_flag} --label tolerance
-                        --tolerance "${CMAKE_CURRENT_SOURCE_DIR}/tolerance.json"
-                        "${PROJECT_SOURCE_DIR}/apps/lab/scripts/${_scene}.luau")
-            set_tests_properties("${_name}" PROPERTIES
-                SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable" ENVIRONMENT "MTL_SHADER_VALIDATION=0" TIMEOUT 600)
-            if(_scene MATCHES "^bistro")  # the full test set (tools/push.sh): Bistro takes tens of seconds
-                set_tests_properties("${_name}" PROPERTIES LABELS full)
-            endif()
-        endforeach()
-        # Candela's cache alone (Candela.gather = "surface_cache"): a regression gate on its flicker and light-off
-        # response, at its measured values plus a margin (the targets, 0.005 and 10 frames, are VCH-067's).
-        foreach(_cache "cornell_box_realtime:0.013:13" "bistro_noon:0.016:25")
-            string(REPLACE ":" ";" _cache "${_cache}")
-            list(GET _cache 0 _scene)
-            list(GET _cache 1 _flicker)
-            list(GET _cache 2 _light_off)
-            add_test(NAME "candela: the cache alone stays as steady and quick on ${_scene} (metal)"
-                COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/candela_cache.py" --lab $<TARGET_FILE:veach-lab>
-                        --imgdiff $<TARGET_FILE:veach-cli> --scene ${_scene} --max-flicker ${_flicker}
-                        --max-light-off ${_light_off})
-            set_tests_properties("candela: the cache alone stays as steady and quick on ${_scene} (metal)" PROPERTIES
-                SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 900 LABELS full)
-        endforeach()
-        # Candela on the final image, Performance tier (tests/candela_final.py): flicker over the same pipeline's with
-        # direct light only, each 'gate' entry of tests/tolerance.json's "flicker" (candela.AC4); and a light switched
-        # off settling within 10 frames (candela.AC5), with Candela and with GI off.
-        string(JSON _count LENGTH "${_tolerance}" flicker entries)
-        math(EXPR _last "${_count} - 1")
-        foreach(_i RANGE ${_last})
-            string(JSON _check GET "${_tolerance}" flicker entries ${_i} check)
-            if(NOT _check STREQUAL "gate")
-                continue()
-            endif()
-            string(JSON _scene GET "${_tolerance}" flicker entries ${_i} name)
-            set(_name "candela.AC4: ${_scene} flickers within tolerance over direct light (metal)")
-            add_test(NAME "${_name}"
-                COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/candela_final.py" --lab $<TARGET_FILE:veach-lab>
-                        --imgdiff $<TARGET_FILE:veach-cli> --scene ${_scene} flicker
-                        --tolerance "${CMAKE_CURRENT_SOURCE_DIR}/tolerance.json")
-            set_tests_properties("${_name}" PROPERTIES SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 900
-                LABELS full)
-        endforeach()
-        foreach(_light_off "cornell_box_realtime:candela" "cornell_box_realtime:off" "bistro_noon:candela")
-            string(REPLACE ":" ";" _light_off "${_light_off}")
-            list(GET _light_off 0 _scene)
-            list(GET _light_off 1 _gi)
-            set(_name "candela.AC5: ${_scene}'s final image settles within 10 frames of a light off (GI ${_gi}, metal)")
-            add_test(NAME "${_name}"
-                COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/candela_final.py" --lab $<TARGET_FILE:veach-lab>
-                        --imgdiff $<TARGET_FILE:veach-cli> --scene ${_scene} light_off --gi ${_gi} --max-frames 10)
-            set_tests_properties("${_name}" PROPERTIES SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 900
-                LABELS full)
-        endforeach()
-        # VCH-069 and the Candela spec: Bistro noon's motion trail (the final image after 30 frames of camera motion
-        # against a still camera), each 'gate' entry of tests/tolerance.json's "motion_trail": GI off within noise of
-        # its measured trail, Candela within the margin over GI off's (motion_trail.py's limit()).
-        string(JSON _count LENGTH "${_tolerance}" motion_trail entries)
-        math(EXPR _last "${_count} - 1")
-        foreach(_i RANGE ${_last})
-            string(JSON _check GET "${_tolerance}" motion_trail entries ${_i} check)
-            if(NOT _check STREQUAL "gate")
-                continue()
-            endif()
-            string(JSON _gi GET "${_tolerance}" motion_trail entries ${_i} gi)
-            string(JSON _upscaler GET "${_tolerance}" motion_trail entries ${_i} upscaler)
-            set(_name "motion: Bistro's trail within tolerance (GI ${_gi}, upscaler ${_upscaler}, metal)")
-            add_test(NAME "${_name}"
-                COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/motion_trail.py" --lab $<TARGET_FILE:veach-lab>
-                        --imgdiff $<TARGET_FILE:veach-cli> --gi ${_gi} --upscaler ${_upscaler}
-                        --tolerance "${CMAKE_CURRENT_SOURCE_DIR}/tolerance.json"
-                        --out "${CMAKE_CURRENT_BINARY_DIR}/motion_trail")
-            set_tests_properties("${_name}" PROPERTIES SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 900
-                LABELS full)
-        endforeach()
-        # ADR 0049, VCH-068: a string-light wire against the sky stays continuous through the upscaler at 0.5 (Bistro
-        # noon at 1440p). MetalFX is required; TAAU is measured (it breaks the wire); FSR joins the required ones.
-        add_test(NAME "upscale: a thin wire stays continuous at 0.5 render scale (metal)"
-            COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/upscale_wire.py" --lab $<TARGET_FILE:veach-lab>
-                    --out "${CMAKE_CURRENT_BINARY_DIR}/upscale_wire" --upscalers metalfx,temporal --require metalfx)
-        set_tests_properties("upscale: a thin wire stays continuous at 0.5 render scale (metal)" PROPERTIES
-            SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 900 LABELS full)
-        # shadows.AC1-AC2: lights with a size match the path tracer, and their penumbrae show (soft-shadows spec).
-        add_test(NAME "shadows: sized lights cast penumbrae that match the reference (metal)"
-            COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/soft_shadows.py" --rhi metal
-                    --lab $<TARGET_FILE:veach-lab> --imgdiff $<TARGET_FILE:veach-cli>
-                    --out "${CMAKE_CURRENT_BINARY_DIR}/soft_shadows")
-        set_tests_properties("shadows: sized lights cast penumbrae that match the reference (metal)" PROPERTIES
-            SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 900)
         # sky.AC2/AC5: the noon sky is blue; Sky set over MCP changes it the next frame (physical-sky spec).
         add_test(NAME "mcp: sky set over MCP (metal)"
             COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
                     --lab $<TARGET_FILE:veach-lab> --out "${CMAKE_CURRENT_BINARY_DIR}/mcp/sky" sky
             WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
         set_tests_properties("mcp: sky set over MCP (metal)" PROPERTIES
-            SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" ENVIRONMENT "MTL_SHADER_VALIDATION=0" TIMEOUT 600)
-        # The temporal renderer's acceptance criteria (docs/specs/temporal-direct-lighting/spec.md), read from its
-        # debug views and images over MCP. Shader validation is off, as for goldens (it varies ray queries).
-        foreach(_temporal motion stability ghosting)
-            add_test(NAME "mcp: temporal ${_temporal} (metal)"
-                COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
-                        --lab $<TARGET_FILE:veach-lab> --imgdiff $<TARGET_FILE:veach-cli>
-                        --out "${CMAKE_CURRENT_BINARY_DIR}/mcp/temporal_${_temporal}" temporal_${_temporal}
-                WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
-            set_tests_properties("mcp: temporal ${_temporal} (metal)" PROPERTIES
-                SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" ENVIRONMENT "MTL_SHADER_VALIDATION=0" TIMEOUT 600)
-        endforeach()
+            SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 600 LABELS full)
     endif()
     if(WIN32)
         add_test(NAME "mcp: golden through MCP (dx12)"
@@ -308,12 +148,13 @@ if(Python3_FOUND)
     endif()
 endif()
 
-# Golden images: one shared set, run on this platform's GPU backend (ADR 0028), DX12 on WARP in hosted CI
-# (ADR 0031). Skipped on GPUs that can't run them, unless VEACH_REQUIRE_GPU=1.
+# Golden images: one shared set, run on this platform's GPU backend (ADR 0031), DX12 on WARP in hosted CI
+# (ADR 0033). Skipped on GPUs that can't run them, unless VEACH_REQUIRE_GPU=1.
 set(_golden_dir "${PROJECT_SOURCE_DIR}/tests/golden")
-# veach_golden_test(<name> <script> <golden> <rhi> [FRAMES n] [MAX_MEAN x])
+# veach_golden_test(<name> <script> <golden> <rhi> [FRAMES n] [MAX_MEAN x] [MAX_P999 x] [MAX_OUTLIERS n]
+#                   [NO_RAY_TRACING])
 function(veach_golden_test name script golden rhi)
-    cmake_parse_arguments(ARG "" "FRAMES;MAX_MEAN;MAX_P999;MAX_OUTLIERS" "" ${ARGN})
+    cmake_parse_arguments(ARG "NO_RAY_TRACING" "FRAMES;MAX_MEAN;MAX_P999;MAX_OUTLIERS" "" ${ARGN})
     if(NOT ARG_FRAMES)
         set(ARG_FRAMES 3)
     endif()
@@ -321,87 +162,46 @@ function(veach_golden_test name script golden rhi)
         set(ARG_MAX_MEAN 0.01)
     endif()
     # imgdiff's per-pixel defaults (99.9th percentile 0.25, no pixel above 0.5) apply unless a test loosens them.
-    set(pixel_limits "")
+    set(extra "")
     if(DEFINED ARG_MAX_P999)
-        list(APPEND pixel_limits -DMAX_P999=${ARG_MAX_P999})
+        list(APPEND extra -DMAX_P999=${ARG_MAX_P999})
     endif()
     if(DEFINED ARG_MAX_OUTLIERS)
-        list(APPEND pixel_limits -DMAX_OUTLIERS=${ARG_MAX_OUTLIERS})
+        list(APPEND extra -DMAX_OUTLIERS=${ARG_MAX_OUTLIERS})
+    endif()
+    set(out_name "${golden}.${rhi}")
+    if(ARG_NO_RAY_TRACING)
+        list(APPEND extra -DNO_RAY_TRACING=1)
+        set(out_name "${golden}.${rhi}.no_rt")
     endif()
     add_test(NAME "${name}"
         COMMAND "${CMAKE_COMMAND}" -DLAB=$<TARGET_FILE:veach-lab> -DIMGDIFF=$<TARGET_FILE:veach-cli> -DRHI=${rhi}
                 -DSCRIPT=scripts/${script}.luau -DGOLDEN=${_golden_dir}/${golden}.png
-                -DOUT=${CMAKE_CURRENT_BINARY_DIR}/golden/${golden}.${rhi}.png -DMAX_MEAN=${ARG_MAX_MEAN}
-                -DFRAMES=${ARG_FRAMES} ${pixel_limits} -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/golden_test.cmake")
+                -DOUT=${CMAKE_CURRENT_BINARY_DIR}/golden/${out_name}.png -DMAX_MEAN=${ARG_MAX_MEAN}
+                -DFRAMES=${ARG_FRAMES} ${extra} -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/golden_test.cmake")
     set_tests_properties("${name}" PROPERTIES SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE")
 endfunction()
 
-# The real-time renderer against the path tracer's direct light (tools/bench/compare_direct.py, rt.AC3/rt.AC4).
-function(veach_compare_test name script rhi max_mean)
-    cmake_parse_arguments(ARG "NO_REUSE" "LABEL;EXTRA;SIZE;FRAMES;REALTIME_FRAMES;CANDIDATES" "" ${ARGN})
-    if(NOT Python3_FOUND)
-        return()
-    endif()
-    set(extra_args "")
-    if(ARG_LABEL)
-        list(APPEND extra_args --label ${ARG_LABEL})
-    endif()
-    if(ARG_EXTRA)
-        list(APPEND extra_args --extra "${ARG_EXTRA}")
-    endif()
-    if(ARG_NO_REUSE)
-        list(APPEND extra_args --no-reuse)
-    endif()
-    if(ARG_CANDIDATES)
-        list(APPEND extra_args --candidates ${ARG_CANDIDATES})
-    endif()
-    add_test(NAME "${name}"
-        COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/bench/compare_direct.py" --rhi ${rhi}
-                --lab $<TARGET_FILE:veach-lab> --imgdiff $<TARGET_FILE:veach-cli>
-                --out "${CMAKE_CURRENT_BINARY_DIR}/compare/${rhi}" --size ${ARG_SIZE} --frames ${ARG_FRAMES} --spf 16
-                --realtime-frames ${ARG_REALTIME_FRAMES} --max-mean ${max_mean} ${extra_args}
-                "${PROJECT_SOURCE_DIR}/apps/lab/scripts/${script}.luau")
-    set_tests_properties("${name}" PROPERTIES SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable")
-endfunction()
-
-# One strong light of each type over the Cornell box (rt.AC4): a shadow in the wrong place costs far more FLIP than
-# the noise left at these sample counts. The real-time side averages 256 independent ReSTIR frames (no reuse: reused
-# frames are correlated and converge slower); it is unbiased, so the average approaches the reference. A strong sun
-# that most of the box cannot see is ReSTIR's hard case (its target ignores visibility): 0.077 at 64 reused frames,
-# 0.034 at 256 independent ones, 0.022 at 2048.
-set(_test_sun "local l = veach.spawn('test sun')
-l:set(veach.components.Transform, { translation = vector.zero, rotation = veach.quat.look_rotation(vector.create(0.4, -1, -0.3)), scale = vector.one })
-l:set(veach.components.DirectionalLight, { color = vector.one, illuminance = 40 })")
-set(_test_point "local l = veach.spawn('test bulb')
-l:set(veach.components.Transform, { translation = vector.create(0.6, 1.5, 0.6), rotation = veach.quat.identity(), scale = vector.one })
-l:set(veach.components.PointLight, { color = vector.one, intensity = 25 })")
-set(_test_spot "local l = veach.spawn('test spot')
-l:set(veach.components.Transform, { translation = vector.create(-0.7, 1.6, 0.8), rotation = veach.quat.look_rotation(vector.create(0.6, -1, -0.6)), scale = vector.one })
-l:set(veach.components.SpotLight, { color = vector.one, intensity = 40, inner_angle = 0.35, outer_angle = 0.6 })")
-function(veach_realtime_tests rhi)
+# The real-time renderer (docs/specs/realtime-renderer/spec.md) and photo mode (docs/specs/photo-mode/spec.md) on one
+# backend.
+function(veach_scene_goldens rhi)
     set(suffix "")
     if(NOT rhi STREQUAL "metal")
         set(suffix ", ${rhi}")
     endif()
-    # temporal.AC9: the temporal path (TAAU, history), still camera, after 32 frames of warm-up.
-    veach_golden_test("golden: cornell box (realtime${suffix})" cornell_box_realtime cornell_box_realtime ${rhi} FRAMES 32)
+    # rt.AC3: the real-time renderer's images.
+    veach_golden_test("golden: cornell box (realtime${suffix})" cornell_box_realtime cornell_box_realtime ${rhi})
     set(helmet_limits "")
     if(rhi STREQUAL "dx12")
-        # ADR 0028: WARP filters the helmet's minified BC7 textures (explicit gradients) a little differently from
-        # Apple GPUs, and its 4 AO rays per pixel then hit differently: measured mean 0.0108, 99.9th percentile
-        # 0.30, 2 pixels above 0.5 against the Metal golden (CI run 45666958341).
+        # ADR 0031: WARP filters the helmet's minified BC7 textures (explicit gradients) a little differently from
+        # Apple GPUs (measured before the reset: mean 0.0108, 99.9th percentile 0.30, 2 pixels above 0.5).
         set(helmet_limits MAX_MEAN 0.02 MAX_P999 0.4 MAX_OUTLIERS 8)
     endif()
     veach_golden_test("golden: flight helmet (realtime${suffix})" flight_helmet_realtime flight_helmet_realtime ${rhi}
-        FRAMES 32 ${helmet_limits})
-    veach_golden_test("golden: cornell box AO view (path traced${suffix})" cornell_box_ao cornell_box_ao ${rhi} FRAMES 4)
-    veach_compare_test("rt.AC3: GlowMaterial renders the same in both renderers (${rhi})" glow_closeup ${rhi} 0.01
-        SIZE 160x160 FRAMES 32 REALTIME_FRAMES 64)
-    foreach(light sun point spot)
-        veach_compare_test("rt.AC4: ${light} light and its hard shadow match the reference (${rhi})" cornell_box ${rhi}
-            0.04 LABEL ${light} EXTRA "${_test_${light}}" SIZE 320x180 FRAMES 32 REALTIME_FRAMES 256 NO_REUSE
-            CANDIDATES 32)
-    endforeach()
+        ${helmet_limits})
+    # photo.AC1: photo mode's reference images.
+    veach_golden_test("golden: cornell box (photo mode${suffix})" cornell_box cornell_box ${rhi} FRAMES 4)
+    veach_golden_test("golden: flight helmet (photo mode${suffix})" flight_helmet flight_helmet ${rhi} FRAMES 4)
 endfunction()
 if(APPLE)
     veach_golden_test("golden: background" hello background metal)
@@ -409,12 +209,10 @@ if(APPLE)
     veach_golden_test("golden: triangle (raytraced)" triangle_raytraced triangle_raytraced metal)
     veach_golden_test("golden: triangle (camera, raster)" triangle_camera_raster triangle_camera metal)
     veach_golden_test("golden: triangle (camera, raytraced)" triangle_camera_raytraced triangle_camera metal)
-    veach_golden_test("golden: cornell box (path traced)" cornell_box cornell_box metal FRAMES 4)
-    veach_golden_test("golden: flight helmet (path traced)" flight_helmet flight_helmet metal FRAMES 4)
-    veach_realtime_tests(metal)
-    # sky.AC4: Bistro under the physical sky at noon and at sunset (Metal only: Bistro is too heavy for WARP).
+    veach_scene_goldens(metal)
+    # sky.AC4, rt.AC3: Bistro under the physical sky at noon and at sunset (Metal only: Bistro is too heavy for WARP).
     foreach(_time noon sunset)
-        veach_golden_test("golden: bistro at ${_time} (realtime)" bistro_${_time} bistro_${_time} metal FRAMES 32)
+        veach_golden_test("golden: bistro at ${_time} (realtime)" bistro_${_time} bistro_${_time} metal)
         set_tests_properties("golden: bistro at ${_time} (realtime)" PROPERTIES LABELS full)
     endforeach()
     # sky.AC6: lights and no sky: one warning (a warning, not an error: the run still exits 0).
@@ -423,36 +221,27 @@ if(APPLE)
     set_tests_properties("lab: a scene with lights and no sky warns" PROPERTIES
         PASS_REGULAR_EXPRESSION "warn  render: the scene has lights but no sky"
         SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable")
-    # A NaN light: the path tracer leaves the samples out but fails the run (render.nonfinite_samples).
+    # photo.AC3: a NaN light: photo mode leaves the samples out but fails the run (render.nonfinite_samples).
     add_test(NAME "lab: NaN samples are errors"
         COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/nonfinite_light.luau)
     set_tests_properties("lab: NaN samples are errors" PROPERTIES
         PASS_REGULAR_EXPRESSION "path-traced samples were NaN or infinite.*render\\.nonfinite_samples"
         SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable")
-    add_custom_target(update-goldens
-        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 3 --script scripts/hello.luau
-                --screenshot "${_golden_dir}/background.png"
-        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 3 --script scripts/triangle_raster.luau
-                --screenshot "${_golden_dir}/triangle_raster.png"
-        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 3 --script scripts/triangle_raytraced.luau
-                --screenshot "${_golden_dir}/triangle_raytraced.png"
-        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 3 --script scripts/triangle_camera_raster.luau
-                --screenshot "${_golden_dir}/triangle_camera.png"
-        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 4 --script scripts/cornell_box.luau
-                --screenshot "${_golden_dir}/cornell_box.png"
-        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 4 --script scripts/flight_helmet.luau
-                --screenshot "${_golden_dir}/flight_helmet.png"
-        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 32 --script scripts/cornell_box_realtime.luau
-                --screenshot "${_golden_dir}/cornell_box_realtime.png"
-        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 32 --script scripts/flight_helmet_realtime.luau
-                --screenshot "${_golden_dir}/flight_helmet_realtime.png"
-        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 4 --script scripts/cornell_box_ao.luau
-                --screenshot "${_golden_dir}/cornell_box_ao.png"
-        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 32 --script scripts/bistro_noon.luau
-                --screenshot "${_golden_dir}/bistro_noon.png"
-        COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 32 --script scripts/bistro_sunset.luau
-                --screenshot "${_golden_dir}/bistro_sunset.png"
-        # Shader validation off, as in golden_test.cmake: with it, Metal's ray-query results vary run to run.
+    set(_update "")
+    foreach(_golden "hello:background:3" "triangle_raster:triangle_raster:3" "triangle_raytraced:triangle_raytraced:3"
+            "triangle_camera_raster:triangle_camera:3" "cornell_box:cornell_box:4" "flight_helmet:flight_helmet:4"
+            "cornell_box_realtime:cornell_box_realtime:3" "flight_helmet_realtime:flight_helmet_realtime:3"
+            "bistro_noon:bistro_noon:3" "bistro_sunset:bistro_sunset:3")
+        string(REPLACE ":" ";" _golden "${_golden}")
+        list(GET _golden 0 _script)
+        list(GET _golden 1 _image)
+        list(GET _golden 2 _frames)
+        list(APPEND _update COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab>
+                --rhi metal --headless --frames ${_frames} --script scripts/${_script}.luau
+                --screenshot "${_golden_dir}/${_image}.png")
+    endforeach()
+    # Shader validation off, as in golden_test.cmake: with it, Metal's ray-query results vary run to run.
+    add_custom_target(update-goldens ${_update}
         COMMENT "Regenerating golden images in tests/golden/ (review the diff before committing)"
         VERBATIM)
 elseif(WIN32)
@@ -461,20 +250,18 @@ elseif(WIN32)
     veach_golden_test("golden: triangle (raytraced, dx12)" triangle_raytraced triangle_raytraced dx12)
     veach_golden_test("golden: triangle (camera, raster, dx12)" triangle_camera_raster triangle_camera dx12)
     veach_golden_test("golden: triangle (camera, raytraced, dx12)" triangle_camera_raytraced triangle_camera dx12)
-    veach_golden_test("golden: cornell box (path traced, dx12)" cornell_box cornell_box dx12 FRAMES 4)
-    veach_golden_test("golden: flight helmet (path traced, dx12)" flight_helmet flight_helmet dx12 FRAMES 4)
-    veach_realtime_tests(dx12)
+    veach_scene_goldens(dx12)
     add_test(NAME "lab: NaN samples are errors (dx12)"
         COMMAND veach-lab --rhi dx12 --headless --frames 3 --script scripts/nonfinite_light.luau)
     set_tests_properties("lab: NaN samples are errors (dx12)" PROPERTIES
         PASS_REGULAR_EXPRESSION "path-traced samples were NaN or infinite.*render\\.nonfinite_samples")
-    # On WARP the helmet takes 85-120 s (cooking 15 textures, then path tracing on the CPU); ctest's default is 120.
-    set_tests_properties("golden: flight helmet (path traced, dx12)" PROPERTIES TIMEOUT 600)
+    # On WARP the helmet takes long (cooking 15 textures, then path tracing on the CPU); ctest's default is 120 s.
+    set_tests_properties("golden: flight helmet (photo mode, dx12)" PROPERTIES TIMEOUT 600)
     # Two frames in flight under load (dx12.AC6). A debug-layer error makes the exit code 1.
     add_test(NAME "dx12: ray-traced soak"
         COMMAND veach-lab --rhi dx12 --headless --frames 300 --script scripts/triangle_raytraced.luau)
     set_tests_properties("dx12: ray-traced soak" PROPERTIES TIMEOUT 900)
-    # A window, a swapchain, present and a resize on frame 10 (dx12.AC8, VCH-002), on the runner's desktop.
+    # A window, a swapchain, present and a resize on frame 10 (dx12.AC8), on the runner's desktop.
     add_test(NAME "lab: windowed DX12 run"
         COMMAND "${CMAKE_COMMAND}" -DLAB=$<TARGET_FILE:veach-lab> -DFRAMES=30
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/windowed_test.cmake")
@@ -484,7 +271,7 @@ add_test(NAME "golden: raster and ray-traced goldens agree"
     COMMAND veach-cli imgdiff "${PROJECT_SOURCE_DIR}/tests/golden/triangle_raster.png"
             "${PROJECT_SOURCE_DIR}/tests/golden/triangle_raytraced.png" --max-mean 0.005)
 
-# Leak checks (macOS `leaks`, ADR 0012). Not under ASan: leaks cannot inspect sanitized processes.
+# Leak checks (macOS `leaks`, ADR 0016). Not under ASan: leaks cannot inspect sanitized processes.
 if(VEACH_LEAK_CHECK)
     if(NOT APPLE OR VEACH_SANITIZE)
         message(FATAL_ERROR "VEACH_LEAK_CHECK needs macOS and no VEACH_SANITIZE (use the 'leaks' preset)")

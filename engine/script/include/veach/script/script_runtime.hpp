@@ -1,6 +1,6 @@
 #pragma once
 
-// The Luau runtime (ADR 0006, docs/specs/scripting-luau-api-v0/spec.md).
+// The Luau runtime (ADR 0007, docs/specs/scripting-luau-api-v0/spec.md).
 //
 // Scripts see only the curated `@veach` module, never raw Flecs. Every script
 // invocation (running a script's top level, or one run of a script system) is

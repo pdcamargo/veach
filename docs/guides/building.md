@@ -1,6 +1,6 @@
 # Building and testing
 
-Decisions behind this: [ADR 0001](../adr/0001-language-and-build-system.md) (C++23 subset, CMake presets, CPM) and [ADR 0012](../adr/0012-code-quality-tooling.md) (warnings, sanitizers, ccache, PCH, formatting).
+Decisions behind this: [ADR 0002](../adr/0002-language-and-build-system.md) (C++23 subset, CMake presets, CPM) and [ADR 0015](../adr/0015-code-quality-tooling.md) (warnings, sanitizers, ccache, PCH, formatting).
 
 ## Prerequisites
 
@@ -10,7 +10,7 @@ Decisions behind this: [ADR 0001](../adr/0001-language-and-build-system.md) (C++
 | CMake | ≥ 3.29 | ≥ 3.29 |
 | Generator | Ninja | Ninja |
 | Git | with **Git LFS** (`git lfs install`): golden images live in LFS | same |
-| GPU | Metal 3 with ray tracing (Apple M1 or newer) to run the GPU golden tests; they skip otherwise | None needed: without a D3D12 GPU that has SM 6.6, enhanced barriers and DXR 1.1, DX12 runs on WARP, which the build deploys ([ADR 0031](../adr/0031-dx12-on-warp-in-ci.md)). `VEACH_DX12_ADAPTER=warp` forces it |
+| GPU | Metal 3 (Apple M1 or newer) to run the GPU golden tests; they skip otherwise. Photo-mode goldens also need Metal ray tracing, which every Apple silicon GPU has | None needed: without a D3D12 GPU that has SM 6.6, resource binding tier 3 and enhanced barriers (DXR 1.1 for photo mode), DX12 runs on WARP, which the build deploys ([ADR 0033](../adr/0033-dx12-on-warp-in-ci.md)). `VEACH_DX12_ADAPTER=warp` forces it |
 | Optional | `ccache` (used automatically when found), Python 3 (repo hygiene test) | same |
 
 Dependencies are downloaded by CMake on first configure (see [CPM cache](#dependency-cache)). That includes the Slang
@@ -103,8 +103,8 @@ build/debug/tools/veach-cli/veach schemas --out schemas
 ## Golden images
 
 `ctest` runs `golden: ...` tests on macOS: the lab renders with `--screenshot`, and `veach imgdiff` (NVIDIA FLIP)
-compares the result with `tests/golden/*.png`. They report **SKIPPED** on GPUs without Metal 3 and ray tracing
-(for example GitHub's hosted runners). Set `VEACH_REQUIRE_GPU=1` to make that a failure. To regenerate goldens
+compares the result with `tests/golden/*.png`. They report **SKIPPED** on GPUs without Metal 3, and photo-mode goldens also on GPUs
+without ray tracing (for example GitHub's hosted runners). Set `VEACH_REQUIRE_GPU=1` to make that a failure. To regenerate goldens
 on purpose:
 
 ```sh

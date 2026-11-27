@@ -1,7 +1,7 @@
 #pragma once
 
 // veach::Engine owns the process: config, the init order, the main loop and
-// shutdown (ADR 0014, docs/specs/engine-lifecycle/spec.md). User code never
+// shutdown (ADR 0018, docs/specs/engine-lifecycle/spec.md). User code never
 // creates a World, never calls progress() and never creates threads.
 //
 //   int main(int argc, char** argv) {

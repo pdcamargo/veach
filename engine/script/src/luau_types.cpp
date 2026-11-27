@@ -49,7 +49,7 @@ export type LogApi = {
 	read error: (message: string) -> (),
 }
 
---- Quaternion helpers over { x, y, z, w } tables (ADR 0010: right-handed, +Y up, -Z forward, radians).
+--- Quaternion helpers over { x, y, z, w } tables (ADR 0013: right-handed, +Y up, -Z forward, radians).
 export type QuatApi = {
 	read identity: () -> quat,
 	read from_axis_angle: (axis: vector, angle: number) -> quat,

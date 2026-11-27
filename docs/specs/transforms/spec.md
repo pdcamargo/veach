@@ -52,6 +52,6 @@ A camera on a rig, a weapon on a hand and a light on a lamp all need poses relat
 
 ## Links
 
-- ADRs: [0010 conventions](../../adr/0010-conventions-and-math.md), [0005 Flecs barrel](../../adr/0005-flecs-barrel-not-wrapper.md)
+- ADRs: [0013 conventions](../../adr/0013-conventions-and-math.md), [0006 Flecs barrel](../../adr/0006-flecs-barrel-not-wrapper.md)
 - Specs: [render-views](../render-views/spec.md)
 - Backlog: VCH-007

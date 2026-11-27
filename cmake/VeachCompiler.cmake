@@ -1,6 +1,6 @@
 # Language standard, compiler launcher and sanitizers. Applies to the whole build
 # (including dependencies) where it must be global; per-target warning flags live
-# in VeachTargets.cmake. See docs/adr/0001-language-and-build-system.md.
+# in VeachTargets.cmake. See docs/adr/0002-language-and-build-system.md.
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

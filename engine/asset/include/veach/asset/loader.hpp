@@ -21,7 +21,7 @@ struct LoadContext {
     fs::Path path;  ///< Project-relative, '/'-separated.
     fs::Path absolute_path;
     std::string_view bytes;  ///< Whole file contents.
-    fs::Path cache_dir;      ///< <project>/.veach/cache/<id>: where an importer keeps cooked data (ADR 0032)
+    fs::Path cache_dir;      ///< <project>/.veach/cache/<id>: where an importer keeps cooked data (ADR 0011)
     std::uint32_t max_texture_size = 0;  ///< from the .meta; 0 = no limit
 };
 

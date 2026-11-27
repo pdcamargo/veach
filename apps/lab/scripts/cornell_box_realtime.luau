@@ -1,6 +1,7 @@
 --!strict
--- The Cornell box through the real-time renderer (docs/specs/realtime-renderer-v0/spec.md, rt.AC2).
--- Golden image: tests/golden/cornell_box_realtime.png (256x256, 4 emissive light samples per pixel).
+-- The Cornell box through the real-time renderer (docs/specs/realtime-renderer/spec.md, rt.AC3). The ceiling panel and
+-- the glow material emit but do not light anything in real time (ADR 0040); the room is lit by its one point light,
+-- unshadowed. Golden image: tests/golden/cornell_box_realtime.png (256x256).
 -- Run: veach-lab --rhi metal --headless --frames 3 --script scripts/cornell_box_realtime.luau --screenshot out.png
 local veach = require("@veach")
 
@@ -15,12 +16,6 @@ camera:set(veach.components.Transform, {
 camera:set(veach.components.Camera, { fov_y = math.rad(40), near_plane = 0.1, active = true, ev100 = 0 })
 -- A closed room lit by its own lights: no sky.
 camera:set(veach.components.Sky, { mode = "none" })
-
--- The temporal path with Veach's own upscaler, on every backend: one golden for Metal and DX12 (ADR 0043). The
--- Quality tier's 0.75 scale: at Performance's 0.5 this 256x256 golden renders 128x128, noisy enough that Metal and
--- WARP drift past the golden's 0.01 FLIP.
-camera:set(veach.components.Upscaling, { mode = "temporal" })
-camera:set(veach.components.RenderQuality, { tier = "quality" })
 
 -- Square, small: the golden runs on WARP too.
 veach.system("CornellBoxSize", "Startup", veach.query(veach.components.Window), function(e, w)

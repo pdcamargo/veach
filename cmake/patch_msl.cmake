@@ -1,4 +1,4 @@
-# Works around two gaps in Slang 2026.22's Metal target (docs/adr/0026-shader-compilation.md, VCH-043). Each
+# Works around two gaps in Slang 2026.22's Metal target (docs/adr/0009-shader-compilation.md, VCH-043). Each
 # patch applies only when the MSL still has the gap, so a fixed Slang makes it a no-op.
 #   1. It uses `RayDesc` without defining it: add the definition.
 #   2. Its ray-flags-to-intersection-params helper ignores RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH (0x04), so a

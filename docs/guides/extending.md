@@ -3,7 +3,7 @@
 How to add a component, system, module, Luau binding, engine subsystem, asset loader,
 error code or extractor. App and game code uses `veach::` names only and includes
 `<veach/veach.hpp>`; engine code may use Flecs directly. Background:
-[ARCHITECTURE.md](../ARCHITECTURE.md), [ADR 0015](../adr/0015-veach-modules-and-services.md) (modules and services).
+[ARCHITECTURE.md](../ARCHITECTURE.md), [ADR 0019](../adr/0019-veach-modules-and-services.md) (modules and services).
 
 ## (a) A C++ component
 
@@ -24,7 +24,7 @@ world.component<Health>()
   `std::string`, `veach::math::vec3`, reflected enums, or nested reflected structs of those.
 - Engine components that scripts can see change `types/veach.d.luau`: regenerate it
   (`build/debug/tools/veach-cli/veach types --out types/veach.d.luau`) and commit it.
-- Components are data only. Never put GPU handles or renderer data in components ([ADR 0016](../adr/0016-renderer-data-and-extraction.md)).
+- Components are data only. Never put GPU handles or renderer data in components ([ADR 0020](../adr/0020-renderer-data-and-extraction.md)).
 
 ## (b) A system
 
@@ -92,7 +92,7 @@ All in `engine/script/src/script_runtime.cpp` and `engine/script/src/luau_types.
    `teardown` undoes exactly what `init` did. Make the object available with
    `services_.provide<T>(*obj)` and `services_.revoke<T>()` in the teardown.
 3. Update the expected list in `tests/lifecycle_tests.cpp` (`[lifecycle.AC1]`, `[lifecycle.AC2]`),
-   the init order in [ARCHITECTURE.md](../ARCHITECTURE.md), [ADR 0014](../adr/0014-engine-lifecycle-and-phases.md) and the
+   the init order in [ARCHITECTURE.md](../ARCHITECTURE.md), [ADR 0018](../adr/0018-engine-lifecycle-and-phases.md) and the
    [engine-lifecycle spec](../specs/engine-lifecycle/spec.md). Changing the order is an architecture change: write an ADR.
 
 ## (f) An asset loader
@@ -130,7 +130,7 @@ and the [asset spec](../specs/asset-system-core/spec.md).
 
 ## (h) An extractor
 
-Extraction is the only path from the ECS into the renderer ([ADR 0016](../adr/0016-renderer-data-and-extraction.md)). Register an
+Extraction is the only path from the ECS into the renderer ([ADR 0020](../adr/0020-renderer-data-and-extraction.md)). Register an
 extractor instead of reading the world from renderer code:
 
 ```cpp
@@ -141,10 +141,10 @@ renderer.add_extractor("health_bars", [](const veach::World& w, veach::render::R
 ```
 
 Extractors run in registration order during the `Extract` phase, into a freshly cleared
-`RenderWorld`. The engine's own extractors fill `views`, `meshes` and `lights`.
+`RenderWorld`. The engine's own extractors fill `views`, `meshes`, `lights` and `sky`.
 
 ## (i) A material
 
 A Slang type conforming to `IMaterial` that overrides only the functions it changes, registered in the app's
-CMake with `veach_add_material()`. See [rendering](rendering.md#scenes-materials-lights-and-the-reference-path-tracer)
-and [ADR 0033](../adr/0033-material-model.md).
+CMake with `veach_add_material()`. See [rendering](rendering.md)
+and [ADR 0035](../adr/0035-material-model.md).

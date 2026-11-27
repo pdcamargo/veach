@@ -1,6 +1,6 @@
 #pragma once
 
-// The Flecs barrel (ADR 0005). This is an alias layer, NOT a wrapper: engine and
+// The Flecs barrel (ADR 0006). This is an alias layer, NOT a wrapper: engine and
 // game C++ code use Flecs v4 idioms directly through these names. Outside
 // engine/, never write `flecs::` — use the veach:: aliases, or veach::ecs:: for
 // anything that has no alias yet.

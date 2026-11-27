@@ -105,6 +105,6 @@ None.
 
 ## Links
 
-- ADRs: [0006 scripting](../../adr/0006-scripting-luau.md), [0022 reflection](../../adr/0022-reflection-everywhere.md)
+- ADRs: [0007 scripting](../../adr/0007-scripting-luau.md), [0026 reflection](../../adr/0026-reflection-everywhere.md)
 - Guides: [Luau API](../../guides/luau-api.md), [extending: new binding](../../guides/extending.md)
 - Code: `engine/script/`, `types/veach.d.luau`, `.luaurc`

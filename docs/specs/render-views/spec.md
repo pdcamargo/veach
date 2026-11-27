@@ -13,7 +13,7 @@ reverse-Z perspective matrices built from `veach::math`. Render features read th
 ## Motivation
 
 So far every image is drawn in normalized device coordinates. Placing anything in a world needs a camera, and
-the camera has to cross the extraction boundary ([ADR 0016](../../adr/0016-renderer-data-and-extraction.md)) the
+the camera has to cross the extraction boundary ([ADR 0020](../../adr/0020-renderer-data-and-extraction.md)) the
 same way as everything else. Backlog: VCH-011.
 
 ## Requirements
@@ -80,6 +80,6 @@ None.
 
 ## Links
 
-- ADRs: [0010 conventions](../../adr/0010-conventions-and-math.md),
-  [0016 extraction](../../adr/0016-renderer-data-and-extraction.md)
+- ADRs: [0013 conventions](../../adr/0013-conventions-and-math.md),
+  [0020 extraction](../../adr/0020-renderer-data-and-extraction.md)
 - Backlog: VCH-011, VCH-007

@@ -1,6 +1,6 @@
 --!strict
--- Khronos's FlightHelmet (CC0) through the reference path tracer (docs/specs/first-real-scene/spec.md,
--- scene.AC6): textured and normal-mapped, lit by a directional key light and a warm spot.
+-- Khronos's FlightHelmet (CC0) in photo mode, the reference path tracer (docs/specs/photo-mode/spec.md,
+-- photo.AC1): textured and normal-mapped, lit by a directional key light and a warm spot.
 -- Golden image: tests/golden/flight_helmet.png (256x256, 32 samples per pixel: 4 frames x 8).
 -- Run: veach-lab --rhi metal --headless --frames 4 --script scripts/flight_helmet.luau --screenshot out.png
 local veach = require("@veach")
@@ -16,7 +16,7 @@ camera:set(c.Transform, {
 	scale = vector.one,
 })
 camera:set(c.Camera, { fov_y = math.rad(35), near_plane = 0.05, active = true, ev100 = 0 })
-camera:set(c.PathTracer, { samples_per_frame = 8, max_bounces = 6 })
+camera:set(c.PhotoMode, { samples_per_frame = 8, max_bounces = 6 })
 -- A studio: a dim, even surround instead of the outdoors.
 camera:set(c.Sky, { mode = "constant", color = vector.create(0.12, 0.13, 0.15) })
 

@@ -1,7 +1,7 @@
 # Profiling with Tracy
 
 Veach is instrumented with [Tracy](https://github.com/wolfpld/tracy) v0.15.0 from day one
-([ADR 0011](../adr/0011-profiling-tracy.md)). Performance claims in commits and PRs must cite numbers from a capture —
+([ADR 0014](../adr/0014-profiling-tracy.md)). Performance claims in commits and PRs must cite numbers from a capture —
 not estimates.
 
 ## Build
@@ -91,3 +91,10 @@ Example: per-frame cost of the simulation is the `mean_ns` of the `fixed step` r
 a script system's cost is the `script.system` row (use `-u` to see each run).
 Compare like with like: same preset (`profile`), same `--frames`, same machine, and quote the
 command you ran next to the numbers.
+
+## GPU time
+
+Tracy records CPU zones only. GPU time comes from the render graph, which times every pass with GPU timestamps:
+over MCP, `gpu_timings` returns the last completed frame's time per pass, in execution order, and the device's
+frame time ([mcp-server](../specs/mcp-server/spec.md)). Measure in a release or `profile` build on a real GPU; the
+null RHI reports why it has no timings.

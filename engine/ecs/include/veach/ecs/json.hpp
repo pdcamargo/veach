@@ -1,6 +1,6 @@
 #pragma once
 
-// Reflection-driven JSON (ADR 0007). Data files (project config, .meta files,
+// Reflection-driven JSON (ADR 0010). Data files (project config, .meta files,
 // materials later) are read into reflected C++ types with actionable errors, and
 // their JSON Schemas are generated from the same reflection data.
 

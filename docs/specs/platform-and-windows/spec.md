@@ -61,7 +61,7 @@ local Window = veach.components.Window
 ## Out of scope
 
 - Gamepads (VCH-036), exclusive fullscreen and DPI fields (VCH-037), Luau input API (VCH-006), file watching for
-  hot reload (VCH-004). Windows verification (hosted CI only, ADR 0030) is VCH-002.
+  hot reload (VCH-004). Windows verification (hosted CI only, ADR 0032) is VCH-002.
 
 ## Open questions
 
@@ -69,5 +69,5 @@ None.
 
 ## Links
 
-- ADRs: [0008 platform](../../adr/0008-platform-sdl3.md), [0009 RHI](../../adr/0009-rhi-design.md)
+- ADRs: [0012 platform](../../adr/0012-platform-sdl3.md), [0004 RHI](../../adr/0004-own-rhi-not-sdl-gpu.md)
 - Code: `engine/platform/`

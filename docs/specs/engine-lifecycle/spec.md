@@ -79,8 +79,8 @@ None.
 
 ## Links
 
-- ADRs: [0014 lifecycle and phases](../../adr/0014-engine-lifecycle-and-phases.md),
-  [0015 modules and services](../../adr/0015-veach-modules-and-services.md),
-  [0021 logging and errors](../../adr/0021-structured-logging-and-errors.md)
+- ADRs: [0018 lifecycle and phases](../../adr/0018-engine-lifecycle-and-phases.md),
+  [0019 modules and services](../../adr/0019-veach-modules-and-services.md),
+  [0025 logging and errors](../../adr/0025-structured-logging-and-errors.md)
 - Backlog: VCH-001 (done), VCH-014, VCH-015
 - Code: `engine/runtime/`

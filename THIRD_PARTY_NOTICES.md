@@ -19,6 +19,7 @@ Veach is MIT-licensed (see [LICENSE](LICENSE)). It includes or links the third-p
 | [fastgltf](https://github.com/spnda/fastgltf) | 1.0.1 | MIT | Engine (glTF import). |
 | [simdjson](https://github.com/simdjson/simdjson) | 5.1.0 | Apache-2.0 or MIT (Veach uses simdjson under its MIT option) | Engine, through fastgltf (JSON parsing). Downloaded by fastgltf's build. |
 | [simdutf](https://github.com/simdutf/simdutf) | 9.3.3 | Apache-2.0 or MIT (Veach uses simdutf under its MIT option) | Engine, through fastgltf (base64 decoding). Downloaded by fastgltf's build. |
+| [meshoptimizer](https://github.com/zeux/meshoptimizer) | 1.3 | MIT | Engine (meshlets at cook time). |
 | [bc7enc_rdo](https://github.com/richgel999/bc7enc_rdo) | b943862 | MIT or public domain (your choice) | Engine texture cooking (BC7 encoding); its decoder in tests. Only `bc7enc.cpp` and `bc7decomp.cpp` are built. |
 | [DirectX 12 Agility SDK](https://aka.ms/directx12agility) (NuGet `Microsoft.Direct3D.D3D12`) | 1.620.2 | Microsoft Software License Terms (runtime DLLs); MIT (headers) | Windows builds only: headers, plus `D3D12Core.dll` and `d3d12SDKLayers.dll` copied next to each executable. |
 | [Direct3D WARP](https://aka.ms/direct3dwarp) (NuGet `Microsoft.Direct3D.WARP`) | 1.0.22 | Microsoft Software License Terms (testing only, not redistributable) | Windows builds only: `d3d10warp.dll` copied next to each executable for DX12 on GPU-less CI. Must not ship with Veach. |
@@ -601,6 +602,37 @@ LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
 CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
 SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
 INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+```
+
+## meshoptimizer 1.3
+
+Source: https://github.com/zeux/meshoptimizer  
+License: MIT
+
+Used at cook time to split meshes into meshlets.
+
+```
+MIT License
+
+Copyright (c) 2016-2026 Arseny Kapoulkine
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
 ## bc7enc_rdo (b943862)

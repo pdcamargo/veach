@@ -21,9 +21,10 @@ acceptance criteria (`[area.ACn] ...`) → status Implemented.
 | [Input actions in Luau](input/spec.md) | script | Implemented |
 | [Hot reload](hot-reload/spec.md) | asset | Implemented |
 | [First real scene](first-real-scene/spec.md) | render, asset | Implemented |
-| [Real-time renderer v0](realtime-renderer-v0/spec.md) | render, asset, rhi | Implemented |
 | [Record and replay](record-replay/spec.md) | runtime | Implemented |
-| [Temporal foundation and direct lighting at speed](temporal-direct-lighting/spec.md) | render, rhi | Implemented |
-| [Soft shadows from lights with a size](soft-shadows/spec.md) | render | Implemented |
 | [Physical sky and atmosphere](physical-sky/spec.md) | render | Implemented |
-| [Candela: real-time global illumination](candela/spec.md) | render | Draft |
+| [Real-time renderer (interim visibility-buffer path)](realtime-renderer/spec.md) | render, asset | Implemented |
+| [Photo mode: the reference path tracer](photo-mode/spec.md) | render | Implemented |
+
+Specs of the raytracing-first era (the real-time renderer v0, temporal direct lighting, soft shadows, real-time GI)
+were removed at the reset ([ADR 0001](../adr/0001-reset.md)); they live in the `pathtracer-era` tag.

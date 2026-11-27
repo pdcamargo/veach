@@ -14,7 +14,7 @@ veach_add_engine_library(platform
     PCH <flecs.h>)
 
 if(VEACH_SDL)
-    # PRIVATE on purpose: SDL types never leave engine/platform (ADR 0008).
+    # PRIVATE on purpose: SDL types never leave engine/platform (ADR 0012).
     target_link_libraries(veach_platform PRIVATE SDL3::SDL3-static)
     target_compile_definitions(veach_platform PRIVATE VEACH_HAS_SDL)
 endif()

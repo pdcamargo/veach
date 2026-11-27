@@ -171,7 +171,7 @@ std::vector<std::byte> encode_bc7(const ImageRgba8& image, bool perceptual) {
     } else {
         bc7enc_compress_block_params_init_linear_weights(&params);
     }
-    params.m_uber_level = 0;  // the fast end: cooking is on the load path (ADR 0032)
+    params.m_uber_level = 0;  // the fast end: cooking is on the load path (ADR 0011)
 
     const std::uint32_t blocks_x = (image.width + 3) / 4;
     const std::uint32_t blocks_y = (image.height + 3) / 4;

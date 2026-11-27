@@ -1,6 +1,6 @@
 #pragma once
 
-// The asset registry (ADR 0007, docs/specs/asset-system-core/spec.md).
+// The asset registry (ADR 0010, docs/specs/asset-system-core/spec.md).
 //
 //   auto& assets = veach::services(world).get<veach::AssetServer>();
 //   veach::Handle<veach::ScriptAsset> h = assets.load<veach::ScriptAsset>("scripts/hello.luau");

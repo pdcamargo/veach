@@ -1,4 +1,4 @@
-// The lab's proof of the material model (docs/adr/0033-material-model.md): GlowMaterial overrides only
+// The lab's proof of the material model (docs/adr/0035-material-model.md): GlowMaterial overrides only
 // evalEmission. Its emission is the standard one in diagonal stripes, so the stripes show which code ran.
 import veach.material;
 

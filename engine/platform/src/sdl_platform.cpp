@@ -1,4 +1,4 @@
-// The only translation unit that includes SDL. Keep it that way (ADR 0008).
+// The only translation unit that includes SDL. Keep it that way (ADR 0012).
 
 #include "sdl_platform.hpp"
 

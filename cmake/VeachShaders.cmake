@@ -1,8 +1,8 @@
-# Slang shaders, compiled offline for every target (docs/adr/0026-shader-compilation.md).
+# Slang shaders, compiled offline for every target (docs/adr/0009-shader-compilation.md).
 #
 #   veach_add_shader(<target> <file.slang> ENTRIES <entry>:<stage> [...] [INCLUDES <dir>...])
 #   veach_shader_library(<target> NAMESPACE <name>)
-#   veach_add_material(<target> <Name> <file.slang> [EMISSIVE])     (docs/adr/0033-material-model.md)
+#   veach_add_material(<target> <Name> <file.slang> [EMISSIVE])     (docs/adr/0035-material-model.md)
 #   veach_add_scene_shaders(<target> NAMESPACE <name>)                 (docs/adr/0034-...; after the materials)
 #
 # Stages: vertex, fragment, compute. veach_shader_library() generates
@@ -12,7 +12,7 @@
 # 41017 (use of an uninitialized global) is off: veach/scene.slang's `veach_scene` is filled by each entry point
 # before any use, which Slang's flow analysis cannot see across the entry point.
 set(VEACH_SHADER_FLAGS -matrix-layout-column-major -warnings-as-errors all -warnings-disable 41017)
-# Debug shaders check every bindless handle before use (veach/bindless.slang, ADR 0039).
+# Debug shaders check every bindless handle before use (veach/bindless.slang, ADR 0027).
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     list(APPEND VEACH_SHADER_FLAGS -DVEACH_VALIDATE_BINDLESS=1)
 endif()
@@ -135,7 +135,7 @@ function(veach_shader_library target)
     target_include_directories(${target} PRIVATE "${gen_dir}")
 endfunction()
 
-# A material kind (ADR 0033): <Name> is a Slang type in <file.slang> conforming to IMaterial. Kind 0 is always
+# A material kind (ADR 0035): <Name> is a Slang type in <file.slang> conforming to IMaterial. Kind 0 is always
 # StandardMaterial; these follow in call order. EMISSIVE: its evalEmission may glow where the record's emissive
 # factor is zero, so the path tracer samples its triangles as lights.
 function(veach_add_material target name file)
@@ -211,14 +211,9 @@ ${kinds}}};
 " @ONLY)
     veach_add_shader(${target} "${PROJECT_SOURCE_DIR}/engine/render/shaders/path_tracer.slang"
         ENTRIES trace_pixels:compute INCLUDES ${include_dirs})
-    # The real-time renderer with the same materials (ADR 0037).
+    # The real-time renderer with the same materials (ADR 0040).
     veach_add_shader(${target} "${PROJECT_SOURCE_DIR}/engine/render/shaders/realtime_visibility.slang"
         ENTRIES vis_vs:vertex vis_fs:fragment INCLUDES ${include_dirs})
     veach_add_shader(${target} "${PROJECT_SOURCE_DIR}/engine/render/shaders/realtime_shade.slang"
-        ENTRIES surface:compute restir_temporal:compute restir_spatial:compute gi_ambient:compute shade:compute
-        accumulate:compute denoise_temporal:compute denoise_variance:compute denoise_atrous:compute
-        denoise_combine:compute INCLUDES ${include_dirs})
-    # Candela, the real-time renderer's GI (ADR 0051).
-    veach_add_shader(${target} "${PROJECT_SOURCE_DIR}/engine/render/shaders/candela.slang"
-        ENTRIES cache_update:compute cache_resolve:compute gather:compute misses:compute temporal:compute spatial:compute surface:compute INCLUDES ${include_dirs})
+        ENTRIES shade:compute INCLUDES ${include_dirs})
 endfunction()

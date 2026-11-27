@@ -1,6 +1,6 @@
 #pragma once
 
-// Render graph v0 (ADR 0025). Passes declare what they read and write; the
+// Render graph v0 (ADR 0029). Passes declare what they read and write; the
 // graph derives the execution order, culls passes whose results nobody uses,
 // emits the barriers, and declares residency. Nothing else issues barriers.
 //

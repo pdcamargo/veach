@@ -1,4 +1,4 @@
-# Generates <NAMESPACE>.hpp/.cpp embedding compiled shaders (docs/adr/0026-shader-compilation.md).
+# Generates <NAMESPACE>.hpp/.cpp embedding compiled shaders (docs/adr/0009-shader-compilation.md).
 #   LIBRARIES: list of "<stem>|<metallib path or empty>|<reflection json>|<source file, for messages>"
 #   ENTRIES:   list of "<stem>|<entry>|<stage>|<dxil path or empty>"
 # Both arrive joined with "@@" (see VeachShaders.cmake).
@@ -19,7 +19,7 @@ function(bytes_to_array path out_var)
 endfunction()
 
 # Emits the byte layout of a shader's parameter block (the ConstantBuffer at the push-constant slot) and
-# refuses layouts that differ between Metal and HLSL (ADR 0024): 3-component vectors and 3-row/column matrices.
+# refuses layouts that differ between Metal and HLSL (ADR 0027): 3-component vectors and 3-row/column matrices.
 function(parameter_layout reflection_path source stem out_header)
     file(READ "${reflection_path}" json)
     string(JSON parameter_count LENGTH "${json}" parameters)
@@ -48,14 +48,14 @@ function(parameter_layout reflection_path source stem out_header)
                 string(JSON elements GET "${json}" parameters ${i} type elementType fields ${f} type elementCount)
                 if(elements EQUAL 3)
                     message(FATAL_ERROR "${source}: '${struct_name}.${name}' is a 3-component vector. Its size differs "
-                        "between Metal (16 bytes) and HLSL (12): use a 4-component vector (ADR 0024).")
+                        "between Metal (16 bytes) and HLSL (12): use a 4-component vector (ADR 0027).")
                 endif()
             elseif(type_kind STREQUAL "matrix")
                 string(JSON rows GET "${json}" parameters ${i} type elementType fields ${f} type rowCount)
                 string(JSON columns GET "${json}" parameters ${i} type elementType fields ${f} type columnCount)
                 if(rows EQUAL 3 OR columns EQUAL 3)
                     message(FATAL_ERROR "${source}: '${struct_name}.${name}' is a ${rows}x${columns} matrix. Its layout "
-                        "differs between Metal and HLSL: use float4x4 (ADR 0024).")
+                        "differs between Metal and HLSL: use float4x4 (ADR 0027).")
                 endif()
             endif()
             string(APPEND fields "    {\"${name}\", ${offset}, ${size}},\n")

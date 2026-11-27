@@ -1,14 +1,11 @@
-// The real-time renderer v0 (docs/adr/0037-realtime-renderer-visibility-buffer.md): a visibility buffer of
-// meshlet triangles, then one compute pass that rebuilds each pixel's surface and lights it with the same
-// materials, BRDF and light sampling as the path tracer. Compiled into each app's shader library with its
-// materials (veach_add_scene_shaders). This file: the visibility pass. Its parameter layout matches render::VisibilityParams.
+// The real-time renderer for now (docs/adr/0040-interim-realtime-path-visibility-buffer.md): a visibility buffer of
+// meshlet triangles, then one compute pass (realtime_shade.slang) that rebuilds each pixel's surface and lights it with
+// the same materials and BRDF as photo mode. Compiled into each app's shader library with its materials
+// (veach_add_scene_shaders). This file: the visibility pass. Its parameter layout matches render::VisibilityParams.
 
 import veach.bindless;
-import veach.brdf;
-import veach.lights;
 import veach.material;
-import veach.materials_generated;  // evaluateSurface(kind, c), evaluateAlpha(kind, c)
-import veach.random;
+import veach.materials_generated;  // evaluateAlpha(kind, c)
 import veach.scene;
 
 // ---- visibility -------------------------------------------------------------------------------------------

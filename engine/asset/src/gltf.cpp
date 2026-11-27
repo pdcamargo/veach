@@ -1,4 +1,4 @@
-// glTF 2.0 import (ADR 0032): fastgltf parses, we cook. Meshes and textures,
+// glTF 2.0 import (ADR 0011): fastgltf parses, we cook. Meshes and textures,
 // the expensive parts, are cached in <project>/.veach/cache/<id>/<key>/, where
 // the key hashes everything the cook reads; the scene and its materials are
 // rebuilt from the (already parsed) glTF on every load.

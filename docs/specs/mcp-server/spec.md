@@ -53,10 +53,9 @@ veach-lab --mcp --rhi metal                      # windowed: the app keeps runni
 | `list_assets` | | `{assets: [{path, id, loader, state, reloads, error?, reload_error?}]}` |
 | `send_input` | `key` (a `veach::Key` name), `down` | `{key, down, delivered}`; the event drives input actions on the next frame ([input](../input/spec.md)) |
 | `screenshot` | `path?` (also write the PNG there) | image content (PNG) and a text note |
-| `path_trace` | `samples`, `path?` | restarts the reference path tracer and renders exactly `samples` per pixel, without advancing simulation; image content (PNG) ([first-real-scene](../first-real-scene/spec.md)) |
+| `photo_mode` | `samples`, `path?` | restarts photo mode (the reference path tracer, on the camera's `PhotoMode`) and renders exactly `samples` per pixel, without advancing simulation; image content (PNG) ([photo-mode](../photo-mode/spec.md)) |
 | `render_graph_plan` | | the last compiled plan as text (`RenderGraph::describe`) |
-| `gpu_timings` | | `{backend, device, gpu, frames_in_flight, last_frame_gpu_ms, frame, passes: [{name, gpu_ms}], passes_unavailable?, path_tracer_samples}`: waits for the GPU, then the last completed frame's time per render-graph pass, in execution order; `passes_unavailable` says why `passes` is empty on a device that cannot time them (the null RHI). VCH-049, rt.AC7 |
-| `frame_budget` | `tier?` (`"performance"`, default, or `"quality"`), `frames?` (16) | renders `frames` frames of the current state (simulation does not advance) and reports, against the tier's budget (ADR 0049): each subsystem's median GPU time with its passes and slice, untimed vendor work (MetalFX) counted in post, GPU memory by kind against its slice, the GI mode, whether the camera's settings are the tier's, and `ok`; `unmapped_passes` and `memory.unmapped` name anything without a subsystem |
+| `gpu_timings` | | `{backend, device, gpu, frames_in_flight, last_frame_gpu_ms, frame, passes: [{name, gpu_ms}], passes_unavailable?, path_tracer_samples}` (`path_tracer_samples`: photo mode's samples per pixel so far): waits for the GPU, then the last completed frame's time per render-graph pass, in execution order; `passes_unavailable` says why `passes` is empty on a device that cannot time them (the null RHI). VCH-049 |
 | `eval` | `source` (Luau) | `{ok, returns: [string], log: [string]}` |
 
 ```cpp
@@ -102,6 +101,6 @@ None.
 
 ## Links
 
-- ADRs: [0006 Luau scripting](../../adr/0006-scripting-luau.md), [0029 frame and sync model](../../adr/0029-frame-and-sync-model.md)
+- ADRs: [0007 Luau scripting](../../adr/0007-scripting-luau.md), [0030 frame and sync model](../../adr/0030-frame-and-sync-model.md)
 - Backlog: VCH-003, VCH-048, VCH-049
 - Guides: [AGENTS.md](../../../AGENTS.md#driving-the-engine-over-mcp)

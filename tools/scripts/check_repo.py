@@ -3,29 +3,30 @@
 
 1. Every TODO/FIXME in code references a backlog item: TODO(VCH-123): ...
    and that item exists in docs/backlog/BACKLOG.md.
-2. No `flecs::` in apps/ — apps use the veach:: aliases (ADR 0005).
-3. CLAUDE.md is exactly one line: @AGENTS.md (ADR 0018).
+2. No `flecs::` in apps/ — apps use the veach:: aliases (ADR 0006).
+3. CLAUDE.md is exactly one line: @AGENTS.md (ADR 0022).
 4. Every .slang file with a parameter block has its C++ mirror checked against the reflected layout:
-   parameters_match<...>(<namespace>::layout::<stem>, ...) somewhere in C++ (VCH-041, ADR 0024).
+   parameters_match<...>(<namespace>::layout::<stem>, ...) somewhere in C++ (VCH-041, ADR 0027).
 5. Every .slang file that uses DescriptorHandle imports veach.bindless, so debug builds check its handles
-   (ADR 0039).
-6. Every image tolerance exception in tests/tolerance.json names an open backlog item and says why: fixing the
-   bug (moving it to Done) fails this check until the exception is removed (ADR 0052).
+   (ADR 0027).
+6. The engine never knows the space toolbox exists: nothing under engine/ names `veach/space`, `veach::space` or
+   `veach_space` (ADR 0042). What the toolbox needs that is generic moves down into the engine instead.
 """
 
 from __future__ import annotations
 
-import json
 import pathlib
 import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-CODE_DIRS = ["engine", "apps", "tools", "tests", "cmake", ".github"]
-CODE_SUFFIXES = {".cpp", ".hpp", ".h", ".mm", ".inl", ".luau", ".cmake", ".py", ".yml", ".yaml", ".json", ".sh"}
+CODE_DIRS = ["engine", "space", "apps", "tools", "tests", "cmake", ".github"]
+CODE_SUFFIXES = {".cpp", ".hpp", ".h", ".mm", ".inl", ".luau", ".cmake", ".py", ".yml", ".yaml", ".json", ".sh",
+                 ".slang"}
 CODE_NAMES = {"CMakeLists.txt"}
 MARKER = re.compile(r"\b(TODO|FIXME|XXX|HACK)\b(?!\(VCH-\d{3,}\))")
 REFERENCE = re.compile(r"\b(?:TODO|FIXME|XXX|HACK)\(VCH-(\d{3,})\)")
+SPACE = re.compile(r"veach/space\b|veach::space\b|\bveach_space\b")
 SELF = pathlib.Path(__file__).resolve()
 
 
@@ -60,6 +61,9 @@ def main() -> int:
             for item in REFERENCE.findall(line):
                 if item not in known_ids:
                     errors.append(f"{rel}:{lineno}: TODO references VCH-{item}, which is not in BACKLOG.md")
+            if rel.startswith("engine/") and SPACE.search(line):
+                errors.append(f"{rel}:{lineno}: the engine names the space toolbox; it must not know it exists "
+                              "(ADR 0042). Move what the toolbox needs into the engine as a generic feature.")
             if rel.startswith("apps/") and "flecs::" in line:
                 errors.append(f"{rel}:{lineno}: `flecs::` in apps/ — use the veach:: aliases (veach::World, "
                               "veach::Entity, ...) or veach::ecs:: for raw Flecs")
@@ -80,24 +84,7 @@ def main() -> int:
         text = shader.read_text(encoding="utf-8")
         if "DescriptorHandle" in text and not re.search(r"^import veach\.bindless;", text, re.MULTILINE):
             errors.append(f"{shader.relative_to(ROOT).as_posix()}: uses DescriptorHandle without "
-                          "`import veach.bindless;` (its handles would go unchecked, ADR 0039)")
-
-    open_ids = set(re.findall(r"\bVCH-(\d{3,})\b", backlog.split("\n## Done", 1)[0]))
-    tolerance = json.loads((ROOT / "tests/tolerance.json").read_text(encoding="utf-8"))
-    entries = [(scene["name"], scene) for scene in tolerance["scenes"]] + \
-        [(f"{e['name']}'s flicker", e) for e in tolerance["flicker"]["entries"]] + \
-        [(f"the motion trail (GI {e['gi']}, {e['upscaler']})", e) for e in tolerance["motion_trail"]["entries"]]
-    for name, scene in entries:
-        for exception in scene.get("exceptions", []):
-            bug = re.fullmatch(r"VCH-(\d{3,})", exception.get("bug", ""))
-            where = f"tests/tolerance.json: {name}'s {exception.get('metric')} exception"
-            if not bug:
-                errors.append(f"{where} has no bug; name the backlog item it waits on (\"bug\": \"VCH-NNN\")")
-            elif bug[1] not in open_ids:
-                errors.append(f"{where} waits on VCH-{bug[1]}, which is not an open item in BACKLOG.md: if it is "
-                              "fixed, remove the exception and record the new baseline (ADR 0052)")
-            if not exception.get("why"):
-                errors.append(f"{where} has no \"why\"")
+                          "`import veach.bindless;` (its handles would go unchecked, ADR 0027)")
 
     claude = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
     if claude != "@AGENTS.md\n":

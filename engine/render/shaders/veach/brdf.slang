@@ -1,4 +1,4 @@
-// The glTF metallic-roughness BRDF, shared by the path tracer and the real-time renderer (ADR 0037): Lambert
+// The glTF metallic-roughness BRDF, shared by photo mode and the real-time renderer (ADR 0035): Lambert
 // diffuse and GGX specular (Smith height-correlated, Schlick Fresnel), sampled by visible normals.
 
 import veach.material;
@@ -74,41 +74,6 @@ float3 brdf_eval(Brdf b, float3 v, float3 l, out float pdf) {
     const float pdf_diffuse = l.z / pi;
     pdf = b.specular_probability * pdf_specular + (1.0 - b.specular_probability) * pdf_diffuse;
     return (specular + diffuse) * l.z;
-}
-
-/// A Lambertian surface's albedo / pi x cos(l), with the cosine-sampling pdf: the diffuse-only bounces of Candela and
-/// of the path tracer's mode 4 (docs/specs/candela/spec.md).
-float3 lambert_eval(float3 albedo, float3 l, out float pdf) {
-    pdf = max(l.z, 0.0) / pi;
-    return albedo * pdf;
-}
-
-/// brdf_eval's two lobes, each times cos(l): what the denoiser filters separately (ADR 0042). Their sum is
-/// brdf_eval's value.
-void brdf_eval_lobes(Brdf b, float3 v, float3 l, out float3 diffuse, out float3 specular) {
-    diffuse = float3(0.0, 0.0, 0.0);
-    specular = float3(0.0, 0.0, 0.0);
-    if (l.z <= 0.0 || v.z <= 0.0) {
-        return;
-    }
-    const float3 h = normalize(v + l);
-    const float a2 = b.alpha * b.alpha;
-    const float d = ggx_d(h.z, a2);
-    const float vis = 0.5 / (l.z * sqrt(v.z * v.z * (1.0 - a2) + a2) + v.z * sqrt(l.z * l.z * (1.0 - a2) + a2));
-    const float3 f = b.f0 + (1.0 - b.f0) * pow(1.0 - saturate(dot(v, h)), 5.0);
-    specular = d * vis * f * l.z;
-    diffuse = (1.0 - f) * b.diffuse / pi * l.z;
-}
-
-/// The specular lobe's albedo for F0, roughness and n.v: Karis' analytic fit of the split-sum lookup. The denoiser
-/// divides specular light by it before filtering and multiplies it back after (ADR 0042).
-float3 specular_albedo(float3 f0, float roughness, float n_dot_v) {
-    const float4 c0 = float4(-1.0, -0.0275, -0.572, 0.022);
-    const float4 c1 = float4(1.0, 0.0425, 1.04, -0.04);
-    const float4 r = roughness * c0 + c1;
-    const float a004 = min(r.x * r.x, exp2(-9.28 * n_dot_v)) * r.x + r.y;
-    const float2 ab = float2(-1.04, 1.04) * a004 + r.zw;
-    return f0 * ab.x + ab.y;
 }
 
 /// Heitz 2018: a visible-normal sample of GGX, in local space.

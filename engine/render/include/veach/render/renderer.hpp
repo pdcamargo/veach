@@ -1,11 +1,11 @@
 #pragma once
 
-// The renderer and the extraction boundary (ADR 0016).
+// The renderer and the extraction boundary (ADR 0020).
 //
 // Renderer data (GPU resources, acceleration structures) lives outside the ECS.
 // The Extract phase is the ONLY place ECS data crosses into the renderer:
 // extractors read components and write RenderWorld. The Render phase builds a
-// render graph (ADR 0025) from the registered features and submits it.
+// render graph (ADR 0029) from the registered features and submits it.
 //
 // Modules extend rendering without touching renderer internals:
 //   auto& renderer = veach::services(world).get<veach::render::Renderer>();
@@ -36,7 +36,7 @@
 namespace veach::render {
 
 /// One camera's view of the frame, extracted from a Camera and its Transform (docs/specs/render-views/spec.md).
-/// Column-major matrices, reverse-Z, infinite far plane (ADR 0010).
+/// Column-major matrices, reverse-Z, infinite far plane (ADR 0013).
 struct RenderView {
     math::mat4 view{1.0f};        ///< view from world
     math::mat4 projection{1.0f};  ///< clip from view
@@ -46,15 +46,9 @@ struct RenderView {
     float near_plane = 0.1f;
     std::uint32_t width = 0;  ///< the target it was built for, pixels
     std::uint32_t height = 0;
-    float exposure = 1.0f / 1.2f;           ///< 1 / (1.2 * 2^ev100)
-    std::optional<PathTracer> path_tracer;  ///< the camera's PathTracer component, if it has one
-    RealtimeLighting realtime;              ///< the camera's RealtimeLighting component, or the defaults
-    Upscaling upscaling;                    ///< the camera's Upscaling component, or the defaults
-    Candela candela;                        ///< the camera's Candela component, or the defaults
-    /// The camera's RenderQuality tier (absent: Performance). Unless custom, realtime, upscaling and candela above
-    /// already hold the tier's settings.
-    RenderTier tier = RenderTier::performance;
-    std::uint64_t camera = 0;  ///< the camera entity: per-view history is kept by it (ADR 0040)
+    float exposure = 1.0f / 1.2f;         ///< 1 / (1.2 * 2^ev100)
+    std::optional<PhotoMode> photo_mode;  ///< the camera's PhotoMode component, if it has one (ADR 0041)
+    std::uint64_t camera = 0;             ///< the camera entity
 };
 
 /// A mesh to draw this frame: an imported mesh, the material of each of its slots, and where it is.
@@ -62,10 +56,10 @@ struct MeshDraw {
     AssetId mesh;
     std::vector<AssetId> materials;
     math::mat4 world{1.0f};
-    std::uint64_t entity = 0;  ///< identifies the draw across frames: last frame's transform gives motion
+    std::uint64_t entity = 0;  ///< the entity it was extracted from: identifies the draw across frames
 };
 
-/// A punctual light this frame (ADR 0034). `radiance` is color x intensity (lux or candela).
+/// A punctual light this frame (ADR 0036). `radiance` is color x intensity (lux or candela).
 struct RenderLight {
     LightKind kind = LightKind::point;
     math::vec3 position{0.0f};
@@ -73,10 +67,10 @@ struct RenderLight {
     math::vec3 radiance{0.0f};
     float cos_inner = 1.0f;
     float cos_outer = 0.0f;
-    float size = 0.0f;  ///< sphere radius (point, spot), angular radius (directional); 0 = punctual (soft-shadows spec)
+    float size = 0.0f;  ///< sphere radius (point, spot), angular radius (directional); 0 = punctual (ADR 0036)
 };
 
-/// The frame's sky (ADR 0050), resolved by extraction from the Sky component (or its defaults) and the lights.
+/// The frame's sky (ADR 0038), resolved by extraction from the Sky component (or its defaults) and the lights.
 struct ResolvedSky {
     SkyMode mode = SkyMode::physical;
     Sky settings;
@@ -95,9 +89,6 @@ public:
     std::vector<MeshDraw> meshes;   ///< in entity-id order
     std::vector<RenderLight> lights;
     ResolvedSky sky;
-    /// A light, the sky or a mesh instance (whose materials may emit) was set, added or removed since the last frame
-    /// (RenderModule's change detection): temporal lighting histories restart.
-    bool lighting_changed = false;
 
     /// Per-frame data extracted by modules, one value per type.
     template <class T>
@@ -165,9 +156,8 @@ public:
     using CaptureCallback = std::function<void(Result<Image>)>;
     void request_capture(CaptureCallback done);
 
-    /// Extract phase: rebuilds RenderWorld by running every extractor in registration order; `lighting_changed` is
-    /// RenderWorld::lighting_changed.
-    void extract(const World& world, bool lighting_changed = false);
+    /// Extract phase: rebuilds RenderWorld by running every extractor in registration order.
+    void extract(const World& world);
     /// Render phase: builds, compiles and submits the frame's render graph.
     void render();
 
@@ -185,8 +175,6 @@ public:
     [[nodiscard]] rhi::Device& device() { return device_; }
     /// The last compiled graph, as text (RenderGraph::describe()).
     [[nodiscard]] const std::string& last_graph() const { return last_graph_; }
-    /// The last frame's passes in execution order (culled ones left out): what the frame budget maps (ADR 0049).
-    [[nodiscard]] const std::vector<std::string>& last_passes() const { return last_passes_; }
 
 private:
     struct NamedExtractor {
@@ -222,7 +210,6 @@ private:
     std::uint64_t readback_size_ = 0;
 
     std::string last_graph_;
-    std::vector<std::string> last_passes_;
 };
 
 /// Registers the Extract and Render phase systems. Requires a Renderer service.

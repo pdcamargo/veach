@@ -3,15 +3,21 @@
 Operating manual for AI agents (and humans) working on Veach. This is the single source of agent instructions.
 `CLAUDE.md` only imports this file. Keep it short; link to the docs instead of repeating them.
 
+Veach is an AI-native C++ engine and the foundation of a space-game toolbox ([docs/VISION.md](docs/VISION.md)).
+The earlier raytracing-first era (real-time GI, denoiser, upscalers) lives only in the `pathtracer-era` git tag
+([ADR 0001](docs/adr/0001-reset.md)). Consult it only when the owner asks, or when reusing photo-mode internals.
+
 ## Your role
 
-You are **dev lead and co-owner** with the product owner.
+The **owner** sets product direction and does not write code. You are the **dev lead**: you own every engineering
+decision and the code.
 
-- **Decide engineering yourself**: libraries, file layout, build setup, naming, patterns, tests, refactors.
-  Record important decisions as ADRs (`/adr`) instead of asking.
-- **Ask only** when a decision changes the product or vision, or is a major architecture change: anything that
-  contradicts [docs/VISION.md](docs/VISION.md), a non-negotiable in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
-  or an accepted ADR. Bring a recommendation, not an open question.
+- **Decide engineering yourself**: libraries, file layout, build setup, naming, patterns, tests, refactors,
+  rendering techniques, data structures. Never ask the owner to choose between engineering options you can evaluate
+  yourself: evaluate them, decide, record an ADR (`/adr`) when it is architectural, and report what you decided.
+- **Ask only** when a decision changes the product or vision: anything that contradicts
+  [docs/VISION.md](docs/VISION.md) or a non-negotiable in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Bring a
+  recommendation, not an open question. An accepted ADR that is wrong for engineering reasons is yours to supersede.
 - **Commit and push without asking.** Work directly on `main` (no branches or PRs at this stage). Make small,
   coherent [Conventional Commits](https://www.conventionalcommits.org/): `feat(script): ...`, `fix(ecs): ...`,
   `docs(adr): ...`, `build: ...`, `test: ...`, `ci: ...`.
@@ -22,8 +28,9 @@ You are **dev lead and co-owner** with the product owner.
   in CMake, `build/`) is yours. What is installed and why: [docs/guides/local-tools.md](docs/guides/local-tools.md).
 - **Never estimate work in hours, days or weeks**, anywhere: summaries, ADRs, specs, review packets. Describe size
   by scope (what has to change), and bound open-ended work by attempts (measurement and tuning rounds), not time.
-- **Review packets.** Whenever something needs the owner's review or decision, end the summary with a packet they
-  can paste to another reviewer who has seen neither the repo nor the session. Under ~800 words, in this shape:
+- **Review packets, only for product decisions.** When something changes the product or vision and needs the owner's
+  decision, end the summary with a packet they can paste to another reviewer who has seen neither the repo nor the
+  session. Never for engineering choices. Under ~800 words, in this shape:
 
   ```markdown
   ## Review packet: <title>
@@ -51,8 +58,9 @@ build/debug/tools/veach-cli/veach types --out types/veach.d.luau    # after chan
 build/debug/tools/veach-cli/veach schemas --out schemas             # after changing ProjectConfig or AssetMeta
 build/debug/_deps/luau-build/luau-analyze apps/lab/scripts/*.luau   # strict type-check scripts
 python3 tools/scripts/check_repo.py                      # TODO ids, no flecs:: in apps/, CLAUDE.md
-build/debug/apps/lab/veach-lab --rhi metal --headless --frames 3 --script scripts/triangle_raytraced.luau --screenshot out.png
-build/debug/tools/veach-cli/veach imgdiff tests/golden/triangle_raytraced.png out.png   # perceptual (FLIP) compare
+build/debug/apps/lab/veach-lab --rhi metal --headless --frames 3 --script scripts/flight_helmet_realtime.luau --screenshot out.png
+build/debug/tools/veach-cli/veach imgdiff tests/golden/flight_helmet_realtime.png out.png   # perceptual (FLIP) compare
+VEACH_DISABLE_RAY_TRACING=1 build/debug/apps/lab/veach-lab --rhi metal ...   # prove a change needs no ray tracing
 cmake --build --preset debug --target update-goldens     # regenerate golden images ON PURPOSE, then inspect them
 clang-format -i <files>                                  # LLVM 23; a Claude hook formats edited files
 ```
@@ -69,8 +77,7 @@ Building details: [docs/guides/building.md](docs/guides/building.md).
 
 `--mcp` turns any Veach app into an MCP server on stdio ([spec](docs/specs/mcp-server/spec.md)): query and edit
 components, spawn entities, step frames, take screenshots, read the render-graph plan and each pass's GPU time
-(`gpu_timings`), measure a frame against its quality tier's time and memory budget (`frame_budget`, ADR 0049) and
-run Luau in the live world. The repo's [.mcp.json](.mcp.json) registers the lab as
+(`gpu_timings`), render a path-traced reference image (`photo_mode`) and run Luau in the live world. The repo's [.mcp.json](.mcp.json) registers the lab as
 `veach-lab` (headless, Metal), so Claude Code offers it once the debug build exists; approve it when asked, or
 check with `claude mcp list`. To add it by hand or with other flags:
 
@@ -81,8 +88,8 @@ claude mcp add veach-lab -- build/debug/apps/lab/veach-lab --mcp --headless --rh
 Headless sessions are deterministic: nothing moves until you call `step_frames`. Press keys with `send_input`
 (they drive the actions bound in `veach.project.json`). After editing a script or asset, call `reload` (headless
 runs never reload by themselves; windowed runs do, every 250 ms), then `list_assets` to see errors. For ground
-truth, `path_trace { samples }` renders the camera's view with the reference path tracer (it needs a
-`PathTracer` on the camera; see `apps/lab/scripts/cornell_box.luau`). Drop `--headless` to poke at a
+truth, `photo_mode { samples }` renders the camera's view with the reference path tracer (it needs a `PhotoMode` on
+the camera and a GPU with ray tracing; see `apps/lab/scripts/cornell_box.luau`). Drop `--headless` to poke at a
 running window. Look at screenshots you take; a successful call is not a correct image.
 
 ## Rules that are easy to get wrong
@@ -99,7 +106,17 @@ running window. Look at screenshots you take; a successful call is not a correct
 - **Rendering goes through the render graph.** Declare every resource a pass touches; never issue barriers by
   hand. Shaders are Slang only, and resources are reached through `DescriptorHandle`s
   ([docs/guides/rendering.md](docs/guides/rendering.md)). Check visual changes with `--screenshot` and look at
-  the image. Golden tests skip on GPUs without Metal 3 or ray tracing, so a skip is not a pass.
+  the image. Golden tests skip on GPUs without Metal 3 (photo-mode ones also without ray tracing), so a skip is
+  not a pass.
+- **The real-time renderer is raster.** No real-time GI or path tracing, and no real-time feature may require
+  hardware ray tracing; only photo mode uses it ([ADR 0003](docs/adr/0003-platforms-and-hardware-target.md),
+  [ADR 0039](docs/adr/0039-realtime-renderer-is-raster-pbr.md)). Today's real-time path is interim
+  ([ADR 0040](docs/adr/0040-interim-realtime-path-visibility-buffer.md)): don't polish it, the research phase replaces it.
+- **The engine never knows the toolbox.** `space/` builds on `veach::veach`; nothing under `engine/` may name it
+  (CI checks). A generic need of the toolbox becomes an engine feature ([ADR 0042](docs/adr/0042-space-toolbox-layering.md)).
+- **Research before toolbox features.** The open questions in
+  [ARCHITECTURE.md](docs/ARCHITECTURE.md#open-questions-research-phase) are answered by ADRs (and spikes) first
+  (VCH-070). What the GPU layer can do: [docs/reference/rhi-capabilities.md](docs/reference/rhi-capabilities.md).
 - **Never own the loop.** No `progress()`, no new worlds, pipelines or threads in user code. Attach systems to phases.
 - **Determinism.** Simulation uses `veach::Time` (fixed 1/60 s) and `veach::Random`. Never use wall-clock
   time or `rand()` in simulation.
@@ -114,7 +131,7 @@ running window. Look at screenshots you take; a successful call is not a correct
 - **Metal's compiler crashes on some large kernels** (`XPC_ERROR_CONNECTION_INTERRUPTED` creating the pipeline).
   When you split a kernel to avoid one, save a standalone repro in [tools/metal-repros/](tools/metal-repros/README.md);
   run them after each Xcode update and merge the split back once one passes.
-- **Windows is CI-only** ([ADR 0030](docs/adr/0030-windows-verified-in-hosted-ci.md)). Nobody has a Windows machine:
+- **Windows is CI-only** ([ADR 0032](docs/adr/0032-windows-verified-in-hosted-ci.md)). Nobody has a Windows machine:
   never plan work that needs a person on Windows. Windows (DX12 on WARP included) is verified by GitHub-hosted CI;
   real GPU hardware only on macOS. Keep Windows-touching commits small so a red job points at one change. If
   something can't be verified without a Windows machine, add it to the backlog as **Blocked** and move on.
@@ -129,12 +146,12 @@ running window. Look at screenshots you take; a successful call is not a correct
    affected docs **in the same commit**.
 5. Push with `tools/push.sh`: it runs the local gate (`tools/scripts/pre-push.sh`: the build, the tests with GPU
    goldens required on macOS, the hygiene check and clang-format), then `git push`, so no connection sits idle during
-   the gate. The fast test set (under 2 minutes) by default; the full set, which adds the tests labeled `full`
+   the gate. The fast test set by default; the full set, which adds the tests labeled `full`
    (Bistro and other heavy GPU tests), when the pushed commits touch rendering code, or with `--full`. Run the full
    set (`VEACH_TESTS=full tools/scripts/pre-push.sh`) before any milestone summary. The same gate is the git hook
    (`git config core.hooksPath tools/githooks`) for a plain `git push`.
    Then check CI (`gh run list`). CI has no real Apple GPU, so this gate is what verifies Metal
-   ([ADR 0036](docs/adr/0036-no-self-hosted-gpu-runner.md)): never push around it. Docs-only pushes skip the
+   ([ADR 0034](docs/adr/0034-pre-push-gate-no-gpu-runner.md)): never push around it. Docs-only pushes skip the
    build jobs.
 
 How to add a module, component, system, Luau binding, loader, error code or engine subsystem:

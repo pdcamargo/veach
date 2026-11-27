@@ -9,7 +9,7 @@ behalf** ([AGENTS.md](../../AGENTS.md#your-role)).
 | | |
 |---|---|
 | What | [xwin](https://github.com/Jake-Shadle/xwin) (`~/.cargo/bin/xwin`, installed with `cargo install xwin --locked`), and the MSVC CRT and Windows SDK 10.0.26100 headers and libraries it downloaded to `~/.xwin` (about 630 MB) |
-| Why | Nobody has a Windows machine ([ADR 0030](../adr/0030-windows-verified-in-hosted-ci.md)), so Windows-only code (the DX12 backend) is first compiled by the hosted CI job, about 4 minutes per round trip. With these headers, `tools/scripts/wincheck.sh <files>` type-checks Windows sources on macOS in seconds (`clang-cl -fsyntax-only`, plus the pinned Agility SDK headers, which the script caches in `build/wincheck/`) |
+| Why | Nobody has a Windows machine ([ADR 0032](../adr/0032-windows-verified-in-hosted-ci.md)), so Windows-only code (the DX12 backend) is first compiled by the hosted CI job, about 4 minutes per round trip. With these headers, `tools/scripts/wincheck.sh <files>` type-checks Windows sources on macOS in seconds (`clang-cl -fsyntax-only`, plus the pinned Agility SDK headers, which the script caches in `build/wincheck/`) |
 | License | Downloading the headers required accepting Microsoft's license for the MSVC and Windows SDK packages (`xwin --accept-license`). The agent accepted it on 2026-11-25 without asking first; the owner has since approved keeping it |
 | Installed | 2026-11-25, for VCH-012. `cargo-xwin` in `~/.cargo/bin` predates it and is not ours |
 | Remove | `cargo uninstall xwin && rm -rf ~/.xwin` (and `rm -rf build/wincheck`). Nothing in the build needs them; only `wincheck.sh` does |

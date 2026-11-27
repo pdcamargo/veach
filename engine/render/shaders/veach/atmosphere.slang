@@ -1,4 +1,4 @@
-// The physical atmosphere (ADR 0050, docs/specs/physical-sky/spec.md), after Hillaire 2020: Rayleigh and Mie
+// The physical atmosphere (ADR 0038, docs/specs/physical-sky/spec.md), after Hillaire 2020: Rayleigh and Mie
 // scattering and ozone absorption over a spherical planet, tabulated in lookup tables that both renderers read.
 // Lengths in kilometers. LUT luminance is per lux of sun illuminance at the top of the atmosphere; SkyFrame scales it
 // to nits. The CPU mirror (render/src/atmosphere.cpp) integrates transmittance the same way.
@@ -197,7 +197,7 @@ float3 sky_radiance(SkyFrame s, float3 direction, bool with_sun) {
     return l * s.sun.w;
 }
 
-/// The radiance the ambient stopgap spreads over the upper hemisphere (nits): the sky's cosine-weighted average.
+/// The real-time renderer's ambient radiance over the upper hemisphere (nits): the sky's cosine-weighted average.
 float3 sky_ambient_radiance(SkyFrame s) {
     if (s.mode == sky_physical) {
         return s.irradiance.Load(int3(0, 0, 0)).rgb * s.sun.w;

@@ -1,6 +1,6 @@
 --!strict
 -- Bistro (CC BY 4.0, apps/lab/assets/bistro) under the physical sky at noon (12:30 solar time, June, Paris's latitude), through the
--- real-time renderer: the street and the sky above it (docs/specs/physical-sky/spec.md, sky.AC3/AC4).
+-- real-time renderer: the street and the sky above it (docs/specs/physical-sky/spec.md, sky.AC4).
 -- Golden image: tests/golden/bistro_noon.png (640x360).
 -- Run: veach-lab --rhi metal --window --script scripts/bistro_noon.luau
 local veach = require("@veach")

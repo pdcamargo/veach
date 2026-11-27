@@ -41,7 +41,7 @@ endfunction()
 # veach_deploy_d3d12(<target>) — on Windows, copies the pinned D3D12 runtime next to an executable that can
 # create a DX12 device: D3D12\D3D12Core.dll and the debug layer (the Agility SDK finds them through the
 # D3D12SDKPath export in dx12_device.cpp), and WARP's d3d10warp.dll, which D3D12 loads from the exe's folder
-# (ADR 0031). Does nothing elsewhere.
+# (ADR 0033). Does nothing elsewhere.
 function(veach_deploy_d3d12 target)
     if(NOT WIN32)
         return()

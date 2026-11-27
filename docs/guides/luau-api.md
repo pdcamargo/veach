@@ -1,6 +1,6 @@
 # The `@veach` Luau API (v0)
 
-Scripts are Luau, always `--!strict` ([ADR 0006](../adr/0006-scripting-luau.md)). They see only this curated
+Scripts are Luau, always `--!strict` ([ADR 0007](../adr/0007-scripting-luau.md)). They see only this curated
 module — never raw Flecs. Spec: [scripting-luau-api-v0](../specs/scripting-luau-api-v0/spec.md).
 Implementation: `engine/script/src/script_runtime.cpp`. Types: `types/veach.d.luau` (generated).
 
@@ -166,26 +166,14 @@ C++ components tagged `veach::Scriptable` (all fields Luau-representable). The e
 - `Transform` (`translation: vector`, `rotation: { x, y, z, w }` quaternion, `scale: vector`)
 - `Camera` (`fov_y` radians, `near_plane` meters, `active`, `ev100` exposure, or 0 to derive it from `aperture`
   f-number, `shutter` seconds and `iso`); see [render-views](../specs/render-views/spec.md) and
-  [ADR 0038](../adr/0038-exposure-and-tonemapping.md)
+  [ADR 0037](../adr/0037-exposure-and-agx.md)
 - `SceneInstance` (`path` of a glTF asset): spawns the scene as children
-- `DirectionalLight` (`color`, `illuminance` lux), `PointLight` (`color`, `intensity` cd), `SpotLight` (`color`,
-  `intensity`, `inner_angle`, `outer_angle`)
-- `PathTracer` (`samples_per_frame`, `max_bounces`, `mode`): on a camera, renders it with the reference
-  path tracer; see [first-real-scene](../specs/first-real-scene/spec.md). `mode` 0 is everything, 1 direct light
-  only (no sky, no bounces: what the real-time renderer estimates), 2 an ambient-occlusion debug view, 3 direct light
-  plus the sky on the first hit's diffuse lobe (what the real-time renderer estimates with its ambient stopgap), 4
-  direct light plus diffuse indirect light on that lobe (what Candela estimates).
-- `RealtimeLighting` (on a camera; absent: the defaults): `light_candidates`, `temporal_reuse`, `spatial_samples`,
-  `denoise`, `gi` (`"off"`: the ambient stopgap, sky light darkened by `ao_rays` rays within `ao_radius` meters;
-  `"direct_only"`: no indirect light; `"candela"`: Candela, step 1 of [its spec](../specs/candela/spec.md)), `view`
-  (`"indirect"` shows the GI pass's light alone, linear); see [rendering](rendering.md).
-- `RenderQuality` (on a camera; absent: Performance): `tier` `"performance"`, `"quality"` or `"custom"`. A tier sets
-  the render scale, ReSTIR's candidates and neighbors and Candela's ray rate, overriding the components below;
-  `"custom"` uses theirs ([ADR 0049](../adr/0049-frame-budget-and-quality-tiers.md)).
-- `Candela` (on a camera; absent: the defaults): `gather` (`"restir"`; two diagnostics: `"surface_cache"` reads the
-  cache at the visible surface, `"no_reuse"` gives every pixel a fresh gather ray each frame, without reservoirs),
-  `ray_rate` (gather rays per render pixel: 0.25, 0.5 or 1), `spatial_samples` (0; reuse is biased until VCH-066),
-  `cache_bounces` (2), and `freeze_cache`, which stops the cache updating (a diagnostic).
+- `DirectionalLight` (`color`, `illuminance` lux, `angle` apparent diameter in radians), `PointLight` (`color`,
+  `intensity` cd, `radius` m), `SpotLight` (`color`, `intensity`, `inner_angle`, `outer_angle`, `radius`). Photo mode
+  honors `angle` and `radius` (soft shadows); the real-time renderer treats every light as punctual. See
+  [ADR 0036](../adr/0036-lights-in-photometric-units.md).
+- `PhotoMode` (`samples_per_frame`, `max_bounces`): on a camera, renders its view with the reference path tracer,
+  accumulating while nothing changes; see [photo-mode](../specs/photo-mode/spec.md). It needs hardware ray tracing.
 - `Sky` (on any one entity; none means the defaults): `mode` `"physical"` (default), `"constant"` (`color` in nits)
   or `"none"`; the physical sky's `time_of_day` (hours, solar time), `latitude` (degrees), `day_of_year`, `north`
   (radians: north is -Z turned about +Y), `sun_illuminance` (lux at the top of the atmosphere), `ground_albedo`,

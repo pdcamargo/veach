@@ -10,6 +10,11 @@ veach_add_engine_library(core
 
 # veach::dmath's implementation (src/dmath.cpp only): LLVM libc's math headers, pinned in cmake/VeachDependencies.cmake.
 target_include_directories(veach_core SYSTEM PRIVATE "${VEACH_LLVM_LIBC_DIR}")
+# MSVC reports C4702 (unreachable code) inside those headers when it generates code for dmath.cpp; /external:W0 does
+# not cover code-generation warnings, so the warning is off for this one file.
+if(MSVC)
+    set_source_files_properties(src/dmath.cpp PROPERTIES COMPILE_OPTIONS /wd4702)
+endif()
 
 # Conventions from ADR 0013 must be identical in every translation unit.
 target_compile_definitions(veach_core PUBLIC GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_RADIANS GLM_FORCE_XYZW_ONLY)

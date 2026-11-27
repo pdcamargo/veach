@@ -85,6 +85,7 @@ def main() -> int:
     open_ids = set(re.findall(r"\bVCH-(\d{3,})\b", backlog.split("\n## Done", 1)[0]))
     tolerance = json.loads((ROOT / "tests/tolerance.json").read_text(encoding="utf-8"))
     entries = [(scene["name"], scene) for scene in tolerance["scenes"]] + \
+        [(f"{e['name']}'s flicker", e) for e in tolerance["flicker"]["entries"]] + \
         [(f"the motion trail (GI {e['gi']}, {e['upscaler']})", e) for e in tolerance["motion_trail"]["entries"]]
     for name, scene in entries:
         for exception in scene.get("exceptions", []):

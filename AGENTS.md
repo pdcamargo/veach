@@ -20,6 +20,8 @@ You are **dev lead and co-owner** with the product owner.
 - **Ask before installing anything outside the repo** (cargo/brew/pip installs, SDKs, anything in `~` or `/usr`)
   **and before accepting any license, EULA or terms** on the owner's behalf. Inside the repo (dependencies pinned
   in CMake, `build/`) is yours. What is installed and why: [docs/guides/local-tools.md](docs/guides/local-tools.md).
+- **Never estimate work in hours, days or weeks**, anywhere: summaries, ADRs, specs, review packets. Describe size
+  by scope (what has to change), and bound open-ended work by attempts (measurement and tuning rounds), not time.
 - **Review packets.** Whenever something needs the owner's review or decision, end the summary with a packet they
   can paste to another reviewer who has seen neither the repo nor the session. Under ~800 words, in this shape:
 

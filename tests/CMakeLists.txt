@@ -213,6 +213,36 @@ if(Python3_FOUND)
             set_tests_properties("candela: the cache alone stays as steady and quick on ${_scene} (metal)" PROPERTIES
                 SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 900 LABELS full)
         endforeach()
+        # Candela on the final image, Performance tier (tests/candela_final.py): flicker over the same pipeline's with
+        # direct light only, each 'gate' entry of tests/tolerance.json's "flicker" (candela.AC4); and a light switched
+        # off settling within 10 frames (candela.AC5), with Candela and with GI off.
+        string(JSON _count LENGTH "${_tolerance}" flicker entries)
+        math(EXPR _last "${_count} - 1")
+        foreach(_i RANGE ${_last})
+            string(JSON _check GET "${_tolerance}" flicker entries ${_i} check)
+            if(NOT _check STREQUAL "gate")
+                continue()
+            endif()
+            string(JSON _scene GET "${_tolerance}" flicker entries ${_i} name)
+            set(_name "candela.AC4: ${_scene} flickers within tolerance over direct light (metal)")
+            add_test(NAME "${_name}"
+                COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/candela_final.py" --lab $<TARGET_FILE:veach-lab>
+                        --imgdiff $<TARGET_FILE:veach-cli> --scene ${_scene} flicker
+                        --tolerance "${CMAKE_CURRENT_SOURCE_DIR}/tolerance.json")
+            set_tests_properties("${_name}" PROPERTIES SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 900
+                LABELS full)
+        endforeach()
+        foreach(_light_off "cornell_box_realtime:candela" "cornell_box_realtime:off" "bistro_noon:candela")
+            string(REPLACE ":" ";" _light_off "${_light_off}")
+            list(GET _light_off 0 _scene)
+            list(GET _light_off 1 _gi)
+            set(_name "candela.AC5: ${_scene}'s final image settles within 10 frames of a light off (GI ${_gi}, metal)")
+            add_test(NAME "${_name}"
+                COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/candela_final.py" --lab $<TARGET_FILE:veach-lab>
+                        --imgdiff $<TARGET_FILE:veach-cli> --scene ${_scene} light_off --gi ${_gi} --max-frames 10)
+            set_tests_properties("${_name}" PROPERTIES SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 900
+                LABELS full)
+        endforeach()
         # VCH-069 and the Candela spec: Bistro noon's motion trail (the final image after 30 frames of camera motion
         # against a still camera), each 'gate' entry of tests/tolerance.json's "motion_trail": GI off within noise of
         # its measured trail, Candela within the margin over GI off's (motion_trail.py's limit()).

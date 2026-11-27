@@ -1,6 +1,6 @@
 # Candela: real-time global illumination
 
-**Status:** On hold (the reuse-off diagnostic points at the denoiser under the upscaler's jitter: with the owner)
+**Status:** On hold (the denoiser round missed Bistro's flicker gate: a Candela v1 decision is with the owner)
 **Area:** render
 **Owner:** dev lead (product-affecting: the product owner approves)
 
@@ -62,10 +62,11 @@ camera:set(c.PathTracer, { mode = 4 })  -- reference: direct light plus diffuse 
 - **candela.AC3**: Cost on the M5 Max, Bistro at 1440p output: Candela's passes in the frame budget report
   (ADR 0049) within 4.5 ms at the Performance settings and 10 ms at Quality.
 - **candela.AC4**: Stability: with a still camera and still lighting, the mean FLIP between consecutive final
-  frames is at most 0.005 on the Cornell box, Sponza and Bistro (the owner's absolute target, replacing "direct light
-  plus 20%").
-- **candela.AC5**: Response: switching off Bistro's sun (or a Cornell box light) drops the indirect light below 10%
-  of its old value within 10 frames; switching it on reaches 90% within 10 frames.
+  frames in the Performance tier exceeds the same pipeline's with direct light only (same tier, same upscaler) by at
+  most 0.004 on the Cornell box, Sponza and Bistro (the owner's gate since 2026-11-27, replacing an absolute 0.005:
+  with MetalFX, direct light alone already flickers at 0.0041 on Bistro). `tests/tolerance.json`'s "flicker".
+- **candela.AC5**: Response: switching off Bistro's sun (or a Cornell box light) settles the final image (90% of the
+  way to where it ends up) within 10 frames; switching it on, the same.
 - **candela.AC6**: No ghosting beyond the temporal foundation's: the ghosting test (temporal.AC10) with Candela on
   stays within 10% of its value with the stopgap.
 - **candela.AC7**: No leaks: behind one of Bistro's thin walls, unlit from its side, Candela's indirect light is
@@ -241,7 +242,7 @@ quick` on the Cornell box (flicker 0.013, light off 13 frames) and Bistro (0.016
 ## Option 0 (2026-11-27)
 
 The owner moved the gates to the final image (ReSTIR gather and denoiser, Performance tier: 1280x720 output, MetalFX
-at 0.5) and asked for a one-day option 0 before surfels: step 1b plus only step 1c's adaptive averaging
+at 0.5) and asked for option 0 before surfels: step 1b plus only step 1c's adaptive averaging
 (`Candela.adaptive_cache`), and cell levels that hold still under camera motion (`Candela.stable_levels`: distances
 from the camera snapped to a 4 m grid). Both were switches on trial; the owner had them removed after this.
 
@@ -302,6 +303,65 @@ edge and foliage pixels of a still camera lose or borrow their history every fra
 history fix for them (rebuilding short histories from the same surface around them, VCH-069) changed nothing
 (0.0108). Where jitter lets the gather's noise through is not yet located. **Verdict:** the denoiser's indirect path
 is the floor; no screen probes. The decision goes back to the owner (review packet, 2026-11-27).
+
+## Denoiser round (2026-11-27)
+
+The owner chose the denoiser work with a stop rule of one measurement round and one tuning round, and restated the
+flicker gate as an increase over the same pipeline's direct-light-only floor (+0.004 at most).
+
+**Measurement round.** The first suspect, jitter in the denoiser's reprojection, holds: with a still camera, the
+share of pixel-frames that keep their own history (`tools/bench/history_resets.py`, Candela):
+
+| Kept / borrowed / reset | No upscaler | MetalFX at scale 1 | MetalFX at 0.5 (Performance) |
+|---|---|---|---|
+| Cornell box | 100 / 0 / 0% | 99.4 / 0.6 / 0% | 98.6 / 1.4 / 0% |
+| Sponza | 99.99 / 0.01 / 0% | 93.9 / 5.3 / 0.8% | 90.1 / 8.3 / 1.7% |
+| Bistro noon | 99.98 / 0.02 / 0% | 82.2 / 14.9 / 2.9% | 75.4 / 19.4 / 5.2% |
+
+Under jitter, last frame's sample of a pixel two surfaces share may have hit the other one. Letting a still point
+keep its own pixel's history when its surface is in the 3x3 brought Bistro to 94.8% kept, 0.05% borrowed, and its
+flicker from 0.0107 to 0.0098 (direct light's floor from 0.0041 to 0.0037), but it was reverted: it also kept the
+history of pixels a moving box uncovered (temporal.AC2), softened TAAU's images (Bistro's golden moved by 0.052 FLIP)
+and lengthened the motion trail (GI off 0.053 -> 0.060). Testing against the previous sample nearest this point's
+position instead (correcting for both frames' jitter) kept 76.6%: with a still camera the nearest sample is the
+pixel's own. The other candidates, measured on Bistro:
+
+- Albedo demodulation: ruled out by reading. Shading divides by the same albedo the combine multiplies back.
+- The a-trous filter's luminance weights: without them, +0.0045 over the floor (0.0089 against 0.0044, because
+  direct light blurs too).
+- The pixels that still reset (sub-pixel leaves and grilles): rebuilding their history from neighbors at the same
+  depth changed nothing (0.0101).
+- Where it comes from: the denoiser's output before remodulation shows single pixels jumping between frames only
+  with jitter (worst 0.64 against 0.085), along lit edges with direct light alone and over everything Candela
+  lights. A pixel two surfaces share keeps a mix of both in its history, and the mix steps as the jitter
+  alternates.
+
+**Light off.** The engine now signals lighting changes (ADR 0053); the denoiser's history, Candela's temporal reuse
+and its cache restart on them. Frames for the final image to settle after a light switches off:
+
+| | Cornell box | Sponza | Bistro noon |
+|---|---|---|---|
+| GI off, before / after | >20 / 1 | | >20 / 1 |
+| Candela, before / after | >20 / 1 | >20 / 1 | >20 / 1 |
+
+**Tuning round** (Bistro, Candela flicker over a floor of 0.0037; measured with the reverted own-history rule in
+place, which lowers every cell by about 0.0009):
+
+| Denoiser history | Luminance tolerance 4 sigma (today) | 8 sigma |
+|---|---|---|
+| 32 frames (today) | 0.0098 (+0.0061) | 0.0095 (+0.0058) |
+| 64 frames | 0.0094 (+0.0057) | 0.0093 (+0.0056) |
+| 128 frames | 0.0093 (+0.0056) | 0.0091 (+0.0054) |
+
+None reaches +0.004; the defaults stay (a longer history lags every change the engine does not signal).
+
+| Final image, Performance | Cornell box | Sponza | Bistro noon |
+|---|---|---|---|
+| Flicker, direct light only | 0.0042 | 0.0020 | 0.0041 |
+| Flicker, Candela | 0.0049 (+0.0007) | 0.0051 (+0.0031) | **0.0107 (+0.0066)** |
+
+**Verdict:** Cornell and Sponza pass the new gate, Bistro does not after the tuning round. By the stop rule, a
+Candela v1 review packet goes to the owner. Bistro's flicker is held by a VCH-067 exception in `tests/tolerance.json`.
 
 ## Out of scope
 

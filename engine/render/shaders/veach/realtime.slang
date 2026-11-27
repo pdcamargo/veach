@@ -37,6 +37,7 @@ static const uint gi_sky_sample = 0xffffffffu;
 static const uint frame_history_valid = 1;    ///< RealtimeFrame::flags: last frame's targets belong to this view
 static const uint frame_reservoirs_valid = 2;
 static const uint frame_denoiser_history_valid = 4;  ///< the denoiser ran last frame: its history is this view's  ///< RealtimeFrame::flags: last frame's reservoirs hold these lights' samples
+static const uint frame_lighting_changed = 8;  ///< a light, the sky or a mesh instance changed: histories restart
 
 // RealtimeFrame::gi: the indirect light (render::GlobalIllumination).
 static const uint gi_off = 0;          ///< the ambient stopgap

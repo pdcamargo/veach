@@ -314,9 +314,10 @@ void Renderer::request_capture(CaptureCallback done) {
     capture_ = std::move(done);
 }
 
-void Renderer::extract(const World& world) {
+void Renderer::extract(const World& world, bool lighting_changed) {
     VEACH_ZONE("Renderer::extract");
     render_world_ = {};
+    render_world_.lighting_changed = lighting_changed;
     for (const NamedExtractor& extractor : extractors_) {
         VEACH_ZONE_TEXT("extractor", extractor.name.data(), extractor.name.size());
         extractor.fn(world, render_world_);
@@ -592,9 +593,24 @@ RenderModule::RenderModule(World& world) {
     world.observer<const SceneInstance>("SpawnSceneInstances")
         .event(flecs::OnSet)
         .each([](Entity e, const SceneInstance& instance) { spawn_scene(e, instance); });
-    world.system("Extract").kind<phase::Extract>().run([](Iter& it) {
+    // Lighting changes, for the renderer's temporal histories: a light, the sky or a mesh instance (whose materials
+    // may emit) set, added or removed. Observers, not queries with change detection: those also report tables whose
+    // other columns were written (every transform, every frame).
+    auto lighting_changed = std::make_shared<bool>(true);
+    const auto watch = [&]<class T>() {
+        world.observer<const T>().event(flecs::OnSet).event(flecs::OnRemove).each([lighting_changed](Entity, const T&) {
+            *lighting_changed = true;
+        });
+    };
+    watch.template operator()<DirectionalLight>();
+    watch.template operator()<PointLight>();
+    watch.template operator()<SpotLight>();
+    watch.template operator()<Sky>();
+    watch.template operator()<MeshInstance>();
+    world.system("Extract").kind<phase::Extract>().run([lighting_changed](Iter& it) {
         const World w = it.world();
-        services(w).get<Renderer>().extract(w);
+        services(w).get<Renderer>().extract(w, *lighting_changed);
+        *lighting_changed = false;
     });
     world.system("Render").kind<phase::Render>().run([](Iter& it) { services(it.world()).get<Renderer>().render(); });
 }

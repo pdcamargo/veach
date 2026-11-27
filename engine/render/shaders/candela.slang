@@ -163,7 +163,7 @@ void cache_resolve(uint3 id: SV_DispatchThreadID) {
     if (id.x >= f.cache_capacity) {
         return;
     }
-    resolve_cell(cache_of(f), id.x, evict_after);
+    resolve_cell(cache_of(f), id.x, evict_after, (f.flags & frame_lighting_changed) != 0);
 }
 
 // ---- GI reservoirs -----------------------------------------------------------------------------------------
@@ -466,7 +466,8 @@ void temporal(uint3 id: SV_DispatchThreadID) {
     const SkyFrame sky = f.sky[0];
     GiReservoir r = unpack_gi(f.gi_temporal_out[index]);  // in place, through the writable view
     // Temporal reuse: last frame's reservoir of the same surface, its radiance read again from the cache.
-    if ((f.flags & frame_history_valid) != 0 && f.gi_reservoirs_valid != 0 && f.temporal_reuse != 0) {
+    if ((f.flags & frame_history_valid) != 0 && (f.flags & frame_lighting_changed) == 0 && f.gi_reservoirs_valid != 0 &&
+        f.temporal_reuse != 0) {
         const History h = history_of(id.xy, f.motion.Load(int3(id.xy, 0)));
         if (h.valid) {
             uint best = 0;

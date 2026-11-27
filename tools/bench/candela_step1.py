@@ -42,7 +42,7 @@ LIDS = {
 
 CANDELA: dict = {}  # --set: Candela fields applied in every session
 FINAL = {"size": "640x360", "upscaling": None}  # --performance: the shipped view (1280x720, the tier's upscaler)
-VIEW = {"flicker": "final"}  # --view indirect: flicker of Candela's own light, before the denoiser
+VIEW = {"flicker": "final", "response": "indirect"}  # --view, --response-view
 
 
 def session(lab: pathlib.Path, rhi: str, scene: str, size: str, gi: str, upscaling: dict | None) -> Mcp:
@@ -145,10 +145,12 @@ def open_door(mcp: Mcp, scene: str) -> None:
                 mcp.call("set_component", entity=e["id"], component="Transform", value=t)
 
 
-def response(lab: pathlib.Path, rhi: str, scene: str, change: str, work: pathlib.Path, frames: int) -> dict:
-    """Candela's own indirect light (RealtimeLighting.view = "indirect": linear, before the denoiser) after a change."""
-    mcp = session(lab, rhi, scene, FINAL["size"], "candela", FINAL["upscaling"])
-    mcp.call("set_component", entity="camera", component="RealtimeLighting", value={"gi": "candela", "view": "indirect"})
+def response(lab: pathlib.Path, rhi: str, scene: str, change: str, work: pathlib.Path, frames: int,
+             gi: str = "candela") -> dict:
+    """Candela's own indirect light (RealtimeLighting.view = "indirect": linear, before the denoiser) after a change, or
+    with --response-view final the final image."""
+    mcp = session(lab, rhi, scene, FINAL["size"], gi, FINAL["upscaling"])
+    mcp.call("set_component", entity="camera", component="RealtimeLighting", value={"gi": gi, "view": VIEW["response"]})
     if change == "door":
         setup_door(mcp, scene)
     mcp.call("step_frames", count=96)
@@ -186,11 +188,14 @@ def main() -> int:
                              "upscaler (MetalFX at 0.5, jittered), instead of 640x360 without one")
     parser.add_argument("--view", default="final", choices=["final", "indirect"],
                         help="flicker of the final image, or of Candela's indirect light before the denoiser")
+    parser.add_argument("--response-view", default="indirect", choices=["final", "indirect"],
+                        help="response of Candela's own light before the denoiser, or of the final image")
     parser.add_argument("--set", action="append", default=[], metavar="FIELD=VALUE",
                         help="a Candela field for every session (repeatable), e.g. gather=\"surface_cache\"")
     args = parser.parse_args()
     CANDELA.update({k: json.loads(v) for k, v in (item.split("=", 1) for item in args.set)})
     VIEW["flicker"] = args.view
+    VIEW["response"] = args.response_view
     if args.performance:
         FINAL.update(size="1280x720", upscaling={"mode": "automatic"})
     lab = ROOT / "build" / args.preset / "apps" / "lab" / "veach-lab"

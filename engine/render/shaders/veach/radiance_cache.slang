@@ -152,8 +152,9 @@ void cache_add(RadianceCache c, float3 p, float3 n, float3 radiance, uint kind =
 }
 
 /// End of frame for one slot: this frame's mean blended into the resolved value (an average over up to max_frames
-/// frames), the sums cleared; a cell nobody added to for `evict_after` frames is freed.
-void resolve_cell(RadianceCache c, uint slot, uint evict_after) {
+/// frames), the sums cleared; a cell nobody added to for `evict_after` frames is freed. With `restart` (the lighting
+/// changed this frame) the old value is dropped: the cell holds this frame's mean, or no value until a sample arrives.
+void resolve_cell(RadianceCache c, uint slot, uint evict_after, bool restart) {
     const bool occupied = c.keys[slot] != 0u;
     count(c, cache_stat_occupied, occupied);
     if (!occupied) {
@@ -161,7 +162,7 @@ void resolve_cell(RadianceCache c, uint slot, uint evict_after) {
     }
     const uint count = c.accum[slot * 4u + 3u];
     const uint2 v = c.radiance[slot];
-    uint frames = v.y >> 24;
+    uint frames = restart ? 0u : v.y >> 24;
     uint age = (v.y >> 16) & 0xffu;
     float3 value = unpack_cache_radiance(v);
     if (count > 0u) {

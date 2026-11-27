@@ -95,6 +95,9 @@ public:
     std::vector<MeshDraw> meshes;   ///< in entity-id order
     std::vector<RenderLight> lights;
     ResolvedSky sky;
+    /// A light, the sky or a mesh instance (whose materials may emit) was set, added or removed since the last frame
+    /// (RenderModule's change detection): temporal lighting histories restart.
+    bool lighting_changed = false;
 
     /// Per-frame data extracted by modules, one value per type.
     template <class T>
@@ -162,8 +165,9 @@ public:
     using CaptureCallback = std::function<void(Result<Image>)>;
     void request_capture(CaptureCallback done);
 
-    /// Extract phase: rebuilds RenderWorld by running every extractor in registration order.
-    void extract(const World& world);
+    /// Extract phase: rebuilds RenderWorld by running every extractor in registration order; `lighting_changed` is
+    /// RenderWorld::lighting_changed.
+    void extract(const World& world, bool lighting_changed = false);
     /// Render phase: builds, compiles and submits the frame's render graph.
     void render();
 

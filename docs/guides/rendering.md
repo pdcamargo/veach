@@ -185,7 +185,8 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
      gather that reads it where its rays land (`candela: gather`, `misses` for points no level knows, `temporal`,
      `spatial`);
   4. the denoiser (ADR 0042): demodulated diffuse and specular, temporal accumulation, variance, five a-trous
-     iterations, remodulation;
+     iterations, remodulation. Its history, Candela's reservoirs and Candela's cache restart on a frame where a
+     light, the sky or a mesh instance was set or removed (`RenderWorld::lighting_changed`, ADR 0053);
   5. the upscaler (ADR 0043): MetalFX's temporal scaler where the device has it (`Upscaling.mode = "automatic"`),
      Veach's TAAU otherwise (`"temporal"`, what goldens pin so Metal and DX12 share one image); then AgX.
 

@@ -62,3 +62,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0050 | [The physical atmosphere: Hillaire LUTs shared by both renderers, one Sky component](0050-physical-atmosphere.md) | Accepted |
 | 0051 | [Candela: a ReSTIR GI final gather over a world-space radiance cache](0051-candela-approach.md) | Accepted |
 | 0052 | [Image tolerance exceptions expire with their bug](0052-tolerance-exceptions-expire.md) | Accepted |
+| 0053 | [Temporal histories restart on lighting changes](0053-histories-restart-on-lighting-changes.md) | Accepted |

@@ -12,6 +12,15 @@
     {"name": "sponza", "candela": true, "criterion": "candela.AC2", "flip": 0.0677, "luminance": 0.0357, "check": "benchmark", "measured": "Candela step 1b", "exceptions": [{"metric": "luminance", "limit": 0.04, "bug": "VCH-067", "why": "Candela step 1b: samples keep the radiance they were chosen with; spatial reuse off"}], "realtime_frames": 256},
     {"name": "bistro_noon", "candela": true, "criterion": "candela.AC2", "flip": 0.052, "luminance": -0.013, "check": "benchmark", "measured": "Candela step 1b", "realtime_frames": 256}
   ],
+  "flicker": {
+    "doc": "Candela's flicker on the final image (candela.AC4, tests/candela_final.py): the mean FLIP between consecutive frames of a still camera in the Performance tier (1280x720, the tier's upscaler) may exceed the same pipeline's with direct light only by `margin` (the owner's gate), unless an exception names an open backlog item.",
+    "margin": 0.004,
+    "entries": [
+      {"name": "cornell_box_realtime", "direct_only": 0.0042, "candela": 0.0049, "check": "gate", "measured": "VCH-067 denoiser round"},
+      {"name": "sponza", "direct_only": 0.002, "candela": 0.0051, "check": "benchmark", "measured": "VCH-067 denoiser round"},
+      {"name": "bistro_noon", "direct_only": 0.0041, "candela": 0.0107, "check": "gate", "measured": "VCH-067 denoiser round", "exceptions": [{"metric": "increase", "limit": 0.007, "bug": "VCH-067", "why": "the upscaler's jitter alternates samples between surfaces that share a pixel, and the denoiser's history steps with them on every lit edge (+0.0066; the margin allows +0.004)"}]}
+    ]
+  },
   "motion_trail": {
     "doc": "Bistro noon's motion trail (tests/motion_trail.py: the final image at 1280x720 after 30 frames of a 1.5 m strafe, against a still camera at the same pose; VCH-069, candela spec). GI off passes within `noise` of its measured trail; Candela within the owner's `margin` over GI off's measured trail with the same upscaler, unless an exception names an open backlog item (check_repo.py fails once it is done). Two still images 60 frames apart already differ by 0.017 (0.027 with MetalFX).",
     "noise": 0.005,

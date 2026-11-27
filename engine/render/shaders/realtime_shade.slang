@@ -443,6 +443,15 @@ void denoise_temporal(uint3 id: SV_DispatchThreadID) {
     if ((f.flags & frame_denoiser_history_valid) != 0) {
         const History h = history_of(id.xy, f.motion.Load(int3(p, 0)));
         valid = h.valid;
+        // Counted per wave (logged at shutdown): pixels that kept their own history, borrowed a neighbor's, or reset.
+        const uint kept = WaveActiveCountBits(h.valid && !h.fallback);
+        const uint borrowed = WaveActiveCountBits(h.fallback);
+        const uint reset = WaveActiveCountBits(!h.valid);
+        if (WaveIsFirstLane()) {
+            InterlockedAdd(f.counters[11], kept);
+            InterlockedAdd(f.counters[12], borrowed);
+            InterlockedAdd(f.counters[13], reset);
+        }
         for (uint k = 0; k < 4; ++k) {
             const float w = h.weights[k];
             if (w > 0.0) {
@@ -453,7 +462,9 @@ void denoise_temporal(uint3 id: SV_DispatchThreadID) {
             }
         }
     }
-    // History is dropped at a disocclusion, never blended (ADR 0042).
+    // History is dropped at a disocclusion, never blended (ADR 0042), and when the lighting changed: the engine says so
+    // (a light, the sky or a mesh instance set, added or removed), so a light switched off leaves at once.
+    valid = valid && (f.flags & frame_lighting_changed) == 0;
     const float length_d = valid ? min(hd.a + 1.0, diffuse_max_history) : 1.0;
     const float length_s = valid ? min(hs.a + 1.0, max_specular_history(roughness)) : 1.0;
     const float fast = valid ? min(length(f.motion.Load(int3(p, 0)).xy) * motion_alpha_per_pixel, 0.25) : 0.0;

@@ -57,7 +57,7 @@ constexpr std::uint32_t cache_capacity = 1u << 21;
 constexpr float cache_cell_size = 0.05f;
 constexpr float cache_cell_scale = 1.0f / 80.0f;
 constexpr std::uint32_t cache_max_frames = 3;
-/// The real-time counters: ReSTIR's three, then Candela's (RealtimeFrame::counters).
+/// The real-time counters: ReSTIR's three, then Candela's, then the denoiser's history (RealtimeFrame::counters).
 constexpr std::size_t counter_count = 16;
 
 /// Mirrors Params in shaders/taau.slang.
@@ -175,6 +175,7 @@ static_assert(sizeof(PackedReservoir) == 48);
 constexpr std::uint32_t frame_history_valid = 1;  ///< RealtimeFrame::flags, as in veach/realtime.slang
 constexpr std::uint32_t frame_reservoirs_valid = 2;
 constexpr std::uint32_t frame_denoiser_history_valid = 4;
+constexpr std::uint32_t frame_lighting_changed = 8;
 constexpr std::uint32_t atrous_iterations = 5;  ///< steps 1, 2, 4, 8, 16 (ADR 0042)
 constexpr std::uint32_t jitter_phases = 16;     ///< Halton(2,3) phases (ADR 0040)
 
@@ -314,6 +315,17 @@ struct RealtimeRenderer::Impl {
                           totals[3] / frames, totals[4] / frames, totals[5] / frames, totals[6] / frames,
                           totals[7] / frames, 100.0 * totals[8] / lookups, 100.0 * totals[9] / lookups,
                           100.0 * totals[10] / lookups, candela_frames);
+            }
+            if (const auto* totals = static_cast<const std::uint32_t*>(device->map(counter_readbacks[counted_slot]));
+                totals != nullptr) {
+                const double pixels = static_cast<double>(totals[11]) + totals[12] + totals[13];
+                if (pixels > 0.0) {
+                    log::info("render",
+                              "denoiser history: {:.2f}% of pixels kept their own, {:.2f}% borrowed a neighbor's, "
+                              "{:.2f}% reset ({:.0f} pixel-frames)",
+                              100.0 * totals[11] / pixels, 100.0 * totals[12] / pixels, 100.0 * totals[13] / pixels,
+                              pixels);
+                }
             }
         }
         for (PersistentBuffer& b : cache) {
@@ -766,7 +778,8 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     // The denoiser runs for the final image; its history is valid only if it ran last frame too (ADR 0042).
     const bool denoise = lighting.denoise && lighting.view == RealtimeView::final;
     f.flags = (v.history ? frame_history_valid : 0u) | (reservoirs_valid ? frame_reservoirs_valid : 0u) |
-              (v.history && v.denoised_last_frame ? frame_denoiser_history_valid : 0u);
+              (v.history && v.denoised_last_frame ? frame_denoiser_history_valid : 0u) |
+              (frame.world.lighting_changed ? frame_lighting_changed : 0u);
     v.denoised_last_frame = denoise;
     f.light_count = scene.light_count;
     f.emissive_count = scene.emissive_count;
@@ -1094,6 +1107,7 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
             b.write(diffuse_history, rhi::ResourceState::shader_write);
             b.write(specular_history, rhi::ResourceState::shader_write);
             b.write(moments, rhi::ResourceState::shader_write);
+            b.write(counters, rhi::ResourceState::shader_write);
         });
         dispatch("denoise: variance", s.denoise_variance_pipeline, [&](PassBuilder& b) {
             b.read(current_targets[0]);

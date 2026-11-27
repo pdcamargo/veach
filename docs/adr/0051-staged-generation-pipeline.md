@@ -5,6 +5,7 @@ Date: 2026-11-27
 ## Status
 
 Accepted.
+Amended by [0068](0068-amendments-from-sp-05.md): a body's radius is computed in S1.
 
 ## Context
 

@@ -78,3 +78,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0065 | [Engine areas for the toolbox: frames, physics, procgen, voxel; what stays in space/](0065-engine-areas-for-the-toolbox.md) | Accepted |
 | 0066 | [The owner's product decisions after the research phase](0066-owner-decisions-research-phase.md) | Accepted |
 | 0067 | [veach::dmath on LLVM libc's header-only math, one no-FMA path](0067-dmath-on-llvm-libc.md) | Accepted |
+| 0068 | [Amendments from SP-05: orbit scale at least body scale, radius in the system stage, habitability bias](0068-amendments-from-sp-05.md) | Accepted |

@@ -15,11 +15,12 @@ add_executable(veach-tests
     scene_tests.cpp
     script_tests.cpp
     sky_tests.cpp
+    space_gen_tests.cpp
     transform_tests.cpp)
 if(WIN32)
     target_sources(veach-tests PRIVATE dx12_tests.cpp)  # DX12 on WARP in hosted CI (ADR 0033)
 endif()
-target_link_libraries(veach-tests PRIVATE veach::veach doctest::doctest veach_bc7enc)
+target_link_libraries(veach-tests PRIVATE veach::veach doctest::doctest veach_bc7enc veach_space_gen)
 # Shaders for RHI tests (tests/rhi_tests.cpp): <test_shaders.hpp>.
 veach_add_shader(veach-tests shaders/raster_states.slang ENTRIES vs_main:vertex fs_main:fragment)
 veach_add_shader(veach-tests shaders/atmosphere_probe.slang ENTRIES transmittance_probe:compute)
@@ -320,3 +321,9 @@ add_executable(veach-bench-sp03-position bench/sp03_position_bench.cpp)
 target_link_libraries(veach-bench-sp03-position PRIVATE Luau.VM Luau.Compiler)
 set_target_properties(veach-bench-sp03-position PROPERTIES FOLDER "tests")
 veach_apply_warnings(veach-bench-sp03-position)
+# Spike SP-05 (VCH-081), throwaway: 100,000 systems through S1 and B1, histograms, violations, systems/s, hashes
+# across thread counts and scales (docs/research/spikes/sp-05-system-statistics.md).
+add_executable(veach-bench-sp05-systems bench/sp05_system_stats.cpp)
+target_link_libraries(veach-bench-sp05-systems PRIVATE veach_space_gen)
+set_target_properties(veach-bench-sp05-systems PROPERTIES FOLDER "tests")
+veach_apply_warnings(veach-bench-sp05-systems)

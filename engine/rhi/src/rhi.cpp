@@ -1,6 +1,7 @@
 #include <veach/rhi/rhi.hpp>
 
 #include <veach/core/assert.hpp>
+#include <veach/core/env.hpp>
 #include <veach/rhi/command_list.hpp>
 
 #include <cstdlib>
@@ -28,17 +29,7 @@ std::string_view to_string(Backend backend) {
 }
 
 bool ray_tracing_disabled() {
-    constexpr const char* name = "VEACH_DISABLE_RAY_TRACING";
-#if defined(_MSC_VER)  // MSVC deprecates std::getenv
-    char* value = nullptr;
-    std::size_t length = 0;
-    const bool one = _dupenv_s(&value, &length, name) == 0 && value != nullptr && std::string_view(value) == "1";
-    std::free(value);  // NOLINT(cppcoreguidelines-no-malloc)
-    return one;
-#else
-    const char* value = std::getenv(name);  // NOLINT(concurrency-mt-unsafe): read only
-    return value != nullptr && std::string_view(value) == "1";
-#endif
+    return env_is_one("VEACH_DISABLE_RAY_TRACING");
 }
 
 Result<std::unique_ptr<Device>> create_device(const DeviceDesc& desc) {

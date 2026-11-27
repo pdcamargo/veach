@@ -9,11 +9,21 @@ namespace lab {
 
 namespace {
 
-const char* env(const char* name) {
+/// The environment variable `name`, or an empty string (portable: MSVC deprecates std::getenv).
+std::string env(const char* name) {
 #if defined(_MSC_VER)
-#pragma warning(suppress : 4996)  // getenv is fine here: read once at startup, single-threaded
+    char* value = nullptr;
+    std::size_t length = 0;
+    std::string result;
+    if (_dupenv_s(&value, &length, name) == 0 && value != nullptr) {
+        result = value;
+    }
+    std::free(value);  // NOLINT(cppcoreguidelines-no-malloc)
+    return result;
+#else
+    const char* value = std::getenv(name);  // NOLINT(concurrency-mt-unsafe): read once at startup
+    return value != nullptr ? value : "";
 #endif
-    return std::getenv(name);
 }
 
 /// The double offset of the nearest ancestor-or-self with Sp03LargePosition, or zero.
@@ -89,12 +99,10 @@ void register_sp03_spike(veach::World& world) {
         .member(&Sp03Ladder::photo, "photo")
         .add<veach::Scriptable>();
 
-    if (const char* distance = env("VEACH_SP03_DISTANCE")) {
-        const char* mode = env("VEACH_SP03_MODE");
-        const char* photo = env("VEACH_SP03_PHOTO");
-        const Sp03Ladder ladder{.distance = std::strtod(distance, nullptr),
-                                .large = mode != nullptr && std::string(mode) == "double",
-                                .photo = photo != nullptr && std::string(photo) == "1"};
+    if (const std::string distance = env("VEACH_SP03_DISTANCE"); !distance.empty()) {
+        const Sp03Ladder ladder{.distance = std::strtod(distance.c_str(), nullptr),
+                                .large = env("VEACH_SP03_MODE") == "double",
+                                .photo = env("VEACH_SP03_PHOTO") == "1"};
         world.entity("sp03_ladder").set<Sp03Ladder>(ladder);
         veach::log::info("sp03", "ladder: {:.6g} m, {}, {}", ladder.distance, ladder.large ? "double" : "float",
                          ladder.photo ? "photo mode" : "real time");

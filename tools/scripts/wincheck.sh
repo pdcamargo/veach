@@ -21,7 +21,7 @@ if [ ! -d "$agility/build/native/include" ]; then
 fi
 
 includes=()
-for area in "$root"/engine/*/include "$root"/engine/include "$root"/engine/rhi/src "$root"/tests; do
+for area in "$root"/engine/*/include "$root"/space/*/include "$root"/engine/include "$root"/engine/rhi/src "$root"/tests; do
     includes+=(/I "$area")
 done
 for dep in flecs/*/include glm/* doctest/* nlohmann_json/*/include stb/* bc7enc/* fastgltf/*/include luau/*/VM/include luau/*/Compiler/include luau/*/Common/include llvm_libc/*/*/libc; do

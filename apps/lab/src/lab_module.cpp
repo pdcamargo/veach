@@ -1,6 +1,7 @@
 #include "lab_module.hpp"
 
 #include "sp03_spike.hpp"
+#include "sp04_spike.hpp"
 #include "triangle_feature.hpp"
 
 #include "lab_shaders.hpp"
@@ -38,6 +39,7 @@ LabModule::LabModule(veach::World& world) {
         lab_shaders::material_kinds, veach::services(world).get<veach::AssetServer>()));
 
     register_sp03_spike(world);  // spike SP-03 (VCH-079), throwaway: camera-relative extraction
+    register_sp04_spike(world);  // spike SP-04 (VCH-080), throwaway: the sun from the system
 
     world.system<const Spinner>("ReportSpinner").kind<veach::phase::Shutdown>().each([](const Spinner& s) {
         veach::log::info("lab", "spinner turned {:.4f} rad", s.angle);

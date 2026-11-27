@@ -3,7 +3,9 @@ veach_add_app(veach-lab
         src/lab_module.cpp
         src/main.cpp
         src/sp03_spike.cpp
-        src/triangle_feature.cpp)
+        src/sp04_spike.cpp
+        src/triangle_feature.cpp
+    DEPS veach::space)  # the space toolbox (ADR 0042); first used by spike SP-04
 
 # The lab finds its project (veach.project.json, scripts/) from any working directory.
 target_compile_definitions(veach-lab PRIVATE VEACH_LAB_PROJECT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")

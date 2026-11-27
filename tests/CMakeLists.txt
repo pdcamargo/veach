@@ -16,11 +16,12 @@ add_executable(veach-tests
     script_tests.cpp
     sky_tests.cpp
     space_gen_tests.cpp
+    space_tests.cpp
     transform_tests.cpp)
 if(WIN32)
     target_sources(veach-tests PRIVATE dx12_tests.cpp)  # DX12 on WARP in hosted CI (ADR 0033)
 endif()
-target_link_libraries(veach-tests PRIVATE veach::veach doctest::doctest veach_bc7enc veach_space_gen)
+target_link_libraries(veach-tests PRIVATE veach::veach veach::space doctest::doctest veach_bc7enc)
 # Shaders for RHI tests (tests/rhi_tests.cpp): <test_shaders.hpp>.
 veach_add_shader(veach-tests shaders/raster_states.slang ENTRIES vs_main:vertex fs_main:fragment)
 veach_add_shader(veach-tests shaders/atmosphere_probe.slang ENTRIES transmittance_probe:compute)
@@ -48,6 +49,13 @@ add_test(NAME "lab: json logs" COMMAND veach-lab --frames 1 --headless --log-for
 set_tests_properties("lab: json logs" PROPERTIES PASS_REGULAR_EXPRESSION "\\{\"t\":[0-9.]+,\"level\":\"info\",\"cat\":\"script\",\"msg\":\"Hello from Luau")
 add_test(NAME "lab: --help" COMMAND veach-lab --help)
 set_tests_properties("lab: --help" PROPERTIES PASS_REGULAR_EXPRESSION "--frames N")
+
+# Spike SP-04 (VCH-080): the Sol orrery read from Luau on the null RHI, so Windows CI runs it too. At J2000.0 the Earth
+# is 0.98332 AU from the Sun and the sun stands 18.1 degrees over Paris at 12:06 local solar time.
+add_test(NAME "lab: SP-04 orrery from Luau" COMMAND veach-lab --script scripts/sp04_orrery.luau --frames 3 --headless)
+set_tests_properties("lab: SP-04 orrery from Luau" PROPERTIES
+    PASS_REGULAR_EXPRESSION "earth \\(around emb\\) at tick 378683424000: 0\\.98332.*sun from earth at 48\\.8566, 2\\.3522: elevation 18\\.09"
+    FAIL_REGULAR_EXPRESSION "\\] error ")
 
 file(GLOB_RECURSE _luau_scripts RELATIVE "${PROJECT_SOURCE_DIR}" CONFIGURE_DEPENDS
     "${PROJECT_SOURCE_DIR}/apps/*.luau" "${PROJECT_SOURCE_DIR}/tests/scripts/*.luau")
@@ -327,3 +335,9 @@ add_executable(veach-bench-sp05-systems bench/sp05_system_stats.cpp)
 target_link_libraries(veach-bench-sp05-systems PRIVATE veach_space_gen)
 set_target_properties(veach-bench-sp05-systems PROPERTIES FOLDER "tests")
 veach_apply_warnings(veach-bench-sp05-systems)
+# Spike SP-04 (VCH-080), throwaway: cost of bodies on rails and the findings tables (docs/research/spikes/sp-04-orrery-clock.md).
+add_executable(veach-bench-sp04 bench/sp04_orrery_bench.cpp)
+target_link_libraries(veach-bench-sp04 PRIVATE veach::space)
+target_include_directories(veach-bench-sp04 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+set_target_properties(veach-bench-sp04 PROPERTIES FOLDER "tests")
+veach_apply_warnings(veach-bench-sp04)

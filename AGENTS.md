@@ -111,12 +111,18 @@ running window. Look at screenshots you take; a successful call is not a correct
 - **The real-time renderer is raster.** No real-time GI or path tracing, and no real-time feature may require
   hardware ray tracing; only photo mode uses it ([ADR 0003](docs/adr/0003-platforms-and-hardware-target.md),
   [ADR 0039](docs/adr/0039-realtime-renderer-is-raster-pbr.md)). Today's real-time path is interim
-  ([ADR 0040](docs/adr/0040-interim-realtime-path-visibility-buffer.md)): don't polish it, the research phase replaces it.
+  ([ADR 0040](docs/adr/0040-interim-realtime-path-visibility-buffer.md)): don't polish it; the planned renderer is
+  [ADR 0060](docs/adr/0060-gpu-driven-visibility-buffer.md).
 - **The engine never knows the toolbox.** `space/` builds on `veach::veach`; nothing under `engine/` may name it
   (CI checks). A generic need of the toolbox becomes an engine feature ([ADR 0042](docs/adr/0042-space-toolbox-layering.md)).
-- **Research before toolbox features.** The open questions in
-  [ARCHITECTURE.md](docs/ARCHITECTURE.md#open-questions-research-phase) are answered by ADRs (and spikes) first
-  (VCH-070). What the GPU layer can do: [docs/reference/rhi-capabilities.md](docs/reference/rhi-capabilities.md).
+- **The toolbox architecture is decided; spikes come before features.** Read
+  [ARCHITECTURE.md](docs/ARCHITECTURE.md#toolbox-architecture-decided-in-the-research-phase) and [docs/research/00-synthesis.md](docs/research/00-synthesis.md)
+  before toolbox work. Validate a decision with its spike (VCH-077 to VCH-097) before building on it. What the GPU
+  layer can do: [docs/reference/rhi-capabilities.md](docs/reference/rhi-capabilities.md).
+- **Determinism has tiers** ([ADR 0043](docs/adr/0043-determinism-tiers-and-strict-floating-point.md)): canonical
+  code (seeds, generation records, orbits, terrain density, edits, generator hooks) must be bit-identical on Mac and
+  Windows, uses `veach::dmath` and counter-based hashing, never platform `sin`/`exp` or a shared random stream; GPU
+  output is visual-only and never feeds gameplay.
 - **Never own the loop.** No `progress()`, no new worlds, pipelines or threads in user code. Attach systems to phases.
 - **Determinism.** Simulation uses `veach::Time` (fixed 1/60 s) and `veach::Random`. Never use wall-clock
   time or `rand()` in simulation.

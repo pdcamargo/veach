@@ -6,6 +6,7 @@ Date: 2026-11-27
 
 Accepted. Rewrites the pathtracer-era visibility-buffer renderer (old ADR 0037) without its ray-traced and temporal
 parts. Expected to be superseded by the research phase's renderer ADR (open question 7).
+Superseded by [0060](0060-gpu-driven-visibility-buffer.md).
 
 ## Context
 

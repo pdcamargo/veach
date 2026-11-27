@@ -5,6 +5,7 @@ Date: 2026-11-27
 ## Status
 
 Accepted. Carried over from the pathtracer-era series (old ADR 0016).
+Amended by [0045](0045-large-world-positions-and-reference-frames.md): RenderWorld holds camera-relative positions only.
 
 ## Context
 

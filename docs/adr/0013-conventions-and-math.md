@@ -5,6 +5,8 @@ Date: 2026-11-27
 ## Status
 
 Accepted. Carried over from the pathtracer-era series (old ADR 0010).
+Positions amended by [0045](0045-large-world-positions-and-reference-frames.md): doubles in reference frames; float32
+only on the GPU.
 
 ## Context
 

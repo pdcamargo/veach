@@ -5,6 +5,7 @@ Date: 2026-11-27
 ## Status
 
 Accepted. Carried over from the pathtracer-era series (old ADR 0013), updated to the set in the tree today.
+Amended by [0058](0058-physics-jolt.md) (Jolt).
 
 ## Context
 

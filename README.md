@@ -8,12 +8,13 @@ atmospheres, ecosystems, building and multiplayer, which other people build game
 first-class users. Agents and humans share one API: text formats, reflection everywhere, strictly typed Luau
 scripting, actionable errors, and deterministic headless runs that verify their own work.
 
-> **Status:** the engine foundation is done; the next milestone is the research phase. The engine imports glTF
+> **Status:** the engine foundation and the toolbox's research phase are done; next are the spikes toward the first
+> slice ([synthesis](docs/research/00-synthesis.md)). The engine imports glTF
 > (cooked to BC7/KTX2), runs Luau gameplay with input actions, transforms and hot reload, and renders on Metal and
-> DX12 through a render graph: a basic real-time rasterizer (an interim path until the real PBR renderer is designed)
+> DX12 through a render graph: a basic real-time rasterizer (an interim path until the planned PBR renderer, ADR 0060, is built)
 > and photo mode, a progressive path tracer with extendable Slang materials. Agents can drive any app over MCP
-> (`--mcp`). The toolbox itself (`space/`) is empty until the research phase answers how planets, terrain and procgen
-> are built. See the [roadmap](docs/VISION.md#roadmap) and [backlog](docs/backlog/BACKLOG.md). The earlier,
+> (`--mcp`). The toolbox itself (`space/`) is still empty: its architecture is decided (ADRs 0043-0065) and the
+> spikes come first. See the [roadmap](docs/VISION.md#roadmap) and [backlog](docs/backlog/BACKLOG.md). The earlier,
 > raytracing-first plan is preserved in the `pathtracer-era` git tag.
 
 ## Quick start

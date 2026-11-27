@@ -5,6 +5,8 @@ Date: 2026-11-27
 ## Status
 
 Accepted. Carried over from the pathtracer-era series (old ADR 0050).
+Its scope (one Earth atmosphere seen from the ground) is superseded by [0063](0063-astronomical-rendering.md); the
+sun's direction comes from [0048](0048-bodies-on-rails.md).
 
 ## Context
 

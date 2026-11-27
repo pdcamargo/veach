@@ -17,7 +17,7 @@ component, settable from Luau and MCP.
 A scene without a sky rendered its shadows black and its background a flat color. The sky is the main light
 source outdoors, and aerial perspective (haze with distance) is part of how outdoor scenes read. This is an
 Earth-at-ground-level model; atmospheres driven by a planet's composition, and seen from orbit, are a
-research-phase question ([ARCHITECTURE.md](../../ARCHITECTURE.md#open-questions-research-phase), VCH-070).
+decision of the research phase: per-body atmospheres ([ADR 0063](../../adr/0063-astronomical-rendering.md)).
 
 ## Requirements
 
@@ -69,8 +69,8 @@ camera:set(c.Sky, { mode = "none" })  -- indoor test scenes
 
 ## Out of scope
 
-- Clouds, volumetric fog, a planet seen from space, atmospheres of other compositions, night sky and moon: the
-  research phase (VCH-070).
+- Clouds, volumetric fog, a planet seen from space, atmospheres of other compositions, night sky and moon:
+  [ADR 0063](../../adr/0063-astronomical-rendering.md), validated by SP-10 (VCH-086).
 - Sky reflections in specular surfaces.
 
 ## Open questions

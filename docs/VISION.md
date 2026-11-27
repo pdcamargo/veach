@@ -72,10 +72,14 @@ In order (details and ids in [backlog/BACKLOG.md](backlog/BACKLOG.md)):
    photometric lights, the physical sky.
 5. **Renderers for now (done):** photo mode, and an interim real-time path (a visibility buffer with basic shading)
    so every scene can be looked at in real time.
-6. **Research phase (next):** answer the open questions in
-   [ARCHITECTURE.md](ARCHITECTURE.md#open-questions-research-phase) (large-world coordinates, volumetric terrain,
-   procgen determinism and the procgen graph, networking, simulation LOD, the real-time renderer, planetary physics)
-   with ADRs and spikes, before any toolbox feature is built.
+6. **Research phase (done):** the toolbox's architecture, decided in ADRs 0043-0065 and summarized in
+   [ARCHITECTURE.md](ARCHITECTURE.md#toolbox-architecture-decided-in-the-research-phase) and [research/00-synthesis.md](research/00-synthesis.md): large-world
+   coordinates and frames, time and orbits, the scale model, universe generation and procgen, terrain, persistence,
+   networking, simulation LOD, physics, flight and travel, the real-time renderer, determinism.
+7. **Spikes toward the first slice (next):** throwaway prototypes that validate those decisions (VCH-077 to VCH-090),
+   then the first slice (VCH-091): a seed-generated star system with a rotating, tilted planet seen from orbit, an
+   atmosphere from its composition and the right local time; fly down with no loading screen, land, dig a hole. The
+   same code at 1/100 scale and real scale.
 
 ## Non-goals
 

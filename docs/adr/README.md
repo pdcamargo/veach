@@ -50,6 +50,29 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0037 | [Physical camera exposure and the AgX tonemapper](0037-exposure-and-agx.md) | Accepted |
 | 0038 | [The physical sky: Hillaire LUTs shared by both renderers, one Sky component](0038-physical-sky.md) | Accepted |
 | 0039 | [The real-time renderer is a PBR rasterizer: no real-time GI or path tracing](0039-realtime-renderer-is-raster-pbr.md) | Accepted |
-| 0040 | [The interim real-time path: the visibility buffer with one basic shading pass](0040-interim-realtime-path-visibility-buffer.md) | Accepted |
+| 0040 | [The interim real-time path: the visibility buffer with one basic shading pass](0040-interim-realtime-path-visibility-buffer.md) | Superseded by 0060 |
 | 0041 | [Photo mode: the reference path tracer, accumulated while the camera is still](0041-photo-mode.md) | Accepted |
 | 0042 | [The space toolbox is a layer above the engine, in `space/`](0042-space-toolbox-layering.md) | Accepted |
+| 0043 | [Determinism tiers, strict floating point and veach::dmath](0043-determinism-tiers-and-strict-floating-point.md) | Accepted |
+| 0044 | [Counter-based hash randomness for generation and simulation](0044-counter-based-hash-randomness.md) | Accepted |
+| 0045 | [Large-world positions: doubles in a reference-frame tree, float32 only on the GPU, no floating origin](0045-large-world-positions-and-reference-frames.md) | Accepted |
+| 0046 | [64-bit values and positions across Luau, JSON and MCP](0046-64-bit-values-across-luau-json-mcp.md) | Accepted |
+| 0047 | [The universe clock: int64 ticks, exact orbital phase, time-warp policy](0047-universe-clock.md) | Accepted |
+| 0048 | [Bodies on rails: a barycenter tree of registered motion models; suns and eclipses as queries](0048-bodies-on-rails.md) | Accepted |
+| 0049 | [The scale model: body, orbit and atmosphere scale factors; what never scales; derived quantities](0049-scale-model.md) | Accepted |
+| 0050 | [Universe addresses and hashed seeds](0050-universe-addresses-and-seeds.md) | Accepted |
+| 0051 | [Generation is a staged pipeline of typed physical records, registered by stable id, that never reads scale](0051-staged-generation-pipeline.md) | Accepted |
+| 0052 | [Procgen runtime: code-first stages and JSON field graphs, CPU-authoritative, GPU visual-only, a Luau procgen sandbox](0052-procgen-runtime.md) | Accepted |
+| 0053 | [Terrain is a signed density field in chunked body-local octrees, meshed on the CPU](0053-terrain-density-field.md) | Accepted |
+| 0054 | [Terrain edits: brush operations on the wire, absolute override samples at rest; water as levels](0054-terrain-edits-and-water.md) | Accepted |
+| 0055 | [Universe identity and generator versioning: genesis, epochs, stability classes, body pinning, save layout](0055-universe-identity-and-versioning.md) | Accepted |
+| 0056 | [Multiplayer: server-authoritative replication, one world per process with an authority role](0056-server-authoritative-multiplayer.md) | Accepted |
+| 0057 | [Simulation LOD: four tiers per observer, baseline plus deltas plus clock functions, verified catch-up](0057-simulation-lod.md) | Accepted |
+| 0058 | [Physics: Jolt in double precision, one scene per frame, per-body gravity, deterministic collider installs](0058-physics-jolt.md) | Accepted |
+| 0059 | [Gravity, flight and travel: sphere-of-influence gravity, flight-model plug-ins, the travel governor](0059-gravity-flight-travel.md) | Accepted |
+| 0060 | [The real-time renderer: a GPU-driven visibility buffer with clustered lights and forward transparency](0060-gpu-driven-visibility-buffer.md) | Accepted |
+| 0061 | [Temporal accumulation at native resolution; no upscaling](0061-temporal-accumulation-no-upscaling.md) | Accepted |
+| 0062 | [Shadows, ambient light and reflections without ray tracing](0062-shadows-ambient-reflections.md) | Accepted |
+| 0063 | [Astronomical rendering: per-body atmospheres, N suns, distant bodies, starfield, depth and exposure](0063-astronomical-rendering.md) | Accepted |
+| 0064 | [Quality presets never change simulation outcomes](0064-quality-presets.md) | Accepted |
+| 0065 | [Engine areas for the toolbox: frames, physics, procgen, voxel; what stays in space/](0065-engine-areas-for-the-toolbox.md) | Accepted |

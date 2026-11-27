@@ -55,7 +55,8 @@ git tag.
   No denoiser, no temporal tricks. It is also the engine's ground truth for debugging materials, lights and the sky
   ([ADR 0041](adr/0041-photo-mode.md)).
 - **Hardware:** every Apple silicon Mac and DX12 GPUs with Shader Model 6.6; ray tracing optional, for photo mode.
-  Design target: 60 fps at 1080p on a base Apple M1-class GPU ([ADR 0003](adr/0003-platforms-and-hardware-target.md)).
+  Design target: 60 fps at 1440p with every feature on, on an M3 Pro-class GPU; a base M1 at 1080p60 on the low
+  preset is the minimum ([ADR 0066](adr/0066-owner-decisions-research-phase.md)).
 
 ## Roadmap
 

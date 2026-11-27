@@ -5,6 +5,7 @@ Date: 2026-11-27
 ## Status
 
 Accepted.
+Player counts confirmed by the owner in [0066](0066-owner-decisions-research-phase.md).
 
 ## Context
 

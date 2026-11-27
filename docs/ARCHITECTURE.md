@@ -31,11 +31,9 @@ Changing any of these needs the product owner's sign-off and a superseding ADR.
    added with `engine.import<MyModule>()`. Not a plugin/app model. ([ADR 0019](adr/0019-veach-modules-and-services.md))
 10. **Hardware target:** every Apple silicon Mac (Metal 3) and DX12 GPUs with Shader Model 6.6, resource binding
     tier 3 and enhanced barriers. **Hardware ray tracing is optional** and used only by photo mode; no real-time
-    feature may require it. **Performance target: pending the owner's review.** The research phase recommends a
-    design target of 60 fps at 1440p with everything on, on an M3 Pro-class GPU, and 60 fps at 1080p on the low
-    preset on a base M1-class GPU ([research](research/08-renderer.md)). ADR 0003's number (60 fps at 1080p on a
-    base M1) was never measured; it stands until the owner decides.
-    ([ADR 0003](adr/0003-platforms-and-hardware-target.md))
+    feature may require it. **Performance target: 60 fps at 1440p with everything on, on an M3 Pro-class GPU**
+    (the owner's decision, [ADR 0066](adr/0066-owner-decisions-research-phase.md)); a base M1-class GPU at 1080p60 on
+    the low preset is the working minimum. ([ADR 0003](adr/0003-platforms-and-hardware-target.md))
 11. **The real-time renderer is a rasterizer:** no real-time GI, no real-time path tracing.
     ([ADR 0039](adr/0039-realtime-renderer-is-raster-pbr.md)) The planned renderer is a GPU-driven visibility
     buffer with clustered lights and forward transparency

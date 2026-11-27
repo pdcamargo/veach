@@ -76,3 +76,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0063 | [Astronomical rendering: per-body atmospheres, N suns, distant bodies, starfield, depth and exposure](0063-astronomical-rendering.md) | Accepted |
 | 0064 | [Quality presets never change simulation outcomes](0064-quality-presets.md) | Accepted |
 | 0065 | [Engine areas for the toolbox: frames, physics, procgen, voxel; what stays in space/](0065-engine-areas-for-the-toolbox.md) | Accepted |
+| 0066 | [The owner's product decisions after the research phase](0066-owner-decisions-research-phase.md) | Accepted |

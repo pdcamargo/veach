@@ -1,5 +1,8 @@
 ## Review packet: product decisions from the space toolbox research phase
 
+**Answered by the owner on 2026-11-27: every recommendation accepted, with M3 Pro-class at 1440p60 as the target.
+Recorded in [ADR 0066](../adr/0066-owner-decisions-research-phase.md).**
+
 - **Decision needed:** set the hardware target, the universe scale defaults, the multiplayer scope, a few realism vs
   gameplay rules, and what goes into the first playable slice.
 

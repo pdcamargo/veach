@@ -5,6 +5,7 @@ Date: 2026-11-27
 ## Status
 
 Accepted. Replaces the pathtracer-era hardware stance (old ADR 0002: hardware ray tracing as the baseline).
+Its performance goal is superseded by [0066](0066-owner-decisions-research-phase.md) (M3 Pro-class at 1440p60).
 
 ## Context
 

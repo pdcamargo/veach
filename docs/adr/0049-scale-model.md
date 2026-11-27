@@ -6,6 +6,7 @@ Date: 2026-11-27
 
 Accepted (the mechanism). The default values are product decisions pending the owner's review packet; this ADR
 records the working defaults.
+Defaults confirmed by the owner in [0066](0066-owner-decisions-research-phase.md).
 
 ## Context
 

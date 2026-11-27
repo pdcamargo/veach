@@ -24,7 +24,7 @@ includes=()
 for area in "$root"/engine/*/include "$root"/engine/include "$root"/engine/rhi/src "$root"/tests; do
     includes+=(/I "$area")
 done
-for dep in flecs/*/include glm/* doctest/* nlohmann_json/*/include stb/* bc7enc/* fastgltf/*/include luau/*/VM/include luau/*/Compiler/include luau/*/Common/include; do
+for dep in flecs/*/include glm/* doctest/* nlohmann_json/*/include stb/* bc7enc/* fastgltf/*/include luau/*/VM/include luau/*/Compiler/include luau/*/Common/include llvm_libc/*/*/libc; do
     for dir in "$root"/.cpm-cache/$dep; do includes+=(/imsvc "$dir"); done
 done
 

@@ -77,3 +77,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0064 | [Quality presets never change simulation outcomes](0064-quality-presets.md) | Accepted |
 | 0065 | [Engine areas for the toolbox: frames, physics, procgen, voxel; what stays in space/](0065-engine-areas-for-the-toolbox.md) | Accepted |
 | 0066 | [The owner's product decisions after the research phase](0066-owner-decisions-research-phase.md) | Accepted |
+| 0067 | [veach::dmath on LLVM libc's header-only math, one no-FMA path](0067-dmath-on-llvm-libc.md) | Accepted |

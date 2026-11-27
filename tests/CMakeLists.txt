@@ -298,3 +298,16 @@ add_executable(veach-bench-script bench/script_bench.cpp)
 target_link_libraries(veach-bench-script PRIVATE veach::veach)
 set_target_properties(veach-bench-script PROPERTIES FOLDER "tests")
 veach_apply_warnings(veach-bench-script)
+
+# veach::dmath: ns/call against the platform libm and 10^7-input hashes (docs/research/spikes/sp-02-dmath.md).
+add_executable(veach-bench-dmath bench/dmath_bench.cpp)
+target_link_libraries(veach-bench-dmath PRIVATE veach::core)
+target_include_directories(veach-bench-dmath PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+set_target_properties(veach-bench-dmath PROPERTIES FOLDER "tests")
+veach_apply_warnings(veach-bench-dmath)
+# VCH-078: dmath is bit-equal over 10^7 inputs per function. Windows CI checks the hashes committed from the Mac; about
+# a minute in a Debug build, so it is in the full set and skipped under sanitizers and leak checks.
+if(NOT VEACH_SANITIZE AND NOT VEACH_LEAK_CHECK)
+    add_test(NAME "dmath: 10^7-input hashes match the committed ones" COMMAND veach-bench-dmath --hash-only)
+    set_tests_properties("dmath: 10^7-input hashes match the committed ones" PROPERTIES LABELS full TIMEOUT 900)
+endif()

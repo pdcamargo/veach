@@ -185,3 +185,57 @@ CPMAddPackage(
     SYSTEM YES
     EXCLUDE_FROM_ALL YES
     OPTIONS "MESHOPT_BUILD_SHARED_LIBS OFF" "MESHOPT_INSTALL OFF")
+
+# LLVM libc's header-only math (libc/shared/math): backs veach::dmath, correctly rounded math for canonical code
+# (docs/adr/0043-determinism-tiers-and-strict-floating-point.md, docs/research/spikes/sp-02-dmath.md). Pinned to a
+# commit on main: the 23.x releases have no correctly rounded double pow (23.1.6's is wrong for large |y|) and no
+# double sinh/cosh/tanh. CPM would unpack the whole monorepo (1.7 GB), so the pinned archive is checked against its
+# SHA256 and only the headers are kept, in CPM's cache, by veach_fetch_archive_subset below.
+set(VEACH_LLVM_LIBC_VERSION 0.0.0-e6091a8)
+set(VEACH_LLVM_LIBC_COMMIT e6091a8158c863643d4fbe44b70fe62dd0ef3eba)
+
+# veach_fetch_archive_subset(<name> <version> <url> <sha256> <top-dir> <out-var> <paths>...): downloads <url>,
+# checks its SHA256, extracts <top-dir>/<path> for each path into the dependency cache, deletes the archive and sets
+# <out-var> to the extracted <top-dir>. Skips everything when the cache already holds that hash and those paths.
+function(veach_fetch_archive_subset name version url sha256 top out_var)
+    if(DEFINED CPM_SOURCE_CACHE)
+        set(cache "${CPM_SOURCE_CACHE}")
+    else()
+        set(cache "$ENV{CPM_SOURCE_CACHE}")
+    endif()
+    set(dir "${cache}/${name}/${version}")
+    set(stamp "${dir}/.veach-sha256")
+    file(MAKE_DIRECTORY "${cache}/${name}")
+    file(LOCK "${cache}/${name}/${version}.lock" GUARD FUNCTION)
+    string(JOIN " " want ${sha256} ${ARGN})
+    set(have "")
+    if(EXISTS "${stamp}")
+        file(READ "${stamp}" have)
+    endif()
+    if(NOT have STREQUAL want)
+        message(STATUS "veach: downloading ${name} ${version} (headers only)")
+        file(REMOVE_RECURSE "${dir}")
+        file(DOWNLOAD "${url}" "${dir}.archive" EXPECTED_HASH SHA256=${sha256} STATUS status TLS_VERIFY ON)
+        list(GET status 0 code)
+        if(NOT code EQUAL 0)
+            file(REMOVE "${dir}.archive")
+            message(FATAL_ERROR "veach: downloading ${url} failed: ${status}")
+        endif()
+        set(patterns "")
+        foreach(path IN LISTS ARGN)
+            list(APPEND patterns "${top}/${path}")
+        endforeach()
+        file(ARCHIVE_EXTRACT INPUT "${dir}.archive" DESTINATION "${dir}" PATTERNS ${patterns})
+        file(REMOVE "${dir}.archive")
+        file(WRITE "${stamp}" "${want}")
+    endif()
+    set(${out_var} "${dir}/${top}" PARENT_SCOPE)
+endfunction()
+
+veach_fetch_archive_subset(llvm_libc ${VEACH_LLVM_LIBC_VERSION}
+    https://github.com/llvm/llvm-project/archive/${VEACH_LLVM_LIBC_COMMIT}.tar.gz
+    fe900189e827dc9b52baa42f7b01c636842944aa65edabfc2803ffa0a7543261
+    llvm-project-${VEACH_LLVM_LIBC_COMMIT} _llvm_project
+    libc/shared libc/src/__support libc/src/string libc/hdr libc/include/llvm-libc-macros
+    libc/include/llvm-libc-types libc/LICENSE.TXT)
+set(VEACH_LLVM_LIBC_DIR "${_llvm_project}/libc" CACHE INTERNAL "LLVM libc headers (veach::dmath)")

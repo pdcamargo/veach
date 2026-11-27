@@ -82,10 +82,27 @@ export type Camera = {
 	shutter: number,
 	iso: number,
 }
+export type CelestialBody = {
+	name: string,
+	parent: string,
+	x: number,
+	y: number,
+	z: number,
+	vx: number,
+	vy: number,
+	vz: number,
+	radius: number,
+	distance_to_parent: number,
+	tick: number,
+}
 export type DirectionalLight = {
 	color: vector,
 	illuminance: number,
 	angle: number,
+}
+export type Orrery = {
+	system: string,
+	scale: number,
 }
 export type PhotoMode = {
 	samples_per_frame: number,
@@ -137,6 +154,18 @@ export type SpotLight = {
 	outer_angle: number,
 	radius: number,
 }
+export type SunObserver = {
+	body: string,
+	latitude: number,
+	longitude: number,
+	elevation: number,
+	azimuth: number,
+	local_solar_time: number,
+	east: number,
+	north: number,
+	up: number,
+	tick: number,
+}
 export type quat = {
 	x: number,
 	y: number,
@@ -151,6 +180,10 @@ export type Transform = {
 export type TriangleMode = "raster" | "raytraced"
 export type TriangleDemo = {
 	mode: TriangleMode,
+}
+export type UniverseClock = {
+	tick: number,
+	rate: number,
 }
 export type WindowMode = "windowed" | "fullscreen"
 export type Window = {
@@ -188,7 +221,9 @@ export type Veach = {
 	read time: TimeApi,
 	read components: {
 		read Camera: Component<Camera>,
+		read CelestialBody: Component<CelestialBody>,
 		read DirectionalLight: Component<DirectionalLight>,
+		read Orrery: Component<Orrery>,
 		read PhotoMode: Component<PhotoMode>,
 		read PointLight: Component<PointLight>,
 		read SceneInstance: Component<SceneInstance>,
@@ -197,8 +232,10 @@ export type Veach = {
 		read Sp03LargePosition: Component<Sp03LargePosition>,
 		read Spinner: Component<Spinner>,
 		read SpotLight: Component<SpotLight>,
+		read SunObserver: Component<SunObserver>,
 		read Transform: Component<Transform>,
 		read TriangleDemo: Component<TriangleDemo>,
+		read UniverseClock: Component<UniverseClock>,
 		read Window: Component<Window>,
 	},
 }

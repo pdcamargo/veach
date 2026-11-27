@@ -1,11 +1,11 @@
 #pragma once
 
-// The render hardware interface (ADR 0009). Thin and modern-only: bindless
-// resources (ADR 0024), explicit barriers derived by the render graph
-// (ADR 0025), hardware ray tracing, no legacy paths. Backends:
+// The render hardware interface (ADR 0004). Thin and modern-only: bindless
+// resources (ADR 0027), explicit barriers derived by the render graph
+// (ADR 0029), optional hardware ray tracing (ADR 0003), no legacy paths. Backends:
 //   null  — no GPU; every call succeeds and does nothing (headless, CI, agents)
 //   metal — macOS, Metal 3
-//   dx12  — Windows, D3D12 via the Agility SDK; WARP in hosted CI (VCH-012, ADR 0031)
+//   dx12  — Windows, D3D12 via the Agility SDK; WARP in hosted CI (ADR 0033)
 
 #include <veach/core/error.hpp>
 #include <veach/platform/native_window.hpp>
@@ -27,22 +27,10 @@ enum class Backend : std::uint8_t { null, metal, dx12 };
 struct Capabilities {
     std::string device_name;
     bool gpu = false;  ///< false for the null backend: nothing is ever drawn
-    bool hardware_ray_tracing = false;
+    bool hardware_ray_tracing =
+        false;              ///< ray queries: photo mode only (ADR 0003); off with VEACH_DISABLE_RAY_TRACING=1
     bool bindless = false;  ///< Metal 3 resource IDs / SM 6.6 descriptor heaps
     bool mesh_shaders = false;
-    bool temporal_upscaler = false;  ///< create_temporal_scaler works (MetalFX on Apple GPUs, ADR 0043)
-};
-
-/// A temporal upscaler's fixed configuration: sizes and the formats of what it reads and writes (ADR 0043).
-struct TemporalScalerDesc {
-    std::uint32_t input_width = 0;
-    std::uint32_t input_height = 0;
-    std::uint32_t output_width = 0;
-    std::uint32_t output_height = 0;
-    Format color = Format::rgba16_float;
-    Format depth = Format::depth32_float;
-    Format motion = Format::rgba16_float;
-    Format output = Format::rgba16_float;
 };
 
 /// GPU time of one timed region of a frame (a render-graph pass): CommandList::begin_timing/end_timing.
@@ -60,7 +48,7 @@ struct FrameTimings {
 };
 
 /// GPU memory held by one resource: buffers, textures and acceleration structures (with their scratch and instance
-/// buffers), as the driver sized them. The frame budget report groups them by name (ADR 0049).
+/// buffers), as the driver sized them.
 struct ResourceMemory {
     std::string name;  ///< the resource's debug name
     std::uint64_t bytes = 0;
@@ -74,7 +62,7 @@ struct MemoryUsage {
 struct DeviceDesc {
     Backend backend = Backend::null;
     bool validation = false;  ///< API validation (Metal debug layer / D3D12 debug layer); errors become error logs.
-    std::uint32_t frames_in_flight = 2;  ///< How far the CPU may run ahead of the GPU (ADR 0029).
+    std::uint32_t frames_in_flight = 2;  ///< How far the CPU may run ahead of the GPU (ADR 0030).
 };
 
 struct SurfaceDesc {
@@ -107,29 +95,23 @@ public:
     [[nodiscard]] virtual Result<AccelHandle> create_tlas(const TlasDesc& desc) = 0;
 
     /// Never waits. The handle is invalid immediately; the GPU object (and, on DX12, its descriptor slots)
-    /// is released once every submission made before this call has completed (ADR 0029).
+    /// is released once every submission made before this call has completed (ADR 0030).
     virtual void destroy(BufferHandle buffer) = 0;
     virtual void destroy(TextureHandle texture) = 0;
     virtual void destroy(SamplerHandle sampler) = 0;
     virtual void destroy(PipelineHandle pipeline) = 0;
     virtual void destroy(AccelHandle accel) = 0;
 
-    /// A vendor temporal upscaler (ADR 0043): rhi.backend_unavailable where capabilities().temporal_upscaler is
-    /// false. Its textures need TextureUsage::sampled (inputs, the depth target too) and color_target | storage
-    /// (output).
-    [[nodiscard]] virtual Result<TemporalScalerId> create_temporal_scaler(const TemporalScalerDesc& desc);
-    virtual void destroy_temporal_scaler(TemporalScalerId scaler);
-
     /// Host pointer for upload/readback buffers (persistently mapped), nullptr otherwise.
     [[nodiscard]] virtual void* map(BufferHandle buffer) = 0;
     [[nodiscard]] virtual const TextureDesc* texture_desc(TextureHandle texture) const = 0;
 
-    // ---- bindless descriptors (ADR 0024)
+    // ---- bindless descriptors (ADR 0027)
     [[nodiscard]] virtual DescriptorHandle descriptor(BufferHandle buffer, View view = View::read) = 0;
     [[nodiscard]] virtual DescriptorHandle descriptor(TextureHandle texture, View view = View::read) = 0;
     [[nodiscard]] virtual DescriptorHandle descriptor(SamplerHandle sampler) = 0;
     [[nodiscard]] virtual DescriptorHandle descriptor(AccelHandle accel) = 0;
-    /// A valid descriptor of `kind` that reads as zero (ADR 0039). Use it for "no resource"; handle 0 is invalid.
+    /// A valid descriptor of `kind` that reads as zero (ADR 0027). Use it for "no resource"; handle 0 is invalid.
     [[nodiscard]] virtual DescriptorHandle null_descriptor(DescriptorKind kind) = 0;
 
     // ---- surfaces (swapchains)
@@ -140,7 +122,7 @@ public:
     [[nodiscard]] virtual Result<TextureHandle> acquire_image(SurfaceId surface) = 0;
     virtual void destroy_surface(SurfaceId surface) = 0;
 
-    // ---- frames (ADR 0029)
+    // ---- frames (ADR 0030)
     /// Starts recording a frame. Blocks only until the frame that last used this frame's slot
     /// (frame - frames_in_flight) has completed on the GPU, then runs pending releases.
     virtual FrameInfo begin_frame() = 0;
@@ -153,7 +135,7 @@ public:
     /// Per-pass GPU times of the most recently completed frame. Never waits: frames still on the GPU are not
     /// included (call wait_idle() first for the latest one).
     [[nodiscard]] virtual FrameTimings last_frame_timings() = 0;
-    /// The resources alive now and what they occupy (ADR 0049's memory budget).
+    /// The resources alive now and what they occupy.
     [[nodiscard]] virtual MemoryUsage memory_usage() = 0;
 
     // ---- work

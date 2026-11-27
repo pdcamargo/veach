@@ -3,7 +3,7 @@
 // Command recording. One CommandList per submission. Passes are explicit:
 // draws happen inside begin/end_render_pass, dispatches inside
 // begin/end_compute_pass; copies and acceleration-structure builds happen
-// outside both. Barriers and residency come from the render graph (ADR 0025).
+// outside both. Barriers and residency come from the render graph (ADR 0029).
 
 #include <veach/rhi/types.hpp>
 
@@ -14,8 +14,8 @@
 
 namespace veach::rhi {
 
-/// DX12 root constants: 60 of the root signature's 64 DWORDs (ADR 0024); the other 4 hold the descriptor-validation
-/// buffers (ADR 0039).
+/// DX12 root constants: 60 of the root signature's 64 DWORDs (ADR 0027); the other 4 hold the descriptor-validation
+/// buffers (ADR 0027).
 inline constexpr std::size_t max_parameter_bytes = 240;
 
 class CommandList {
@@ -57,20 +57,6 @@ public:
     /// render graph times every pass this way.
     virtual void begin_timing(std::string_view name) = 0;
     virtual void end_timing() = 0;
-
-    /// One frame of a vendor temporal upscaler (Device::create_temporal_scaler, ADR 0043), outside any pass's
-    /// encoder: record it in a transfer pass. Backends without one never get here.
-    struct TemporalScale {
-        TextureHandle color;    ///< input resolution
-        TextureHandle depth;    ///< input resolution
-        TextureHandle motion;   ///< input resolution: xy = previous minus current position, input pixels
-        TextureHandle output;   ///< output resolution
-        float jitter_x = 0.0f;  ///< the frame's sample offset from the pixel center, input pixels
-        float jitter_y = 0.0f;
-        bool reset = false;          ///< drop history
-        bool depth_reversed = true;  ///< reverse-Z
-    };
-    virtual void temporal_scale(TemporalScalerId scaler, const TemporalScale& frame);
 
     template <class T>
     void set_parameters(const T& params) {

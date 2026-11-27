@@ -3,9 +3,12 @@
 #include <veach/core/assert.hpp>
 #include <veach/rhi/command_list.hpp>
 
+#include <cstdlib>
 #include <format>
+#include <string_view>
 
 #include "null/null_device.hpp"
+#include "ray_tracing.hpp"
 #if defined(__APPLE__)
 #include "metal/metal_device.hpp"
 #endif
@@ -24,17 +27,18 @@ std::string_view to_string(Backend backend) {
     return "?";
 }
 
-// Vendor temporal upscalers (ADR 0043): only backends that have one override these.
-Result<TemporalScalerId> Device::create_temporal_scaler(const TemporalScalerDesc&) {
-    return make_error(ErrorCode::rhi_backend_unavailable,
-                      std::format("the {} backend has no vendor temporal upscaler", to_string(backend())),
-                      "Use Veach's own upscaler (Upscaling.mode = \"temporal\").");
-}
-
-void Device::destroy_temporal_scaler(TemporalScalerId) {}
-
-void CommandList::temporal_scale(TemporalScalerId, const TemporalScale&) {
-    VEACH_ASSERT(false, "temporal_scale on a backend without a vendor temporal upscaler");
+bool ray_tracing_disabled() {
+    constexpr const char* name = "VEACH_DISABLE_RAY_TRACING";
+#if defined(_MSC_VER)  // MSVC deprecates std::getenv
+    char* value = nullptr;
+    std::size_t length = 0;
+    const bool one = _dupenv_s(&value, &length, name) == 0 && value != nullptr && std::string_view(value) == "1";
+    std::free(value);  // NOLINT(cppcoreguidelines-no-malloc)
+    return one;
+#else
+    const char* value = std::getenv(name);  // NOLINT(concurrency-mt-unsafe): read only
+    return value != nullptr && std::string_view(value) == "1";
+#endif
 }
 
 Result<std::unique_ptr<Device>> create_device(const DeviceDesc& desc) {

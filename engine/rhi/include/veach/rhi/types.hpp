@@ -1,7 +1,7 @@
 #pragma once
 
 // RHI value types: handles, formats, descriptors of resources and pipelines,
-// resource states and barriers. See ADR 0009 (RHI), 0024 (binding), 0025 (sync).
+// resource states and barriers. See ADR 0004 (RHI), 0024 (binding), 0025 (sync).
 
 #include <veach/rhi/shader.hpp>
 
@@ -47,7 +47,7 @@ struct ResourceRef {
     auto operator<=>(const ResourceRef&) const = default;
 };
 
-/// What a shader stores in its parameter block to reach a resource (ADR 0024).
+/// What a shader stores in its parameter block to reach a resource (ADR 0027).
 /// Metal: gpuResourceID / gpuAddress. DX12: descriptor heap index (low 32 bits).
 struct DescriptorHandle {
     std::uint64_t value = 0;
@@ -57,7 +57,7 @@ static_assert(sizeof(DescriptorHandle) == 8);
 /// Which view of a resource a descriptor is for (DX12 has separate SRVs and UAVs).
 enum class View : std::uint8_t { read, storage };
 
-/// What a descriptor points at, for null descriptors (ADR 0039).
+/// What a descriptor points at, for null descriptors (ADR 0027).
 enum class DescriptorKind : std::uint8_t { texture, storage_texture, buffer, storage_buffer, sampler };
 
 struct SubmissionId {
@@ -65,12 +65,6 @@ struct SubmissionId {
 };
 
 struct SurfaceId {
-    std::uint32_t value = 0;
-    [[nodiscard]] constexpr bool is_valid() const { return value != 0; }
-};
-
-/// A vendor temporal upscaler (MetalFX's temporal scaler, ADR 0043). Not a GPU resource of its own for barriers.
-struct TemporalScalerId {
     std::uint32_t value = 0;
     [[nodiscard]] constexpr bool is_valid() const { return value != 0; }
 };
@@ -87,10 +81,10 @@ enum class Format : std::uint8_t {
     rgb32_float,  ///< vertex positions for acceleration structures only
     depth32_float,
     rgba8_srgb,  ///< sRGB-encoded storage, linear when sampled
-    bc7_unorm,   ///< 4x4 blocks of 16 bytes (ADR 0032): normal and metallic-roughness maps
+    bc7_unorm,   ///< 4x4 blocks of 16 bytes (ADR 0011): normal and metallic-roughness maps
     bc7_srgb,    ///< BC7, sRGB-encoded: base color and emissive
     r32_uint,    ///< integer: color target, storage, loaded (not filtered) in shaders
-    rg32_uint,   ///< integer: the visibility buffer (ADR 0037)
+    rg32_uint,   ///< integer: the visibility buffer (ADR 0040)
 };
 
 /// Bytes per pixel; 0 for block-compressed formats (use row_bytes / row_count).
@@ -263,7 +257,7 @@ struct RenderPassDesc {
     std::string_view debug_name;
 };
 
-// ---- synchronization (ADR 0025) ---------------------------------------------------
+// ---- synchronization (ADR 0029) ---------------------------------------------------
 
 enum class ResourceState : std::uint8_t {
     undefined,

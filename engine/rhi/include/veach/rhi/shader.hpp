@@ -1,7 +1,7 @@
 #pragma once
 
 // Compiled shader code, embedded in binaries by cmake/VeachShaders.cmake
-// (ADR 0026). One ShaderLibrary per .slang file.
+// (ADR 0009). One ShaderLibrary per .slang file.
 
 #include <cstddef>
 #include <cstdint>

@@ -1,6 +1,6 @@
 #pragma once
 
-// Frames in flight and resource retirement (ADR 0029). Backend-independent:
+// Frames in flight and resource retirement (ADR 0030). Backend-independent:
 // Metal and DX12 both build on it, so the rules are the same everywhere.
 //
 // - Every submission gets a monotonically increasing SubmissionId (a DX12 fence

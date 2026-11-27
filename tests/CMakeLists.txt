@@ -199,6 +199,9 @@ function(veach_scene_goldens rhi)
     endif()
     veach_golden_test("golden: flight helmet (realtime${suffix})" flight_helmet_realtime flight_helmet_realtime ${rhi}
         ${helmet_limits})
+    # rt.AC2: the same image with ray tracing turned off: the real-time renderer never needs it.
+    veach_golden_test("golden: flight helmet (realtime, no ray tracing${suffix})" flight_helmet_realtime
+        flight_helmet_realtime ${rhi} NO_RAY_TRACING ${helmet_limits})
     # photo.AC1: photo mode's reference images.
     veach_golden_test("golden: cornell box (photo mode${suffix})" cornell_box cornell_box ${rhi} FRAMES 4)
     veach_golden_test("golden: flight helmet (photo mode${suffix})" flight_helmet flight_helmet ${rhi} FRAMES 4)
@@ -227,6 +230,13 @@ if(APPLE)
     set_tests_properties("lab: NaN samples are errors" PROPERTIES
         PASS_REGULAR_EXPRESSION "path-traced samples were NaN or infinite.*render\\.nonfinite_samples"
         SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable")
+    # photo.AC4: without ray tracing photo mode is an error that names the fix, and the camera renders in real time.
+    add_test(NAME "lab: photo mode without ray tracing is reported"
+        COMMAND "${CMAKE_COMMAND}" -E env VEACH_DISABLE_RAY_TRACING=1
+                $<TARGET_FILE:veach-lab> --rhi metal --headless --frames 3 --script scripts/cornell_box.luau)
+    set_tests_properties("lab: photo mode without ray tracing is reported" PROPERTIES
+        PASS_REGULAR_EXPRESSION "photo mode: '[^']+' has no hardware ray tracing.*real-time renderer instead"
+        SKIP_REGULAR_EXPRESSION "does not support Metal 3|no Metal device")
     set(_update "")
     foreach(_golden "hello:background:3" "triangle_raster:triangle_raster:3" "triangle_raytraced:triangle_raytraced:3"
             "triangle_camera_raster:triangle_camera:3" "cornell_box:cornell_box:4" "flight_helmet:flight_helmet:4"

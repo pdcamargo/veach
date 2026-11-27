@@ -1,11 +1,12 @@
-// Metal backend (ADR 0009). Metal 3: bindless through gpuResourceID/gpuAddress
-// (ADR 0024); one encoder per graph pass with tracked hazards, barriers
-// validated in debug builds (ADR 0025).
+// Metal backend (ADR 0004). Metal 3: bindless through gpuResourceID/gpuAddress
+// (ADR 0027); one encoder per graph pass with tracked hazards, barriers
+// validated in debug builds (ADR 0029).
 
 #include "metal_device.hpp"
 
 #include "../frame_timings.hpp"
 #include "../pipeline_validation.hpp"
+#include "../ray_tracing.hpp"
 #include "../slot_map.hpp"
 #include "../surface_validation.hpp"
 #include "../texture_validation.hpp"
@@ -14,7 +15,6 @@
 #include <veach/core/log.hpp>
 
 #import <Metal/Metal.h>
-#import <MetalFX/MetalFX.h>
 #import <QuartzCore/CAMetalLayer.h>
 
 #include <array>
@@ -123,7 +123,7 @@ struct MetalAccel {
     MTLAccelerationStructureDescriptor* descriptor = nil;
     id<MTLBuffer> scratch;
     /// TLAS only: MTLAccelerationStructureInstanceDescriptor[max], one buffer per frame slot because the CPU
-    /// writes them while earlier frames may still be building from theirs (ADR 0029).
+    /// writes them while earlier frames may still be building from theirs (ADR 0030).
     std::vector<id<MTLBuffer>> instances;
     std::vector<AccelHandle> blases;
     std::uint32_t max_instances = 0;
@@ -163,7 +163,6 @@ public:
     void pop_debug_group() override { [buffer_ popDebugGroup]; }
     void begin_timing(std::string_view name) override;
     void end_timing() override;
-    void temporal_scale(TemporalScalerId scaler, const TemporalScale& frame) override;
 
     [[nodiscard]] id<MTLCommandBuffer> buffer() const { return buffer_; }
     void end_encoder();
@@ -224,11 +223,10 @@ public:
         }
         caps_.device_name = device.name.UTF8String;
         caps_.gpu = true;
-        caps_.hardware_ray_tracing = device.supportsRaytracing;
+        caps_.hardware_ray_tracing = device.supportsRaytracing && !ray_tracing_disabled();
         caps_.bindless =
             [device supportsFamily:MTLGPUFamilyMetal3] && device.argumentBuffersSupport == MTLArgumentBuffersTier2;
         caps_.mesh_shaders = [device supportsFamily:MTLGPUFamilyApple7] || [device supportsFamily:MTLGPUFamilyMac2];
-        caps_.temporal_upscaler = [MTLFXTemporalScalerDescriptor supportsDevice:device];
         create_null_resources();
         create_timing_buffers(frames_in_flight);
     }
@@ -322,7 +320,7 @@ public:
 
     ~MetalDevice() override { wait_idle(); }
 
-    /// ADR 0039: shared storage, so the zeros are written once from the CPU.
+    /// ADR 0027: shared storage, so the zeros are written once from the CPU.
     void create_null_resources() {
         MTLTextureDescriptor* d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
                                                                                      width:1
@@ -379,7 +377,7 @@ public:
         if (is_block_compressed(desc.format) && !device_.supportsBCTextureCompression) {
             return make_error(ErrorCode::rhi_backend_unavailable,
                               std::format("'{}' does not support BC texture compression", caps_.device_name),
-                              "BC7 textures (ADR 0032) need an Apple-silicon Mac.");
+                              "BC7 textures (ADR 0011) need an Apple-silicon Mac.");
         }
         const std::uint32_t levels = std::max(1u, desc.mip_levels);
         MTLTextureDescriptor* d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:to_mtl(desc.format)
@@ -478,7 +476,7 @@ public:
         if (!lib || lib->metallib.empty()) {
             return make_error(ErrorCode::rhi_not_implemented,
                               std::format("shader library '{}' has no Metal code", lib ? lib->name : "(null)"),
-                              "Compile it with veach_add_shader() on macOS (docs/adr/0026-shader-compilation.md).");
+                              "Compile it with veach_add_shader() on macOS (docs/adr/0009-shader-compilation.md).");
         }
         if (const auto it = libraries_.find(lib); it != libraries_.end()) {
             return it->second;
@@ -929,40 +927,6 @@ public:
         std::erase_if(in_flight_, [done](const auto& entry) { return entry.first <= done; });
     }
 
-    // ---- MetalFX's temporal scaler (ADR 0043)
-    [[nodiscard]] Result<TemporalScalerId> create_temporal_scaler(const TemporalScalerDesc& desc) override {
-        if (!caps_.temporal_upscaler) {
-            return Device::create_temporal_scaler(desc);
-        }
-        MTLFXTemporalScalerDescriptor* d = [MTLFXTemporalScalerDescriptor new];
-        d.colorTextureFormat = to_mtl(desc.color);
-        d.depthTextureFormat = to_mtl(desc.depth);
-        d.motionTextureFormat = to_mtl(desc.motion);
-        d.outputTextureFormat = to_mtl(desc.output);
-        d.inputWidth = desc.input_width;
-        d.inputHeight = desc.input_height;
-        d.outputWidth = desc.output_width;
-        d.outputHeight = desc.output_height;
-        id<MTLFXTemporalScaler> scaler = [d newTemporalScalerWithDevice:device_];
-        if (scaler == nil) {
-            return make_error(ErrorCode::rhi_gpu_error,
-                              std::format("MetalFX refused a {}x{} -> {}x{} temporal scaler", desc.input_width,
-                                          desc.input_height, desc.output_width, desc.output_height),
-                              "Check the formats and that the output is at most 3 times the input per axis.");
-        }
-        scalers_.push_back(scaler);
-        return TemporalScalerId{static_cast<std::uint32_t>(scalers_.size())};
-    }
-    void destroy_temporal_scaler(TemporalScalerId which) override {
-        if (which.is_valid() && which.value <= scalers_.size()) {
-            wait_idle();  // rare (a resize): the scaler may still be encoded in a frame in flight
-            scalers_[which.value - 1] = nil;
-        }
-    }
-    id<MTLFXTemporalScaler> scaler(TemporalScalerId which) {
-        return which.is_valid() && which.value <= scalers_.size() ? scalers_[which.value - 1] : nil;
-    }
-
     // Used by MetalCommandList.
     MetalBuffer* buffer(BufferHandle h) { return buffers_.get(h); }
     MetalTexture* texture(TextureHandle h) { return textures_.get(h); }
@@ -1006,7 +970,6 @@ private:
     SlotMap<MetalAccel, AccelHandle> accels_;
     std::unordered_map<const ShaderLibrary*, id<MTLLibrary>> libraries_;
     std::vector<MetalSurface> surfaces_;
-    std::vector<id<MTLFXTemporalScaler>> scalers_;  ///< TemporalScalerId - 1; nil once destroyed
     id residency_ = nil;  ///< id<MTLResidencySet> on macOS 15+: every allocation, attached to the queue
     bool residency_dirty_ = false;
     std::shared_ptr<CompletionState> state_;
@@ -1247,27 +1210,6 @@ void MetalCommandList::copy_buffer(BufferHandle src, BufferHandle dst, std::uint
     [blit endEncoding];
 }
 
-void MetalCommandList::temporal_scale(TemporalScalerId which, const TemporalScale& frame) {
-    end_encoder();  // MetalFX encodes its own passes into the command buffer
-    id<MTLFXTemporalScaler> scaler = device_.scaler(which);
-    MetalTexture* color = device_.texture(frame.color);
-    MetalTexture* depth = device_.texture(frame.depth);
-    MetalTexture* motion = device_.texture(frame.motion);
-    MetalTexture* output = device_.texture(frame.output);
-    VEACH_ASSERT(scaler != nil && color && depth && motion && output, "temporal_scale: invalid scaler or textures");
-    scaler.colorTexture = color->texture;
-    scaler.depthTexture = depth->texture;
-    scaler.motionTexture = motion->texture;
-    scaler.outputTexture = output->texture;
-    scaler.jitterOffsetX = frame.jitter_x;
-    scaler.jitterOffsetY = frame.jitter_y;
-    scaler.motionVectorScaleX = 1.0f;
-    scaler.motionVectorScaleY = 1.0f;
-    scaler.reset = frame.reset;
-    scaler.depthReversed = frame.depth_reversed;
-    [scaler encodeToCommandBuffer:buffer_];
-}
-
 void MetalCommandList::copy_texture_to_buffer(TextureHandle src, BufferHandle dst) {
     end_encoder();
     MetalTexture* t = device_.texture(src);
@@ -1358,7 +1300,7 @@ Result<std::unique_ptr<Device>> create_metal_device(const DeviceDesc& desc) {
         // Read when Metal creates the device; must be set before MTLCreateSystemDefaultDevice.
         setenv("MTL_DEBUG_LAYER", "1", 0);
         setenv("MTL_DEBUG_LAYER_ERROR_MODE", "assert", 0);
-        // ADR 0039: Metal handles are opaque in shaders, so Metal's shader validation checks them instead (nil,
+        // ADR 0027: Metal handles are opaque in shaders, so Metal's shader validation checks them instead (nil,
         // freed or non-resident resources, out-of-bounds buffers); a failure fails the command buffer (rhi.gpu_error).
         setenv("MTL_SHADER_VALIDATION", "1", 0);
     }
@@ -1370,7 +1312,7 @@ Result<std::unique_ptr<Device>> create_metal_device(const DeviceDesc& desc) {
     if (![device supportsFamily:MTLGPUFamilyMetal3]) {
         return make_error(ErrorCode::rhi_backend_unavailable,
                           std::format("'{}' does not support Metal 3", device.name.UTF8String),
-                          "Veach needs Metal 3 with tier-2 argument buffers (Apple M1 or newer); see ADR 0024. "
+                          "Veach needs Metal 3 with tier-2 argument buffers (Apple M1 or newer); see ADR 0003. "
                           "Virtualized GPUs (e.g. GitHub's macOS runners) do not qualify.");
     }
     if (desc.validation) {

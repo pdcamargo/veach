@@ -1,11 +1,12 @@
-// DX12 backend (ADR 0009, VCH-012). D3D12 through the Agility SDK (ADR 0031): one
-// direct queue and one fence whose values are SubmissionIds (ADR 0029). Built
+// DX12 backend (ADR 0004, VCH-012). D3D12 through the Agility SDK (ADR 0033): one
+// direct queue and one fence whose values are SubmissionIds (ADR 0030). Built
 // and verified step by step in hosted CI on WARP (docs/guides/dx12-port.md).
 
 #include "dx12_device.hpp"
 
 #include "../frame_timings.hpp"
 #include "../pipeline_validation.hpp"
+#include "../ray_tracing.hpp"
 #include "../slot_map.hpp"
 #include "../surface_validation.hpp"
 #include "../texture_validation.hpp"
@@ -244,7 +245,7 @@ void __stdcall on_debug_message(D3D12_MESSAGE_CATEGORY /*category*/, D3D12_MESSA
     }
 }
 
-/// What the device must support (ADR 0024/0025/0031). Returns what is missing, if anything.
+/// What the device must support (ADR 0024/0025/0033). Returns what is missing, if anything.
 std::optional<std::string> missing_feature_floor(ID3D12Device* device, Capabilities& caps) {
     D3D12_FEATURE_DATA_SHADER_MODEL shader_model{D3D_SHADER_MODEL_6_6};
     if (FAILED(device->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &shader_model, sizeof(shader_model))) ||
@@ -265,7 +266,7 @@ std::optional<std::string> missing_feature_floor(ID3D12Device* device, Capabilit
     D3D12_FEATURE_DATA_D3D12_OPTIONS5 options5{};
     caps.hardware_ray_tracing =
         SUCCEEDED(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &options5, sizeof(options5))) &&
-        options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_1;
+        options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_1 && !ray_tracing_disabled();
     D3D12_FEATURE_DATA_D3D12_OPTIONS7 options7{};
     caps.mesh_shaders =
         SUCCEEDED(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS7, &options7, sizeof(options7))) &&
@@ -280,14 +281,14 @@ struct Recorder {
     std::uint64_t last_use = 0;
 };
 
-/// What a descriptor slot holds, as veach/bindless.slang checks it (ADR 0039).
+/// What a descriptor slot holds, as veach/bindless.slang checks it (ADR 0027).
 enum class SlotKind : std::uint32_t { none, texture, storage_texture, buffer, storage_buffer, sampler, accel };
 
 /// A descriptor heap with a free list. Index 0 is never handed out, so a zero DescriptorHandle means "none"
-/// on DX12 as it does on Metal. Slots are released through SubmissionTracker::retire() only (ADR 0029).
+/// on DX12 as it does on Metal. Slots are released through SubmissionTracker::retire() only (ADR 0030).
 /// Each slot has an entry, (kind << 24) | generation, mirrored into the shader-visible validation table; handles
 /// carry the entry they were made with in their upper 32 bits, so debug shaders spot freed, reused and
-/// wrong-kind handles (ADR 0039).
+/// wrong-kind handles (ADR 0027).
 class DescriptorHeap {
 public:
     HRESULT init(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, std::uint32_t capacity, bool shader_visible) {
@@ -399,7 +400,7 @@ struct Dx12Buffer {
     std::shared_ptr<PitchedReadback> pitched;  ///< readback buffers whose copies needed a row pitch
 };
 
-/// ADR 0025's mapping of graph states to enhanced-barrier layout, access and sync.
+/// ADR 0029's mapping of graph states to enhanced-barrier layout, access and sync.
 struct BarrierState {
     D3D12_BARRIER_LAYOUT layout;
     D3D12_BARRIER_ACCESS access;
@@ -462,7 +463,7 @@ struct Dx12Accel {
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs{};
     D3D12_RAYTRACING_GEOMETRY_DESC geometry{};  ///< BLAS; inputs.pGeometryDescs is set at build time
     /// TLAS only: D3D12_RAYTRACING_INSTANCE_DESC[max], one upload buffer per frame slot because the CPU writes
-    /// them while earlier frames may still be building from theirs (ADR 0029).
+    /// them while earlier frames may still be building from theirs (ADR 0030).
     std::vector<ComPtr<ID3D12Resource>> instances;
     std::vector<void*> instances_mapped;
     std::vector<AccelHandle> blases;
@@ -820,7 +821,7 @@ public:
         return samplers_.insert({index});
     }
 
-    // ---- pipelines: DXIL from the embedded ShaderLibrary, one global root signature (ADR 0024)
+    // ---- pipelines: DXIL from the embedded ShaderLibrary, one global root signature (ADR 0027)
 
     [[nodiscard]] Result<PipelineHandle> create_graphics_pipeline(const GraphicsPipelineDesc& desc) override {
         if (auto valid = validate_graphics_pipeline_desc(desc); !valid) {
@@ -983,7 +984,7 @@ public:
         return t ? &t->desc : nullptr;
     }
 
-    // ---- bindless descriptors (ADR 0024): heap indices
+    // ---- bindless descriptors (ADR 0027): heap indices
 
     [[nodiscard]] DescriptorHandle descriptor(BufferHandle h, View view) override {
         const Dx12Buffer* b = buffers_.get(h);
@@ -1435,7 +1436,7 @@ private:
             return make_error(ErrorCode::rhi_backend_unavailable,
                               std::format("'{}' does not support DXR 1.1", caps_.device_name),
                               "Acceleration structures need DXR 1.1 (ray tracing tier 1.1); WARP from the Agility "
-                              "SDK has it (ADR 0031).");
+                              "SDK has it (ADR 0033).");
         }
         accel.inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
         if (allow_refit) {
@@ -1480,7 +1481,7 @@ private:
         return accels_.insert(std::move(accel));
     }
 
-    /// 64 root-constant DWORDs at b0 (the Slang parameter block) and both heaps directly indexed (ADR 0024).
+    /// 64 root-constant DWORDs at b0 (the Slang parameter block) and both heaps directly indexed (ADR 0027).
     /// Null views read as zero (D3D12 defines reads of a null descriptor of the shader's type). Slots 1..4 of the
     /// view heap, in DescriptorKind order, and slot 1 of the sampler heap (a real sampler: there are no null ones).
     void create_null_descriptors() {
@@ -1522,7 +1523,7 @@ private:
     }
 
     Result<> create_root_signature() {
-        // b0: the parameter block; t30 and u31: the descriptor validation table and error record (ADR 0039).
+        // b0: the parameter block; t30 and u31: the descriptor validation table and error record (ADR 0027).
         std::array<D3D12_ROOT_PARAMETER1, 3> parameters{};
         parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
         parameters[0].Constants.ShaderRegister = 0;
@@ -1569,12 +1570,12 @@ private:
         if (e->dxil.empty()) {
             return make_error(ErrorCode::rhi_not_implemented,
                               std::format("shader '{}' entry '{}' has no DXIL", library->name, entry),
-                              "Compile it with veach_add_shader() on Windows (docs/adr/0026-shader-compilation.md).");
+                              "Compile it with veach_add_shader() on Windows (docs/adr/0009-shader-compilation.md).");
         }
         return e->dxil;
     }
 
-    /// The handle dies now; the D3D12 object and its descriptor slots once the GPU is done with them (ADR 0029).
+    /// The handle dies now; the D3D12 object and its descriptor slots once the GPU is done with them (ADR 0030).
     template <class Map, class H>
     void retire(Map& map, H h) {
         if (auto* object = map.get(h)) {
@@ -1636,7 +1637,7 @@ private:
         check_descriptor_errors();
     }
 
-    /// Reports handles that debug shaders found invalid since the last check (veach/bindless.slang, ADR 0039).
+    /// Reports handles that debug shaders found invalid since the last check (veach/bindless.slang, ADR 0027).
     void check_descriptor_errors() {
         if (validation_errors_data_ == nullptr || validation_errors_data_[0] == validation_errors_seen_) {
             return;
@@ -1664,11 +1665,11 @@ private:
                                             count - validation_errors_seen_, name(kind), slot, entry & 0xFFFFFFu, holds,
                                             tracker_.current_frame().index),
                                 "Set every handle a shader reads, keep resources alive while frames use them, and "
-                                "use device.null_descriptor(kind) for \"no resource\" (ADR 0039)."});
+                                "use device.null_descriptor(kind) for \"no resource\" (ADR 0027)."});
         validation_errors_seen_ = count;
     }
 
-    /// ADR 0039. The table is in an upload heap (a root SRV may point there); the error record in a CPU-readable
+    /// ADR 0027. The table is in an upload heap (a root SRV may point there); the error record in a CPU-readable
     /// custom heap, so the shader's atomics land where the CPU reads them without a copy.
     Result<> create_validation_buffers() {
         const std::uint64_t entries = 16 + std::uint64_t{view_heap_capacity} + sampler_heap_capacity;
@@ -1825,7 +1826,7 @@ private:
     SlotMap<Dx12Accel, AccelHandle> accels_;
     std::vector<Dx12Surface> surfaces_;
     ComPtr<ID3D12RootSignature> root_signature_;
-    // ADR 0039: the live-descriptor table (header, then one entry per view and sampler slot) and the error record
+    // ADR 0027: the live-descriptor table (header, then one entry per view and sampler slot) and the error record
     // debug shaders write (count, first-recorded flag, slot, handle entry, kind). Bound to every command list.
     ComPtr<ID3D12Resource> validation_table_;
     ComPtr<ID3D12Resource> validation_errors_;
@@ -1966,7 +1967,7 @@ void Dx12CommandList::barrier(std::span<const Barrier> barriers) {
         const BarrierState before = barrier_state(b.before);
         const BarrierState after = barrier_state(b.after);
         // `discard` is an optimization (the old contents are not needed); a plain transition from the real
-        // `before` state is always correct, so v0 keeps the contents (ADR 0029, item 5).
+        // `before` state is always correct, so v0 keeps the contents (ADR 0030, item 5).
         if (b.resource.kind == ResourceKind::texture) {
             D3D12_TEXTURE_BARRIER t{};
             t.SyncBefore = before.sync;
@@ -2188,7 +2189,7 @@ Result<std::unique_ptr<Device>> create_dx12_device(const DeviceDesc& desc) {
         return make_error(ErrorCode::rhi_backend_unavailable, std::format("DXGI is unavailable ({})", hresult(hr)));
     }
 
-    // A hardware adapter that meets the floor, fastest first; otherwise WARP (hosted CI has no GPU, ADR 0031).
+    // A hardware adapter that meets the floor, fastest first; otherwise WARP (hosted CI has no GPU, ADR 0033).
     std::vector<std::string> rejected;
     std::optional<Candidate> chosen;
     bool warp = warp_forced();
@@ -2228,7 +2229,7 @@ Result<std::unique_ptr<Device>> create_dx12_device(const DeviceDesc& desc) {
         return make_error(ErrorCode::rhi_backend_unavailable,
                           std::format("no D3D12 device meets the feature floor: {}", reasons),
                           "Veach needs D3D12 with Shader Model 6.6, resource binding tier 3 and enhanced barriers "
-                          "(ADR 0031); WARP from the Agility SDK provides all three.");
+                          "(ADR 0033); WARP from the Agility SDK provides all three.");
     }
     log_runtime(chosen->device.Get(), warp);
 

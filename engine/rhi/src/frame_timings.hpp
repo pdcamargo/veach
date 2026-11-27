@@ -4,7 +4,7 @@
 // `capacity` timestamp samples (a Metal counter sample buffer, a D3D12 query heap). Samples come in pairs, start
 // and end: Metal takes one pair per encoder, DX12 one per region. A region owns the pairs recorded while it was
 // open; its time is its earliest start to its latest end. A slot is resolved once its frame has completed on the
-// GPU, which begin_frame() guarantees before it reuses the slot (ADR 0029).
+// GPU, which begin_frame() guarantees before it reuses the slot (ADR 0030).
 
 #include <veach/core/log.hpp>
 #include <veach/rhi/rhi.hpp>

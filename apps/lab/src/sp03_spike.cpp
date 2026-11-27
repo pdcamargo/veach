@@ -1,5 +1,6 @@
 #include "sp03_spike.hpp"
 
+#include <veach/core/env.hpp>
 #include <veach/render/renderer.hpp>
 
 #include <cstdlib>
@@ -9,21 +10,9 @@ namespace lab {
 
 namespace {
 
-/// The environment variable `name`, or an empty string (portable: MSVC deprecates std::getenv).
+/// The environment variable `name`, or an empty string.
 std::string env(const char* name) {
-#if defined(_MSC_VER)
-    char* value = nullptr;
-    std::size_t length = 0;
-    std::string result;
-    if (_dupenv_s(&value, &length, name) == 0 && value != nullptr) {
-        result = value;
-    }
-    std::free(value);  // NOLINT(cppcoreguidelines-no-malloc)
-    return result;
-#else
-    const char* value = std::getenv(name);  // NOLINT(concurrency-mt-unsafe): read once at startup
-    return value != nullptr ? value : "";
-#endif
+    return veach::env(name).value_or("");
 }
 
 /// The double offset of the nearest ancestor-or-self with Sp03LargePosition, or zero.

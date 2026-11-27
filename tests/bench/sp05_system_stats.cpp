@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -25,6 +26,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <type_traits>
 #include <vector>
 
 namespace {
@@ -189,8 +191,16 @@ void print_cat(const Cat& c, const std::filesystem::path& out) {
 
 template <typename T>
 bool parse(std::string_view s, T& out) {
-    const auto [p, ec] = std::from_chars(s.data(), s.data() + s.size(), out);
-    return ec == std::errc{} && p == s.data() + s.size();
+    if constexpr (std::is_floating_point_v<T>) {
+        // Not std::from_chars: the libc++ of CI's macOS runner has no floating-point overload.
+        const std::string text(s);
+        char* end = nullptr;
+        out = static_cast<T>(std::strtod(text.c_str(), &end));
+        return !text.empty() && end == text.c_str() + text.size();
+    } else {
+        const auto [p, ec] = std::from_chars(s.data(), s.data() + s.size(), out);
+        return ec == std::errc{} && p == s.data() + s.size();
+    }
 }
 
 /// Neighboring keys must not correlate (ADR 0044's reopen condition): Pearson r of unit_double over (i, i + 1), and

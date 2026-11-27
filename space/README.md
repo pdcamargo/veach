@@ -4,9 +4,11 @@ The reusable toolbox for space games built on Veach: procedural planets and sola
 terrain, atmospheres, oceans, vegetation, fauna and flora, NPCs and factions, base and ship building, multiplayer.
 Games use it, and extend it through C++ modules and Luau hooks.
 
-**Nothing is here yet.** Its architecture is decided ([docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md#toolbox-architecture-decided-in-the-research-phase),
-[docs/research/00-synthesis.md](../docs/research/00-synthesis.md), ADRs 0043-0065); the spikes that validate it
-(VCH-077 to VCH-091) come before the first toolbox code.
+**What is here today is spike code** ([docs/research/spikes/](../docs/research/spikes/)), throwaway prototypes that
+validated the architecture ([docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md#toolbox-architecture-decided-in-the-research-phase),
+[docs/research/00-synthesis.md](../docs/research/00-synthesis.md), ADRs 0043-0069): the universe clock and bodies on
+rails (SP-04, `src/`, `include/`) and the system generation stages (SP-05, `gen/`). The real toolbox replaces them as
+the spikes toward the first slice (VCH-082 to VCH-091) land.
 
 ## Rules ([ADR 0042](../docs/adr/0042-space-toolbox-layering.md))
 

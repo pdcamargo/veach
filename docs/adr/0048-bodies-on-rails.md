@@ -6,6 +6,7 @@ Date: 2026-11-27
 
 Accepted. Amends [ADR 0038](0038-physical-sky.md): the sun comes from the star system, and `Sky` takes N sun
 directions instead of computing one from Earth astronomy.
+Its Kepler solver and `binary_pair` model are superseded by [0069](0069-amendments-from-sp-04.md).
 
 ## Context
 

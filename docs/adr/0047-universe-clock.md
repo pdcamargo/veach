@@ -5,6 +5,7 @@ Date: 2026-11-27
 ## Status
 
 Accepted.
+Its phase formula is superseded by [0069](0069-amendments-from-sp-04.md) (it overflowed above 1.13-year periods); pausing is allowed.
 
 ## Context
 

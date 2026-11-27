@@ -48,6 +48,8 @@ VEACH_ERROR(script_component_conflict, "script.component_conflict",
 VEACH_ERROR(script_invalid_value, "script.invalid_value", "A Luau value does not match the component's field type")
 VEACH_ERROR(script_unsupported_field, "script.unsupported_field",
             "A component field type cannot be represented in Luau")
+VEACH_ERROR(procgen_budget_exceeded, "procgen.budget_exceeded",
+            "A generator hook ran past its safepoint, wall-clock or memory budget")
 
 VEACH_ERROR(rhi_backend_unavailable, "rhi.backend_unavailable",
             "The requested RHI backend is not available on this platform")

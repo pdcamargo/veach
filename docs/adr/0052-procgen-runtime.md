@@ -6,6 +6,7 @@ Date: 2026-11-27
 
 Accepted.
 Its Luau sandbox is amended by [0070](0070-generator-sandbox-rules.md) (`^` rejected, budgets, hook rules).
+Its field-graph evaluators are amended by [0071](0071-field-graph-precision-rules.md) (explicit fused products, the lattice hash).
 
 ## Context
 

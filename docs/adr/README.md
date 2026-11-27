@@ -81,3 +81,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0068 | [Amendments from SP-05: orbit scale at least body scale, radius in the system stage, habitability bias](0068-amendments-from-sp-05.md) | Accepted |
 | 0069 | [Amendments from SP-04: the phase formula, the Kepler starter, binary pairs, pausing the clock](0069-amendments-from-sp-04.md) | Accepted |
 | 0070 | [Rules for Luau generators, from SP-07](0070-generator-sandbox-rules.md) | Accepted |
+| 0071 | [Field-graph precision rules, from SP-06](0071-field-graph-precision-rules.md) | Accepted |

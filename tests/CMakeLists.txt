@@ -298,3 +298,13 @@ add_executable(veach-bench-script bench/script_bench.cpp)
 target_link_libraries(veach-bench-script PRIVATE veach::veach)
 set_target_properties(veach-bench-script PROPERTIES FOLDER "tests")
 veach_apply_warnings(veach-bench-script)
+
+# Spike SP-03 (VCH-079), throwaway: float vs double propagation, and a Luau Position userdata vs vector.
+add_executable(veach-bench-sp03-propagation bench/sp03_propagation_bench.cpp)
+target_link_libraries(veach-bench-sp03-propagation PRIVATE veach::veach)
+set_target_properties(veach-bench-sp03-propagation PROPERTIES FOLDER "tests")
+veach_apply_warnings(veach-bench-sp03-propagation)
+add_executable(veach-bench-sp03-position bench/sp03_position_bench.cpp)
+target_link_libraries(veach-bench-sp03-position PRIVATE Luau.VM Luau.Compiler)
+set_target_properties(veach-bench-sp03-position PROPERTIES FOLDER "tests")
+veach_apply_warnings(veach-bench-sp03-position)

@@ -5,6 +5,7 @@ Date: 2026-11-27
 ## Status
 
 Accepted.
+Its Luau sandbox is amended by [0070](0070-generator-sandbox-rules.md) (`^` rejected, budgets, hook rules).
 
 ## Context
 

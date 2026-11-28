@@ -4,7 +4,6 @@
 // installed K ticks later, in key order; the ball falls in and comes to rest.
 #pragma once
 
-#include "sp12/sp12_physics.hpp"
 #include "sp12/sp12_terrain.hpp"
 
 #include <array>
@@ -26,11 +25,9 @@ struct ScenarioConfig {
     std::uint32_t workers = 1;  ///< veach::JobSystem threads for sampling, edits, meshing and cooking
     int half = 2;               ///< the region: (2 half + 1)³ LOD0 chunks around the dig site's chunk
     int steps = 1200;           ///< 20 s: the ball has fallen into the sump and sleeps
-    int install_delay = 2;      ///< K: colliders requested at tick t are installed before step t + K
     bool dig = true;            ///< false: the control, no edits
     bool reverse = false;       ///< apply each op to its chunks in reverse key order
-    CookOptions cook;
-    bool keep_meshes = false;  ///< fill ScenarioResult::meshes, origin, site and ball (the bench's screenshots)
+    bool keep_meshes = false;   ///< fill ScenarioResult::meshes, origin, site and ball (the bench's screenshots)
 };
 
 struct ScenarioResult {

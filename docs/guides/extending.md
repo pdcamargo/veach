@@ -1,7 +1,7 @@
 # Extending Veach
 
 How to add a component, system, module, Luau binding, engine subsystem, asset loader, MCP tool,
-error code, extractor, material or generation stage, and how to run work in parallel. App and game code uses `veach::` names only and includes
+error code, extractor, material, generation stage or physics body, and how to run work in parallel. App and game code uses `veach::` names only and includes
 `<veach/veach.hpp>`; engine code may use Flecs directly. Background:
 [ARCHITECTURE.md](../ARCHITECTURE.md), [ADR 0019](../adr/0019-veach-modules-and-services.md) (modules and services).
 
@@ -227,3 +227,27 @@ hooks** in `veach::procgen::Sandbox`. See `space/gen/src/stages.cpp` for the too
 3. Commit a hash of the output in a unit test; a changed output is a new version, never an edited hash.
 4. A field graph takes positions, never a level of detail ([ADR 0074](../adr/0074-amendments-from-sp-08.md)).
 5. Nothing under `engine/procgen` links rhi or render; a GPU evaluator is a render feature (`check_repo.py`).
+
+## (m) Physics: a body, a character, terrain colliders or the gravity hook
+
+Rigid bodies, characters and terrain colliders go through `engine/physics` ([guide](physics.md),
+[spec](../specs/physics/spec.md)); Jolt is private to it. From the ECS, put a `PhysicsScene` on a frame entity and
+`RigidBody` on its direct children; from C++, use `veach::physics_world(world)` (with `PhysicsModule` imported) or
+your own `veach::physics::PhysicsWorld`. See `tests/sp13/sp13_sim.cpp` for scenes, transfers and characters, and
+`tests/sp12/sp12_scenario.cpp` for digging with collider installs.
+
+```cpp
+auto& physics = veach::physics_world(world);
+physics.set_gravity([](const veach::physics::GravityQuery& q) { return -9.81 * veach::math::normalize(q.position); });
+const auto crate = *physics.add_body(scene, {.shape = veach::physics::Shape::box(veach::math::vec3(0.5f)),
+                                             .position = {0.0, 1.0, 0.0}, .mass = 500.0});
+physics.add_force(crate, thrust);   // in Simulation; the module steps in PostSimulation
+```
+
+1. Never include a Jolt header outside `engine/physics/src`, and never put a Jolt handle in a component: components
+   hold ids and parameters (`check_repo.py`).
+2. Physics is replay tier: call it from the main thread, in a fixed order; gravity comes from the hook, never from
+   Jolt's world gravity; read contacts from `contacts()`, which is sorted.
+3. Terrain colliders are requested with `request_colliders` and install at t + 2 in chunk-key order; their scene sits
+   on a lattice point. A new collider-producing area hands over `ColliderMesh`es; physics never depends on it.
+4. Commit a hash of a scenario's state in a unit test (see `tests/physics_tests.cpp`), so Windows CI checks it.

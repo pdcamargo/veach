@@ -102,7 +102,8 @@ world.observer<const veach::Window>("CloseOsWindow")
 
 A Veach module is a Flecs module ([ADR 0019](../../adr/0019-veach-modules-and-services.md)):
 a struct whose constructor takes `veach::World&` and calls `world.module<Self>()` first.
-Keep module structs empty (state goes in components or engine services).
+Keep module structs empty (state goes in components or engine services); the exception is an engine area
+whose state object lives and dies with the world, like `PhysicsModule::physics` (`veach::physics_world(world)`).
 Import with `engine.import<MyModule>()`. See [../extending.md](../extending.md).
 
 ## v3 → v4 traps

@@ -1,8 +1,9 @@
 // Spike SP-12 (VCH-088), throwaway: a patch of LOD0 terrain on an Earth-sized planet, dug with brush ops and meshed
-// on veach::JobSystem (docs/research/spikes/sp-12-dig-collide.md). No Jolt here: colliders are in sp12_physics.hpp.
+// on veach::JobSystem (docs/research/spikes/sp-12-dig-collide.md). Colliders are engine/physics's (VCH-113).
 #pragma once
 
 #include <veach/core/jobs.hpp>
+#include <veach/physics/physics.hpp>
 #include <veach/voxel/edit.hpp>
 #include <veach/voxel/voxel.hpp>
 
@@ -59,6 +60,12 @@ std::array<std::int64_t, 3> site_offset_mm(const Site& site, std::int64_t east, 
 
 /// The LOD0 chunk holding a body-local point in millimeters.
 ChunkKey chunk_of_mm(const std::array<std::int64_t, 3>& p);
+
+/// A chunk's mesh as a physics collider mesh: its canonical fixed-point vertices and indices, no adjacency ring. The
+/// stand-in for the voxel bridge of VCH-114 (docs/specs/physics/spec.md, "Terrain colliders").
+physics::ColliderMesh collider_mesh(const ChunkMesh& mesh);
+/// The physics key of a voxel chunk key (the same fields in the same order).
+physics::ChunkKey physics_key(const ChunkKey& key);
 
 /// What a chunk costs, in ms of one worker, last time it was produced.
 struct ChunkTimes {

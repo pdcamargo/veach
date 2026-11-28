@@ -77,7 +77,7 @@ flowchart BT
     script["script: Luau VM, @veach bindings, type generator"]
     rhi["rhi: Device, CommandList, bindless handles; null, metal, dx12"]
     render["render: Renderer, RenderGraph, features, extraction, photo mode"]
-    physics["physics (planned): Jolt, scenes per frame, gravity registry"]
+    physics["physics: Jolt private, scenes per frame, gravity hook, terrain colliders, characters"]
     procgen["procgen: stage runtime and cache, field graphs, CPU interpreter, Luau generator sandbox"]
     voxel["voxel (planned): density chunks, mesher, edits, streaming"]
     runtime["runtime: Engine, config, main loop, MCP server"]
@@ -91,18 +91,18 @@ flowchart BT
     render --> rhi
     render --> ecs
     render --> asset
-    physics -.-> ecs
+    physics --> ecs
     procgen --> core
     voxel -.-> procgen
     runtime --> script
     runtime --> render
-    runtime -.-> physics
+    runtime --> physics
     runtime -.-> voxel
     space --> runtime
     games --> space
     games --> runtime
     classDef planned stroke-dasharray: 5 5
-    class physics,voxel planned
+    class voxel planned
 ```
 
 - **core** depends only on glm (and Tracy when profiling). No Flecs, no SDL.
@@ -227,7 +227,7 @@ runs on the engine's job system, `veach::JobSystem` on enkiTS ([ADR 0073](adr/00
   applies them. Simulation never depends on when a job finishes.
 - Nothing else starts threads: `check_repo.py` rejects `std::thread`, `std::async` and friends, and Flecs's own
   `set_threads`, outside the job system. The one exception is the MCP server's blocking stdin reader.
-- Jolt's `JobSystemWithBarrier` (VCH-087), Flecs `multi_threaded()` systems (VCH-107) and the per-worker Luau procgen
+- Jolt's `JobSystemWithBarrier` (`engine/physics`, VCH-113), Flecs `multi_threaded()` systems (VCH-107) and the per-worker Luau procgen
   VMs run on the same workers.
 
 Asset loaders are written to be thread-safe from the start: they never touch the world.
@@ -243,7 +243,7 @@ GPU error callbacks arrive on Metal's thread, which is why the log and the engin
 | `engine/<area>/src/` | Implementation (private headers too) |
 | `engine/include/veach/veach.hpp` | The umbrella header |
 | `engine/core/`, `engine/ecs/` (planned additions) | `veach::dmath`, counter-based hash RNG; double positions in a reference-frame tree ([ADR 0065](adr/0065-engine-areas-for-the-toolbox.md)) |
-| `engine/physics/` (planned) | Jolt in double precision, one scene per frame, the gravity registry ([ADR 0058](adr/0058-physics-jolt.md)) |
+| `engine/physics/` | Jolt (private) in double precision, cross-platform deterministic: scenes per frame, transfers, the gravity hook, terrain collider installs at t + 2, characters, contact events, the ECS binding ([ADR 0058](adr/0058-physics-jolt.md), [spec](specs/physics/spec.md)). Links core and ecs, never rhi or render |
 | `engine/procgen/` | Generation stage runtime and cache, field-graph IR, JSON loader and canonical CPU interpreter, the Luau generator sandbox ([ADR 0052](adr/0052-procgen-runtime.md), [spec](specs/procgen/spec.md)). Links core only, never rhi or render |
 | `engine/voxel/` (planned) | Density chunks, the CPU mesher, edits, streaming ([ADR 0053](adr/0053-terrain-density-field.md)) |
 | `space/` | The space toolbox: a layer above the engine, empty until the first slice (galaxy, addresses, body kinds, orbits, planetary terrain, atmospheres, flight and travel) |

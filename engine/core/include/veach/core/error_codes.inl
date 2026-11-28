@@ -63,6 +63,14 @@ VEACH_ERROR(procgen_graph_invalid, "procgen.graph_invalid",
 VEACH_ERROR(procgen_stage_invalid, "procgen.stage_invalid",
             "A generation stage cannot be registered: a duplicate id and version, a malformed id, a tier violation")
 VEACH_ERROR(procgen_stage_failed, "procgen.stage_failed", "A generation stage failed; nothing of its output was kept")
+VEACH_ERROR(physics_shape_invalid, "physics.shape_invalid",
+            "A physics shape or terrain collider cannot be built: bad dimensions, indices or triangles")
+VEACH_ERROR(physics_capacity, "physics.capacity",
+            "A physics scene is full: more bodies, body pairs or contacts than its settings allow")
+VEACH_ERROR(physics_not_on_lattice, "physics.not_on_lattice",
+            "Terrain colliders were sent to a physics scene whose origin is not a lattice point")
+VEACH_ERROR(physics_invalid_transfer, "physics.invalid_transfer",
+            "A body cannot move to that physics scene: unknown scene, or a frame change with other bodies there")
 
 VEACH_ERROR(rhi_backend_unavailable, "rhi.backend_unavailable",
             "The requested RHI backend is not available on this platform")

@@ -1,7 +1,7 @@
 # Spike SP-13 (VCH-089), throwaway: walk, hover and land on a rotating planet (docs/research/spikes/sp-13-walk-hover-land.md).
-# Jolt links PRIVATE: its compile options and definitions stay inside veach-sp13, and the headers have no Jolt types.
+# The physics runs on engine/physics (VCH-113); the scenario, flight model and autopilot stay here until VCH-115.
 add_library(veach-sp13 STATIC sp13_sim.cpp sp13_module.cpp)
-target_link_libraries(veach-sp13 PUBLIC veach::veach veach::space PRIVATE Jolt)
+target_link_libraries(veach-sp13 PUBLIC veach::veach veach::space)
 target_include_directories(veach-sp13 PUBLIC "${PROJECT_SOURCE_DIR}/tests")
 set_target_properties(veach-sp13 PROPERTIES FOLDER "tests")
 veach_apply_warnings(veach-sp13)

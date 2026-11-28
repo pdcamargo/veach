@@ -8,6 +8,7 @@
 - [profiling.md](profiling.md) — Tracy zones, headless capture and reading traces as CSV.
 - [writing-specs.md](writing-specs.md) — when and how to write a spec, acceptance-criteria ids, status flow.
 - [procgen.md](procgen.md) — field graphs (JSON and the Luau builder), generator hooks and generation stages in `engine/procgen`.
+- [physics.md](physics.md) — scenes per frame, bodies, characters, the gravity hook and terrain collider installs in `engine/physics`.
 - [rendering.md](rendering.md) — render features, shaders (Slang), the render graph, screenshots and golden images.
 - [dx12-port.md](dx12-port.md) — the DX12 backend: where things are, what is decided, what DX12 resists.
 - [local-tools.md](local-tools.md) — tools installed outside the repo (xwin), why, and how to remove them.

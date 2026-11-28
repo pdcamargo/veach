@@ -145,6 +145,18 @@ export type PhotoMode = {
 	samples_per_frame: number,
 	max_bounces: number,
 }
+export type PhysicsBody = {
+	scene: number,
+	body: number,
+}
+export type SceneKind = "surface" | "interior" | "free_flight"
+export type PhysicsScene = {
+	kind: SceneKind,
+	max_bodies: number,
+}
+export type PhysicsSceneId = {
+	id: number,
+}
 export type PointLight = {
 	color: vector,
 	intensity: number,
@@ -162,6 +174,20 @@ export type ReferenceFrame = {
 }
 export type RelativeMouse = {
 	enabled: boolean,
+}
+export type MotionType = "static_body" | "kinematic" | "dynamic"
+export type BodyShape = "box" | "sphere" | "capsule"
+export type RigidBody = {
+	motion: MotionType,
+	shape: BodyShape,
+	half_extents: vector,
+	radius: number,
+	half_height: number,
+	mass: number,
+	friction: number,
+	restitution: number,
+	allow_sleeping: boolean,
+	lock_rotation: boolean,
 }
 export type RuntimeMeshDemo = {
 	size: number,
@@ -304,9 +330,13 @@ export type Veach = {
 		read FrameSpin: Component<FrameSpin>,
 		read Orrery: Component<Orrery>,
 		read PhotoMode: Component<PhotoMode>,
+		read PhysicsBody: Component<PhysicsBody>,
+		read PhysicsScene: Component<PhysicsScene>,
+		read PhysicsSceneId: Component<PhysicsSceneId>,
 		read PointLight: Component<PointLight>,
 		read ReferenceFrame: Component<ReferenceFrame>,
 		read RelativeMouse: Component<RelativeMouse>,
+		read RigidBody: Component<RigidBody>,
 		read RuntimeMeshDemo: Component<RuntimeMeshDemo>,
 		read SceneInstance: Component<SceneInstance>,
 		read Sky: Component<Sky>,

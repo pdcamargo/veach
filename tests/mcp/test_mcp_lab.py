@@ -89,6 +89,11 @@ def protocol(lab: str) -> None:
     tools = {t["name"]: t for t in client.request("tools/list")["tools"]}
     check({"query_entities", "get_component", "set_component", "spawn_entity", "step_frames", "screenshot",
            "render_graph_plan", "gpu_timings", "eval"} <= tools.keys(), "[mcp.AC1] all v0 tools are listed")
+    check({"physics_scenes", "physics_bodies", "physics_contacts"} <= tools.keys(),
+          "[physics.AC10] the physics tools are listed")
+    physics = client.call_json("physics_scenes")
+    check(physics["imported"] and physics["scenes"][0]["name"] == "world",
+          "[physics.AC10] physics_scenes reports the lab's root-world scene")
     names = tools["get_component"]["inputSchema"]["properties"]["component"]["enum"]
     check({"Window", "TriangleDemo", "Greeting"} <= set(names),
           "[mcp.AC2] component names come from reflection (engine, lab module and the hello.luau script component)")

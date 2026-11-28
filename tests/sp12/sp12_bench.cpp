@@ -1,6 +1,6 @@
 // Spike SP-12 (VCH-088), throwaway: hashes, ms per chunk and the digging rate for the findings
 // (docs/research/spikes/sp-12-dig-collide.md). Build it in Release for the timings.
-//   veach-bench-sp12 [--half N] [--ops N] [--repeat N] [--build-speed]
+//   veach-bench-sp12 [--half N] [--ops N] [--repeat N]
 //       the scenario's hashes on 1 and 4 workers; sample, mesh and cook ms per chunk for a (2N + 1)³ region on 1 and
 //       4 workers; then a trench dug one brush per 60 Hz tick (radius 1.5 m and 4 m), ms from op to cooked colliders
 //   veach-bench-sp12 --find-site      bisects the field for the surface along (0.6, 0.8, 0): dig_site_mm
@@ -34,6 +34,17 @@ int parse_int(std::string_view s) {
 
 double now_ms() {
     return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+/// A collider cooked by engine/physics, with its cook time.
+struct Cooked {
+    std::uint32_t triangles = 0;
+    double cook_ms = 0.0;
+};
+Cooked cook(const ChunkMesh& mesh) {
+    const double t0 = now_ms();
+    const auto c = physics::cook_collider(collider_mesh(mesh));
+    return {c ? c->triangles : 0, now_ms() - t0};
 }
 
 struct Stats {
@@ -157,7 +168,7 @@ void print_scenario(const char* label, const ScenarioResult& r) {
 }
 
 /// Sample, mesh and cook every chunk of a (2 half + 1)³ region on `workers` threads.
-void load_timings(int half, std::uint32_t workers, const CookOptions& cook, int repeat) {
+void load_timings(int half, std::uint32_t workers, int repeat) {
     std::vector<double> sample, mesh, cook_ms, load_wall, cook_wall;
     std::size_t sampled = 0, meshed = 0, triangles = 0;
     for (int rep = 0; rep < repeat; ++rep) {
@@ -177,16 +188,16 @@ void load_timings(int half, std::uint32_t workers, const CookOptions& cook, int 
                 }
             }
         }
-        std::vector<Collider> colliders(chunks.size());
+        std::vector<Cooked> colliders(chunks.size());
         const double t1 = now_ms();
         jobs.parallel_for("cook", chunks.size(), 1, [&](std::size_t b, std::size_t e) {
             for (std::size_t i = b; i < e; ++i) {
-                colliders[i] = cook_collider(chunks[i]->mesh, cook);
+                colliders[i] = cook(chunks[i]->mesh);
             }
         });
         cook_wall.push_back(now_ms() - t1);
         triangles = 0;
-        for (const Collider& c : colliders) {
+        for (const Cooked& c : colliders) {
             cook_ms.push_back(c.cook_ms);
             triangles += c.triangles;
         }
@@ -200,8 +211,7 @@ void load_timings(int half, std::uint32_t workers, const CookOptions& cook, int 
 
 /// A trench dug one brush per tick: each op moves `step_mm` east, 0.5 m under the surface. Per op: apply + remesh the
 /// changed chunks, then cook their colliders, on `workers` threads; the latency is op to every collider cooked.
-void dig_rate(int half, std::uint32_t workers, std::int32_t radius_mm, std::int64_t step_mm, int ops,
-              const CookOptions& cook) {
+void dig_rate(int half, std::uint32_t workers, std::int32_t radius_mm, std::int64_t step_mm, int ops) {
     JobSystem jobs(workers);
     const PlanetField field;
     Terrain terrain(field, chunk_of_mm(dig_site_mm), half);
@@ -217,10 +227,10 @@ void dig_rate(int half, std::uint32_t workers, std::int32_t radius_mm, std::int6
         const double t0 = now_ms();
         const std::vector<voxel::ChunkKey> changed = terrain.apply(op, jobs);
         const double t1 = now_ms();
-        std::vector<Collider> colliders(changed.size());
+        std::vector<Cooked> colliders(changed.size());
         jobs.parallel_for("cook", changed.size(), 1, [&](std::size_t b, std::size_t e) {
             for (std::size_t k = b; k < e; ++k) {
-                colliders[k] = cook_collider(terrain.find(changed[k])->mesh, cook);
+                colliders[k] = cook(terrain.find(changed[k])->mesh);
             }
         });
         const double t2 = now_ms();
@@ -393,7 +403,6 @@ void write_project(const std::filesystem::path& dir, const ScenarioResult& r, bo
 
 int main(int argc, char** argv) {
     int half = 3, ops = 240, repeat = 3, steps = 1200;
-    CookOptions cook;
     std::string out;
     bool one_material = false;
     for (int i = 1; i < argc; ++i) {
@@ -415,14 +424,12 @@ int main(int argc, char** argv) {
             steps = parse_int(argv[++i]);
         } else if (a == "--one-material") {
             one_material = true;
-        } else if (a == "--build-speed") {
-            cook.favor_build_speed = true;
         } else if (a == "--out" && more) {
             out = argv[++i];
         } else {
             std::fprintf(stderr,
                          "usage: veach-bench-sp12 [--find-site] [--half N] [--ops N] [--repeat N] "
-                         "[--build-speed] [--out DIR]\n");
+                         "[--out DIR]\n");
             return 2;
         }
     }
@@ -438,18 +445,17 @@ int main(int argc, char** argv) {
     for (const std::uint32_t w : {1u, 4u}) {
         ScenarioConfig config;
         config.workers = w;
-        config.cook = cook;
         const double t0 = now_ms();
         const ScenarioResult r = run_scenario(config);
         print_scenario(std::format("scenario, {} worker(s), {:.0f} ms", w, now_ms() - t0).c_str(), r);
     }
     std::printf("\nRegion of %d^3 chunks, %s; ms per chunk as mean / median / p95 / max; wall ms median of %d\n\n",
-                2 * half + 1, cook.favor_build_speed ? "FavorBuildSpeed" : "FavorRuntimePerformance", repeat);
+                2 * half + 1, "FavorRuntimePerformance", repeat);
     std::printf(
         "| Workers | Sampled | Meshed | Triangles per chunk | Sample ms | Mesh ms | Cook ms | Load wall ms | "
         "Cook wall ms |\n|---|---|---|---|---|---|---|---|---|\n");
     for (const std::uint32_t w : {1u, 4u}) {
-        load_timings(half, w, cook, repeat);
+        load_timings(half, w, repeat);
     }
     std::printf(
         "\nTrench, %d ops (30 for the 16 m brush), one per tick, moving 50 mm per op, 0.5 m under the surface; per "
@@ -460,7 +466,7 @@ int main(int argc, char** argv) {
         "Mean share of a 16.7 ms tick | Overrides at rest |\n|---|---|---|---|---|---|---|---|---|\n");
     for (const std::int32_t radius : {1'500, 4'000, voxel::max_brush_radius_mm}) {
         for (const std::uint32_t w : {1u, 4u}) {
-            dig_rate(half, w, radius, 50, radius > 4'000 ? std::min(ops, 30) : ops, cook);
+            dig_rate(half, w, radius, 50, radius > 4'000 ? std::min(ops, 30) : ops);
         }
     }
     return 0;

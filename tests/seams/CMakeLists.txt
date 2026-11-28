@@ -1,8 +1,8 @@
 # Seams sweep, throwaway: terrain, digging and walking at the octant planes, the poles, the cube-corner directions
 # and chunk corners (docs/research/spikes/seams-sweep.md). Builds on SP-12 (terrain, colliders, the dig flow) and
-# SP-13's character controller. Jolt links PRIVATE: only seams_walk.cpp includes it.
+# SP-13's character controller, on engine/physics since VCH-113.
 add_library(veach-seams STATIC seams.cpp seams_walk.cpp)
-target_link_libraries(veach-seams PUBLIC veach-sp12 PRIVATE Jolt)
+target_link_libraries(veach-seams PUBLIC veach-sp12)
 target_include_directories(veach-seams PUBLIC "${PROJECT_SOURCE_DIR}/tests")
 set_target_properties(veach-seams PROPERTIES FOLDER "tests")
 veach_apply_warnings(veach-seams)

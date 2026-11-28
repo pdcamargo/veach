@@ -250,6 +250,41 @@ A stage function returned an error, or one of its inputs failed. The message nam
 address, followed by the original error, whose hint still applies. Nothing is cached, so fixing the input or the
 stage and asking again re-runs it.
 
+## physics.shape_invalid
+
+**A physics shape or terrain collider cannot be built: bad dimensions, indices or triangles.**
+
+Jolt refused a shape ([physics spec](../specs/physics/spec.md), [guide](../guides/physics.md)); the message names the
+shape or the terrain chunk and Jolt's reason. For a terrain collider, hand over the mesher's mesh as it is: fixed-point
+vertices (lattice units × 2^fixed_bits), three indices per triangle, each naming a vertex, and one adjacency byte per
+triangle or none. A body or character without a shape fails the same way.
+
+## physics.capacity
+
+**A physics scene is full: more bodies, body pairs or contacts than its settings allow.**
+
+A scene is sized when it is made (`SceneSettings::max_bodies`, `max_body_pairs`, `max_contact_constraints`). Adding a
+body past `max_bodies` fails; a step that finds more pairs or contacts than the scene holds logs this error and drops
+the excess, so the simulation is no longer the one a bigger scene would run. Raise the limit named in the message.
+
+## physics.not_on_lattice
+
+**Terrain colliders were sent to a physics scene whose origin is not a lattice point.**
+
+Terrain collider vertices must land on the canonical mesh's lattice positions exactly
+([ADR 0077](../adr/0077-amendments-from-sp-12.md) decision 6), so a scene that holds them sits on a lattice point with
+the frame's axes. Create it with `SceneSettings::lattice_origin`, or re-anchor it with
+`set_origin(scene, LatticePoint)`; `set_origin(scene, dvec3)` leaves the lattice.
+
+## physics.invalid_transfer
+
+**A body cannot move to that physics scene: unknown scene, or a frame change with other bodies there.**
+
+`PhysicsWorld::transfer` (or `add_body`, `add_character`) named a scene that does not exist, or asked a scene that
+holds other bodies to change its parent frame. Only an empty scene changes frames (a free-flight scene that follows
+one craft through a handoff altitude); move the other bodies first, or transfer into a scene already in that frame.
+The ECS binding logs it too when a `RigidBody` is not a direct child of a frame with a `PhysicsScene`.
+
 ## rhi.backend_unavailable
 
 **The requested RHI backend is not available on this platform.**

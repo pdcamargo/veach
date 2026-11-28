@@ -6,6 +6,7 @@ add_executable(veach-tests
     ecs_tests.cpp
     gpu_texture_tests.cpp
     lifecycle_tests.cpp
+    physics_tests.cpp
     platform_tests.cpp
     procgen_sandbox_tests.cpp
     procgen_stage_tests.cpp
@@ -42,7 +43,6 @@ set_target_properties(veach-tests PROPERTIES FOLDER "tests")
 veach_apply_warnings(veach-tests)
 veach_deploy_d3d12(veach-tests)
 add_subdirectory(sp06)  # Spike SP-06 (VCH-082): its tests join veach-tests; its bench is veach-bench-sp06
-add_subdirectory(sp11)  # Spike SP-11 (VCH-087): Jolt determinism; its tests join veach-tests; its bench is veach-bench-sp11
 add_subdirectory(sp12)  # Spike SP-12 (VCH-088): dig and collide; its tests join veach-tests; its bench is veach-bench-sp12
 add_subdirectory(sp13)  # Spike SP-13 (VCH-089): walk, hover, land; its tests join veach-tests; its bench is veach-bench-sp13
 add_subdirectory(seams)  # The seams sweep: octant planes, poles, chunk corners; its tests join veach-tests; its bench is veach-bench-seams
@@ -374,6 +374,12 @@ add_executable(veach-bench-transforms bench/transform_bench.cpp)
 target_link_libraries(veach-bench-transforms PRIVATE veach::veach)
 set_target_properties(veach-bench-transforms PROPERTIES FOLDER "tests")
 veach_apply_warnings(veach-bench-transforms)
+
+# veach::physics: ms per step of SP-11's pile per body and thread count, on the engine's job system (physics.AC11).
+add_executable(veach-bench-physics bench/physics_bench.cpp)
+target_link_libraries(veach-bench-physics PRIVATE veach::physics)
+set_target_properties(veach-bench-physics PROPERTIES FOLDER "tests")
+veach_apply_warnings(veach-bench-physics)
 
 # veach::JobSystem: ms and speedup of the canonical 10^7-item workload per thread count (ADR 0073).
 add_executable(veach-bench-jobs bench/jobs_bench.cpp)

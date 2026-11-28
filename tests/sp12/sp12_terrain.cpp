@@ -105,6 +105,20 @@ ChunkKey chunk_of_mm(const std::array<std::int64_t, 3>& p) {
                     static_cast<std::int32_t>(floor_div(p[2], chunk_mm))};
 }
 
+physics::ChunkKey physics_key(const ChunkKey& key) {
+    return {.level = key.level, .x = key.x, .y = key.y, .z = key.z};
+}
+
+physics::ColliderMesh collider_mesh(const ChunkMesh& mesh) {
+    physics::ColliderMesh out;
+    out.key = physics_key(mesh.key);
+    out.origin = chunk_origin(mesh.key);
+    out.extent = chunk_units(mesh.key.level);
+    out.vertices = mesh.fixed;
+    out.indices = mesh.indices;
+    return out;
+}
+
 Terrain::Terrain(const PlanetField& field, ChunkKey center, int half) : field_(field), center_(center) {
     for (int x = -half; x <= half; ++x) {
         for (int y = -half; y <= half; ++y) {

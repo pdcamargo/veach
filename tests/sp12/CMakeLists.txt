@@ -1,7 +1,8 @@
-# Spike SP-12 (VCH-088), throwaway: brush edits on Earth-sized terrain and Jolt colliders cooked from the chunks
-# (docs/research/spikes/sp-12-dig-collide.md). Jolt links PRIVATE, as in SP-11: only sp12_physics.cpp includes it.
-add_library(veach-sp12 STATIC sp12_terrain.cpp sp12_physics.cpp sp12_scenario.cpp)
-target_link_libraries(veach-sp12 PUBLIC veach::voxel veach-sp11 PRIVATE Jolt)
+# Spike SP-12 (VCH-088), throwaway: brush edits on Earth-sized terrain and colliders cooked from the chunks
+# (docs/research/spikes/sp-12-dig-collide.md). The physics side runs on engine/physics since VCH-113; the terrain
+# region stays here until terrain streaming (VCH-114) gives it an engine home.
+add_library(veach-sp12 STATIC sp12_terrain.cpp sp12_scenario.cpp)
+target_link_libraries(veach-sp12 PUBLIC veach::voxel veach::physics)
 target_include_directories(veach-sp12 PUBLIC "${PROJECT_SOURCE_DIR}/tests")
 set_target_properties(veach-sp12 PROPERTIES FOLDER "tests")
 veach_apply_warnings(veach-sp12)

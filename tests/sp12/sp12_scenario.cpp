@@ -7,6 +7,7 @@
 #include <veach/core/hash.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <map>
 
@@ -41,15 +42,78 @@ std::vector<BrushOp> dig_log(const Site& site) {
 
 namespace {
 
-std::vector<Collider> cook_all(const Terrain& terrain, const std::vector<ChunkKey>& keys, JobSystem& jobs,
-                               const CookOptions& options) {
-    std::vector<Collider> out(keys.size());
+std::vector<physics::CookedCollider> cook_all(const Terrain& terrain, const std::vector<ChunkKey>& keys,
+                                              JobSystem& jobs) {
+    std::vector<physics::CookedCollider> out(keys.size());
     jobs.parallel_for("sp12 cook colliders", keys.size(), 1, [&](std::size_t begin, std::size_t end) {
         for (std::size_t i = begin; i < end; ++i) {
-            out[i] = cook_collider(terrain.find(keys[i])->mesh, options);
+            out[i] = *physics::cook_collider(collider_mesh(terrain.find(keys[i])->mesh));
         }
     });
     return out;
+}
+
+/// SP-12's state hash of one body: position (double bits), rotation, linear and angular velocity (float bits).
+std::uint64_t body_hash(const physics::BodyState& s) {
+    const auto mix = [](std::uint64_t x) {
+        x ^= x >> 33;
+        x *= 0xff51afd7ed558ccdULL;
+        x ^= x >> 33;
+        x *= 0xc4ceb9fe1a85ec53ULL;
+        x ^= x >> 33;
+        return x;
+    };
+    std::uint64_t h = 14695981039346656037ULL;
+    const auto add = [&](std::uint64_t bits) {
+        h = mix(h ^ bits) * 1099511628211ULL;
+    };
+    const auto d = [&](double v) {
+        add(std::bit_cast<std::uint64_t>(v));
+    };
+    const auto f = [&](float v) {
+        add(static_cast<std::uint64_t>(std::bit_cast<std::uint32_t>(v)));
+    };
+    d(s.position.x);
+    d(s.position.y);
+    d(s.position.z);
+    f(s.rotation.x);
+    f(s.rotation.y);
+    f(s.rotation.z);
+    f(s.rotation.w);
+    f(s.linear_velocity.x);
+    f(s.linear_velocity.y);
+    f(s.linear_velocity.z);
+    f(s.angular_velocity.x);
+    f(s.angular_velocity.y);
+    f(s.angular_velocity.z);
+    return h;
+}
+
+/// SP-12's install hash: every terrain collider in key order, its install slot, position bits and shape hash.
+std::uint64_t install_hash(const std::vector<physics::ColliderInfo>& colliders) {
+    const auto mix = [](std::uint64_t x) {
+        x ^= x >> 33;
+        x *= 0xff51afd7ed558ccdULL;
+        x ^= x >> 33;
+        x *= 0xc4ceb9fe1a85ec53ULL;
+        x ^= x >> 33;
+        return x;
+    };
+    std::uint64_t h = 14695981039346656037ULL;
+    const auto add = [&](std::uint64_t bits) {
+        h = mix(h ^ bits) * 1099511628211ULL;
+    };
+    for (const physics::ColliderInfo& c : colliders) {
+        add(static_cast<std::uint64_t>(static_cast<std::uint32_t>(c.key.x)));
+        add(static_cast<std::uint64_t>(static_cast<std::uint32_t>(c.key.y)));
+        add(static_cast<std::uint64_t>(static_cast<std::uint32_t>(c.key.z)));
+        add(static_cast<std::uint64_t>(c.slot));
+        add(std::bit_cast<std::uint64_t>(c.position.x));
+        add(std::bit_cast<std::uint64_t>(c.position.y));
+        add(std::bit_cast<std::uint64_t>(c.position.z));
+        add(c.shape_hash);
+    }
+    return h;
 }
 
 }  // namespace
@@ -71,9 +135,23 @@ ScenarioResult run_scenario(const ScenarioConfig& config) {
             meshed.push_back(c.samples.key);
         }
     }
+    // One body-fixed surface scene (ADR 0058): its origin is the center chunk's lattice corner, with the body-fixed
+    // axes, so a chunk's position in it is an exact integer difference (ADR 0077 decision 6).
     const auto origin = chunk_origin(center);
-    PhysicsScene scene(origin);
-    scene.install(cook_all(terrain, meshed, jobs, config.cook));
+    physics::PhysicsWorld world({.jobs = &jobs});
+    const physics::SceneId scene = *world.create_scene({.name = "sp12", .lattice_origin = origin});
+    {
+        const std::vector<physics::CookedCollider> cooked = cook_all(terrain, meshed, jobs);
+        if (!world.install_colliders(scene, cooked)) {
+            return r;
+        }
+    }
+    // Radial gravity toward the planet's center (the body-local origin), from double positions.
+    world.set_gravity([](const physics::GravityQuery& q) {
+        const math::dvec3& p = q.position;
+        const double rr = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+        return p * (-9.81 / rr);
+    });
 
     // The dig site and up, in the scene (exact: integer millimeters minus an integer origin).
     std::array<double, 3> site{};
@@ -84,11 +162,17 @@ ScenarioResult run_scenario(const ScenarioConfig& config) {
     for (std::size_t a = 0; a < 3; ++a) {
         start[a] = site[a] + 2.5 * at.up[a];
     }
-    scene.add_ball(start, 0.4f);
-    const auto relative = [&](const BallState& b, double& depth, double& lateral) {
+    // A rolling ball keeps rolling in a round pit for a long time with Jolt's damping (0.05); a dug-in rock settles.
+    const physics::BodyId ball = *world.add_body(scene, {.shape = physics::Shape::sphere(0.4f),
+                                                         .position = {start[0], start[1], start[2]},
+                                                         .friction = 0.6f,
+                                                         .restitution = 0.1f,
+                                                         .linear_damping = 0.2f,
+                                                         .angular_damping = 1.0f});
+    const auto relative = [&](const physics::BodyState& b, double& depth, double& lateral) {
         std::array<double, 3> d{};
         for (std::size_t a = 0; a < 3; ++a) {
-            d[a] = b.position[a] - site[a];
+            d[a] = b.position[static_cast<math::length_t>(a)] - site[a];
         }
         depth = d[0] * at.up[0] + d[1] * at.up[1] + d[2] * at.up[2];
         const double l2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2] - depth * depth;
@@ -97,16 +181,15 @@ ScenarioResult run_scenario(const ScenarioConfig& config) {
 
     const std::vector<BrushOp> log = config.dig ? dig_log(at) : std::vector<BrushOp>{};
     std::size_t next_op = 0;
-    std::vector<std::pair<int, std::vector<Collider>>> pending;  // install tick, colliders in key order
     std::map<ChunkKey, int> changed;
     std::uint64_t chain = hash_id("sp12:chain");
     for (int tick = 0; tick < config.steps; ++tick) {
         if (next_op < log.size() && log[next_op].tick == static_cast<std::uint64_t>(tick)) {
-            const BallState ball = scene.ball();
+            const physics::BodyState state = world.state(ball);
             double lateral = 0.0;
             ScenarioResult::Batch& batch = r.batches[next_op == 0 ? 0 : 1];
-            relative(ball, batch.depth_before, lateral);
-            batch.asleep_before = !ball.active;
+            relative(state, batch.depth_before, lateral);
+            batch.asleep_before = !state.awake;
             // Every op of this tick in seq order, each on its chunks in parallel; then the changed chunks' colliders.
             std::vector<ChunkKey> dirty;
             for (; next_op < log.size() && log[next_op].tick == static_cast<std::uint64_t>(tick); ++next_op) {
@@ -118,25 +201,25 @@ ScenarioResult run_scenario(const ScenarioConfig& config) {
             std::sort(dirty.begin(), dirty.end());
             dirty.erase(std::unique(dirty.begin(), dirty.end()), dirty.end());
             batch.chunks = dirty.size();
-            pending.emplace_back(tick + config.install_delay, cook_all(terrain, dirty, jobs, config.cook));
-        }
-        for (auto it = pending.begin(); it != pending.end();) {
-            if (it->first == tick) {
-                scene.install(it->second);  // ADR 0058: requested at t, installed at t + K, in key order
-                it = pending.erase(it);
-            } else {
-                ++it;
+            // Requested at t, installed before step t + K in key order, waking the ball (ADR 0058, 0077).
+            std::vector<physics::ColliderMesh> meshes;
+            for (const ChunkKey& k : dirty) {
+                meshes.push_back(collider_mesh(terrain.find(k)->mesh));
+            }
+            if (!world.request_colliders(scene, std::move(meshes))) {
+                return r;
             }
         }
-        scene.step();
-        const std::uint64_t h = scene.ball_hash();
+        world.step();
+        const std::uint64_t h = body_hash(world.state(ball));
         r.step_hashes.push_back(h);
         chain = hash(chain, h);
     }
     r.chain = chain;
-    r.jolt_state = scene.jolt_state_hash();
-    r.install_hash = scene.install_hash();
-    r.terrain_bodies = scene.terrain_bodies();
+    r.jolt_state = world.state_hash(scene);
+    const std::vector<physics::ColliderInfo> installed = world.colliders(scene);
+    r.install_hash = install_hash(installed);
+    r.terrain_bodies = installed.size();
 
     r.samples_hash = terrain.samples_hash();
     r.mesh_hash = terrain.mesh_hash();
@@ -147,8 +230,8 @@ ScenarioResult run_scenario(const ScenarioConfig& config) {
         }
     }
     std::vector<std::uint64_t> shape_hashes;
-    for (const Collider& c : cook_all(terrain, all, jobs, config.cook)) {
-        shape_hashes.push_back(c.hash);
+    for (const physics::CookedCollider& c : cook_all(terrain, all, jobs)) {
+        shape_hashes.push_back(c.shape.hash());
     }
     r.colliders_hash = combine_hashes(shape_hashes);
     r.sampled = terrain.sampled_count();
@@ -186,11 +269,12 @@ ScenarioResult run_scenario(const ScenarioConfig& config) {
         }
         r.origin = origin;
         r.site = site;
-        r.ball = scene.ball().position;
+        const math::dvec3 p = world.state(ball).position;
+        r.ball = {p.x, p.y, p.z};
     }
-    const BallState b = scene.ball();
+    const physics::BodyState b = world.state(ball);
     relative(b, r.depth, r.lateral);
-    r.speed = std::sqrt(b.velocity[0] * b.velocity[0] + b.velocity[1] * b.velocity[1] + b.velocity[2] * b.velocity[2]);
+    r.speed = static_cast<double>(math::length(b.linear_velocity));
     return r;
 }
 

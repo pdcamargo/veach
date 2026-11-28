@@ -98,3 +98,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0085 | [Amendments from VCH-111: the render origin on a 64 m grid, frame up, FrameTransform's frame, pose sources](0085-amendments-from-vch-111.md) | Accepted |
 | 0086 | [Amendments from building engine/voxel: provable box bounds, whole-selection swaps, a thin binding in runtime](0086-amendments-from-building-voxel.md) | Accepted |
 | 0087 | [Amendments from building engine/physics: the gravity hook's contract, rings for rigid bodies, four threads per step, Jolt optimized in MSVC Debug](0087-amendments-from-vch-113.md) | Accepted |
+| 0088 | [The realization layer and the first slice: an atmosphere stage after B1, a cruise drive that hands over at a brakeable speed, two collider fixes, the slice as its own app](0088-the-realization-layer-and-the-first-slice.md) | Accepted |

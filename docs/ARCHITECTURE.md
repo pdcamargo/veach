@@ -81,7 +81,7 @@ flowchart BT
     procgen["procgen: stage runtime and cache, field graphs, CPU interpreter, Luau generator sandbox"]
     voxel["voxel: terrain bodies, density from field programs, LOD selection, streaming, edits, collider meshes"]
     runtime["runtime: Engine, config, main loop, MCP server"]
-    space["space/: the toolbox (empty until the first slice)"]
+    space["space/: the toolbox: generation stages, realization, orbits, atmospheres, flight policy"]
     games["games, apps/lab"]
     ecs --> core
     platform --> ecs
@@ -245,8 +245,9 @@ GPU error callbacks arrive on Metal's thread, which is why the log and the engin
 | `engine/physics/` | Jolt (private) in double precision, cross-platform deterministic: scenes per frame, transfers, the gravity hook, terrain collider installs at t + 2, characters, contact events, the ECS binding ([ADR 0058](adr/0058-physics-jolt.md), [spec](specs/physics/spec.md)). Links core and ecs, never rhi or render |
 | `engine/procgen/` | Generation stage runtime and cache, field-graph IR, JSON loader and canonical CPU interpreter, the Luau generator sandbox ([ADR 0052](adr/0052-procgen-runtime.md), [spec](specs/procgen/spec.md)). Links core only, never rhi or render |
 | `engine/voxel/` | Terrain bodies on a body-local lattice: density from procgen field programs, the CPU mesher, octree LOD selection, streaming under a budget, the edit store, LOD0 collider meshes for physics ([ADR 0053](adr/0053-terrain-density-field.md), [ADR 0086](adr/0086-amendments-from-building-voxel.md), [spec](specs/voxel-terrain/spec.md)). Links core and procgen only; its ECS and render binding is `engine/runtime`'s `TerrainModule` |
-| `space/` | The space toolbox: a layer above the engine, empty until the first slice (galaxy, addresses, body kinds, orbits, planetary terrain, atmospheres, flight and travel) |
+| `space/` | The space toolbox: a layer above the engine. Generation stages (`gen/`), the realization layer and `UniverseModule` (a seed and scale settings to a star system in frames, with atmospheres, terrain and gravity), orbits and the clock, flight policy ([spec](specs/first-slice/spec.md), [ADR 0088](adr/0088-the-realization-layer-and-the-first-slice.md)) |
 | `apps/lab/` | The prototype app (`veach.project.json`, `scripts/`, sample assets, its own shaders and materials) |
+| `apps/slice/` | `veach-slice`, the first slice: from orbit of a generated planet to a dug hole at any scale ([guide](guides/space-realization.md)) |
 | `tools/veach-cli/` | `veach types`, `veach schemas`, `veach imgdiff` |
 | `tools/scripts/`, `tools/push.sh` | Repo hygiene check, the pre-push gate, format hook, leak check |
 | `tools/metal-repros/` | Standalone repros of Metal compiler crashes we work around |

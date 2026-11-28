@@ -4,7 +4,7 @@ Date: 2026-11-27
 
 ## Status
 
-Proposed (the dev lead accepts or amends). Amends [0045](0045-large-world-positions-and-reference-frames.md) and
+Accepted. Amends [0045](0045-large-world-positions-and-reference-frames.md) and
 [0046](0046-64-bit-values-across-luau-json-mcp.md), and the SP-03 decision "one render origin per frame, the primary
 camera's position" ([findings](../research/spikes/sp-03-precision-frames.md)). Implemented by VCH-111
 ([frames](../specs/frames/spec.md)).

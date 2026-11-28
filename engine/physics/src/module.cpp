@@ -158,38 +158,36 @@ PhysicsModule::PhysicsModule(World& world) {
     // the frame pose sources registered before this module (CoreModule's FrameSpin), before TransformPropagation.
     // Scenes take their frame's spin for the fictitious forces of free flight; dynamic and kinematic bodies' poses
     // go back to their Transforms, for the end of the step.
-    world.system<const PhysicsBody, Transform>("PhysicsStep")
-        .kind(phase_entity(world, PhaseId::post_simulation))
-        .run([state](Iter& it) {
-            VEACH_ZONE("PhysicsStep");
-            const World w = it.world();
-            w.each([&](const PhysicsSceneId& id, const ReferenceFrame& frame) {
-                // The frame's angular velocity is in its parent's axes; the scene works in the frame's own.
-                const math::dvec3 own = frame.kind == FrameKind::rotating
-                                            ? math::inverse(math::normalize(frame.orientation)) * frame.angular_velocity
-                                            : math::dvec3(0.0);
-                const physics::SceneId scene{id.id};
-                physics::SceneFrame f = state->scene_info(scene).frame;
-                if (f.angular_velocity != own) {
-                    f.angular_velocity = own;
-                    state->set_frame(scene, f);
-                }
-            });
-            state->step();
-            while (it.next()) {
-                const auto bodies = it.field<const PhysicsBody>(0);
-                const auto transforms = it.field<Transform>(1);
-                for (const auto i : it) {
-                    const physics::BodyId body{bodies[i].body};
-                    if (!state->contains(body) || state->settings(body).motion == physics::MotionType::static_body) {
-                        continue;
-                    }
-                    const physics::BodyState s = state->state(body);
-                    transforms[i].translation = state->origin_at(state->scene_of(body)) + s.position;
-                    transforms[i].rotation = s.rotation;
-                }
+    // The system has no query terms of its own, so it runs every step even when no entity has a PhysicsBody: bodies
+    // made through physics_world(world) (the toolbox's craft, a terrain scene) step too. Flecs never runs a system
+    // whose own query matches nothing.
+    auto written = world.query_builder<const PhysicsBody, Transform>().cached().build();
+    world.system("PhysicsStep").kind(phase_entity(world, PhaseId::post_simulation)).run([state, written](Iter& it) {
+        VEACH_ZONE("PhysicsStep");
+        const World w = it.world();
+        w.each([&](const PhysicsSceneId& id, const ReferenceFrame& frame) {
+            // The frame's angular velocity is in its parent's axes; the scene works in the frame's own.
+            const math::dvec3 own = frame.kind == FrameKind::rotating
+                                        ? math::inverse(math::normalize(frame.orientation)) * frame.angular_velocity
+                                        : math::dvec3(0.0);
+            const physics::SceneId scene{id.id};
+            physics::SceneFrame f = state->scene_info(scene).frame;
+            if (f.angular_velocity != own) {
+                f.angular_velocity = own;
+                state->set_frame(scene, f);
             }
         });
+        state->step();
+        written.each([&](const PhysicsBody& b, Transform& t) {
+            const physics::BodyId body{b.body};
+            if (!state->contains(body) || state->settings(body).motion == physics::MotionType::static_body) {
+                return;
+            }
+            const physics::BodyState s = state->state(body);
+            t.translation = state->origin_at(state->scene_of(body)) + s.position;
+            t.rotation = s.rotation;
+        });
+    });
 }
 
 physics::PhysicsWorld* find_physics_world(const World& world) {

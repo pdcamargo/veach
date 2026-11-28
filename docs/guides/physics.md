@@ -144,7 +144,9 @@ world.entity("crate").child_of(planet)
   pose in that frame. Setting `RigidBody` again rebuilds the body; removing it removes the body.
 - The module steps in PostSimulation after the frame pose sources registered before it (CoreModule's `FrameSpin`), so
   scenes take their frame's spin for the step, and writes dynamic and kinematic bodies' poses to their `Transform`s
-  for the end of the step (ADR 0085). Write forces in Simulation through `physics_world(world)`.
+  for the end of the step (ADR 0085). Write forces in Simulation through `physics_world(world)`. It steps every
+  fixed step whether or not any entity has a `PhysicsBody`: bodies made directly through `physics_world(world)`
+  (the slice's craft and pilot) step too (ADR 0088).
 - Components hold ids and parameters only; the physics state is the module's.
 
 ## MCP tools
@@ -177,4 +179,6 @@ hashes check. What keeps it so:
 The Jolt state hash is the same on every line of a body count. SP-11's Jolt thread pool measured 0.22 / 0.17 / 0.29 ms
 (1 / 4 / 8 threads) and 2.91 / 1.45 / 1.65 ms for the same piles: the engine's job system matches it at 200 bodies
 and is 15 to 20 % slower at 2,000. Spreading a step over all 17 workers costs more in wake-ups than it gains, hence the
-cap of 4. SP-13's whole scene (two scenes, two characters, crates, a craft) steps in about 0.013 ms.
+cap of 4. SP-13's whole scene (two scenes, two characters, crates, a craft) steps in about 0.013 ms. A scene with
+fewer than 256 Jolt bodies (terrain colliders included) steps on the calling thread: the first slice's one-craft
+scene spent most of its step waking workers (ADR 0088). The bits are the same either way.

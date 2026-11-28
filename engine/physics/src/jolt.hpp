@@ -108,8 +108,10 @@ public:
     JoltJobs(JoltJobs&&) = delete;
     JoltJobs& operator=(JoltJobs&&) = delete;
 
-    /// Opens the group the next jobs run in (one per PhysicsSystem::Update) and waits for it.
-    void begin();
+    /// Opens the group the next jobs run in (one per PhysicsSystem::Update) and waits for it. With `parallel` false
+    /// every job runs on the calling thread as it is queued: a scene of a few bodies costs less than the workers'
+    /// wake-ups (VCH-115). The bits are the same either way.
+    void begin(bool parallel = true);
     void end();
 
     int GetMaxConcurrency() const override;

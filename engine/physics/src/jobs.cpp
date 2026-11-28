@@ -19,8 +19,8 @@ JoltJobs::~JoltJobs() {
     end();
 }
 
-void JoltJobs::begin() {
-    if (jobs_ != nullptr && jobs_->worker_count() > 0) {
+void JoltJobs::begin(bool parallel) {
+    if (parallel && jobs_ != nullptr && jobs_->worker_count() > 0) {
         group_ = std::make_unique<veach::TaskGroup>(*jobs_);
     }
 }

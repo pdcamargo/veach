@@ -44,6 +44,9 @@ namespace layers = detail::layers;
 
 /// Body user data: the engine id in the low 32 bits; bit 32 marks a collider with adjacency-ring triangles.
 constexpr std::uint64_t ring_flag = std::uint64_t{1} << 32;
+/// A scene steps on the job system from this many Jolt bodies (terrain colliders included); below, on the calling
+/// thread (SP-11: workers do not pay off under about 200 bodies).
+constexpr std::size_t parallel_body_count = 256;
 
 constexpr std::uint32_t index_of(BodyId id) {
     return static_cast<std::uint32_t>(id);
@@ -580,7 +583,9 @@ void PhysicsWorld::step() {
             continue;
         }
         const auto start = std::chrono::steady_clock::now();
-        m.jolt_jobs->begin();
+        // Small scenes step on the calling thread: SP-11 measured no gain from workers below about 200 bodies, and a
+        // one-craft scene spent most of its step waking them (VCH-115).
+        m.jolt_jobs->begin(s->body_count >= parallel_body_count);
         const JPH::EPhysicsUpdateError error = s->system->Update(step_seconds, 1, s->temp.get(), m.jolt_jobs.get());
         m.jolt_jobs->end();
         s->last_step_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();

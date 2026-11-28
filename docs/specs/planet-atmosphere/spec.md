@@ -68,15 +68,15 @@ camera:set(c.SkyVisibility, { visibility = 0, reach = 10 })
   mostly closed one under a static roof with a reach of a few meters; a camera's `SkyVisibility` reaches its
   `RenderView`, and a camera without one is in the open.
 - **atmosphere.AC5** — By eye, in `veach-slice` at s = 0.01 and s = 1 (screenshots in
-  [findings](../../research/spikes/vch-135-atmosphere/findings.md)): the sunlit disk from orbit under a veil that
+  [findings](../../research/spikes/vch-135-atmosphere.md)): the sunlit disk from orbit under a veil that
   strengthens toward the limb, with no seam or band at the limb; haze on distant terrain from 200 m; no haze inside the
   dug hole; a sunset. In SP-14's cave, no haze in the chamber and the haze back through its mouth.
 - **atmosphere.AC6** — The real-time and photo-mode goldens pass unchanged.
 
 ## Out of scope
 
-- Human-scale haze (ADR 0063, 0049): physical coefficients near the camera at compressed scale. VCH-109 owns the
-  creator controls; the band itself is a follow-up in this item's findings.
+- Human-scale haze (ADR 0063, 0049): physical coefficients near the camera at compressed scale (VCH-136; VCH-109
+  owns the creator controls).
 - Per-froxel occlusion from geometry (a sky-visibility map from above, volumetric sun shadows): with shadows
   ([ADR 0062](../../adr/0062-shadows-ambient-reflections.md)) in the renderer of ADR 0060.
 - Other bodies' atmospheres seen from a planet (a neighbor's limb): one atmosphere per frame for now.
@@ -91,6 +91,6 @@ None.
 - ADRs: [0063](../../adr/0063-astronomical-rendering.md), [0076](../../adr/0076-amendments-from-sp-10.md),
   [0082](../../adr/0082-amendments-from-sp-14.md), [0090](../../adr/0090-rhi-texture-kinds-updates-and-raster-state.md),
   [0092](../../adr/0092-aerial-perspective-follows-the-air.md)
-- Backlog: VCH-135
+- Backlog: VCH-135 (this), VCH-136 (follow-ups)
 - Guides: [rendering](../../guides/rendering.md), [space realization](../../guides/space-realization.md),
   [Luau API](../../guides/luau-api.md)

@@ -32,7 +32,7 @@ struct RuntimeMeshInstance {
 };
 
 /// Shines down the entity's −Z (ADR 0036). Illuminance in lux. Light sizes (angle, radius) give soft shadows in photo
-/// mode; the real-time renderer treats every light as punctual and unshadowed for now (ADR 0040). Scriptable.
+/// mode; the real-time renderer treats every light as punctual and unshadowed for now (ADR 0093). Scriptable.
 struct DirectionalLight {
     math::vec3 color{1.0f};
     float illuminance = 1.0f;

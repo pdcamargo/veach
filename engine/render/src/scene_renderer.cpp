@@ -617,7 +617,7 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
         return;
     }
     // A PhotoMode on the camera selects the path tracer (ADR 0041), where the device can ray trace; otherwise the
-    // real-time renderer draws (ADR 0040).
+    // real-time renderer draws (ADR 0093).
     bool photo = view->photo_mode.has_value();
     if (photo && s.unavailable) {
         s.report("unavailable", *s.unavailable);

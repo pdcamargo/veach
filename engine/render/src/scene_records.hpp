@@ -1,6 +1,6 @@
 #pragma once
 
-// GPU records the scene renderer uploads and both renderers read (ADR 0040, ADR 0041). Each mirrors a Slang struct in
+// GPU records the scene renderer uploads and both renderers read (ADR 0093, ADR 0041). Each mirrors a Slang struct in
 // shaders/veach/scene.slang; the sizes are asserted here.
 
 #include <veach/core/math.hpp>

@@ -1,4 +1,4 @@
-// The scene on the GPU, as both renderers read it (ADR 0040, ADR 0041): instance, material, light and emitter
+// The scene on the GPU, as both renderers read it (ADR 0093, ADR 0041): instance, material, light and emitter
 // records, surface reconstruction from barycentrics, alpha coverage, and photo mode's ray tracing with alpha
 // continuation. Entry points fill `veach_scene` from their parameters before calling anything here. Layouts
 // mirror render::InstanceRecord, LightRecord and EmissiveTriangle (render/src/scene_records.hpp).

@@ -1,12 +1,16 @@
-# veach::voxel, spike SP-08 (VCH-084), throwaway: density chunks, octree LOD selection and the IsoMesher interface
-# with two CPU meshers (docs/research/spikes/sp-08-mesher.md); SP-12 (VCH-088) added brush edits
-# (docs/research/spikes/sp-12-dig-collide.md). ADR 0065's area, reduced to what the spike needs: it
-# links core only (no ecs, procgen or physics yet) and never rhi or render. Canonical code (ADR 0043).
+# veach::voxel (docs/adr/0065-engine-areas-for-the-toolbox.md, docs/specs/voxel-terrain/spec.md, guide:
+# docs/guides/voxel-terrain.md): density chunks on a body-local lattice, the CPU meshers, octree LOD selection,
+# streaming with a budget, brush edits and the edit store, and the LOD0 collider meshes handed to physics. Canonical
+# code (ADR 0043). It never links rhi or render (tools/scripts/check_repo.py): the render bridge is in
+# engine/runtime (terrain.hpp), and physics implements voxel::ColliderSink.
 veach_add_engine_library(voxel
     SOURCES
+        src/density.cpp
         src/edit.cpp
+        src/lod.cpp
         src/marching_cubes.cpp
         src/octree.cpp
         src/samples.cpp
         src/surface_nets.cpp
-    PUBLIC_DEPS veach::core)
+        src/terrain.cpp
+    PUBLIC_DEPS veach::core veach::procgen)

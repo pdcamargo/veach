@@ -27,7 +27,8 @@ add_executable(veach-tests
     mcp_tools_tests.cpp
     space_tests.cpp
     transform_tests.cpp
-    voxel_tests.cpp)
+    voxel_tests.cpp
+    voxel_terrain_tests.cpp)
 if(WIN32)
     target_sources(veach-tests PRIVATE dx12_tests.cpp)  # DX12 on WARP in hosted CI (ADR 0033)
 endif()

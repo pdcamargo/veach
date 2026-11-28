@@ -18,6 +18,7 @@
    (set_threads). Work goes to veach::JobSystem. Tests may start threads to test thread safety.
 9. Authoritative areas never reach the GPU (ADR 0065): engine/procgen and engine/voxel neither link veach::rhi or
    veach::render nor include their headers, so they run headless on any server.
+10. engine/voxel never includes or links Jolt: it hands collider meshes to engine/physics as data (ADR 0065).
 """
 
 from __future__ import annotations
@@ -46,6 +47,7 @@ THREAD_ALLOWED = {
 # Areas that must run without a GPU (ADR 0065), and what they must not name.
 HEADLESS_AREAS = ("engine/procgen/", "engine/voxel/")
 GPU_DEPENDENCY = re.compile(r"veach::(?:rhi|render)\b|\bveach_(?:rhi|render)\b|[<\"]veach/(?:rhi|render)/")
+JOLT_DEPENDENCY = re.compile(r"[<\"]Jolt/|\bJolt\b(?=\s*\)|\s+PRIVATE|\s+PUBLIC)")
 SELF = pathlib.Path(__file__).resolve()
 
 
@@ -95,6 +97,9 @@ def main() -> int:
                 errors.append(f"{rel}:{lineno}: {rel.split('/')[1]} is authoritative and runs headless; it must not "
                               "link or include rhi or render (ADR 0065). A GPU evaluator is a render feature in "
                               "engine/render that reads this area's data.")
+            if rel.startswith("engine/voxel/") and JOLT_DEPENDENCY.search(line) and not line.lstrip().startswith("#"):
+                errors.append(f"{rel}:{lineno}: engine/voxel hands collider meshes to physics as data "
+                              "(voxel::ColliderSink); only engine/physics includes or links Jolt (ADR 0065).")
             if rel.startswith("apps/") and "flecs::" in line:
                 errors.append(f"{rel}:{lineno}: `flecs::` in apps/ — use the veach:: aliases (veach::World, "
                               "veach::Entity, ...) or veach::ecs:: for raw Flecs")

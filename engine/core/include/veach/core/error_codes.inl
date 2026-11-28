@@ -63,6 +63,12 @@ VEACH_ERROR(procgen_graph_invalid, "procgen.graph_invalid",
 VEACH_ERROR(procgen_stage_invalid, "procgen.stage_invalid",
             "A generation stage cannot be registered: a duplicate id and version, a malformed id, a tier violation")
 VEACH_ERROR(procgen_stage_failed, "procgen.stage_failed", "A generation stage failed; nothing of its output was kept")
+VEACH_ERROR(voxel_density_invalid, "voxel.density_invalid",
+            "A terrain density source cannot be built: a missing program output or a setting out of range")
+VEACH_ERROR(voxel_brush_invalid, "voxel.brush_invalid",
+            "A brush op cannot be applied: an unknown kind or version, a radius out of range, a sequence number out of order")
+VEACH_ERROR(voxel_base_mismatch, "voxel.base_mismatch",
+            "An edited chunk's regenerated base samples differ from the base its override record was made on")
 
 VEACH_ERROR(rhi_backend_unavailable, "rhi.backend_unavailable",
             "The requested RHI backend is not available on this platform")

@@ -28,3 +28,6 @@ apps/lab/assets/sponza/
 
 # Python bytecode (tests and tools imported as modules)
 __pycache__/
+
+# Third-party assets for the prototype game, downloaded locally (e.g. Quixel Megascans from Fab); never committed.
+/local-assets/

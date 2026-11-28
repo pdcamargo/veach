@@ -166,7 +166,9 @@ running window. Look at screenshots you take; a successful call is not a correct
    (`git config core.hooksPath tools/githooks`) for a plain `git push`.
    Then check CI (`gh run list`). CI has no real Apple GPU, so this gate is what verifies Metal
    ([ADR 0034](docs/adr/0034-pre-push-gate-no-gpu-runner.md)): never push around it. Docs-only pushes skip the
-   build jobs.
+   build jobs. **Cadence while spiking and building foundations:** commit per task, push in batches at natural
+   milestones, and run the push and the CI watch in the background; never make the owner wait on them, and report
+   only failures.
 
 How to add a module, component, system, Luau binding, loader, error code or engine subsystem:
 [docs/guides/extending.md](docs/guides/extending.md).

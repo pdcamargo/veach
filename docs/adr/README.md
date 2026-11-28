@@ -104,3 +104,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0091 | [The space backdrop: a baked band and nebulae, stars per pixel, its own exposure](0091-space-backdrop.md) | Accepted |
 | 0092 | [Aerial perspective follows each ray through the air; caves are found by the camera's sky visibility](0092-aerial-perspective-follows-the-air.md) | Accepted |
 | 0093 | [The GPU-driven core: a persistent GPU scene, two-phase meshlet culling, binned shading](0093-gpu-driven-core.md) | Accepted |
+| 0096 | [Temporal AA as built: unjittered views, surface ids for disocclusion, the backdrop after the resolve](0096-temporal-aa-as-built.md) | Accepted |

@@ -5,6 +5,7 @@ Date: 2026-11-27
 ## Status
 
 Accepted.
+Amended by [0074](0074-amendments-from-sp-08.md): LOD-independent samples, remeshing on neighbor change, lattice positions.
 
 ## Context
 

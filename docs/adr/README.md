@@ -84,3 +84,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0071 | [Field-graph precision rules, from SP-06](0071-field-graph-precision-rules.md) | Accepted |
 | 0072 | [Runtime meshes live in a renderer-owned MeshStore of immutable snapshots](0072-runtime-meshes.md) | Accepted |
 | 0073 | [The job system: enkiTS behind veach::JobSystem, fixed chunks, results in index order](0073-job-system-enkits.md) | Accepted |
+| 0074 | [Amendments from SP-08: LOD-independent samples, remeshing on neighbor change, lattice positions](0074-amendments-from-sp-08.md) | Accepted |

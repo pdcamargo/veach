@@ -7,6 +7,7 @@ add_executable(veach-tests
     ecs_tests.cpp
     gpu_driven_tests.cpp  # VCH-071, VCH-073: indirect work and readback
     gpu_driven_renderer_tests.cpp  # VCH-138: the GPU-driven real-time renderer
+    ambient_light_tests.cpp  # VCH-140: ambient light and occlusion
     gpu_texture_tests.cpp
     lifecycle_tests.cpp
     physics_tests.cpp

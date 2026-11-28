@@ -8,6 +8,7 @@ add_executable(veach-tests
     lifecycle_tests.cpp
     platform_tests.cpp
     procgen_sandbox_tests.cpp
+    procgen_tests.cpp
     realtime_tests.cpp
     render_tests.cpp
     rhi_tests.cpp

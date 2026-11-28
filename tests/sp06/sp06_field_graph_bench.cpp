@@ -4,7 +4,6 @@
 // hand-written), and the largest differences between the three. Build with the release preset for the timings.
 
 #include "sp06/field_gpu.hpp"
-#include "sp06/field_graph.hpp"
 
 #include <veach/render/png.hpp>
 #include <veach/rhi/rhi.hpp>
@@ -130,21 +129,19 @@ int main(int argc, char** argv) {
         }
     }
 
-    auto json = sp06::terrain_graph_json();
+    auto program = sp06::terrain_program();
     if (!graph.empty()) {
         std::ifstream file(graph, std::ios::binary);
-        json = std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+        const std::string json(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>{});
+        auto parsed = procgen::parse_field_graph(json, graph.string());
+        program = parsed ? procgen::compile(*parsed, {.seed = 42, .radius_planet_m = 6.0e6})
+                         : Result<procgen::FieldProgram>(std::unexpected(parsed.error()));
     }
-    if (!json) {
-        std::fprintf(stderr, "%s\n", json.error().message.c_str());
-        return 1;
-    }
-    auto program = sp06::compile(*json, {.seed = 42, .radius_planet_m = 6.0e6});
     if (!program) {
         std::fprintf(stderr, "%s\n", program.error().message.c_str());
         return 1;
     }
-    sp06::FaceRegion region;
+    procgen::FaceRegion region;
     region.resolution = res;
     const std::size_t samples = std::size_t{res} * res;
     std::printf("graph: %zu op-list words, %u registers, %u noise octaves per sample; %u x %u samples\n",
@@ -156,13 +153,13 @@ int main(int argc, char** argv) {
     double best_batch = 1e30;
     for (int r = 0; r < repeats; ++r) {
         const auto start = std::chrono::steady_clock::now();
-        sp06::evaluate_batch(*program, region, cpu);
+        procgen::evaluate(*program, region, cpu);
         best_batch = std::min(best_batch, seconds_since(start));
     }
     double best_scalar = 1e30;
     for (int r = 0; r < std::max(1, repeats / 2); ++r) {
         const auto start = std::chrono::steady_clock::now();
-        sp06::evaluate_scalar(*program, region, scalar);
+        procgen::evaluate(*program, region, scalar, {.batch = 1});
         best_scalar = std::min(best_scalar, seconds_since(start));
     }
     const bool bit_equal = std::memcmp(cpu.data(), scalar.data(), samples * sizeof(float)) == 0;
@@ -174,7 +171,7 @@ int main(int argc, char** argv) {
         for (std::size_t i = 0; i < samples; ++i) {
             const float x = static_cast<float>(i % res) * 0.031f;
             const float y = static_cast<float>(i / res) * 0.029f;
-            noise[i] = sp06::gradient_noise(x, y, 0.37f, 3.0f, 0x9E3779B9u);
+            noise[i] = procgen::gradient_noise(x, y, 0.37f, 3.0f, 0x9E3779B9u);
         }
         best_noise = std::min(best_noise, seconds_since(start));
     }
@@ -182,7 +179,8 @@ int main(int argc, char** argv) {
     const double scalar_rate = static_cast<double>(samples) / best_scalar;
     std::printf(
         "| CPU batch interpreter (%zu per batch) | %.2f M samples/s | %.1f ns/sample | %.2f ns per noise octave |\n",
-        sp06::batch_size, batch_rate * 1e-6, 1e9 / batch_rate, 1e9 / batch_rate / program->noise_octaves);
+        std::size_t{procgen::max_batch}, batch_rate * 1e-6, 1e9 / batch_rate,
+        1e9 / batch_rate / program->noise_octaves);
     std::printf("| CPU scalar interpreter (batch of 1) | %.2f M samples/s | %.1f ns/sample | |\n", scalar_rate * 1e-6,
                 1e9 / scalar_rate);
     std::printf("| one noise octave, plain loop | %.1f M evaluations/s | %.2f ns | checksum %.3f |\n",

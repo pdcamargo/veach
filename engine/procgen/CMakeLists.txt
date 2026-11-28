@@ -4,6 +4,8 @@
 # evaluator for field graphs, when it comes, is a render feature in engine/render that reads this area's op lists.
 veach_add_engine_library(procgen
     SOURCES
+        src/field_eval.cpp
+        src/field_graph.cpp
         src/sandbox.cpp
     PUBLIC_DEPS veach::core
     PRIVATE_DEPS Luau.VM Luau.Compiler nlohmann_json::nlohmann_json)

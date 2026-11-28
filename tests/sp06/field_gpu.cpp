@@ -10,6 +10,8 @@
 #include <array>
 #include <cstddef>
 #include <cstring>
+#include <fstream>
+#include <iterator>
 #include <span>
 #include <string_view>
 
@@ -68,7 +70,22 @@ struct Resources {
 
 }  // namespace
 
-Result<GpuRun> run_gpu(rhi::Device& device, const Program& program, const FaceRegion& region, std::uint32_t frames) {
+Result<procgen::FieldProgram> terrain_program(std::uint64_t seed) {
+    const char* path = VEACH_SOURCE_DIR "/tests/procgen/terrain.field.json";
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        return make_error(ErrorCode::io_failed, std::string("sp06: cannot read ") + path);
+    }
+    const std::string json(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>{});
+    auto graph = procgen::parse_field_graph(json, "terrain.field.json");
+    if (!graph) {
+        return std::unexpected(graph.error());
+    }
+    return procgen::compile(*graph, {.seed = seed, .radius_planet_m = 6.0e6});
+}
+
+Result<GpuRun> run_gpu(rhi::Device& device, const procgen::FieldProgram& program, const procgen::FaceRegion& region,
+                       std::uint32_t frames) {
     const std::uint32_t res = region.resolution;
     if (res == 0 || res % 8 != 0) {
         return make_error(ErrorCode::cli_invalid_value, "sp06: the resolution must be a multiple of 8");
@@ -129,13 +146,13 @@ Result<GpuRun> run_gpu(rhi::Device& device, const Program& program, const FaceRe
 
     FieldParams params{};
     params.program = device.descriptor(*ops);
-    std::memcpy(params.center, region.center, sizeof(region.center));
+    std::memcpy(params.center, region.center.data(), sizeof(float) * 3);
     params.center[3] = 2.0f / static_cast<float>(res);
-    std::memcpy(params.right, region.right, sizeof(region.right));
-    std::memcpy(params.up, region.up, sizeof(region.up));
+    std::memcpy(params.right, region.right.data(), sizeof(float) * 3);
+    std::memcpy(params.up, region.up.data(), sizeof(float) * 3);
     params.resolution = res;
     params.words = static_cast<std::uint32_t>(program.words.size());
-    params.result = program.output;
+    params.result = program.outputs[0].reg;
     std::array<FieldParams, 2> per_kernel{params, params};
     per_kernel[0].output = device.descriptor(outputs[0], rhi::View::storage);
     per_kernel[1].output = device.descriptor(outputs[1], rhi::View::storage);

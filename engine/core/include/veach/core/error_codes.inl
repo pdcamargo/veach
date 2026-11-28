@@ -53,6 +53,11 @@ VEACH_ERROR(script_unsupported_field, "script.unsupported_field",
             "A component field type cannot be represented in Luau")
 VEACH_ERROR(procgen_budget_exceeded, "procgen.budget_exceeded",
             "A generator hook ran past its safepoint, wall-clock or memory budget")
+VEACH_ERROR(procgen_graph_invalid, "procgen.graph_invalid",
+            "A field graph is malformed: an unknown node type, a bad port, a length without a unit class, a cycle")
+VEACH_ERROR(procgen_stage_invalid, "procgen.stage_invalid",
+            "A generation stage cannot be registered: a duplicate id and version, a malformed id, a tier violation")
+VEACH_ERROR(procgen_stage_failed, "procgen.stage_failed", "A generation stage failed; nothing of its output was kept")
 
 VEACH_ERROR(rhi_backend_unavailable, "rhi.backend_unavailable",
             "The requested RHI backend is not available on this platform")

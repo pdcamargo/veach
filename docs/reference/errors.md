@@ -202,6 +202,36 @@ the same hook fails the same way on every machine), **wall clock** (a hang guard
 **memory**. Usually a loop never ends or a table grows without end. If the work is genuinely that large, split it
 into several calls (per cube face or per row) or raise the budget in `SandboxOptions`.
 
+## procgen.graph_invalid
+
+**A field graph is malformed: an unknown node type, a bad port, a length without a unit class, a cycle.**
+
+A field graph ([procgen spec](../specs/procgen/spec.md), [guide](../guides/procgen.md)) failed to load or compile. The
+message names the graph and the node; the hint says the fix. Common causes: a node type without its version
+(`veach:fbm` instead of `veach:fbm@1`) or a version this build does not have; a length written as a bare number
+(write `{"planet_m": 3000000}` or `{"m": 3}`); a length whose unit class does not match the position it samples
+(`planet_m` lengths go with `p_planet`, `m` lengths with `p_local`); a port wired to the wrong kind of value (a
+position input into a scalar port); a cycle. Unknown fields and parameters are `data.unknown_field`, invalid JSON
+`data.parse_failed`.
+
+## procgen.stage_invalid
+
+**A generation stage cannot be registered: a duplicate id and version, a malformed id, a tier violation.**
+
+`StageRegistry::add` refused a stage ([ADR 0051](../adr/0051-staged-generation-pipeline.md)). Stage ids are
+`namespace:name` (lowercase, digits, `_`, `.` and `-`); each (id, version) is registered once, so a changed output
+needs a new version beside the old one ([ADR 0055](../adr/0055-universe-identity-and-versioning.md)). Data flows only
+down the determinism tiers ([ADR 0043](../adr/0043-determinism-tiers-and-strict-floating-point.md)): a canonical stage
+cannot read a replay or visual one.
+
+## procgen.stage_failed
+
+**A generation stage failed; nothing of its output was kept.**
+
+A stage function returned an error, or one of its inputs failed. The message names the stage, its version and the
+address, followed by the original error, whose hint still applies. Nothing is cached, so fixing the input or the
+stage and asking again re-runs it.
+
 ## rhi.backend_unavailable
 
 **The requested RHI backend is not available on this platform.**

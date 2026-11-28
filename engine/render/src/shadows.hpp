@@ -2,8 +2,10 @@
 
 // Sun shadows for the real-time renderer (docs/specs/sun-shadows/spec.md, ADR 0095, ADR 0100, ADR 0062): cascaded
 // shadow maps for the brightest directional lights, each cascade culled by the GPU-driven culling (gpu_cull.slang,
-// without occlusion or normal cones) into compacted draw lists of its own and drawn depth-only, alpha-tested casters
-// with their coverage test. The shading function looks them up through ShadowFrame (shaders/veach/shadows.slang).
+// without normal cones; by this frame's receivers and by occlusion from the light, shadow_pyramids.slang) into
+// compacted draw lists of its own and drawn depth-only, alpha-tested casters with their coverage test; the far
+// cascades are kept while the scene is still. The shading function looks them up through ShadowFrame
+// (shaders/veach/shadows.slang).
 
 #include <veach/core/error.hpp>
 #include <veach/core/math.hpp>

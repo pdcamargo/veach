@@ -59,7 +59,7 @@ int main(int argc, char** argv) {
 ```
 
 Modules are imported in call order during the `modules` init step, after every engine
-subsystem exists. Keep module structs empty. Engine services (assets, scripts, renderer,
+subsystem exists. Keep module structs empty. Engine services (assets, scripts, renderer, runtime meshes,
 platform, RHI device) are reachable with `veach::services(world).get<T>()` — for example
 `veach::services(world).get<veach::AssetServer>()`. See `apps/lab/src/lab_module.cpp`.
 

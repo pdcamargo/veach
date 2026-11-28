@@ -1,5 +1,6 @@
 #include "lab_module.hpp"
 
+#include "runtime_mesh_demo.hpp"
 #include "sp03_spike.hpp"
 #include "sp04_spike.hpp"
 #include "triangle_feature.hpp"
@@ -30,6 +31,7 @@ LabModule::LabModule(veach::World& world) {
         [](veach::Iter& it, std::size_t, Spinner& s) { s.angle += s.radians_per_second * it.delta_time(); });
 
     register_triangle_demo(world);
+    register_runtime_mesh_demo(world);  // VCH-102: a terrain-like patch meshed at run time
 
     // glTF scenes, with the lab's materials: in real time, or in photo mode (scripts put a PhotoMode on the camera).
     auto& renderer = veach::services(world).get<veach::render::Renderer>();

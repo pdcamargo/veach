@@ -17,6 +17,7 @@
 #include <veach/core/math.hpp>
 #include <veach/ecs/flecs.hpp>
 #include <veach/render/camera.hpp>
+#include <veach/render/mesh_store.hpp>
 #include <veach/render/png.hpp>
 #include <veach/render/render_graph.hpp>
 #include <veach/render/scene.hpp>
@@ -51,7 +52,8 @@ struct RenderView {
     std::uint64_t camera = 0;             ///< the camera entity
 };
 
-/// A mesh to draw this frame: an imported mesh, the material of each of its slots, and where it is.
+/// A mesh to draw this frame: an imported or runtime mesh (MeshStore), the material of each of its slots, and where
+/// it is.
 struct MeshDraw {
     AssetId mesh;
     std::vector<AssetId> materials;
@@ -89,6 +91,8 @@ public:
     std::vector<MeshDraw> meshes;   ///< in entity-id order
     std::vector<RenderLight> lights;
     ResolvedSky sky;
+    /// The MeshStore's meshes and materials this frame (runtime meshes in `meshes` name them by id).
+    std::shared_ptr<const RuntimeAssets> runtime_assets;
 
     /// Per-frame data extracted by modules, one value per type.
     template <class T>
@@ -173,6 +177,8 @@ public:
         return nullptr;
     }
     [[nodiscard]] rhi::Device& device() { return device_; }
+    /// Meshes and materials made at run time (also the engine's MeshStore service).
+    [[nodiscard]] MeshStore& meshes() { return meshes_; }
     /// The last compiled graph, as text (RenderGraph::describe()).
     [[nodiscard]] const std::string& last_graph() const { return last_graph_; }
 
@@ -187,6 +193,7 @@ private:
     void finish_capture(std::uint32_t width, std::uint32_t height);
 
     rhi::Device& device_;
+    MeshStore meshes_;
     RenderWorld render_world_;
     std::vector<NamedExtractor> extractors_;
     std::vector<std::unique_ptr<RenderFeature>> features_;

@@ -194,6 +194,15 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   mode's escaped rays. Without a `Sky` entity the sky follows the scene's brightest directional light; with one, it
   drives the sun from `time_of_day`. Closed test scenes set `Sky { mode = "none" }` (a warning says so when the scene
   has lights). Example: `scripts/bistro_sunset.luau`.
+- **Meshes made at run time** ([spec](../specs/runtime-meshes/spec.md), [ADR 0072](../adr/0072-runtime-meshes.md)):
+  terrain chunks and other generated geometry go through the `render::MeshStore` service, not the cook step.
+  `add(MeshData{vertices, indices, triangle_slots, materials})` validates the data (`render.mesh_invalid`), builds
+  meshlets with the cooker's `build_meshlets` and returns an id; `add_material(MaterialAsset)` makes a material the
+  same way. An entity with `RuntimeMeshInstance { mesh }` and a `Transform` draws it in both renderers. `update(id,
+  data)` re-uploads it once, the next frame it is drawn, and retires the old buffers; `remove(id)` frees its GPU
+  memory. The store owns the mesh, not the component. Ids are `AssetId`s that never collide with assets
+  (`render::is_runtime_id`). Example: the lab's `RuntimeMeshDemo` (`apps/lab/src/runtime_mesh_demo.cpp`) and
+  `scripts/runtime_mesh_realtime.luau`.
 - **Looking around:** the lab runs `scripts/dev/fly_camera.luau` after every scene (`"dev_scripts"` in its
   `veach.project.json`), so any windowed run flies its active camera with W/A/S/D, Q/E, the arrows and shift:
   `veach-lab --rhi metal --window --script scripts/bistro.luau`. It writes the camera only while a key is held, so

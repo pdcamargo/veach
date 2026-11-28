@@ -196,7 +196,7 @@ Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device) {
             out.views.push_back(view);
         }
     });
-    add_extractor("scene", [](const World& world, RenderWorld& out) {
+    add_extractor("scene", [this](const World& world, RenderWorld& out) {
         const Services* registry = find_services(world);
         const auto* assets = registry ? registry->find<AssetServer>() : nullptr;
         std::vector<std::pair<std::uint64_t, MeshDraw>> draws;
@@ -211,6 +211,18 @@ Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device) {
                 draw.materials.push_back(scene->materials.at(material));
             }
             draws.emplace_back(e.id(), std::move(draw));
+        });
+        // Runtime meshes (MeshStore): the snapshot is the same pointer until the store changes.
+        out.runtime_assets = meshes_.snapshot();
+        world.each([&](Entity e, const RuntimeMeshInstance& instance, const GlobalTransform& global) {
+            const auto it = out.runtime_assets->meshes.find(instance.mesh);
+            if (it == out.runtime_assets->meshes.end()) {
+                return;  // removed (an evicted terrain chunk): nothing to draw
+            }
+            draws.emplace_back(e.id(), MeshDraw{.mesh = instance.mesh,
+                                                .materials = it->second->materials,
+                                                .world = global.matrix,
+                                                .entity = e.id()});
         });
         std::ranges::sort(draws, {}, &std::pair<std::uint64_t, MeshDraw>::first);
         for (auto& [id, draw] : draws) {
@@ -499,6 +511,7 @@ RenderModule::RenderModule(World& world) {
     world.component<AssetId>().member(&AssetId::hi, "hi").member(&AssetId::lo, "lo");
     world.component<SceneInstance>().member(&SceneInstance::path, "path").add<Scriptable>();
     world.component<MeshInstance>().member(&MeshInstance::scene, "scene").member(&MeshInstance::node, "node");
+    world.component<RuntimeMeshInstance>().member(&RuntimeMeshInstance::mesh, "mesh");
     world.component<DirectionalLight>()
         .member(&DirectionalLight::color, "color")
         .member(&DirectionalLight::illuminance, "illuminance")

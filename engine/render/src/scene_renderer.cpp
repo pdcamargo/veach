@@ -96,6 +96,8 @@ std::span<const std::byte> bytes_of(const std::vector<T>& values) {
 struct SceneRenderer::Impl {
     struct GpuMesh {
         const MeshAsset* source = nullptr;  ///< the asset data it was made from; changes on hot reload
+        /// A runtime mesh's data (MeshStore), kept alive while its buffers exist; null for cooked meshes.
+        std::shared_ptr<const RuntimeMesh> runtime;
         rhi::BufferHandle vertices;
         rhi::BufferHandle indices;
         rhi::BufferHandle slots;
@@ -123,6 +125,7 @@ struct SceneRenderer::Impl {
     rhi::SamplerHandle sampler;
     std::unordered_map<AssetId, GpuMesh> meshes;
     std::unordered_map<AssetId, GpuTexture> textures;
+    std::shared_ptr<const RuntimeAssets> runtime;  ///< this frame's MeshStore snapshot (RenderWorld::runtime_assets)
     rhi::AccelHandle tlas;
     std::vector<AssetId> tlas_meshes;  ///< the BLAS list the TLAS was created with
     std::uint32_t tlas_capacity = 0;
@@ -246,8 +249,47 @@ struct SceneRenderer::Impl {
         }
     }
 
+    /// A runtime mesh or material in this frame's snapshot, or null.
+    [[nodiscard]] std::shared_ptr<const RuntimeMesh> runtime_mesh(AssetId id) const {
+        if (!runtime) {
+            return nullptr;
+        }
+        const auto it = runtime->meshes.find(id);
+        return it == runtime->meshes.end() ? nullptr : it->second;
+    }
+    [[nodiscard]] const MaterialAsset* runtime_material(AssetId id) const {
+        if (!runtime) {
+            return nullptr;
+        }
+        const auto it = runtime->materials.find(id);
+        return it == runtime->materials.end() ? nullptr : it->second.get();
+    }
+
+    /// Frees the GPU data of runtime meshes that were removed or replaced since the last snapshot (ADR 0072). The
+    /// buffers are retired, not destroyed at once: frames still in flight may read them (ADR 0030).
+    void sweep(std::shared_ptr<const RuntimeAssets> now) {
+        if (now == runtime) {
+            return;  // the store has not changed
+        }
+        runtime = std::move(now);
+        for (auto it = meshes.begin(); it != meshes.end();) {
+            GpuMesh& gpu = it->second;
+            if (gpu.runtime == nullptr || runtime_mesh(it->first) == gpu.runtime) {
+                ++it;
+                continue;
+            }
+            destroy(gpu);
+            if (std::ranges::find(tlas_meshes, it->first) != tlas_meshes.end()) {
+                tlas_meshes.clear();  // the TLAS names this BLAS: recreate it
+            }
+            it = meshes.erase(it);
+        }
+    }
+
     GpuMesh* mesh(AssetId id) {
-        const MeshAsset* source = assets.get(Handle<MeshAsset>{id});
+        const bool made_at_run_time = is_runtime_id(id);
+        std::shared_ptr<const RuntimeMesh> made = made_at_run_time ? runtime_mesh(id) : nullptr;
+        const MeshAsset* source = made ? &made->mesh : made_at_run_time ? nullptr : assets.get(Handle<MeshAsset>{id});
         if (source == nullptr || source->indices.empty()) {
             return nullptr;
         }
@@ -255,38 +297,56 @@ struct SceneRenderer::Impl {
         if (gpu.source == source) {
             return &gpu;
         }
-        destroy(gpu);  // new or reloaded
+        destroy(gpu);  // new, reloaded or (a runtime mesh) updated: the old buffers are retired
         gpu.source = source;
+        gpu.runtime = std::move(made);
         gpu.built = false;
         // Acceleration-structure input only where photo mode can build one (ADR 0041).
         const rhi::BufferUsage usage =
             unavailable ? rhi::BufferUsage::storage : rhi::BufferUsage::storage | rhi::BufferUsage::accel_input;
+        // Runtime meshes have their own names, so memory_usage() (MCP frame_budget) tells them apart.
+        const bool is_runtime = gpu.runtime != nullptr;
         auto vertices = device->create_buffer({.size = source->vertices.size() * sizeof(MeshVertex),
                                                .usage = usage,
-                                               .debug_name = "mesh vertices",
+                                               .debug_name = is_runtime ? "runtime mesh vertices" : "mesh vertices",
                                                .stride = 4},
                                               bytes_of(source->vertices));
-        auto indices = device->create_buffer(
-            {.size = source->indices.size() * 4, .usage = usage, .debug_name = "mesh indices", .stride = 4},
-            bytes_of(source->indices));
-        auto slots =
-            device->create_buffer({.size = source->triangle_slots.size() * 4, .debug_name = "mesh slots", .stride = 4},
-                                  bytes_of(source->triangle_slots));
+        auto indices = device->create_buffer({.size = source->indices.size() * 4,
+                                              .usage = usage,
+                                              .debug_name = is_runtime ? "runtime mesh indices" : "mesh indices",
+                                              .stride = 4},
+                                             bytes_of(source->indices));
+        auto slots = device->create_buffer({.size = source->triangle_slots.size() * 4,
+                                            .debug_name = is_runtime ? "runtime mesh slots" : "mesh slots",
+                                            .stride = 4},
+                                           bytes_of(source->triangle_slots));
         // Never empty buffers: a mesh without meshlets (an old cook) still gets valid handles.
         const auto or_one = [](std::size_t size) {
             return std::max<std::size_t>(size, 16);
         };
-        auto meshlets = device->create_buffer(
-            {.size = or_one(source->meshlets.size() * sizeof(Meshlet)), .debug_name = "meshlets", .stride = 4},
-            bytes_of(source->meshlets));
-        auto meshlet_vertices = device->create_buffer(
-            {.size = or_one(source->meshlet_vertices.size() * 4), .debug_name = "meshlet vertices", .stride = 4},
-            bytes_of(source->meshlet_vertices));
-        auto meshlet_triangles = device->create_buffer(
-            {.size = or_one(source->meshlet_triangles.size() * 4), .debug_name = "meshlet triangles", .stride = 4},
-            bytes_of(source->meshlet_triangles));
+        auto meshlets = device->create_buffer({.size = or_one(source->meshlets.size() * sizeof(Meshlet)),
+                                               .debug_name = is_runtime ? "runtime meshlets" : "meshlets",
+                                               .stride = 4},
+                                              bytes_of(source->meshlets));
+        auto meshlet_vertices =
+            device->create_buffer({.size = or_one(source->meshlet_vertices.size() * 4),
+                                   .debug_name = is_runtime ? "runtime meshlet vertices" : "meshlet vertices",
+                                   .stride = 4},
+                                  bytes_of(source->meshlet_vertices));
+        auto meshlet_triangles =
+            device->create_buffer({.size = or_one(source->meshlet_triangles.size() * 4),
+                                   .debug_name = is_runtime ? "runtime meshlet triangles" : "meshlet triangles",
+                                   .stride = 4},
+                                  bytes_of(source->meshlet_triangles));
         if (!vertices || !indices || !slots || !meshlets || !meshlet_vertices || !meshlet_triangles) {
             report("mesh buffers", Error{ErrorCode::rhi_gpu_error, "scene renderer: cannot create mesh buffers", {}});
+            for (auto* created : {&vertices, &indices, &slots, &meshlets, &meshlet_vertices, &meshlet_triangles}) {
+                if (*created) {
+                    device->destroy(**created);
+                }
+            }
+            gpu.source = nullptr;  // try again next frame rather than draw with no buffers
+            gpu.runtime.reset();
             return nullptr;
         }
         gpu.vertices = *vertices;
@@ -312,7 +372,7 @@ struct SceneRenderer::Impl {
                                  .indices = gpu.indices,
                                  .index_count = static_cast<std::uint32_t>(gpu.source->indices.size()),
                                  .opaque = true,  // alpha: rays continue past transparent texels (path_tracer.slang)
-                                 .debug_name = "mesh BLAS"});
+                                 .debug_name = gpu.runtime ? "runtime mesh BLAS" : "mesh BLAS"});
         if (!blas) {
             report("blas", blas.error());
             return false;
@@ -379,7 +439,7 @@ struct SceneRenderer::Impl {
         r.sampler = device->descriptor(sampler);
         r.base_color_texture = r.metallic_roughness_texture = r.normal_texture = r.emissive_texture =
             device->null_descriptor(rhi::DescriptorKind::texture);
-        const MaterialAsset* m = assets.get(Handle<MaterialAsset>{id});
+        const MaterialAsset* m = is_runtime_id(id) ? runtime_material(id) : assets.get(Handle<MaterialAsset>{id});
         if (m == nullptr) {
             return r;
         }
@@ -499,6 +559,7 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
     VEACH_ZONE("SceneRenderer::record");
     Impl& s = *impl_;
     const RenderView* view = frame.view;
+    s.sweep(frame.world.runtime_assets);  // even when nothing draws: removed meshes free their GPU data
     if (view == nullptr || frame.world.meshes.empty()) {
         return;
     }

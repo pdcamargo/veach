@@ -1,6 +1,7 @@
 veach_add_engine_library(render
     SOURCES
         src/atmosphere.cpp
+        src/mesh_store.cpp
         src/realtime_renderer.cpp
         src/scene_renderer.cpp
         src/png.cpp

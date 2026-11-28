@@ -33,6 +33,7 @@
 #include <veach/script/script_asset.hpp>
 #include <veach/script/script_runtime.hpp>
 
+#include <veach/render/mesh_store.hpp>
 #include <veach/render/renderer.hpp>
 
 #include <veach/runtime/config.hpp>

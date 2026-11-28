@@ -11,6 +11,7 @@ add_executable(veach-tests
     realtime_tests.cpp
     render_tests.cpp
     rhi_tests.cpp
+    runtime_mesh_tests.cpp
     hot_reload_tests.cpp
     input_tests.cpp
     scene_tests.cpp
@@ -58,6 +59,11 @@ add_test(NAME "lab: SP-04 orrery from Luau" COMMAND veach-lab --script scripts/s
 set_tests_properties("lab: SP-04 orrery from Luau" PROPERTIES
     PASS_REGULAR_EXPRESSION "earth \\(around emb\\) at tick 378683424000: 0\\.98332.*sun from earth at 48\\.8566, 2\\.3522: elevation 18\\.09"
     FAIL_REGULAR_EXPRESSION "\\] error ")
+
+# rtmesh.AC4 on every platform: a mesh made at run time, updated on frame 2, drawn on the null RHI.
+add_test(NAME "lab: runtime mesh on the null RHI"
+    COMMAND veach-lab --script scripts/runtime_mesh_realtime.luau --frames 3 --headless)
+set_tests_properties("lab: runtime mesh on the null RHI" PROPERTIES FAIL_REGULAR_EXPRESSION "\\] error ")
 
 file(GLOB_RECURSE _luau_scripts RELATIVE "${PROJECT_SOURCE_DIR}" CONFIGURE_DEPENDS
     "${PROJECT_SOURCE_DIR}/apps/*.luau" "${PROJECT_SOURCE_DIR}/tests/scripts/*.luau")
@@ -225,6 +231,9 @@ if(APPLE)
     veach_golden_test("golden: triangle (camera, raster)" triangle_camera_raster triangle_camera metal)
     veach_golden_test("golden: triangle (camera, raytraced)" triangle_camera_raytraced triangle_camera metal)
     veach_scene_goldens(metal)
+    # rtmesh.AC4: a mesh made at run time (and updated on frame 2), in real time and in photo mode.
+    veach_golden_test("golden: runtime mesh (realtime)" runtime_mesh_realtime runtime_mesh_realtime metal)
+    veach_golden_test("golden: runtime mesh (photo mode)" runtime_mesh runtime_mesh metal FRAMES 4)
     # sky.AC4, rt.AC3: Bistro under the physical sky at noon and at sunset (Metal only: Bistro is too heavy for WARP).
     foreach(_time noon sunset)
         veach_golden_test("golden: bistro at ${_time} (realtime)" bistro_${_time} bistro_${_time} metal)
@@ -253,7 +262,8 @@ if(APPLE)
     foreach(_golden "hello:background:3" "triangle_raster:triangle_raster:3" "triangle_raytraced:triangle_raytraced:3"
             "triangle_camera_raster:triangle_camera:3" "cornell_box:cornell_box:4" "flight_helmet:flight_helmet:4"
             "cornell_box_realtime:cornell_box_realtime:3" "flight_helmet_realtime:flight_helmet_realtime:3"
-            "bistro_noon:bistro_noon:3" "bistro_sunset:bistro_sunset:3")
+            "bistro_noon:bistro_noon:3" "bistro_sunset:bistro_sunset:3"
+            "runtime_mesh_realtime:runtime_mesh_realtime:3" "runtime_mesh:runtime_mesh:4")
         string(REPLACE ":" ";" _golden "${_golden}")
         list(GET _golden 0 _script)
         list(GET _golden 1 _image)

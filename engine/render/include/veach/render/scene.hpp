@@ -24,6 +24,13 @@ struct MeshInstance {
     std::uint32_t node = 0;
 };
 
+/// Draws a mesh made at run time (render::MeshStore, docs/specs/runtime-meshes/spec.md) at the entity's
+/// GlobalTransform, with the materials the mesh was submitted with. The store owns the mesh: removing this component
+/// does not free it, and a removed mesh draws nothing. Not Scriptable.
+struct RuntimeMeshInstance {
+    AssetId mesh;
+};
+
 /// Shines down the entity's −Z (ADR 0036). Illuminance in lux. Light sizes (angle, radius) give soft shadows in photo
 /// mode; the real-time renderer treats every light as punctual and unshadowed for now (ADR 0040). Scriptable.
 struct DirectionalLight {

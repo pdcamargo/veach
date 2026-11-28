@@ -113,6 +113,12 @@ export type PointLight = {
 	intensity: number,
 	radius: number,
 }
+export type RuntimeMeshDemo = {
+	size: number,
+	cells: number,
+	height: number,
+	rock_above: number,
+}
 export type SceneInstance = {
 	path: string,
 }
@@ -226,6 +232,7 @@ export type Veach = {
 		read Orrery: Component<Orrery>,
 		read PhotoMode: Component<PhotoMode>,
 		read PointLight: Component<PointLight>,
+		read RuntimeMeshDemo: Component<RuntimeMeshDemo>,
 		read SceneInstance: Component<SceneInstance>,
 		read Sky: Component<Sky>,
 		read Sp03Ladder: Component<Sp03Ladder>,

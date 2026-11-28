@@ -82,3 +82,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0069 | [Amendments from SP-04: the phase formula, the Kepler starter, binary pairs, pausing the clock](0069-amendments-from-sp-04.md) | Accepted |
 | 0070 | [Rules for Luau generators, from SP-07](0070-generator-sandbox-rules.md) | Accepted |
 | 0071 | [Field-graph precision rules, from SP-06](0071-field-graph-precision-rules.md) | Accepted |
+| 0072 | [Runtime meshes live in a renderer-owned MeshStore of immutable snapshots](0072-runtime-meshes.md) | Accepted |

@@ -291,10 +291,12 @@ Result<> Engine::init() {
                 renderer_->set_surface(surface_, handle.width, handle.height);
             }
             services_.provide<render::Renderer>(*renderer_);
+            services_.provide<render::MeshStore>(renderer_->meshes());
             world_->import<render::RenderModule>();
             return std::string("render graph; extraction is the only ECS crossing");
         },
         [this] {
+            services_.revoke<render::MeshStore>();
             services_.revoke<render::Renderer>();
             renderer_.reset();
         });

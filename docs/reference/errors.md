@@ -298,6 +298,22 @@ Photo mode leaves them out of the image, so one bad sample cannot blacken a pixe
 logged with the frame: a NaN means a bug in a material, a light or the path tracer (a division by a zero pdf,
 the normal of a degenerate triangle, a NaN light intensity). The run exits with code 1.
 
+## render.mesh_invalid
+
+**A runtime mesh submitted to the MeshStore is malformed.**
+
+`MeshStore::add()`, `update()` and `build_runtime_mesh()` check what a module submits
+([runtime meshes](../specs/runtime-meshes/spec.md)): vertices and whole triangles, every index inside the vertex
+array, finite positions, one slot per triangle (or none) and at most 256 material slots. The message names the first
+problem and its values. Nothing is stored; an update keeps drawing the previous data.
+
+## render.mesh_unknown
+
+**A MeshStore call named a mesh or material it does not hold.**
+
+`update()`, `remove()`, `update_material()` and `remove_material()` take the id that `add()` or `add_material()`
+returned. The id was never made by this store, or was already removed. Ids are never reused.
+
 ## ecs.unknown_component
 
 **A component name does not name a reflected component.**

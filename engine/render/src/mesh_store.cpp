@@ -127,6 +127,14 @@ Result<AssetId> MeshStore::add(MeshData data) {
     return id;
 }
 
+AssetId MeshStore::add(std::shared_ptr<const RuntimeMesh> built) {
+    const std::scoped_lock lock(mutex_);
+    const AssetId id = next_id();
+    assets_.meshes.emplace(id, std::move(built));
+    snapshot_.reset();
+    return id;
+}
+
 Result<> MeshStore::update(AssetId mesh, MeshData data) {
     {
         const std::scoped_lock lock(mutex_);

@@ -133,6 +133,11 @@ TerrainBody::~TerrainBody() {
     }
 }
 
+void TerrainBody::set_payload(ChunkPayload payload) {
+    wait();
+    settings_.payload = std::move(payload);
+}
+
 void TerrainBody::set_viewers(std::span<const std::array<double, 3>> viewers) {
     viewers_.assign(viewers.begin(), viewers.end());
 }

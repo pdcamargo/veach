@@ -10,6 +10,11 @@
 #include "support/test_support.hpp"
 
 #include <veach/core/jobs.hpp>
+#include <veach/ecs/frames.hpp>
+#include <veach/render/mesh_store.hpp>
+#include <veach/render/renderer.hpp>
+#include <veach/runtime/engine.hpp>
+#include <veach/runtime/terrain.hpp>
 #include <veach/voxel/terrain.hpp>
 
 #include <algorithm>
@@ -605,4 +610,73 @@ TEST_CASE("[voxel.AC8] colliders: LOD0 meshes with an adjacency ring, for instal
     body.update_colliders(std::span(&far, 1), 120, jobs);
     REQUIRE(sink.updates.size() == 3);
     CHECK(sink.updates[2].remove.size() == u.install.size());
+}
+
+TEST_CASE("[voxel.AC9] a body in a reference frame streams around a TerrainViewer into the MeshStore and draws") {
+    test::TempProject project("voxel-terrain");
+    Engine engine(test::headless_config(project.path(), {}, 1000));
+    engine.import<TerrainModule>();
+    REQUIRE(engine.init().has_value());
+    World& world = engine.world();
+    auto& bodies = services(world).get<TerrainBodies>();
+    auto& meshes = services(world).get<render::MeshStore>();
+    const AssetId grass = meshes.add_material({.name = "grass"});
+    // The flat world 10 km out and turned a quarter about +Y: positions go through the frame in double.
+    const Entity ground = world.entity("ground").set(
+        ReferenceFrame{.position = math::dvec3(10'000.0, 0.0, 0.0),
+                       .orientation = math::angleAxis(1.5707963267948966, math::dvec3(0.0, 1.0, 0.0))});
+    TerrainSettings s = flat_settings(64);
+    s.asynchronous = true;
+    bodies.add(ground, std::make_shared<TerrainBody>(test::flat_hills(), s), {.materials = {grass}});
+    const Entity camera = world.entity("camera")
+                              .child_of(ground)
+                              .set(Transform{.translation = math::dvec3(10.0, 6.0, 10.0)})
+                              .set(Camera{.fov_y = math::radians(60.0f), .near_plane = 0.1f, .active = true})
+                              .add<TerrainViewer>();
+    REQUIRE(engine.start().has_value());
+    for (int i = 0; i < 40; ++i) {
+        engine.frame();
+    }
+    const StreamStats* stats = bodies.stats(ground);
+    REQUIRE(stats != nullptr);
+    CHECK(stats->stale == 0);
+    CHECK(stats->drawn > 10);
+    const TerrainBody& body = *bodies.find(ground);
+    const auto with_triangles = static_cast<std::size_t>(
+        std::ranges::count_if(body.drawn(), [](const ChunkRef& r) { return !r->mesh.indices.empty(); }));
+    CHECK(with_triangles > 10);
+    CHECK(meshes.mesh_count() >= with_triangles);
+    const render::RenderWorld& rw = services(world).get<render::Renderer>().render_world();
+    CHECK(rw.space.frame == ground.id());
+    std::size_t terrain_draws = 0;
+    for (const render::MeshDraw& d : rw.meshes) {
+        terrain_draws += d.materials.size() == 1 && d.materials[0] == grass ? 1 : 0;
+    }
+    CHECK(terrain_draws == with_triangles);
+    // Each draw sits at its chunk's origin relative to the render origin, in the frame's axes (render space is the
+    // camera's frame).
+    std::size_t placed = 0;
+    for (const ChunkRef& r : body.drawn()) {
+        if (r->mesh.indices.empty()) {
+            continue;
+        }
+        const auto o = chunk_origin(r->slot.key);
+        const math::vec3 expected(math::dvec3(static_cast<double>(o[0]) * 0.5, static_cast<double>(o[1]) * 0.5,
+                                              static_cast<double>(o[2]) * 0.5) -
+                                  rw.space.origin);
+        placed += std::ranges::count_if(
+                      rw.meshes, [&](const render::MeshDraw& d) { return math::vec3(d.world[3]) == expected; }) > 0
+                      ? 1
+                      : 0;
+    }
+    CHECK(placed == with_triangles);
+    // Far away, the old chunks are evicted and their meshes removed.
+    camera.set(Transform{.translation = math::dvec3(-400.0, 6.0, 300.0)});
+    for (int i = 0; i < 60; ++i) {
+        engine.frame();
+    }
+    CHECK(bodies.stats(ground)->stale == 0);
+    // The store holds a mesh per held chunk with triangles, no more: evicted ones were removed.
+    CHECK(meshes.mesh_count() <= bodies.stats(ground)->cached);
+    engine.shutdown();
 }

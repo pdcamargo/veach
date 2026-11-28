@@ -6,5 +6,6 @@ veach_add_engine_library(runtime
         src/mcp_server.cpp
         src/mcp_tools.cpp
         src/replay.cpp
-    PUBLIC_DEPS veach::ecs veach::platform veach::asset veach::script veach::rhi veach::render
+        src/terrain.cpp
+    PUBLIC_DEPS veach::ecs veach::platform veach::asset veach::script veach::rhi veach::render veach::voxel
     PCH <flecs.h> <nlohmann/json.hpp>)

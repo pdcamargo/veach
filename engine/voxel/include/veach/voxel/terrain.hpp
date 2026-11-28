@@ -169,6 +169,8 @@ public:
     TerrainBody(const TerrainBody&) = delete;
     TerrainBody& operator=(const TerrainBody&) = delete;
 
+    /// Replaces TerrainSettings::payload for chunks meshed from now on (waits for jobs in flight).
+    void set_payload(ChunkPayload payload);
     /// Where the viewers are, body-local meters. Kept until changed.
     void set_viewers(std::span<const std::array<double, 3>> viewers);
     /// One streaming step (see the top of the file). Call once per frame from the job system's owner thread.

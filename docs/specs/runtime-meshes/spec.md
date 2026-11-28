@@ -46,7 +46,8 @@ veach::Result<veach::AssetId> chunk = meshes.add({.vertices = vertices,         
 entity.set(veach::RuntimeMeshInstance{*chunk});
 meshes.update(*chunk, std::move(remeshed));  // drawn next frame; the old buffers are retired
 meshes.remove(*chunk);                       // GPU memory freed; entities pointing at it draw nothing
-// build_runtime_mesh(MeshData) validates and builds meshlets without the store (pure, any thread).
+// build_runtime_mesh(MeshData) validates and builds meshlets without the store (pure, any thread);
+// meshes.add(std::shared_ptr<const RuntimeMesh>) stores one built on a worker (terrain chunks, VCH-114).
 ```
 
 Design and its alternatives: [ADR 0072](../adr/0072-runtime-meshes.md).

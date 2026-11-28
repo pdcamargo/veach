@@ -10,14 +10,13 @@
 # Goldens are shared across backends (ADR 0031): GOLDEN is tests/golden/<name>.png unless a justified
 # per-backend override tests/golden/<name>.<RHI>.png exists.
 #   cmake -DLAB=... -DIMGDIFF=... -DRHI=metal -DSCRIPT=... -DGOLDEN=... -DOUT=... -DMAX_MEAN=... [-DFRAMES=3]
-#         [-DMAX_P999=...] [-DMAX_OUTLIERS=...] [-DNO_RAY_TRACING=1] -P golden_test.cmake
+#         [-DMAX_P999=...] [-DMAX_OUTLIERS=...] [-DNO_RAY_TRACING=1] [-DLAB_TIMEOUT=105] -P golden_test.cmake
 
+if(NOT DEFINED LAB_TIMEOUT)
+    set(LAB_TIMEOUT 105)
+endif()
 if(NOT DEFINED FRAMES)
     set(FRAMES 3)
-endif()
-set(run_env "")
-if(NO_RAY_TRACING)
-    set(run_env VEACH_DISABLE_RAY_TRACING=1)
 endif()
 set(pixel_limits "")
 if(DEFINED MAX_P999)
@@ -31,12 +30,21 @@ if(EXISTS "${backend_golden}")
     set(GOLDEN "${backend_golden}")
 endif()
 
+# The lab is started directly (the environment is set here, not with `cmake -E env`), at debug log level, and given
+# less time than CTest gives the whole test: if it hangs, it is the one process killed, and its log so far (each
+# frame's render graph, the RHI's "still waiting for the GPU") is printed below instead of being lost (VCH-110).
+if(NO_RAY_TRACING)
+    set(ENV{VEACH_DISABLE_RAY_TRACING} 1)
+endif()
+set(ENV{MTL_SHADER_VALIDATION} 0)
 execute_process(
-    COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 ${run_env}
-            "${LAB}" --rhi ${RHI} --headless --frames ${FRAMES} --script "${SCRIPT}" --screenshot "${OUT}"
+    COMMAND "${LAB}" --rhi ${RHI} --headless --frames ${FRAMES} --log-level debug --script "${SCRIPT}"
+            --screenshot "${OUT}"
+    TIMEOUT ${LAB_TIMEOUT}
     RESULT_VARIABLE render_result
     OUTPUT_VARIABLE render_output
     ERROR_VARIABLE render_output)
+unset(ENV{MTL_SHADER_VALIDATION})
 
 if(render_output MATCHES "rhi\\.backend_unavailable")
     string(REGEX MATCH "[^\n]*rhi\\.backend_unavailable[^\n]*" reason "${render_output}")
@@ -52,7 +60,8 @@ if(NOT render_result EQUAL 0)
 endif()
 if(RHI STREQUAL "metal")
     execute_process(
-        COMMAND "${CMAKE_COMMAND}" -E env ${run_env} "${LAB}" --rhi ${RHI} --headless --frames ${FRAMES} --script "${SCRIPT}"
+        COMMAND "${LAB}" --rhi ${RHI} --headless --frames ${FRAMES} --script "${SCRIPT}"
+        TIMEOUT ${LAB_TIMEOUT}
         RESULT_VARIABLE validated_result
         OUTPUT_VARIABLE validated_output
         ERROR_VARIABLE validated_output)

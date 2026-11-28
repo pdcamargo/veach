@@ -4,7 +4,13 @@ The reusable toolbox for space games built on Veach: procedural planets and sola
 terrain, atmospheres, oceans, vegetation, fauna and flora, NPCs and factions, base and ship building, multiplayer.
 Games use it, and extend it through C++ modules and Luau hooks.
 
-**What is here today is spike code** ([docs/research/spikes/](../docs/research/spikes/)), throwaway prototypes that
+**The realization layer is real code** (VCH-115, [spec](../docs/specs/first-slice/spec.md),
+[guide](../docs/guides/space-realization.md)): `realization.hpp` (a seed and scale settings to a `StarSystem`, the only
+place a scale factor enters), `universe.hpp` (`UniverseModule`: frames on rails, terrain, gravity, the sky), `flight.hpp`
+(governor, handoff bands, assisted flight and cruise) and the stage `space:body.atmosphere` in `gen/`. `apps/slice`
+is the game built on it.
+
+**The rest is spike code** ([docs/research/spikes/](../docs/research/spikes/)), throwaway prototypes that
 validated the architecture ([docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md#toolbox-architecture-decided-in-the-research-phase),
 [docs/research/00-synthesis.md](../docs/research/00-synthesis.md), ADRs 0043-0069): the universe clock and bodies on
 rails (SP-04, `src/`, `include/`) and the system generation stages (SP-05, `gen/`). `SpaceMcpModule`
@@ -21,5 +27,4 @@ the spikes toward the first slice (VCH-082 to VCH-091) land.
 - Toolbox features are Veach modules (Flecs modules), imported with `engine.import<T>()`; their components are
   reflected and Scriptable like the engine's.
 
-The build target is `veach::space`, an interface library that links `veach::veach`. It gets sources when the first
-toolbox feature lands.
+The build target is `veach::space`, a static library that links `veach::veach` and `space/gen`.

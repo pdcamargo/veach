@@ -73,6 +73,10 @@ VEACH_ERROR(physics_invalid_transfer, "physics.invalid_transfer",
             "A body cannot move to that physics scene: unknown scene, or a frame change with other bodies there")
 VEACH_ERROR(physics_collider_tick, "physics.collider_tick",
             "Terrain colliders were made for another tick than the physics world is at")
+VEACH_ERROR(universe_settings_invalid, "universe.settings_invalid",
+            "A universe's creator settings are out of range or were changed after it was realized")
+VEACH_ERROR(universe_system_invalid, "universe.system_invalid",
+            "A universe names a system address or body that does not exist")
 VEACH_ERROR(voxel_density_invalid, "voxel.density_invalid",
             "A terrain density source cannot be built: a missing program output or a setting out of range")
 VEACH_ERROR(

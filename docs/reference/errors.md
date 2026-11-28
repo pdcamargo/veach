@@ -293,6 +293,25 @@ The ECS binding logs it too when a `RigidBody` is not a direct child of a frame 
 is not the physics world's `tick() + 2`: `TerrainBody::update_colliders` was called with another clock. The colliders
 still install before step `tick() + 2`; pass `physics.tick()` so that both areas agree on when they land (ADR 0077,
 K = 2).
+## universe.settings_invalid
+
+**A universe's creator settings are out of range or were changed after it was realized.**
+
+The realization layer (`space/`, [first slice](../specs/first-slice/spec.md)) checks the `Universe` component: the
+seed is a decimal 64-bit integer in a string, `scale` (s_p) is in [0.01, 1], `orbit_scale` is 0 (s_o = s_p) or in
+[s_p, 1] ([ADR 0068](../adr/0068-amendments-from-sp-05.md)), the exponents are in [0, 1] and the gravity and day
+multipliers are above 0. Setting `Universe` again with other values after the system was realized keeps the first
+system: scale and seed are genesis ([ADR 0055](../adr/0055-universe-identity-and-versioning.md)). Fix the value
+named in the message, or start a new run for a new universe.
+
+## universe.system_invalid
+
+**A universe names a system address or body that does not exist.**
+
+`Universe.system` must be a system address, `S:` and 16 hex digits with a zero body field
+([ADR 0050](../adr/0050-universe-addresses-and-seeds.md)), and `Universe.home`, when set, the name of one of its
+planets or moons (`b1`, `b2`, ...). The `generate_system` MCP tool lists a system's bodies.
+
 ## voxel.density_invalid
 
 **A terrain density source cannot be built: a missing program output or a setting out of range.**

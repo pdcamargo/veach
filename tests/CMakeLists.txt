@@ -25,6 +25,7 @@ add_executable(veach-tests
     sp10_atmosphere_tests.cpp  # spike SP-10 (VCH-086)
     sp14_depth_tests.cpp  # spike SP-14 (VCH-090)
     space_gen_tests.cpp
+    space_realization_tests.cpp  # VCH-115: the realization layer
     mcp_tools_tests.cpp
     space_tests.cpp
     transform_tests.cpp

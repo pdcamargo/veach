@@ -6,11 +6,15 @@
 add_library(veach_space STATIC
     src/atmosphere.cpp  # spike SP-10 (VCH-086)
     src/clock.cpp
+    src/flight.cpp        # VCH-115: governor, handoff bands, assisted flight
     src/mcp_tools.cpp
     src/orbit.cpp
     src/orrery.cpp
     src/presets.cpp
-    src/sun.cpp)
+    src/realization.cpp   # VCH-115: the realization layer (ADR 0049, 0088)
+    src/sun.cpp
+    src/terrain.cpp       # VCH-115: terrain fields per body
+    src/universe.cpp)     # VCH-115: UniverseModule
 add_library(veach::space ALIAS veach_space)
 target_include_directories(veach_space PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(veach_space PUBLIC veach::veach)

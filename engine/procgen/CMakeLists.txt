@@ -7,5 +7,6 @@ veach_add_engine_library(procgen
         src/field_eval.cpp
         src/field_graph.cpp
         src/sandbox.cpp
+        src/stage.cpp
     PUBLIC_DEPS veach::core
     PRIVATE_DEPS Luau.VM Luau.Compiler nlohmann_json::nlohmann_json)

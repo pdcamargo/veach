@@ -186,6 +186,28 @@ CPMAddPackage(
     EXCLUDE_FROM_ALL YES
     OPTIONS "MESHOPT_BUILD_SHARED_LIBS OFF" "MESHOPT_INSTALL OFF")
 
+# Jolt Physics (MIT): rigid-body physics, private to engine/physics (docs/adr/0058-physics-jolt.md). Double-precision
+# positions and the cross-platform deterministic build on every platform, from the first commit. Jolt's own CMake adds
+# -ffp-contract=off (Clang) and /fp:precise (MSVC) in that mode, matching ADR 0043's global flags. Turned off: options
+# that would fight ours (static MSVC runtime, its own release flags, LTO, -Wall -Werror, /Zi) and everything a
+# headless simulation doesn't need (debug renderer, profiler, object stream, GPU compute, install). SP-11 (VCH-087):
+# docs/research/spikes/sp-11-jolt.md.
+CPMAddPackage(
+    NAME JoltPhysics
+    VERSION 5.7.0
+    URL https://github.com/jrouwe/JoltPhysics/archive/refs/tags/v5.7.0.tar.gz
+    URL_HASH SHA256=9a0a405f2375dc4bd9f72486c56e1cbc7794c6a62e42fc48fadea45dfc93dacc
+    SOURCE_SUBDIR Build
+    SYSTEM YES
+    EXCLUDE_FROM_ALL YES
+    OPTIONS
+        "DOUBLE_PRECISION ON" "CROSS_PLATFORM_DETERMINISTIC ON"
+        "USE_STATIC_MSVC_RUNTIME_LIBRARY OFF" "OVERRIDE_CXX_FLAGS OFF" "INTERPROCEDURAL_OPTIMIZATION OFF"
+        "ENABLE_ALL_WARNINGS OFF" "GENERATE_DEBUG_SYMBOLS OFF" "FLOATING_POINT_EXCEPTIONS_ENABLED OFF"
+        "DEBUG_RENDERER_IN_DEBUG_AND_RELEASE OFF" "PROFILER_IN_DEBUG_AND_RELEASE OFF" "ENABLE_OBJECT_STREAM OFF"
+        "ENABLE_INSTALL OFF" "JPH_USE_DX12 OFF" "JPH_USE_VK OFF" "JPH_USE_MTL OFF" "JPH_USE_CPU_COMPUTE OFF"
+        "CPP_RTTI_ENABLED OFF" "CPP_EXCEPTIONS_ENABLED OFF")
+
 # LLVM libc's header-only math (libc/shared/math): backs veach::dmath, correctly rounded math for canonical code
 # (docs/adr/0043-determinism-tiers-and-strict-floating-point.md, docs/research/spikes/sp-02-dmath.md). Pinned to a
 # commit on main: the 23.x releases have no correctly rounded double pow (23.1.6's is wrong for large |y|) and no

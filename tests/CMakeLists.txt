@@ -20,11 +20,12 @@ add_executable(veach-tests
     sky_tests.cpp
     space_gen_tests.cpp
     space_tests.cpp
-    transform_tests.cpp)
+    transform_tests.cpp
+    voxel_tests.cpp)
 if(WIN32)
     target_sources(veach-tests PRIVATE dx12_tests.cpp)  # DX12 on WARP in hosted CI (ADR 0033)
 endif()
-target_link_libraries(veach-tests PRIVATE veach::veach veach::space doctest::doctest veach_bc7enc)
+target_link_libraries(veach-tests PRIVATE veach::veach veach::space veach::voxel doctest::doctest veach_bc7enc)
 # Shaders for RHI tests (tests/rhi_tests.cpp): <test_shaders.hpp>.
 veach_add_shader(veach-tests shaders/raster_states.slang ENTRIES vs_main:vertex fs_main:fragment)
 veach_add_shader(veach-tests shaders/atmosphere_probe.slang ENTRIES transmittance_probe:compute)
@@ -361,6 +362,13 @@ target_link_libraries(veach-bench-sp04 PRIVATE veach::space)
 target_include_directories(veach-bench-sp04 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 set_target_properties(veach-bench-sp04 PROPERTIES FOLDER "tests")
 veach_apply_warnings(veach-bench-sp04)
+# Spike SP-08 (VCH-084), throwaway: marching cubes + Transvoxel against surface nets + skirts: counts, ms per chunk, seam
+# checks, hashes, and a lab project for screenshots (docs/research/spikes/sp-08-mesher.md).
+add_executable(veach-bench-sp08-mesher bench/sp08_mesher_bench.cpp)
+target_link_libraries(veach-bench-sp08-mesher PRIVATE veach::voxel)
+target_include_directories(veach-bench-sp08-mesher PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+set_target_properties(veach-bench-sp08-mesher PROPERTIES FOLDER "tests")
+veach_apply_warnings(veach-bench-sp08-mesher)
 # Spike SP-07 (VCH-083), throwaway: climate hook cells/s and per-call overhead in the Luau procgen sandbox
 # (docs/research/spikes/sp-07-luau-generator.md).
 add_executable(veach-bench-sp07 bench/sp07_luau_generator_bench.cpp)

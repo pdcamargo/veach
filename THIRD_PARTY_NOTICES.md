@@ -23,6 +23,7 @@ Veach is MIT-licensed (see [LICENSE](LICENSE)). It includes or links the third-p
 | [meshoptimizer](https://github.com/zeux/meshoptimizer) | 1.3 | MIT | Engine (meshlets at cook time). |
 | [bc7enc_rdo](https://github.com/richgel999/bc7enc_rdo) | b943862 | MIT or public domain (your choice) | Engine texture cooking (BC7 encoding); its decoder in tests. Only `bc7enc.cpp` and `bc7decomp.cpp` are built. |
 | [LLVM libc](https://github.com/llvm/llvm-project/tree/main/libc) (header-only math, `libc/shared/math`) | e6091a8 | Apache-2.0 WITH LLVM-exception | Engine (`veach::dmath`, correctly rounded math for canonical code). Headers only, compiled into `veach_core`. |
+| [Transvoxel data tables](https://github.com/EricLengyel/Transvoxel) (Eric Lengyel) | 51a494f | MIT | Engine (`veach::voxel`, spike SP-08: marching cubes and Transvoxel lookup tables). Vendored as `engine/voxel/src/transvoxel_tables.inl`. |
 | [DirectX 12 Agility SDK](https://aka.ms/directx12agility) (NuGet `Microsoft.Direct3D.D3D12`) | 1.620.2 | Microsoft Software License Terms (runtime DLLs); MIT (headers) | Windows builds only: headers, plus `D3D12Core.dll` and `d3d12SDKLayers.dll` copied next to each executable. |
 | [Direct3D WARP](https://aka.ms/direct3dwarp) (NuGet `Microsoft.Direct3D.WARP`) | 1.0.22 | Microsoft Software License Terms (testing only, not redistributable) | Windows builds only: `d3d10warp.dll` copied next to each executable for DX12 on GPU-less CI. Must not ship with Veach. |
 
@@ -996,6 +997,38 @@ FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
 CONTRIBUTORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS WITH THE
+SOFTWARE.
+```
+
+## Transvoxel data tables (51a494f)
+
+Source: https://github.com/EricLengyel/Transvoxel (`Transvoxel.cpp`, commit 51a494f03c5b, 2023-11-02)  
+License: MIT
+
+Vendored with CRLF line endings changed to LF, as `engine/voxel/src/transvoxel_tables.inl`. The algorithm itself is
+described at https://transvoxel.org/, which says it is free of patent claims.
+
+```text
+MIT License
+
+Copyright (c) 2009 Eric Lengyel
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 

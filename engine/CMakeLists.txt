@@ -2,12 +2,14 @@
 # layering in docs/ARCHITECTURE.md is enforced by the build:
 #   core <- ecs <- platform <- asset <- script
 #                  platform <- rhi <- render
+#   core <- voxel (spike SP-08; ADR 0065's full chain comes later)
 #   runtime depends on everything; `veach::veach` is the umbrella users link.
 add_subdirectory(core)
 add_subdirectory(ecs)
 add_subdirectory(platform)
 add_subdirectory(asset)
 add_subdirectory(script)
+add_subdirectory(voxel)
 add_subdirectory(rhi)
 add_subdirectory(render)
 add_subdirectory(runtime)

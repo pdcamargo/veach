@@ -115,6 +115,37 @@ desc.cull = rhi::CullMode::back;                    // front faces wind counter-
   `color_target_uint`. Metal clears them exactly; DX12 clears through floats, so integer clear values must be at
   most 2^24 or exactly `0xFFFFFFFF` (anything else is logged as an error).
 
+## Indirect draws and dispatches
+
+A compute pass writes the arguments; a later pass draws or dispatches with them
+([spec](../specs/gpu-driven-rhi/spec.md), [ADR 0089](../adr/0089-indirect-work-and-fixed-latency-readback.md)):
+
+```cpp
+// BufferUsage::indirect for arguments (storage too, so a shader can write them); BufferUsage::index for indices.
+graph.add_compute_pass("cull", [&](PassBuilder& b) { b.read(instances); b.write(args); }, ...);
+graph.add_graphics_pass("draw",
+    [&](PassBuilder& b) {
+        b.read(args, rhi::ResourceState::indirect_argument);
+        b.read(indices, rhi::ResourceState::index_read);   // indexed draws only
+        b.color_target(color);
+    },
+    [=](PassContext& ctx) {
+        ctx.cmd.set_pipeline(pipeline);
+        ctx.cmd.set_parameters(params);
+        ctx.cmd.draw_indexed_indirect(ctx.buffer(indices), ctx.buffer(args), /*offset*/ 0);
+    });
+// In a compute pass: ctx.cmd.dispatch_indirect(ctx.buffer(args), offset) after b.read(args, indirect_argument).
+```
+
+- The shader writes `rhi::DispatchIndirectArgs`, `DrawIndirectArgs` or `DrawIndexedIndirectArgs` as `uint`s into a
+  `RWStructuredBuffer<uint>`; they are both APIs' own layouts.
+- `draw_indirect(args, offset, draw_count, stride)` draws `draw_count` records; the count is the CPU's. To vary the
+  amount of work on the GPU, compact the survivors into a list and write `instance_count`, or zero the records you
+  skip. There are no count buffers (Metal has none).
+- Keep `first_instance` and `vertex_offset` 0: Metal adds them to `SV_InstanceID` and `SV_VertexID`, D3D12 does
+  not. Put offsets in your own data.
+- Offsets and strides are multiples of 4; every backend, null included, asserts that the records fit.
+
 ## GPU timings
 
 The graph times every pass it executes with GPU timestamps (`CommandList::begin_timing`/`end_timing`; Metal

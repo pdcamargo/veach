@@ -36,6 +36,10 @@ public:
     [[nodiscard]] const TextureDesc* texture_desc(TextureHandle texture) const override {
         return textures_.get(texture);
     }
+    [[nodiscard]] const BufferDesc* buffer_desc(BufferHandle buffer) const {
+        const Buffer* b = buffers_.get(buffer);
+        return b ? &b->desc : nullptr;
+    }
 
     [[nodiscard]] DescriptorHandle descriptor(BufferHandle buffer, View view) override;
     [[nodiscard]] DescriptorHandle descriptor(TextureHandle texture, View view) override;

@@ -17,8 +17,8 @@ Legend: **yes** = implemented and exercised by a test or a golden; **partial** =
 |---|---|---|---|---|---|
 | Compute pipelines | yes | yes | no-op | `Device::create_compute_pipeline`; `threads_per_group` must match `[numthreads]`. Photo mode, the shade pass, the sky LUTs and the display pass are compute. | |
 | Dispatch | yes | yes | no-op | `CommandList::dispatch(x, y, z)` inside a compute pass; 3D grids work. | |
-| Indirect dispatch | no | no | no | No `dispatch_indirect`; group counts come from the CPU. GPU-generated work (terrain chunks, culling) needs it. | VCH-071 |
-| Indirect draw | no | no | no | `draw(vertex_count, instance_count, first_vertex)` only; no indexed draws, no `draw_indirect` or count buffers. | VCH-071 |
+| Indirect dispatch | yes | yes (WARP) | no-op (checked) | `dispatch_indirect(args, offset)` with `DispatchIndirectArgs` a compute pass wrote; the graph declares `indirect_argument` ([spec](../specs/gpu-driven-rhi/spec.md), rhi.AC1). | |
+| Indirect draw | yes | yes (WARP) | no-op (checked) | `draw_indirect` and `draw_indexed_indirect` (uint32 indices), several records per call with a stride: one `ExecuteIndirect` on DX12, one call per record on Metal. No count buffers (Metal has none; [ADR 0089](../adr/0089-indirect-work-and-fixed-latency-readback.md)). Keep `first_instance` and `vertex_offset` 0. rhi.AC2. | |
 | Read-write storage buffers | yes | yes | no-op | `BufferUsage::storage`, `descriptor(buffer, View::storage)` (a UAV on DX12). Any size; structured or byte-address. | |
 | Read-write storage textures | partial | partial | no-op | `TextureUsage::storage` on 2D textures only (photo mode's `rgba32_float` accumulation, the shade pass's `rgba16_float`). No 3D textures, arrays or cube maps. | VCH-072 |
 | Texture formats | partial | partial | n/a | `rgba8` (unorm, sRGB), `bgra8`, `rgba16_float`, `rgba32_float`, `r32_float`, `r32_uint`, `rg32_uint`, `depth32_float`, BC7. No 8/16-bit one- and two-channel formats, no signed integer formats. | VCH-072 |

@@ -33,6 +33,20 @@ public:
     virtual void draw(std::uint32_t vertex_count, std::uint32_t instance_count = 1, std::uint32_t first_vertex = 0) = 0;
     virtual void dispatch(std::uint32_t x, std::uint32_t y, std::uint32_t z = 1) = 0;
 
+    // ---- indirect work (VCH-071, ADR 0089): arguments the GPU wrote, in a BufferUsage::indirect buffer that the
+    // pass declares in ResourceState::indirect_argument. Offsets and strides are multiples of 4.
+
+    /// A dispatch whose group counts are the DispatchIndirectArgs at `offset` (inside a compute pass).
+    virtual void dispatch_indirect(BufferHandle args, std::uint64_t offset = 0) = 0;
+    /// `draw_count` draws, the i-th taking the DrawIndirectArgs at offset + i * stride (inside a render pass).
+    /// The count is the CPU's; to vary it on the GPU, write instance_count (a compacted list) or zero records.
+    virtual void draw_indirect(BufferHandle args, std::uint64_t offset = 0, std::uint32_t draw_count = 1,
+                               std::uint32_t stride = sizeof(DrawIndirectArgs)) = 0;
+    /// The same with DrawIndexedIndirectArgs and uint32 `indices` (BufferUsage::index, declared in index_read).
+    virtual void draw_indexed_indirect(BufferHandle indices, BufferHandle args, std::uint64_t offset = 0,
+                                       std::uint32_t draw_count = 1,
+                                       std::uint32_t stride = sizeof(DrawIndexedIndirectArgs)) = 0;
+
     virtual void build_blas(AccelHandle blas) = 0;
     virtual void refit_blas(AccelHandle blas) = 0;
     virtual void build_tlas(AccelHandle tlas, std::span<const TlasInstance> instances) = 0;

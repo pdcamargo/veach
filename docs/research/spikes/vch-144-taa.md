@@ -1,7 +1,7 @@
 # VCH-144: temporal anti-aliasing, measured (and SP-16's foliage verdict)
 
 Builds [ADR 0061](../../adr/0061-temporal-accumulation-no-upscaling.md) in the GPU-driven renderer
-([ADR 0093](../../adr/0093-gpu-driven-core.md)); decisions in [ADR 0096](../../adr/0096-temporal-aa-as-built.md),
+([ADR 0093](../../adr/0093-gpu-driven-core.md)); decisions in [ADR 0097](../../adr/0097-temporal-aa-as-built.md),
 requirements in the [spec](../../specs/temporal-aa/spec.md). SP-16 ([findings](sp-16-visibility-vs-forward.md)) moved
 its last kill criterion here: is ghosting on thin alpha-tested foliage acceptable by eye, or does the renderer need
 forward shading with 4x MSAA and alpha to coverage? Apple M5 Max, Metal, release build, 2026-11-28.

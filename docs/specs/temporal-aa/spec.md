@@ -7,7 +7,7 @@
 ## Summary
 
 The real-time renderer's anti-aliasing ([ADR 0061](../../adr/0061-temporal-accumulation-no-upscaling.md), as built:
-[ADR 0096](../../adr/0096-temporal-aa-as-built.md)): the projection is jittered by a sub-pixel Halton offset each
+[ADR 0097](../../adr/0097-temporal-aa-as-built.md)): the projection is jittered by a sub-pixel Halton offset each
 frame, and each pixel is blended with its history, last frame's result reprojected by the motion vectors, at native
 resolution. It removes the stair steps, crawling foliage and specular sparkle that a visibility buffer without MSAA
 shows, on every machine, at a cost of 0.4 ms at 1080p on the M5 Max.
@@ -91,7 +91,7 @@ None.
 
 ## Links
 
-- ADRs: [0061](../../adr/0061-temporal-accumulation-no-upscaling.md), [0096](../../adr/0096-temporal-aa-as-built.md),
+- ADRs: [0061](../../adr/0061-temporal-accumulation-no-upscaling.md), [0097](../../adr/0097-temporal-aa-as-built.md),
   [0093](../../adr/0093-gpu-driven-core.md), [0085](../../adr/0085-amendments-from-vch-111.md),
   [0082](../../adr/0082-amendments-from-sp-14.md), [0091](../../adr/0091-space-backdrop.md)
 - Backlog: VCH-144, VCH-145

@@ -32,6 +32,7 @@ acceptance criteria (`[area.ACn] ...`) → status Implemented.
 | [Space backdrop](space-backdrop/spec.md) | render, space | Implemented |
 | [Planet atmosphere: aerial perspective from orbit to a cave](planet-atmosphere/spec.md) | render, physics, space | Implemented |
 | [Ambient light and occlusion in the real-time renderer](ambient-light/spec.md) | render | Implemented |
+| [Large-scale sky occlusion in the real-time renderer](sky-occlusion/spec.md) | render | Implemented |
 | [Reference frames and double positions](frames/spec.md) | ecs, render, script | Implemented |
 | [Physics: Jolt behind veach::physics, one scene per frame](physics/spec.md) | physics, runtime | Implemented |
 | [Voxel terrain: streaming, edits and collider meshes](voxel-terrain/spec.md) | voxel, runtime | Implemented |

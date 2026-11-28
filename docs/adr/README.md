@@ -111,3 +111,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0098 | [Terrain materials: six slot weights per vertex from the generator's rules, layers blended per pixel in body space, palettes opt-in](0098-terrain-materials.md) | Accepted |
 | 0099 | [Bloom: threshold-free and screen-relative, between the backdrop and the display; 2 stops of highlight pull](0099-bloom.md) | Accepted |
 | 0100 | [Sun shadow culling: scene residency in one graph group, casters culled by this frame's receivers and by the light's occlusion, far cascades kept while the scene is still](0100-sun-shadow-culling.md) | Accepted |
+| 0101 | [Large-scale sky occlusion from a height map of the scene drawn from above, traced per 8 x 8 pixel cell](0101-large-scale-sky-occlusion.md) | Accepted |

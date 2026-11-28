@@ -1,0 +1,208 @@
+== bistro_noon 1920x1080 after round 1
+total 5.204 frame 3.1282
+shadow 1: casters                        0.809
+visibility                               0.747
+shadow 0: casters                        0.681
+shadow 3: casters                        0.635
+shadow 2: casters                        0.629
+shade                                    0.545
+taa                                      0.240
+ao: trace                                0.181
+sky occlusion: trace                     0.161
+sky view                                 0.025
+sky occlusion: blur                      0.006
+sky passes sum 0.192
+== bistro_noon 1920x1080 before round 1
+total 5.159 frame 2.9791
+shadow 1: casters                        0.839
+visibility                               0.761
+shadow 0: casters                        0.682
+shadow 3: casters                        0.658
+shadow 2: casters                        0.653
+shade                                    0.514
+taa                                      0.241
+ao: trace                                0.193
+sky view                                 0.025
+sky passes sum 0.025
+== bistro_noon 2560x1440 after round 1
+total 6.526 frame 4.3741
+shade                                    0.936
+visibility                               0.869
+shadow 1: casters                        0.846
+shadow 0: casters                        0.774
+shadow 3: casters                        0.628
+shadow 2: casters                        0.624
+taa                                      0.426
+ao: trace                                0.354
+sky occlusion: trace                     0.260
+sky view                                 0.025
+sky occlusion: blur                      0.007
+sky passes sum 0.292
+== bistro_noon 2560x1440 before round 1
+total 6.256 frame 4.0286
+shade                                    0.879
+shadow 1: casters                        0.861
+visibility                               0.859
+shadow 0: casters                        0.762
+shadow 3: casters                        0.649
+shadow 2: casters                        0.644
+taa                                      0.427
+ao: trace                                0.368
+sky view                                 0.024
+sky passes sum 0.024
+== bistro_sunset 1920x1080 after round 1
+total 6.252 frame 4.5446
+shadow 1: casters                        1.259
+shadow 2: casters                        0.927
+shadow 0: casters                        0.841
+visibility                               0.787
+shade                                    0.654
+shadow 3: casters                        0.468
+taa                                      0.247
+ao: trace                                0.184
+sky occlusion: trace                     0.155
+sky view                                 0.025
+sky occlusion: blur                      0.006
+sky passes sum 0.186
+== bistro_sunset 1920x1080 before round 1
+total 6.136 frame 4.3557
+shadow 1: casters                        1.264
+shadow 2: casters                        0.940
+shadow 0: casters                        0.843
+visibility                               0.791
+shade                                    0.621
+shadow 3: casters                        0.469
+taa                                      0.244
+ao: trace                                0.180
+sky view                                 0.025
+sky passes sum 0.025
+== bistro_sunset 2560x1440 after round 1
+total 7.684 frame 5.8525
+shadow 1: casters                        1.292
+shade                                    1.140
+shadow 2: casters                        0.941
+shadow 0: casters                        0.935
+visibility                               0.887
+shadow 3: casters                        0.474
+taa                                      0.429
+ao: trace                                0.350
+sky occlusion: trace                     0.253
+sky view                                 0.025
+sky occlusion: blur                      0.007
+sky passes sum 0.284
+== bistro_sunset 2560x1440 before round 1
+total 7.419 frame 5.5869
+shadow 1: casters                        1.278
+shade                                    1.078
+shadow 2: casters                        0.944
+shadow 0: casters                        0.939
+visibility                               0.885
+shadow 3: casters                        0.472
+taa                                      0.439
+ao: trace                                0.358
+sky view                                 0.025
+sky passes sum 0.025
+== bistro_noon 1920x1080 after round 2
+total 5.229 frame 3.116
+shadow 1: casters                        0.812
+visibility                               0.743
+shadow 0: casters                        0.660
+shadow 3: casters                        0.634
+shadow 2: casters                        0.629
+shade                                    0.545
+taa                                      0.239
+ao: trace                                0.182
+sky occlusion: trace                     0.160
+sky view                                 0.025
+sky occlusion: blur                      0.006
+sky passes sum 0.191
+== bistro_noon 1920x1080 before round 2
+total 5.105 frame 2.9886
+shadow 1: casters                        0.840
+visibility                               0.752
+shadow 0: casters                        0.682
+shadow 3: casters                        0.653
+shadow 2: casters                        0.647
+shade                                    0.512
+taa                                      0.240
+ao: trace                                0.188
+sky view                                 0.025
+sky passes sum 0.025
+== bistro_noon 2560x1440 after round 2
+total 6.728 frame 4.3907
+shade                                    0.936
+shadow 1: casters                        0.885
+visibility                               0.872
+shadow 0: casters                        0.776
+shadow 3: casters                        0.695
+shadow 2: casters                        0.693
+taa                                      0.423
+ao: trace                                0.350
+sky occlusion: trace                     0.259
+sky view                                 0.025
+sky occlusion: blur                      0.007
+sky passes sum 0.29
+== bistro_noon 2560x1440 before round 2
+total 6.498 frame 4.0449
+shadow 1: casters                        0.894
+shade                                    0.880
+visibility                               0.862
+shadow 0: casters                        0.780
+shadow 3: casters                        0.701
+shadow 2: casters                        0.696
+taa                                      0.425
+ao: trace                                0.374
+sky view                                 0.025
+sky passes sum 0.025
+== bistro_sunset 1920x1080 after round 2
+total 6.479 frame 4.5965
+shadow 1: casters                        1.319
+shadow 2: casters                        0.950
+shadow 0: casters                        0.847
+visibility                               0.793
+shade                                    0.654
+shadow 3: casters                        0.477
+taa                                      0.246
+ao: trace                                0.181
+sky occlusion: trace                     0.154
+sky view                                 0.025
+sky occlusion: blur                      0.006
+sky passes sum 0.185
+== bistro_sunset 1920x1080 before round 2
+total 6.208 frame 4.4033
+shadow 1: casters                        1.299
+shadow 2: casters                        0.953
+shadow 0: casters                        0.855
+visibility                               0.793
+shade                                    0.621
+shadow 3: casters                        0.477
+taa                                      0.246
+ao: trace                                0.186
+sky view                                 0.024
+sky passes sum 0.024
+== bistro_sunset 2560x1440 after round 2
+total 7.83 frame 5.9518
+shadow 1: casters                        1.338
+shade                                    1.140
+shadow 2: casters                        0.969
+shadow 0: casters                        0.938
+visibility                               0.897
+shadow 3: casters                        0.507
+taa                                      0.432
+ao: trace                                0.356
+sky occlusion: trace                     0.255
+sky view                                 0.025
+sky occlusion: blur                      0.007
+sky passes sum 0.288
+== bistro_sunset 2560x1440 before round 2
+total 7.88 frame 5.7378
+shadow 1: casters                        1.463
+shade                                    1.087
+shadow 2: casters                        1.057
+shadow 0: casters                        0.974
+visibility                               0.909
+shadow 3: casters                        0.549
+taa                                      0.443
+ao: trace                                0.354
+sky view                                 0.025
+sky passes sum 0.025

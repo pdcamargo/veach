@@ -258,10 +258,12 @@ C++ components tagged `veach::Scriptable` (all fields Luau-representable). The e
   surfaces nearer than `reach` get the sky's light times `visibility` (no aerial-perspective haze in a cave or a
   cabin, less ambient light), rising to all of it at twice the reach. Without it the camera is in the open; set it
   to `{ visibility = 0, reach = 10 }` inside an interior. See [planet-atmosphere](../specs/planet-atmosphere/spec.md).
-- `AmbientOcclusion` (`enabled`, `radius` m, `intensity`): on a camera, the real-time renderer's screen-space ambient
-  occlusion, which darkens the sky's ambient light in creases, under overhangs and against walls (never direct
-  light). On without it (1.5 m, intensity 1); `intensity` 0 or `enabled = false` turns it off. See
-  [ambient-light](../specs/ambient-light/spec.md).
+- `AmbientOcclusion` (`enabled`, `radius` m, `intensity`, `sky_distance` m): on a camera, the real-time renderer's
+  screen-space ambient occlusion, which darkens the sky's ambient light in creases, under overhangs and against walls
+  (never direct light), and the large-scale sky occlusion, which takes out the sky the scene hides (a street's
+  buildings, a cave's ceiling) out to `sky_distance` from the camera. On without it (1.5 m, intensity 1, 200 m);
+  `intensity` 0 turns the first off, `sky_distance` 0 the second, `enabled = false` both. See
+  [ambient-light](../specs/ambient-light/spec.md) and [sky-occlusion](../specs/sky-occlusion/spec.md).
 - `Bloom` (`intensity`, `radius`): on a camera, the real-time renderer's bloom, the glare that makes a cave's
   opening, the sun's disk and glints read as light. `intensity` is the share of each pixel's light spread around it
   (0.04; 0 turns it off), `radius` the widest blur as a fraction of the image height (0.12), the same at every

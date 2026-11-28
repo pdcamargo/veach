@@ -21,6 +21,16 @@ inline Result<> validate_graphics_pipeline_desc(const GraphicsPipelineDesc& desc
             "Set depth_format to the depth attachment's format (depth32_float) and give the render "
             "pass that attachment (PassBuilder::depth_target).");
     }
+    if (desc.sample_count != 1 && desc.sample_count != 2 && desc.sample_count != 4 && desc.sample_count != 8) {
+        return make_error(ErrorCode::rhi_invalid_pipeline,
+                          std::format("graphics pipeline '{}': sample_count {}", desc.debug_name, desc.sample_count),
+                          "A pipeline draws into 1, 2, 4 or 8 samples, as many as its attachments have.");
+    }
+    if (desc.alpha_to_coverage && desc.sample_count == 1) {
+        return make_error(ErrorCode::rhi_invalid_pipeline,
+                          std::format("graphics pipeline '{}': alpha to coverage with one sample", desc.debug_name),
+                          "Alpha to coverage needs multisampled attachments (sample_count 2, 4 or 8).");
+    }
     return {};
 }
 

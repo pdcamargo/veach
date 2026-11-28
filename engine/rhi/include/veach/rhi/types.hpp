@@ -161,6 +161,10 @@ struct TextureDesc {
     TextureUsage usage = TextureUsage::sampled;
     std::string debug_name;
     std::uint32_t mip_levels = 1;
+    /// Spike SP-16 (VCH-092), Metal only: 2, 4 or 8 makes a multisampled attachment that lives in tile memory
+    /// (memoryless): usable only as a color or depth target, never loaded or stored, only resolved
+    /// (ColorAttachment::resolve, DepthAttachment::resolve). DX12 rejects it (rhi.not_implemented).
+    std::uint32_t sample_count = 1;
 };
 
 enum class Filter : std::uint8_t { nearest, linear };
@@ -189,6 +193,10 @@ struct GraphicsPipelineDesc {
     CompareOp depth_compare = CompareOp::greater_equal;  ///< with depth_test; reverse-Z: nearer wins
     CullMode cull = CullMode::none;
     std::string debug_name;
+    /// Spike SP-16 (VCH-092), Metal only: the attachments' sample count (TextureDesc::sample_count).
+    std::uint32_t sample_count = 1;
+    /// Spike SP-16: color 0's alpha becomes the fragment's coverage mask (needs sample_count > 1).
+    bool alpha_to_coverage = false;
 };
 
 struct ComputePipelineDesc {
@@ -244,12 +252,18 @@ struct ColorAttachment {
     /// Integer formats (is_integer) clear to this instead, exactly on every backend. DX12 clears through floats:
     /// values up to 2^24 and 0xFFFFFFFF (which saturates) are exact, others are rounded (and logged).
     std::array<std::uint32_t, 4> clear_uint{};
+    /// Spike SP-16: with a multisampled `texture`, the single-sampled texture its samples are averaged into at the
+    /// end of the pass (on tile). Invalid: the samples are discarded.
+    TextureHandle resolve;
 };
 
 struct DepthAttachment {
     TextureHandle texture;  ///< invalid: the pass has no depth attachment
     LoadOp load = LoadOp::clear;
     float clear_depth = 0.0f;  ///< reverse-Z (conventions.md): 0 is the far plane
+    /// Spike SP-16: with a multisampled `texture`, the single-sampled depth texture that receives each pixel's
+    /// farthest sample (the minimum, reverse-Z) at the end of the pass. Invalid: the samples are discarded.
+    TextureHandle resolve;
 };
 
 struct RenderPassDesc {

@@ -114,6 +114,12 @@ desc.cull = rhi::CullMode::back;                    // front faces wind counter-
 - Integer formats (`rg32_uint`, `r32_uint`) are read with `Load` (never filtered) and cleared with
   `color_target_uint`. Metal clears them exactly; DX12 clears through floats, so integer clear values must be at
   most 2^24 or exactly `0xFFFFFFFF` (anything else is logged as an error).
+- **MSAA, Metal only (spike SP-16).** A texture with `sample_count` 2, 4 or 8 lives in tile memory: usable only as a
+  color or depth target of one pass, never loaded, stored, sampled or copied. `PassBuilder::resolve(ms, target)`
+  averages its samples into a single-sampled `target` at the end of the pass (depth: the farthest sample). Pipelines
+  set the same `sample_count`, and `alpha_to_coverage` for foliage. DX12 rejects it (`rhi.not_implemented`); the
+  real-time renderer does not use it ([ADR 0060](../adr/0060-gpu-driven-visibility-buffer.md),
+  [SP-16](../research/spikes/sp-16-visibility-vs-forward.md)).
 
 ## Indirect draws and dispatches
 

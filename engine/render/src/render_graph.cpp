@@ -20,12 +20,12 @@ void PassBuilder::write(GraphResource resource, rhi::ResourceState state) {
 }
 
 void PassBuilder::color_target(GraphResource resource, rhi::LoadOp load, std::array<float, 4> clear_color) {
-    graph_.add_color_target(pass_, resource, {{}, load, clear_color, {}});
+    graph_.add_color_target(pass_, resource, {{}, load, clear_color, {}, {}});
 }
 
 void PassBuilder::color_target_uint(GraphResource resource, rhi::LoadOp load,
                                     std::array<std::uint32_t, 4> clear_value) {
-    graph_.add_color_target(pass_, resource, {{}, load, {}, clear_value});
+    graph_.add_color_target(pass_, resource, {{}, load, {}, clear_value, {}});
 }
 
 void PassBuilder::depth_target(GraphResource resource, rhi::LoadOp load, float clear_depth) {
@@ -35,9 +35,27 @@ void PassBuilder::depth_target(GraphResource resource, rhi::LoadOp load, float c
             std::format("pass '{}': depth_target() needs a graphics pass with no other depth target", pass.name));
         return;
     }
-    pass.depth = {{}, load, clear_depth};
+    pass.depth = {{}, load, clear_depth, {}};
     pass.depth_resource = resource;
     pass.accesses.push_back({resource, rhi::ResourceState::depth_write});
+}
+
+void PassBuilder::resolve(GraphResource multisampled, GraphResource target) {
+    auto& pass = graph_.passes_.at(pass_);
+    if (pass.depth_resource.id == multisampled.id && multisampled.is_valid()) {
+        pass.depth_resolve_resource = target;
+        pass.accesses.push_back({target, rhi::ResourceState::depth_write});
+        return;
+    }
+    for (std::uint32_t c = 0; c < pass.color_count; ++c) {
+        if (pass.color_resources.at(c).id == multisampled.id) {
+            pass.resolve_resources.at(c) = target;
+            pass.accesses.push_back({target, rhi::ResourceState::color_target});
+            return;
+        }
+    }
+    graph_.errors_.push_back(
+        std::format("pass '{}': resolve() names a resource that is not one of its targets", pass.name));
 }
 
 void PassBuilder::side_effect() {
@@ -73,7 +91,8 @@ TransientPool::~TransientPool() {
 Result<rhi::TextureHandle> TransientPool::acquire(const rhi::TextureDesc& desc) {
     for (Entry& e : entries_) {
         if (!e.in_use && e.desc.width == desc.width && e.desc.height == desc.height && e.desc.format == desc.format &&
-            e.desc.usage == desc.usage) {
+            e.desc.usage == desc.usage && e.desc.mip_levels == desc.mip_levels &&
+            e.desc.sample_count == desc.sample_count) {
             e.in_use = true;
             return e.texture;
         }
@@ -136,7 +155,7 @@ GraphResource RenderGraph::create_texture(const rhi::TextureDesc& desc) {
 }
 
 void RenderGraph::add_pass(std::string name, PassKind kind, const Setup& setup, Execute execute) {
-    passes_.push_back({std::move(name), kind, {}, {}, {}, 0, {}, {}, false, std::move(execute), {}});
+    passes_.push_back({std::move(name), kind, {}, {}, {}, {}, 0, {}, {}, {}, false, std::move(execute), {}});
     PassBuilder builder(*this, static_cast<std::uint32_t>(passes_.size() - 1));
     setup(builder);
     compiled_ = false;
@@ -348,10 +367,17 @@ Result<> RenderGraph::compile() {
         for (std::uint32_t c = 0; c < pass.color_count; ++c) {
             pass.colors.at(c).texture = {resources_[pass.color_resources.at(c).id].ref.index,
                                          resources_[pass.color_resources.at(c).id].ref.generation};
+            if (const GraphResource r = pass.resolve_resources.at(c); r.is_valid()) {
+                pass.colors.at(c).resolve = {resources_[r.id].ref.index, resources_[r.id].ref.generation};
+            }
         }
         if (pass.depth_resource.is_valid()) {
             const rhi::ResourceRef& ref = resources_[pass.depth_resource.id].ref;
             pass.depth.texture = {ref.index, ref.generation};
+            if (pass.depth_resolve_resource.is_valid()) {
+                const rhi::ResourceRef& r = resources_[pass.depth_resolve_resource.id].ref;
+                pass.depth.resolve = {r.index, r.generation};
+            }
         }
     }
     final_barriers_.clear();

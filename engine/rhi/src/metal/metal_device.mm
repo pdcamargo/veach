@@ -392,6 +392,13 @@ public:
         d.mipmapLevelCount = levels;
         d.storageMode = MTLStorageModePrivate;
         d.hazardTrackingMode = MTLHazardTrackingModeTracked;
+        const bool memoryless = desc.sample_count > 1;  // spike SP-16: MSAA attachments stay in tile memory
+        if (memoryless) {
+            d.textureType = MTLTextureType2DMultisample;
+            d.sampleCount = desc.sample_count;
+            d.storageMode = MTLStorageModeMemoryless;
+            d.hazardTrackingMode = MTLHazardTrackingModeUntracked;
+        }
         MTLTextureUsage usage = 0;
         if (has(desc.usage, TextureUsage::sampled)) {
             usage |= MTLTextureUsageShaderRead;
@@ -420,7 +427,9 @@ public:
             }
             uploaded = upload(texture, desc, mips);
         }
-        make_resident(texture);
+        if (!memoryless) {
+            make_resident(texture);
+        }
         return textures_.insert({texture, desc, false, false, uploaded});
     }
 
@@ -533,6 +542,8 @@ public:
         if (desc.depth_format != Format::undefined) {
             d.depthAttachmentPixelFormat = to_mtl(desc.depth_format);
         }
+        d.rasterSampleCount = desc.sample_count;
+        d.alphaToCoverageEnabled = desc.alpha_to_coverage;
         if (!desc.debug_name.empty()) {
             d.label = ns(desc.debug_name);
         }
@@ -1025,6 +1036,15 @@ void MetalCommandList::begin_render_pass(const RenderPassDesc& desc) {
         d.colorAttachments[i].texture = t->texture;
         d.colorAttachments[i].loadAction = to_mtl(c.load);
         d.colorAttachments[i].storeAction = MTLStoreActionStore;
+        if (t->desc.sample_count > 1) {  // spike SP-16: memoryless samples, resolved on tile or dropped
+            VEACH_ASSERT(c.load != LoadOp::load, "render pass '{}': a multisampled attachment cannot be loaded",
+                         desc.debug_name);
+            d.colorAttachments[i].storeAction = MTLStoreActionDontCare;
+            if (MetalTexture* r = device_.texture(c.resolve)) {
+                d.colorAttachments[i].resolveTexture = r->texture;
+                d.colorAttachments[i].storeAction = MTLStoreActionMultisampleResolve;
+            }
+        }
         // Integer targets take the clear value as integers; doubles hold every 32-bit value exactly.
         d.colorAttachments[i].clearColor =
             is_integer(t->desc.format)
@@ -1038,6 +1058,16 @@ void MetalCommandList::begin_render_pass(const RenderPassDesc& desc) {
         d.depthAttachment.loadAction = to_mtl(desc.depth.load);
         d.depthAttachment.storeAction = MTLStoreActionStore;
         d.depthAttachment.clearDepth = desc.depth.clear_depth;
+        if (t->desc.sample_count > 1) {
+            VEACH_ASSERT(desc.depth.load != LoadOp::load,
+                         "render pass '{}': a multisampled depth attachment cannot be loaded", desc.debug_name);
+            d.depthAttachment.storeAction = MTLStoreActionDontCare;
+            if (MetalTexture* r = device_.texture(desc.depth.resolve)) {
+                d.depthAttachment.resolveTexture = r->texture;
+                d.depthAttachment.storeAction = MTLStoreActionMultisampleResolve;
+                d.depthAttachment.depthResolveFilter = MTLMultisampleDepthResolveFilterMin;  // reverse-Z: farthest
+            }
+        }
     }
     if (const Samples samples = next_samples(); samples.buffer) {
         d.sampleBufferAttachments[0].sampleBuffer = samples.buffer;

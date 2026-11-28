@@ -721,6 +721,12 @@ public:
         if (auto valid = validate_texture_desc(desc); !valid) {
             return std::unexpected(valid.error());
         }
+        if (desc.sample_count > 1) {
+            return make_error(ErrorCode::rhi_not_implemented,
+                              std::format("'{}': multisampled textures are Metal-only", desc.debug_name),
+                              "MSAA exists for spike SP-16 (docs/research/spikes/sp-16-visibility-vs-forward.md) on "
+                              "Metal; use sample_count 1 on DX12.");
+        }
         const std::uint32_t levels = std::max(1u, desc.mip_levels);
         if (!mips.empty() && mips.size() != levels) {
             return make_error(ErrorCode::internal, std::format("create_texture '{}': {} mip levels, data for {}",
@@ -837,6 +843,11 @@ public:
     [[nodiscard]] Result<PipelineHandle> create_graphics_pipeline(const GraphicsPipelineDesc& desc) override {
         if (auto valid = validate_graphics_pipeline_desc(desc); !valid) {
             return std::unexpected(valid.error());
+        }
+        if (desc.sample_count > 1) {
+            return make_error(ErrorCode::rhi_not_implemented,
+                              std::format("graphics pipeline '{}': multisampling is Metal-only", desc.debug_name),
+                              "MSAA exists for spike SP-16 on Metal; use sample_count 1 on DX12.");
         }
         auto vs = dxil(desc.library, desc.vertex_entry);
         if (!vs) {

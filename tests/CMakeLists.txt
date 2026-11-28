@@ -25,6 +25,7 @@ add_executable(veach-tests
     sky_tests.cpp
     sp10_atmosphere_tests.cpp  # spike SP-10 (VCH-086)
     sp14_depth_tests.cpp  # spike SP-14 (VCH-090)
+    sp16_msaa_tests.cpp  # spike SP-16 (VCH-092): MSAA in tile memory, Metal only
     space_gen_tests.cpp
     space_realization_tests.cpp  # VCH-115: the realization layer
     slice_tests.cpp  # VCH-115: the first slice, end to end (links the slice app's module)
@@ -42,6 +43,7 @@ veach_add_shader(veach-tests shaders/raster_states.slang ENTRIES vs_main:vertex 
 veach_add_shader(veach-tests shaders/atmosphere_probe.slang ENTRIES transmittance_probe:compute)
 veach_add_shader(veach-tests shaders/indirect_cull.slang ENTRIES cull:compute write_args:compute count_threads:compute)
 veach_add_shader(veach-tests shaders/indirect_draw.slang ENTRIES vs_main:vertex fs_main:fragment)
+veach_add_shader(veach-tests shaders/msaa_triangle.slang ENTRIES vs_main:vertex fs_main:fragment)
 veach_shader_library(veach-tests NAMESPACE test_shaders)
 target_compile_definitions(veach-tests PRIVATE VEACH_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 target_include_directories(veach-tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

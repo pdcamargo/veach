@@ -1,4 +1,5 @@
-// The atmosphere's lookup tables (ADR 0038), after Hillaire 2020. One compute entry per table; all read this frame's
+// The atmosphere's lookup tables (ADR 0038, 0063), after Hillaire 2020. The aerial-perspective volume is
+// aerial_volume.slang. One compute entry per table; all read this frame's
 // SkyFrame (veach/atmosphere.slang). Mirrors render::AtmosphereLutParams.
 
 import veach.atmosphere;
@@ -14,7 +15,7 @@ struct AtmosphereLutParams {
 float3 sun_transmittance(SkyFrame s, float3 p) {
     const float r = length(p);
     const float mu = dot(p / r, s.sun.xyz);
-    if (ray_sphere(p, s.sun.xyz, s.atmosphere.planet.x) > 0.0) {
+    if (sphere_blocks(p, s.sun.xyz, s.atmosphere.planet.x)) {
         return float3(0.0, 0.0, 0.0);  // the planet's shadow
     }
     return sample_transmittance(s, r, mu);
@@ -67,8 +68,9 @@ void multiscattering_lut(uint3 id: SV_DispatchThreadID) {
             const float phi = 2.0 * atmosphere_pi * (float(j) + 0.5) / float(directions);
             const float sin_theta = sqrt(max(1.0 - cos_theta * cos_theta, 0.0));
             const float3 direction = float3(sin_theta * cos(phi), cos_theta, sin_theta * sin(phi));
-            const float ground = ray_sphere(origin, direction, s.atmosphere.planet.x);
-            const float top = ray_sphere(origin, direction, s.atmosphere.planet.y);
+            const float r = s.atmosphere.planet.x + height;
+            const float ground = ray_sphere_at(origin, direction, r, s.atmosphere.planet.x);
+            const float top = ray_sphere_at(origin, direction, r, s.atmosphere.planet.y);
             const float length_km = ground > 0.0 ? ground : top;
             const uint steps = 20;
             const float dt = max(length_km, 0.0) / float(steps);
@@ -103,8 +105,9 @@ void multiscattering_lut(uint3 id: SV_DispatchThreadID) {
 /// In-scattered luminance (per lux) and transmittance along a ray from `origin`, up to `max_km`.
 void integrate_scattering(SkyFrame s, float3 origin, float3 direction, float max_km, uint steps, out float3 luminance,
                           out float3 transmittance) {
-    const float ground = ray_sphere(origin, direction, s.atmosphere.planet.x);
-    const float top = ray_sphere(origin, direction, s.atmosphere.planet.y);
+    const float r = s.atmosphere.planet.x + max(s.camera.x, 0.001);  // origin is camera_origin(s)
+    const float ground = ray_sphere_at(origin, direction, r, s.atmosphere.planet.x);
+    const float top = ray_sphere_at(origin, direction, r, s.atmosphere.planet.y);
     float length_km = ground > 0.0 ? ground : top;
     length_km = min(max(length_km, 0.0), max_km);
     const float dt = length_km / float(steps);
@@ -138,39 +141,13 @@ void sky_view_lut(uint3 id: SV_DispatchThreadID) {
     const float2 uv = (float2(id.xy) + 0.5) / float2(lut_params.size);
     float3 luminance;
     float3 transmittance;
-    if (s.planet != 0) {  // spike SP-10: every sun, the ground, around the planet's own up
+    if (s.planet != 0) {  // every sun, the ground, around the planet's own up
         planet_march(s, s.origin.xyz, max(s.origin.w, 0.0), planet_sky_view_direction(s, uv), 1e9, s.march_steps, true,
                      luminance, transmittance);
     } else {
         integrate_scattering(s, camera_origin(s), sky_view_direction(s, uv), 1e9, 30, luminance, transmittance);
     }
     lut_params.output[id.xy] = float4(luminance, 1.0);
-}
-
-/// 32 depth slices of 32 x 32 screen cells, side by side (1024 x 32): in-scattering per lux and mean transmittance.
-[shader("compute")]
-[numthreads(8, 8, 1)]
-void aerial_lut(uint3 id: SV_DispatchThreadID) {
-    if (any(id.xy >= lut_params.size)) {
-        return;
-    }
-    const SkyFrame s = lut_params.sky[0];
-    const uint slice = id.x / 32;
-    const float2 uv = (float2(id.x % 32, id.y) + 0.5) / 32.0;
-    const float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
-    const float4 near = mul(s.inverse_view_projection, float4(ndc, 1.0, 1.0));  // reverse-Z
-    const float4 mid = mul(s.inverse_view_projection, float4(ndc, 0.5, 1.0));
-    const float3 direction = normalize(mid.xyz / mid.w - near.xyz / near.w);
-    const float t = (float(slice) + 0.5) / float(aerial_slices);
-    const float depth_km = aerial_depth_km * t * t;
-    float3 luminance;
-    float3 transmittance;
-    if (s.planet != 0) {  // spike SP-10
-        planet_march(s, s.origin.xyz, max(s.origin.w, 0.0), direction, depth_km, 8, false, luminance, transmittance);
-    } else {
-        integrate_scattering(s, camera_origin(s), direction, depth_km, 8, luminance, transmittance);
-    }
-    lut_params.output[id.xy] = float4(luminance, dot(transmittance, float3(1.0, 1.0, 1.0)) / 3.0);
 }
 
 /// The sky's cosine-weighted average over the upper hemisphere, for an upward normal (the real-time renderer's ambient light).
@@ -188,12 +165,12 @@ void sky_irradiance(uint3 id: SV_DispatchThreadID) {
             const float phi = 2.0 * atmosphere_pi * (float(j) + 0.5) / float(n);
             const float r = sqrt(u);
             const float3 direction = float3(r * cos(phi), sqrt(1.0 - u), r * sin(phi));
-            if (s.planet != 0) {  // spike SP-10: the hemisphere around the planet's up
+            if (s.planet != 0) {  // the hemisphere around the planet's up
                 const float3 world =
                     s.frame_x.xyz * direction.x + planet_up(s) * direction.y + planet_frame_z(s) * direction.z;
-                sum += s.sky_view.SampleLevel(s.linear_clamp, planet_sky_view_uv(s, world), 0.0).rgb;
+                sum += sample_sky_view(s, planet_sky_view_uv(s, world));
             } else {
-                sum += s.sky_view.SampleLevel(s.linear_clamp, sky_view_uv(s, direction), 0.0).rgb;
+                sum += sample_sky_view(s, sky_view_uv(s, direction));
             }
             weight += 1.0;
         }

@@ -72,7 +72,10 @@ u.local_sun(home.index, body_fixed_position, u.tick());
 Every body frame is written in PostSimulation for the end of the step from the tick (ADR 0085): positions and
 velocities from the orbit tree, orientations from the exact spin phase. The gravity hook answers every query in a
 body's two frames with that body's pull. Home and its moons get a terrain body; the renderer gets the nearest
-atmosphere, the sun at its physical illuminance and the system's space backdrop.
+atmosphere, the sun at its physical illuminance (dimmed by its visible fraction behind a moon), the four bodies of
+largest angular size as eclipsing occluders, and the system's space backdrop. A game sets its camera's
+`SkyVisibility` (the slice measures it with `physics::sky_visibility` against its surface scene) so caves and dug
+holes get no haze ([ADR 0092](../adr/0092-aerial-perspective-follows-the-air.md)).
 
 ## The sky beyond the bodies
 

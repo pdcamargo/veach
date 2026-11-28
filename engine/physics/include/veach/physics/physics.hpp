@@ -260,6 +260,18 @@ struct RayHit {
     BodyId body{};
 };
 
+/// What a ray cast sees.
+enum class RayFilter : std::uint8_t {
+    all,          ///< every body and collider
+    static_only,  ///< static bodies and terrain colliders: what stays put (not craft, props or characters)
+};
+
+/// How open a point is to the sky (sky_visibility).
+struct SkyOpenness {
+    float visibility = 1.0f;  ///< 0..1: the cosine-weighted fraction of the sky the static world leaves open
+    float reach = 0.0f;       ///< meters: how far the blocking surroundings extend (0 when nothing blocks)
+};
+
 // ---- Terrain colliders ---------------------------------------------------------------------------------------
 
 /// A chunk of a body-local octree (voxel's ChunkKey, field for field and in the same order): the install order.
@@ -414,8 +426,8 @@ public:
 
     // Queries and events.
     /// The first hit along `direction` (its length is the ray's) from `from`, scene coordinates.
-    [[nodiscard]] std::optional<RayHit> cast_ray(SceneId scene, const math::dvec3& from,
-                                                 const math::vec3& direction) const;
+    [[nodiscard]] std::optional<RayHit> cast_ray(SceneId scene, const math::dvec3& from, const math::vec3& direction,
+                                                 RayFilter filter = RayFilter::all) const;
     /// The last step's contact events, sorted.
     [[nodiscard]] std::span<const Contact> contacts() const;
 
@@ -424,5 +436,12 @@ public:
 private:
     std::unique_ptr<Impl> impl_;
 };
+
+/// How open `from` (scene coordinates) is to the sky around `up` (unit), for the renderer's occluded aerial
+/// perspective and ambient light (ADR 0082 rule 5, ADR 0091; render::SkyVisibility): `rays` fixed cosine-weighted
+/// directions over the upper hemisphere, each cast `max_distance` meters against static bodies and terrain colliders.
+/// The reach is where three quarters of the blocked rays have hit. Visual only: never feed it to the simulation.
+[[nodiscard]] SkyOpenness sky_visibility(const PhysicsWorld& physics, SceneId scene, const math::dvec3& from,
+                                         const math::vec3& up, float max_distance = 64.0f, std::uint32_t rays = 32);
 
 }  // namespace veach::physics

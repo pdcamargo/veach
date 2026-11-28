@@ -40,7 +40,8 @@ veach_add_shader(veach_render shaders/hiz.slang ENTRIES hiz_reduce:compute)
 veach_add_shader(veach_render shaders/classify.slang ENTRIES classify:compute classify_args:compute
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
 veach_add_shader(veach_render shaders/atmosphere.slang ENTRIES transmittance_lut:compute multiscattering_lut:compute
-    sky_view_lut:compute aerial_lut:compute sky_irradiance:compute)
+    sky_view_lut:compute sky_irradiance:compute)
+veach_add_shader(veach_render shaders/aerial_volume.slang ENTRIES aerial_volume:compute)
 # The space backdrop's bake and its composite on the real-time image (ADR 0091, backdrop.cpp).
 veach_add_shader(veach_render shaders/backdrop.slang ENTRIES backdrop_bake:compute)
 veach_add_shader(veach_render shaders/backdrop_composite.slang ENTRIES backdrop_composite:compute)

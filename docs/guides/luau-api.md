@@ -250,6 +250,10 @@ C++ components tagged `veach::Scriptable` (all fields Luau-representable). The e
   [ADR 0036](../adr/0036-lights-in-photometric-units.md).
 - `PhotoMode` (`samples_per_frame`, `max_bounces`): on a camera, renders its view with the reference path tracer,
   accumulating while nothing changes; see [photo-mode](../specs/photo-mode/spec.md). It needs hardware ray tracing.
+- `SkyVisibility` (`visibility` 0..1, `reach` m): on a camera, how open its surroundings are to the sky. Air and
+  surfaces nearer than `reach` get the sky's light times `visibility` (no aerial-perspective haze in a cave or a
+  cabin, less ambient light), rising to all of it at twice the reach. Without it the camera is in the open; set it
+  to `{ visibility = 0, reach = 10 }` inside an interior. See [planet-atmosphere](../specs/planet-atmosphere/spec.md).
 - `Sky` (on any one entity; none means the defaults): `mode` `"physical"` (default), `"constant"` (`color` in nits)
   or `"none"`; the physical sky's `time_of_day` (hours, solar time), `latitude` (degrees), `day_of_year`, `north`
   (radians: north is -Z turned about +Y), `sun_illuminance` (lux at the top of the atmosphere), `ground_albedo`,

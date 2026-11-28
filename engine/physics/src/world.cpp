@@ -1035,12 +1035,26 @@ std::vector<ColliderInfo> PhysicsWorld::colliders(SceneId scene) const {
 
 // -- Queries --
 
-std::optional<RayHit> PhysicsWorld::cast_ray(SceneId scene, const math::dvec3& from,
-                                             const math::vec3& direction) const {
+namespace {
+
+/// Static bodies only (terrain colliders are static).
+class StaticBodies final : public JPH::BodyFilter {
+public:
+    [[nodiscard]] bool ShouldCollideLocked(const JPH::Body& body) const override { return body.IsStatic(); }
+};
+
+}  // namespace
+
+std::optional<RayHit> PhysicsWorld::cast_ray(SceneId scene, const math::dvec3& from, const math::vec3& direction,
+                                             RayFilter filter) const {
     const Scene& s = impl_->scene(scene);
     const JPH::RRayCast ray(rvec(from), fvec(direction));
     JPH::RayCastResult hit;
-    if (!s.system->GetNarrowPhaseQuery().CastRay(ray, hit)) {
+    const StaticBodies static_bodies;
+    const JPH::BodyFilter everything;
+    const JPH::BodyFilter& bodies =
+        filter == RayFilter::static_only ? static_cast<const JPH::BodyFilter&>(static_bodies) : everything;
+    if (!s.system->GetNarrowPhaseQuery().CastRay(ray, hit, {}, {}, bodies)) {
         return std::nullopt;
     }
     const auto it = s.ids.find(hit.mBodyID.GetIndexAndSequenceNumber());
@@ -1049,6 +1063,34 @@ std::optional<RayHit> PhysicsWorld::cast_ray(SceneId scene, const math::dvec3& f
 
 std::span<const Contact> PhysicsWorld::contacts() const {
     return impl_->contacts;
+}
+
+SkyOpenness sky_visibility(const PhysicsWorld& physics, SceneId scene, const math::dvec3& from, const math::vec3& up,
+                           float max_distance, std::uint32_t rays) {
+    rays = std::max<std::uint32_t>(rays, 1);
+    const math::vec3 n = math::normalize(up);
+    const math::vec3 x = math::normalize(std::abs(n.x) < 0.9f ? math::cross(n, math::vec3(1.0f, 0.0f, 0.0f))
+                                                              : math::cross(n, math::vec3(0.0f, 0.0f, 1.0f)));
+    const math::vec3 z = math::cross(x, n);
+    std::vector<float> hits;
+    hits.reserve(rays);
+    for (std::uint32_t i = 0; i < rays; ++i) {
+        // A Fibonacci spiral on the unit disk, lifted onto the hemisphere: cosine-weighted directions.
+        const float u = (static_cast<float>(i) + 0.5f) / static_cast<float>(rays);
+        const float radius = std::sqrt(u);
+        const float phi = static_cast<float>(i) * 2.39996323f;  // the golden angle
+        const math::vec3 d = x * (radius * std::cos(phi)) + z * (radius * std::sin(phi)) + n * std::sqrt(1.0f - u);
+        if (const auto hit = physics.cast_ray(scene, from, d * max_distance, RayFilter::static_only)) {
+            hits.push_back(static_cast<float>(hit->fraction) * max_distance);
+        }
+    }
+    SkyOpenness out;
+    out.visibility = 1.0f - static_cast<float>(hits.size()) / static_cast<float>(rays);
+    if (!hits.empty()) {
+        std::ranges::sort(hits);
+        out.reach = hits[(hits.size() * 3) / 4];  // 3n/4 < n
+    }
+    return out;
 }
 
 }  // namespace veach::physics

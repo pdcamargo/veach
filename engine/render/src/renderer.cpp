@@ -299,6 +299,9 @@ Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device), readba
             if (const PhotoMode* photo = world.entity(id).try_get<PhotoMode>()) {
                 view.photo_mode = *photo;
             }
+            if (const SkyVisibility* sky = world.entity(id).try_get<SkyVisibility>()) {
+                view.sky_visibility = *sky;
+            }
             view.camera = id;
             out.views.push_back(view);
         }
@@ -684,6 +687,10 @@ RenderModule::RenderModule(World& world) {
     world.component<PhotoMode>()
         .member(&PhotoMode::samples_per_frame, "samples_per_frame")
         .member(&PhotoMode::max_bounces, "max_bounces")
+        .add<Scriptable>();
+    world.component<SkyVisibility>()
+        .member(&SkyVisibility::visibility, "visibility")
+        .member(&SkyVisibility::reach, "reach")
         .add<Scriptable>();
     world.observer<const SceneInstance>("SpawnSceneInstances")
         .event(flecs::OnSet)

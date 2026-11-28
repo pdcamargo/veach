@@ -103,4 +103,14 @@ struct PhotoMode {
     std::uint32_t max_bounces = 8;
 };
 
+/// On a camera entity: how open its surroundings are to the sky (ADR 0082 rule 5, ADR 0091). Air and surfaces nearer
+/// than `reach` receive the sky's light times `visibility`, rising to all of it at twice the reach: caves and
+/// interiors get no aerial-perspective haze and less of the sky's ambient light, and both return through openings.
+/// Gameplay or a module writes it (physics::sky_visibility measures it with ray casts; an interior may set it
+/// outright); without it the camera is in the open. Visual only: nothing in the simulation reads it. Scriptable.
+struct SkyVisibility {
+    float visibility = 1.0f;  ///< 0..1: the fraction of the sky the surroundings leave open
+    float reach = 0.0f;       ///< meters from the camera; 0: no enclosure
+};
+
 }  // namespace veach

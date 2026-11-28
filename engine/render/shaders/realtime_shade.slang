@@ -115,6 +115,7 @@ float4 surface_pixel(SkyFrame sky, uint kind, uint2 visible_id, float2 pixel, fl
     hit.surface.uv_dx = uv0 * (1.0 - bx.x - bx.y) + uv1 * bx.x + uv2 * bx.y - hit.surface.uv;
     hit.surface.uv_dy = uv0 * (1.0 - by.x - by.y) + uv1 * by.x + uv2 * by.y - hit.surface.uv;
 
+    const float distance = length(hit.surface.position - origin);  // meters, along the view ray
     MaterialContext ctx = { hit.surface, hit.material };
     const SurfaceSample s = evaluateSurface(kind, ctx);
     const bool double_sided = (hit.material.flags & material_double_sided) != 0;
@@ -145,9 +146,9 @@ float4 surface_pixel(SkyFrame sky, uint kind, uint2 visible_id, float2 pixel, fl
             float pdf;
             light += irradiance * brdf_eval(b, v, frame.to_local(l), pdf);
         }
-        light += sky_ambient_radiance(sky) * b.diffuse;
+        light += sky_ambient_radiance(sky, distance) * b.diffuse;
     }
-    const float4 air = aerial_perspective(sky, pixel / float2(params.size), length(hit.surface.position - origin));
+    const float4 air = aerial_perspective(sky, direction, pixel / float2(params.size), distance);
     return storable((light * air.a + air.rgb) * exposure);
 }
 

@@ -279,7 +279,11 @@ void extract(const Config& c, veach::render::RenderWorld& out) {
     p.altitude = km(c.altitude);
     p.ground_albedo = math::vec3(r.ground_albedo);
     const math::dvec4 occ = occluder_of(c);
-    p.occluder = math::vec4(math::vec3(math::dvec3(occ) * 1e-3), static_cast<float>(occ.w * 1e-3));
+    if (occ.w > 0.0) {
+        p.occluders.at(0) = {
+            .center = math::vec3(math::dvec3(occ) * 1e-3), .radius = static_cast<float>(occ.w * 1e-3), .draw = true};
+        p.occluder_count = 1;
+    }
     p.march = c.march;
     p.march_steps = c.steps;
 

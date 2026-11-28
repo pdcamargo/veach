@@ -4,6 +4,7 @@
 
 #include <veach/core/dmath.hpp>
 #include <veach/physics/module.hpp>
+#include <veach/space/atmosphere.hpp>
 #include <veach/space/backdrop.hpp>
 #include <veach/space/clock.hpp>
 #include <veach/space/gen/address.hpp>
@@ -15,6 +16,7 @@
 #include <cmath>
 #include <format>
 #include <limits>
+#include <vector>
 
 namespace veach::space {
 
@@ -240,6 +242,43 @@ void extract_sky(const World& world, const UniverseWorld& u, render::RenderWorld
     const double lux = s.star_luminosity / (4.0 * pi * physical * physical) * lux_per_watt;
     const auto angular_radius = static_cast<float>(s.bodies.front().radius / distance);
 
+    // The bodies that can eclipse the sun, for the sky to test per sample (ADR 0076 decision 2): the largest seen
+    // from the camera, not the atmosphere's own body (the sky shades its night side) and not the star.
+    struct Candidate {
+        math::dvec3 center;  ///< camera-relative, m
+        double radius = 0.0;
+        double size = 0.0;  ///< angular radius
+    };
+    std::vector<Candidate> candidates;
+    for (const RealizedBody& b : s.bodies) {
+        if (b.index == 0 || &b == best || b.radius <= 0.0) {
+            continue;
+        }
+        const auto p = position_of(u.frames_.at(b.index).orbit);
+        if (!p) {
+            continue;
+        }
+        const math::dvec3 c = *p - camera;
+        const double d = math::length(c);
+        if (d <= b.radius) {
+            continue;
+        }
+        candidates.push_back({c, b.radius, b.radius / d});
+    }
+    std::ranges::sort(candidates, [](const Candidate& a, const Candidate& b) { return a.size > b.size; });
+    if (candidates.size() > render::PlanetSky::max_occluders) {
+        candidates.resize(render::PlanetSky::max_occluders);
+    }
+    // The sun's visible fraction at the camera: the input for lighting surfaces near it.
+    double visible = 1.0;
+    for (const Candidate& c : candidates) {
+        if (math::dot(c.center, sun) <= 0.0) {
+            continue;
+        }
+        const double separation = std::acos(std::clamp(math::dot(math::normalize(c.center), sun), -1.0, 1.0));
+        visible *= disk_visible_fraction(static_cast<double>(angular_radius), std::asin(c.size), separation);
+    }
+
     // The rotation of render space into the axes the renderer works in is the identity: render space has the camera
     // frame's axes, and the sky is camera-relative.
     out.sky.mode = SkyMode::physical;
@@ -264,6 +303,10 @@ void extract_sky(const World& world, const UniverseWorld& u, render::RenderWorld
                         .illuminance = math::vec3(static_cast<float>(lux)),
                         .angular_radius = angular_radius};
         p.sun_count = 1;
+        for (const Candidate& c : candidates) {
+            p.occluders.at(p.occluder_count++) = {.center = math::vec3(c.center * 1e-3),
+                                                  .radius = static_cast<float>(c.radius * 1e-3)};
+        }
         out.sky.planet = p;
         // Through the air to the camera, in the local frame of atmosphere_transmittance (+Y up).
         const math::dvec3 up = -center / math::length(center);
@@ -274,7 +317,7 @@ void extract_sky(const World& world, const UniverseWorld& u, render::RenderWorld
     }
     render::RenderLight light{.kind = LightKind::directional,
                               .direction = math::vec3(-sun),
-                              .radiance = math::vec3(static_cast<float>(lux)) * transmittance};
+                              .radiance = math::vec3(static_cast<float>(lux * visible)) * transmittance};
     light.size = angular_radius;
     out.lights.push_back(light);
     render::AutoExposureSettings exposure;

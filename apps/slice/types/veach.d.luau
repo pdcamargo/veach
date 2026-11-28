@@ -215,6 +215,10 @@ export type Sky = {
 	mie_g: number,
 	aerial_perspective: boolean,
 }
+export type SkyVisibility = {
+	visibility: number,
+	reach: number,
+}
 export type Slice = {
 	orbit_altitude: number,
 	autopilot: boolean,
@@ -359,6 +363,7 @@ export type Veach = {
 		read RigidBody: Component<RigidBody>,
 		read SceneInstance: Component<SceneInstance>,
 		read Sky: Component<Sky>,
+		read SkyVisibility: Component<SkyVisibility>,
 		read Slice: Component<Slice>,
 		read SliceReadout: Component<SliceReadout>,
 		read SpaceBackdrop: Component<SpaceBackdrop>,

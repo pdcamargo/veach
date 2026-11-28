@@ -26,6 +26,7 @@ add_executable(veach-tests
     script_tests.cpp
     frames_tests.cpp
     sky_tests.cpp
+    atmosphere_tests.cpp  # VCH-131: the planet atmosphere
     sp10_atmosphere_tests.cpp  # spike SP-10 (VCH-086)
     sp14_depth_tests.cpp  # spike SP-14 (VCH-090)
     sp16_msaa_tests.cpp  # spike SP-16 (VCH-092): MSAA in tile memory, Metal only
@@ -44,6 +45,7 @@ target_link_libraries(veach-tests PRIVATE veach::veach veach::space veach::voxel
 # Shaders for RHI tests (tests/rhi_tests.cpp): <test_shaders.hpp>.
 veach_add_shader(veach-tests shaders/raster_states.slang ENTRIES vs_main:vertex fs_main:fragment)
 veach_add_shader(veach-tests shaders/atmosphere_probe.slang ENTRIES transmittance_probe:compute)
+veach_add_shader(veach-tests shaders/sphere_probe.slang ENTRIES sphere_probe:compute)
 veach_add_shader(veach-tests shaders/indirect_cull.slang ENTRIES cull:compute write_args:compute count_threads:compute)
 veach_add_shader(veach-tests shaders/indirect_draw.slang ENTRIES vs_main:vertex fs_main:fragment)
 veach_add_shader(veach-tests shaders/texture_kinds.slang ENTRIES write_volume:compute write_faces:compute
@@ -301,8 +303,13 @@ function(veach_scene_goldens rhi)
     veach_golden_test("golden: cornell box 1 AU out (frames${suffix})" frames_1au cornell_box_realtime ${rhi})
     veach_golden_test("golden: cornell box in a frame 0.1 ly out (frames${suffix})" frames_far_frame
         cornell_box_realtime ${rhi})
-    # rhi.AC18: the RHI's blend modes (docs/specs/rhi-textures/spec.md).
-    veach_golden_test("golden: blend modes (${rhi})" blend_modes blend_modes ${rhi})
+    # rhi.AC18: the RHI's blend modes (docs/specs/rhi-textures/spec.md). WARP's image differs evenly from Apple GPUs'
+    # (mean FLIP 0.017, worst pixel 0.062, none above 0.5 in CI run 46116983794): blend rounding, not a wrong mode.
+    set(blend_limits "")
+    if(rhi STREQUAL "dx12")
+        set(blend_limits MAX_MEAN 0.025)
+    endif()
+    veach_golden_test("golden: blend modes (${rhi})" blend_modes blend_modes ${rhi} ${blend_limits})
     veach_golden_test("golden: cornell box in a turned frame, seen from the root (frames${suffix})" frames_across
         cornell_box_realtime ${rhi})
 endfunction()

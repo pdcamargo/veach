@@ -167,6 +167,47 @@ frame.readbacks->read(graph, counts, sizeof(std::uint32_t), [this](Result<render
   (`render.readback_dropped`).
 - `Device::is_complete(submission)` answers "has this finished?" without waiting, for code outside the frame loop.
 
+## Texture kinds, updates, blending and samplers
+
+[Spec](../specs/rhi-textures/spec.md), [ADR 0090](../adr/0090-rhi-texture-kinds-updates-and-raster-state.md).
+
+```cpp
+// A froxel volume written in compute and sampled as a Texture3D.
+auto volume = device.create_texture({.width = 160, .height = 90, .format = rhi::Format::rgba16_float,
+                                     .usage = rhi::TextureUsage::storage | rhi::TextureUsage::sampled,
+                                     .debug_name = "froxels", .type = rhi::TextureType::d3, .depth = 32});
+params.out = ctx.device.descriptor(ctx.texture(v), rhi::View::storage);   // RWTexture3D<float4>
+params.volume = ctx.device.descriptor(ctx.texture(v));                    // Texture3D<float4>
+
+// Shadow cascades: a 2D array of depth, one layer per pass, PCF through a comparison sampler.
+b.depth_target(cascades, rhi::LoadOp::clear, 0.0f, {.layer = i});
+desc.depth_bias = {.constant = -2, .slope = -1.5f};   // reverse-Z: negative pushes away from the light
+auto pcf = device.create_sampler({.compare = rhi::CompareOp::greater_equal});  // SamplerComparisonState
+
+// Streaming: stage bytes and copy them into a box of one mip, in a transfer pass the graph orders.
+render::upload_texture(graph, *frame.uploads, layers, {.mip = 0, .base_layer = 2, .layer_count = 1}, bytes);
+
+// Transparency and terrain.
+desc.blend = {rhi::BlendMode::premultiplied};
+auto terrain = device.create_sampler({.address = rhi::AddressMode::repeat,
+                                      .max_anisotropy = rhi::terrain_anisotropy});
+```
+
+- **Types.** `d2`, `d2_array`, `d3`, `cube` (6 layers: +X, -X, +Y, -Y, +Z, -Z) and `cube_array`. Read descriptors
+  have the type's Slang type; storage descriptors are `RWTexture2D`, `RWTexture3D`, or `RWTexture2DArray` for arrays
+  and cube faces. In Slang a depth texture is `Texture2D<float>` and `SampleCmp` works on it on both backends.
+- **Parts.** `descriptor(texture, view, {.base_mip, .mip_count, .base_layer, .layer_count})` views a run of mips and
+  layers; storage views see one mip. Point absent textures at `null_descriptor(DescriptorKind::texture_3d)` and the
+  other kinds, as for any handle (ADR 0027).
+- **Data.** Initial data and uploads are tightly packed per mip in KTX2 order: layers, then depth slices, then rows
+  (`rhi::mip_bytes`). `upload_texture` regions with zero extents reach the edge of the mip; regions uploaded to one
+  texture in one frame must not overlap. The ring's memory is reused when its frame slot comes round, so stage only
+  in the frame that copies.
+- **Barriers.** The graph tracks whole textures: a pass writing one layer and a pass reading another are still ordered,
+  and one pass cannot read one mip while writing another (no mip-chain builds yet).
+- **Blend modes.** `alpha` is straight alpha, `premultiplied` expects `rgb * a` from the shader, `additive` adds color
+  and keeps the destination's alpha. Integer targets cannot blend.
+
 ## GPU timings
 
 The graph times every pass it executes with GPU timestamps (`CommandList::begin_timing`/`end_timing`; Metal

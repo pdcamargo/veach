@@ -33,6 +33,7 @@ acceptance criteria (`[area.ACn] ...`) → status Implemented.
 | [Voxel terrain: streaming, edits and collider meshes](voxel-terrain/spec.md) | voxel, runtime | Implemented |
 | [The first slice: the realization layer and the slice app](first-slice/spec.md) | space, apps | Implemented |
 | [GPU-driven RHI: indirect work and non-blocking readback](gpu-driven-rhi/spec.md) | rhi, render | Implemented |
+| [RHI textures and raster state: texture kinds, updates, blending, depth bias, samplers](rhi-textures/spec.md) | rhi, render | Implemented |
 
 Specs of the raytracing-first era (the real-time renderer v0, temporal direct lighting, soft shadows, real-time GI)
 were removed at the reset ([ADR 0001](../adr/0001-reset.md)); they live in the `pathtracer-era` tag.

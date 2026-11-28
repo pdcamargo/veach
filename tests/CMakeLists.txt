@@ -7,6 +7,7 @@ add_executable(veach-tests
     ecs_tests.cpp
     gpu_driven_tests.cpp  # VCH-071, VCH-073: indirect work and readback
     gpu_driven_renderer_tests.cpp  # VCH-138: the GPU-driven real-time renderer
+    taa_tests.cpp  # VCH-144: temporal anti-aliasing
     ambient_light_tests.cpp  # VCH-140: ambient light and occlusion
     gpu_texture_tests.cpp
     lifecycle_tests.cpp
@@ -242,11 +243,12 @@ set(_twilight_goldens "planet_twilight_s1:1:-2" "planet_twilight_s0.01:0.01:8")
 set(_twilight_env VEACH_SP10=earth VEACH_SP10_ALTITUDE=300 VEACH_SP10_SUN_ELEVATION=-10 VEACH_SP10_SUN_AZIMUTH=0
     VEACH_SP10_YAW=180 VEACH_SP10_PITCH=30 VEACH_SP10_FOV=90 VEACH_SP10_STEPS=16 VEACH_SP10_SIZE=480x270)
 # veach_golden_test(<name> <script> <golden> <rhi> [FRAMES n] [MAX_MEAN x] [MAX_P999 x] [MAX_OUTLIERS n]
-#                   [NO_RAY_TRACING] [TIMEOUT s] [ENV VAR=value...])
+#                   [NO_RAY_TRACING] [TAA] [TIMEOUT s] [ENV VAR=value...])
+# Goldens render without temporal AA (one frame's shading) unless TAA is given (golden_test.cmake, ADR 0061).
 # TIMEOUT is CTest's (default 120 s); the lab gets 15 s less, so a hang prints its log (golden_test.cmake).
 function(veach_golden_test name script golden rhi)
     # ENV: VAR=value pairs the lab runs with (the SP-10 spike's planet sky is set up from the environment).
-    cmake_parse_arguments(ARG "NO_RAY_TRACING" "FRAMES;MAX_MEAN;MAX_P999;MAX_OUTLIERS;TIMEOUT" "ENV" ${ARGN})
+    cmake_parse_arguments(ARG "NO_RAY_TRACING;TAA" "FRAMES;MAX_MEAN;MAX_P999;MAX_OUTLIERS;TIMEOUT" "ENV" ${ARGN})
     if(NOT ARG_TIMEOUT)
         set(ARG_TIMEOUT 120)
     endif()
@@ -274,6 +276,9 @@ function(veach_golden_test name script golden rhi)
     if(ARG_NO_RAY_TRACING)
         list(APPEND extra -DNO_RAY_TRACING=1)
         set(out_name "${script}.${rhi}.no_rt")
+    endif()
+    if(ARG_TAA)
+        list(APPEND extra -DTAA=1)
     endif()
     add_test(NAME "${name}"
         COMMAND "${CMAKE_COMMAND}" -DLAB=$<TARGET_FILE:veach-lab> -DIMGDIFF=$<TARGET_FILE:veach-cli> -DRHI=${rhi}
@@ -346,6 +351,18 @@ if(APPLE)
     # terrain_materials.AC5: hills, cliffs, snow and a dug hole drawn with TerrainMaterial over the procedural layers (no
     # local assets: the scans never reach CI).
     veach_golden_test("golden: terrain materials" terrain_materials terrain_materials metal FRAMES 4)
+    # taa.AC3: temporal AA after 24 frames of a turning helmet and a panning camera, in front of the stars.
+    veach_golden_test("golden: temporal AA in motion" taa_motion taa_motion metal TAA FRAMES 24)
+    # taa.AC4: the history survives the render origin's 64 m jump: the frame right after it matches the same strafe
+    # where the origin stays put (mean FLIP 0.004 measured; 0.019 when the jump is not undone and the history lost).
+    add_test(NAME "taa: the history survives a render-origin jump"
+        COMMAND "${CMAKE_COMMAND}" -DLAB=$<TARGET_FILE:veach-lab> -DIMGDIFF=$<TARGET_FILE:veach-cli> -DRHI=metal
+                -DSCRIPT_A=scripts/taa_origin_still.luau -DSCRIPT_B=scripts/taa_origin_jump.luau -DFRAMES=12
+                -DMAX_MEAN=0.008 -DOUT=${CMAKE_CURRENT_BINARY_DIR}/golden/taa_origin
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/same_image_test.cmake"
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
+    set_tests_properties("taa: the history survives a render-origin jump" PROPERTIES
+        SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE")
     # atmosphere.AC7: a planet's sky 10 degrees into twilight, opposite the sun, through SP-10's lab path with the
     # engine's 16 march steps (ADR 0094). At s = 1 it is all multiple scattering, a few 1e-7 per lux of sun: fp16
     # tables drew it in flat bands (mean FLIP 0.22 against the golden). At s = 0.01 the planet's shadow crosses lit air
@@ -399,12 +416,19 @@ if(APPLE)
             "bistro_noon:bistro_noon:3" "bistro_sunset:bistro_sunset:3"
             "runtime_mesh_realtime:runtime_mesh_realtime:3" "runtime_mesh:runtime_mesh:4"
             "thin_triangles_realtime:thin_triangles_realtime:3" "blend_modes:blend_modes:3"
-            "space_backdrop_small:space_backdrop:3" "terrain_materials:terrain_materials:4")
+            "space_backdrop_small:space_backdrop:3" "taa_motion:taa_motion:24:taa"
+            "terrain_materials:terrain_materials:4")
         string(REPLACE ":" ";" _golden "${_golden}")
         list(GET _golden 0 _script)
         list(GET _golden 1 _image)
         list(GET _golden 2 _frames)
-        list(APPEND _update COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab>
+        # Temporal AA off except in temporal goldens (golden_test.cmake).
+        set(_taa VEACH_DISABLE_TAA=1)
+        list(LENGTH _golden _fields)
+        if(_fields GREATER 3)
+            set(_taa VEACH_DISABLE_TAA=0)
+        endif()
+        list(APPEND _update COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 ${_taa} $<TARGET_FILE:veach-lab>
                 --rhi metal --headless --frames ${_frames} --script scripts/${_script}.luau
                 --screenshot "${_golden_dir}/${_image}.png")
     endforeach()
@@ -413,7 +437,7 @@ if(APPLE)
         list(GET _twilight 0 _name)
         list(GET _twilight 1 _scale)
         list(GET _twilight 2 _ev)
-        list(APPEND _update COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 ${_twilight_env}
+        list(APPEND _update COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 VEACH_DISABLE_TAA=1 ${_twilight_env}
                 VEACH_SP10_SCALE=${_scale} VEACH_SP10_EV=${_ev} $<TARGET_FILE:veach-lab> --rhi metal --headless
                 --frames 3 --script scripts/hello.luau --screenshot "${_golden_dir}/${_name}.png")
     endforeach()

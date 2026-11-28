@@ -21,7 +21,12 @@
 //     VEACH_SP16_TIMINGS=n         after VEACH_SP16_WARMUP frames (default 120), log the median GPU ms of each pass
 //                                  over n frames (category sp16, a line starting SP16_TIMINGS)
 //     VEACH_SP16_STATS=1           log culling counts, masked fragments per pixel and 2x2-quad use, once
-//     VEACH_SP16_PAN=deg           turn the camera this much per frame (for shimmer in motion)
+//     VEACH_SP16_PAN=deg           turn the camera this much per frame (for shimmer in motion; engine too)
+//     VEACH_SP16_STRAFE=m          engine: move the camera this far to the view's right per frame (parallax)
+//     VEACH_SP16_TAA=0             engine: the camera without temporal AA (AntiAliasing{temporal = false})
+//
+// The engine field in motion with and without TAA, against a 16-sample reference (VEACH_SP16_SIZE=7680x4320, box
+// filtered): docs/research/spikes/vch-144-taa.md.
 //
 //   VEACH_SP16=vis VEACH_SP16_VIEW=mid veach-lab --rhi metal --headless --frames 3 --screenshot vis_mid.png
 

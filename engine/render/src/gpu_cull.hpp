@@ -93,7 +93,7 @@ struct alignas(16) VisibilityParams {
     std::array<float, 2> inverse_size{};
     std::uint32_t list_offset = 0;
     std::uint32_t pad0 = 0;
-    std::array<std::uint32_t, 2> pad1{};
+    std::array<float, 2> jitter{};  ///< UV: the projection's sub-pixel offset this frame (ADR 0061); 0 for shadows
 };
 static_assert(rhi::parameters_match<VisibilityParams>(
     veach_render_shaders::layout::realtime_visibility,
@@ -101,7 +101,7 @@ static_assert(rhi::parameters_match<VisibilityParams>(
      VEACH_PARAM(VisibilityParams, instances), VEACH_PARAM(VisibilityParams, materials),
      VEACH_PARAM(VisibilityParams, visible), VEACH_PARAM(VisibilityParams, inverse_size),
      VEACH_PARAM(VisibilityParams, list_offset), VEACH_PARAM(VisibilityParams, pad0),
-     VEACH_PARAM(VisibilityParams, pad1)}));
+     VEACH_PARAM(VisibilityParams, jitter)}));
 
 /// Indirect-style group counts for a direct dispatch of `groups` groups: rows of groups_per_row.
 inline std::array<std::uint32_t, 2> rows_of(std::uint32_t groups) {

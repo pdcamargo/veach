@@ -129,7 +129,19 @@ struct RenderView {
     AmbientOcclusion ambient_occlusion;
     /// The camera's SunShadows (or the defaults): the real-time renderer's shadow maps (shadows.cpp).
     SunShadows shadows;
+    /// Temporal anti-aliasing (ADR 0061): on unless the camera's AntiAliasing turns it off, it has a PhotoMode, or
+    /// VEACH_DISABLE_TAA=1 (the goldens). The matrices above are never jittered; the real-time renderer offsets its
+    /// own projection by `jitter` (jittered_view_projection) and publishes motion without it.
+    bool temporal_aa = false;
+    math::vec2 jitter{0.0f};  ///< pixels (+x right, +y down), within half a pixel of the center; 0 without TAA
 };
+
+/// The sub-pixel offset of frame `frame` (ADR 0061): the Halton (2, 3) sequence of length 8, points 1 to 8, minus half
+/// a pixel. Indexed by the frame counter, never by time, so a recording replays to the same images.
+[[nodiscard]] math::vec2 taa_jitter(std::uint64_t frame);
+/// `view_projection` moved by `jitter` pixels on a width x height target: what a pixel center sees in a jittered frame.
+[[nodiscard]] math::mat4 jittered_view_projection(const math::mat4& view_projection, math::vec2 jitter,
+                                                  std::uint32_t width, std::uint32_t height);
 
 /// A mesh to draw this frame: an imported or runtime mesh (MeshStore), the material of each of its slots, and where
 /// it is.
@@ -209,8 +221,9 @@ using Extractor = std::function<void(const World& world, RenderWorld& out)>;
 
 /// Named resources of this frame's graph that features share (ADR 0060's frame blackboard). The real-time renderer
 /// (ADR 0093) publishes "visibility" (rg32_uint: instance, meshlet << 7 | triangle), "depth" (depth32_float,
-/// reverse-Z), "motion" (rg16_float: previous minus current position, in UV) and "hdr_color" (rgba16_float: exposed
-/// radiance before the display transform). Features recorded after it read and write them like any graph resource.
+/// reverse-Z, jittered with temporal AA), "motion" (rg16_float: previous minus current position, in UV, without the
+/// jitter) and "hdr_color" (rgba16_float: exposed radiance before the display transform, after temporal AA and the
+/// space backdrop). Features recorded after it read and write them like any graph resource.
 class FrameBlackboard {
 public:
     void set(std::string name, GraphResource resource) { entries_[std::move(name)] = resource; }

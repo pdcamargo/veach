@@ -237,6 +237,7 @@ TEST_CASE("[ambient.AC5] ambient occlusion never touches direct light, and a sti
     f.place("wall", {0.0, 0.0, -5.0}, {14.0f, 10.0f, 0.2f}, f.grey);
     f.place("box", {0.0, 0.0, -4.4f}, math::vec3(1.0f), f.grey);
     f.look({1.5, 1.0, 0.0}, {0.0, 0.0, -4.9});
+    f.camera.set(AntiAliasing{.temporal = false});  // frames compared byte for byte: each its own image (ADR 0061)
     const render::Image first = f.capture();
     const render::Image second = f.capture();
     CHECK(first.rgba == second.rgba);  // a fixed pattern: nothing changes from frame to frame

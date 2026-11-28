@@ -1,16 +1,18 @@
-// The space backdrop on the real-time image (ADR 0091, docs/specs/space-backdrop/spec.md): after the shade pass, on
-// the sky pixels it marked (alpha 2), the baked texture and the stars (veach.backdrop), through the air
-// (sky_to_space), at the creator's gain, added to the exposed radiance. Alpha becomes the share of the pixel that
-// auto-exposure meters: the sky's, not the backdrop's. Its parameter layout matches render::BackdropCompositeParams
-// (backdrop.cpp).
+// The space backdrop on the real-time image (ADR 0091, docs/specs/space-backdrop/spec.md): after the shade pass and
+// temporal AA, on the sky pixels the shade pass marked (alpha 1 + the share of the pixel that shows the sky behind
+// which the backdrop is: 2 where it all does, in between at edges temporal AA smoothed), the baked texture and the
+// stars (veach.backdrop), through the air (sky_to_space), at the creator's gain, times that share, added to the exposed
+// radiance. Drawn after temporal AA along the unjittered rays, so stars stay crisp points that neither flicker nor
+// smear (ADR 0061, docs/specs/temporal-aa/spec.md). Alpha becomes the share of the pixel that auto-exposure meters:
+// all but the backdrop. Its parameter layout matches render::BackdropCompositeParams (realtime_renderer.cpp).
 
 import veach.atmosphere;
 import veach.backdrop;
 import veach.bindless;
 
 struct CompositeParams {
-    float4x4 inverse_view_projection;
-    DescriptorHandle<RWTexture2D<float4>> radiance;  ///< exposed (the shade pass's), alpha 2 on the sky to draw into
+    float4x4 inverse_view_projection;  ///< without jitter
+    DescriptorHandle<RWTexture2D<float4>> radiance;  ///< exposed, alpha 1 + the share of the pixel to draw into
     DescriptorHandle<StructuredBuffer<SkyFrame>> sky;
     DescriptorHandle<StructuredBuffer<float4>> exposure_state;  ///< with composite_auto_exposure: state[0].y
     uint2 size;
@@ -28,8 +30,9 @@ void backdrop_composite(uint3 id: SV_DispatchThreadID) {
         return;
     }
     const float4 c = composite.radiance[id.xy];
-    if (c.a < 1.5) {
-        return;  // geometry
+    const float coverage = saturate(c.a - 1.0);
+    if (coverage <= 0.0) {
+        return;  // geometry, or no backdrop behind the sky
     }
     const SkyFrame sky = composite.sky[0];
     const float exposure =
@@ -46,7 +49,8 @@ void backdrop_composite(uint3 id: SV_DispatchThreadID) {
     float3 beyond = float3(0.0, 0.0, 0.0);
     const float3 to_space = sky_to_space(sky, direction);
     if (any(to_space > 0.0)) {
-        beyond = backdrop_radiance(sky, direction) * to_space * (backdrop_gain(sky, exposure, sky_luminance) * exposure);
+        beyond = backdrop_radiance(sky, direction) * to_space *
+                 (backdrop_gain(sky, exposure, sky_luminance) * exposure * coverage);
     }
     const float total = sky_luminance + dot(beyond, luma);
     composite.radiance[id.xy] =

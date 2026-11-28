@@ -104,6 +104,9 @@ export type AmbientOcclusion = {
 	radius: number,
 	intensity: number,
 }
+export type AntiAliasing = {
+	temporal: boolean,
+}
 export type Camera = {
 	fov_y: number,
 	near_plane: number,
@@ -360,6 +363,7 @@ export type Veach = {
 	read time: TimeApi,
 	read components: {
 		read AmbientOcclusion: Component<AmbientOcclusion>,
+		read AntiAliasing: Component<AntiAliasing>,
 		read Camera: Component<Camera>,
 		read CelestialBody: Component<CelestialBody>,
 		read CelestialFrame: Component<CelestialFrame>,

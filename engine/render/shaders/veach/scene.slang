@@ -8,7 +8,7 @@ import veach.material;
 import veach.materials_generated;  // evaluateSurface(kind, c), evaluateAlpha(kind, c)
 import veach.random;
 
-/// Mirrors render::InstanceRecord: 240 bytes per instance, in the GPU scene's persistent buffer (ADR 0093).
+/// Mirrors render::InstanceRecord: 256 bytes per instance, in the GPU scene's persistent buffer (ADR 0093).
 struct InstanceRecord {
     DescriptorHandle<StructuredBuffer<float>> vertices;  ///< 12 floats per vertex: position, normal, tangent, uv
     DescriptorHandle<StructuredBuffer<uint>> indices;
@@ -27,10 +27,14 @@ struct InstanceRecord {
     DescriptorHandle<StructuredBuffer<float4>> meshlet_bounds;
     float4 sphere;  ///< object space: center, radius
     uint meshlet_count;
-    // MeshDraw::material_origin (three floats, not a float3: a float3 would be padded to 16 bytes on Metal).
+    uint id;  ///< 24 bits from the drawing entity, the same every frame: what temporal AA tells surfaces apart by
+    uint pad1;
+    uint pad2;
+    // MeshDraw::material_origin (three floats, not a float3: Metal would align a float3 to 16 bytes).
     float material_origin_x;
     float material_origin_y;
     float material_origin_z;
+    uint pad3;
 };
 
 static const uint instance_has_alpha = 1;     ///< some slot is alpha-masked or blended

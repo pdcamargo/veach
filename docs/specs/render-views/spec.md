@@ -74,7 +74,8 @@ layout check now enforces it.
 
 ## Out of scope
 
-- Several views per frame (split screen, shadow views), orthographic cameras, jitter: when a feature needs them.
+- Several views per frame (split screen, shadow views), orthographic cameras: when a feature needs them. (Jitter came
+  with temporal AA as `RenderView::jitter`, the matrices unjittered: [temporal-aa](../temporal-aa/spec.md).)
 
 ## Open questions
 

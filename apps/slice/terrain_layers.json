@@ -1,0 +1,23 @@
+{
+  "comment": "The slice's terrain layers (docs/guides/terrain-materials.md): the space toolbox's roles mapped to Quixel Megascans surfaces from Fab, kept out of the repo in local-assets/quixel (manifest: local-assets/quixel/README.md). Paths are from local-assets/ (VEACH_LOCAL_ASSETS overrides where that is). Without the folder every layer is the toolbox's procedural stand-in.",
+  "scans": "quixel",
+  "cache": "cache/terrain-layers",
+  "size": 2048,
+  "layers": [
+    { "name": "grass", "scan": "Grass_Wild_pjwbe0_2K_surface_ms", "tile_m": 2.0 },
+    { "name": "beach_sand", "scan": "beach_sand_uinladeo_2k" },
+    { "name": "cliff", "scan": "granite_rock_face_vissbgb_2k", "tile_m": 4.0 },
+    { "name": "rocky_ground", "scan": "icelandic_rocky_ground_uczmfghew_2k" },
+    { "name": "snow", "scan": "fresh_snow_ugkieimdy_2k" },
+    { "name": "soil", "scan": "soil_pjut20_2k" },
+    { "name": "red_sand", "scan": "red_desert_sand_sj0jahwa_2k" },
+    { "name": "cracked", "scan": "dry_cracked_ground_sjykeeda_2k" },
+    { "name": "basalt", "scan": "icelandic_rock_cliff_ucdmcawdy_2k", "tile_m": 4.0 },
+    { "name": "lava", "scan": "rippled_lava_rock_vlzheg0n_2k" },
+    { "name": "salt", "scan": "salt_covered_mud_wb2jfbalw_2k" },
+    { "name": "sandstone", "scan": "weathered_sandstone_cliff_temmbgfp_2k" },
+    { "name": "ice", "scan": "ice_cliff_ud4lfh2r_2k" },
+    { "name": "gravel", "scan": "Gravel_Natural_xdusfjy_2K_surface_ms" },
+    { "name": "sand", "scan": "Sand_Desert_vmkdbaq_2K_surface_ms" }
+  ]
+}

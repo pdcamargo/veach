@@ -313,6 +313,7 @@ export type Universe = {
 	day: number,
 	habitability_bias: number,
 	home: string,
+	surface_colors: string,
 	start_tick: number,
 }
 export type UniverseClock = {

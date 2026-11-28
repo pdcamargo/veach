@@ -45,6 +45,8 @@ struct Config {
     std::uint32_t warmup = 120;
     bool stats = false;
     float pan = 0.0f;
+    float strafe = 0.0f;     ///< engine: meters a frame to the view's right
+    bool taa_off = false;    ///< engine: AntiAliasing{temporal = false} on the camera
     std::uint32_t ssaa = 1;  ///< render this many times wider and higher, box-filter down (a reference image)
 };
 
@@ -74,6 +76,8 @@ Config config_from_env(const std::string& mode) {
     c.warmup = static_cast<std::uint32_t>(number("VEACH_SP16_WARMUP", 120.0));
     c.stats = veach::env_is_one("VEACH_SP16_STATS");
     c.pan = static_cast<float>(number("VEACH_SP16_PAN", 0.0));
+    c.strafe = static_cast<float>(number("VEACH_SP16_STRAFE", 0.0));
+    c.taa_off = veach::env("VEACH_SP16_TAA").value_or("1") == "0";
     c.ssaa = std::max(1u, static_cast<std::uint32_t>(number("VEACH_SP16_SSAA", 1.0)));
     return c;
 }
@@ -1733,12 +1737,27 @@ void spawn_engine_field(veach::World& world, const Config& config) {
             .set(veach::RuntimeMeshInstance{meshes[inst.model]});
     }
     const View v = view_named(config.view);
-    world.entity("sp16 camera")
-        .set(veach::Transform{math::dvec3(v.eye),
-                              math::angleAxis(v.yaw, math::vec3(0.0f, 1.0f, 0.0f)) *
-                                  math::angleAxis(v.pitch, math::vec3(1.0f, 0.0f, 0.0f)),
-                              math::vec3(1.0f)})
-        .set(veach::Camera{.fov_y = math::radians(60.0f), .near_plane = 0.1f, .active = true, .ev100 = 14.0f});
+    const auto pose = [v, pan = config.pan, strafe = config.strafe](std::uint64_t frame) {
+        const float yaw = v.yaw + math::radians(pan) * static_cast<float>(frame);
+        const math::quat rotation =
+            math::angleAxis(yaw, math::vec3(0.0f, 1.0f, 0.0f)) * math::angleAxis(v.pitch, math::vec3(1.0f, 0.0f, 0.0f));
+        const math::vec3 right = math::angleAxis(v.yaw, math::vec3(0.0f, 1.0f, 0.0f)) * math::vec3(1.0f, 0.0f, 0.0f);
+        return veach::Transform{math::dvec3(v.eye + right * (strafe * static_cast<float>(frame))), rotation,
+                                math::vec3(1.0f)};
+    };
+    const veach::Entity camera =
+        world.entity("sp16 camera")
+            .set(pose(0))
+            .set(veach::Camera{.fov_y = math::radians(60.0f), .near_plane = 0.1f, .active = true, .ev100 = 14.0f});
+    if (config.taa_off) {
+        camera.set(veach::AntiAliasing{.temporal = false});
+    }
+    if (config.pan != 0.0f || config.strafe != 0.0f) {
+        // VEACH_SP16_PAN degrees and VEACH_SP16_STRAFE meters (to the view's right) a frame: motion for TAA.
+        world.system<const veach::Time>("Sp16Move")
+            .kind<veach::phase::Simulation>()
+            .each([camera, pose](const veach::Time& time) { camera.set(pose(time.frame)); });
+    }
     world.entity("sp16 sky").set(veach::Sky{.time_of_day = 15.0f, .latitude = 45.0f});
     veach::log::info("sp16", "engine field: {} instances as entities, {} meshes", f.instances.size(), meshes.size());
 }

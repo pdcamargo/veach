@@ -65,7 +65,7 @@ veach-lab --mcp --rhi metal                      # windowed: the app keeps runni
 | `screenshot` | `path?` (also write the PNG there) | image content (PNG) and a text note |
 | `photo_mode` | `samples`, `path?` | restarts photo mode (the reference path tracer, on the camera's `PhotoMode`) and renders exactly `samples` per pixel, without advancing simulation; image content (PNG) ([photo-mode](../photo-mode/spec.md)) |
 | `render_graph_plan` | | the last compiled plan as text (`RenderGraph::describe`) |
-| `gpu_timings` | | `{backend, device, gpu, frames_in_flight, last_frame_gpu_ms, frame, passes: [{name, gpu_ms}], passes_unavailable?, path_tracer_samples}` (`path_tracer_samples`: photo mode's samples per pixel so far): waits for the GPU, then the last completed frame's time per render-graph pass, in execution order; `passes_unavailable` says why `passes` is empty on a device that cannot time them (the null RHI). VCH-049 |
+| `gpu_timings` | | `{backend, device, gpu, frames_in_flight, last_frame_gpu_ms, frame, passes: [{name, gpu_ms}], passes_unavailable?, path_tracer_samples, culling}` (`path_tracer_samples`: photo mode's samples per pixel so far; `culling`: the real-time renderer's CullStats, [gpu-driven renderer](../gpu-driven-renderer/spec.md)): waits for the GPU, then the last completed frame's time per render-graph pass, in execution order; `passes_unavailable` says why `passes` is empty on a device that cannot time them (the null RHI). VCH-049 |
 | `eval` | `source` (Luau) | `{ok, returns: [string], log: [string]}` |
 
 Module tools of the lab, registered by the space toolbox's `SpaceMcpModule` (`space/src/mcp_tools.cpp`). 64-bit

@@ -23,7 +23,8 @@ acceptance criteria (`[area.ACn] ...`) → status Implemented.
 | [First real scene](first-real-scene/spec.md) | render, asset | Implemented |
 | [Record and replay](record-replay/spec.md) | runtime | Implemented |
 | [Physical sky and atmosphere](physical-sky/spec.md) | render | Implemented |
-| [Real-time renderer (interim visibility-buffer path)](realtime-renderer/spec.md) | render, asset | Implemented |
+| [Real-time renderer (interim visibility-buffer path)](realtime-renderer/spec.md) | render, asset | Implemented; its path replaced by the GPU-driven renderer |
+| [GPU-driven real-time renderer: the core](gpu-driven-renderer/spec.md) | render, rhi | Implemented |
 | [Photo mode: the reference path tracer](photo-mode/spec.md) | render | Implemented |
 | [Runtime meshes](runtime-meshes/spec.md) | render | Implemented |
 | [Job system](job-system/spec.md) | core | Implemented |

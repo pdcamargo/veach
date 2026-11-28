@@ -72,6 +72,8 @@ public:
     [[nodiscard]] rhi::TextureHandle texture(GraphResource resource) const;
     [[nodiscard]] rhi::BufferHandle buffer(GraphResource resource) const;
     [[nodiscard]] rhi::AccelHandle accel(GraphResource resource) const;
+    /// The mips a resource made by RenderGraph::mips() covers (the whole texture for any other).
+    [[nodiscard]] rhi::TextureRange range(GraphResource resource) const;
 
 private:
     friend class RenderGraph;
@@ -126,6 +128,13 @@ public:
     GraphResource create_texture(const rhi::TextureDesc& desc);
     /// The description of a texture in the graph (imported or transient), or null for buffers and invalid ids.
     [[nodiscard]] const rhi::TextureDesc* texture_desc(GraphResource resource) const;
+    /// Mips [first_mip, first_mip + mip_count) of `texture` (imported or transient) as a resource of their own: the
+    /// graph keeps a state per mip, so one pass can read a mip while it writes the next (a HiZ pyramid, a mip chain),
+    /// and orders, culls and barriers by the mips each pass touches. A pass may not touch a mip twice, through the
+    /// texture or any of its views. Shaders reach the mips through Device::descriptor(texture, view,
+    /// PassContext::range(view)). At the end of the graph a texture whose mips were left in different states moves
+    /// to its final state, or to mip 0's.
+    GraphResource mips(GraphResource texture, std::uint32_t first_mip, std::uint32_t mip_count = 1);
 
     void add_graphics_pass(std::string name, const Setup& setup, Execute execute);
     void add_compute_pass(std::string name, const Setup& setup, Execute execute);
@@ -153,6 +162,9 @@ private:
         rhi::ResourceState end_state = rhi::ResourceState::undefined;
         bool imported = false;
         std::optional<rhi::TextureDesc> transient;
+        std::uint32_t root = UINT32_MAX;  ///< the texture a mips() view belongs to; UINT32_MAX for a whole resource
+        std::uint32_t first_mip = 0;
+        std::uint32_t mip_count = 0;  ///< 0: every mip
     };
     struct Access {
         GraphResource resource;
@@ -175,6 +187,8 @@ private:
     };
 
     void add_pass(std::string name, PassKind kind, const Setup& setup, Execute execute);
+    [[nodiscard]] std::uint32_t root_of(std::uint32_t resource) const;
+    [[nodiscard]] std::uint32_t mip_levels(std::uint32_t root) const;
     void add_color_target(std::uint32_t pass, GraphResource resource, rhi::ColorAttachment attachment);
     std::unexpected<Error> invalid(const Pass& pass, std::string message) const;
 

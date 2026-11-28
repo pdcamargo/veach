@@ -709,6 +709,7 @@ public:
     }
     void copy_texture_to_buffer(TextureHandle src, BufferHandle dst) override;
     void copy_buffer(BufferHandle src, BufferHandle dst, std::uint64_t size) override;
+    void copy_buffer_regions(BufferHandle src, BufferHandle dst, std::span<const BufferCopy> regions) override;
     void copy_buffer_to_texture(BufferHandle src, std::uint64_t offset, std::uint32_t row_pitch, TextureHandle dst,
                                 const TextureRegion& region) override;
     void use(ResourceRef, ResourceState) override {}  // committed resources are always resident
@@ -2348,7 +2349,19 @@ void Dx12CommandList::barrier(std::span<const Barrier> barriers) {
             t.LayoutBefore = before.layout;
             t.LayoutAfter = after.layout;
             t.pResource = resource;
-            t.Subresources.IndexOrFirstMipLevel = 0xffffffff;  // all subresources
+            const Dx12Texture* texture = device_.texture(TextureHandle{b.resource.index, b.resource.generation});
+            check_barrier_mips(texture ? &texture->desc : nullptr, b);
+            if (b.mip_count == 0 || texture == nullptr) {
+                t.Subresources.IndexOrFirstMipLevel = 0xffffffff;  // all subresources
+            } else {
+                // Some mips, every array slice (the render graph tracks a state per mip, ADR 0093).
+                t.Subresources.IndexOrFirstMipLevel = b.first_mip;
+                t.Subresources.NumMipLevels = b.mip_count;
+                t.Subresources.FirstArraySlice = 0;
+                t.Subresources.NumArraySlices = texture->desc.type == TextureType::d3 ? 1 : layer_count(texture->desc);
+                t.Subresources.FirstPlane = 0;
+                t.Subresources.NumPlanes = 1;
+            }
             textures.push_back(t);
         } else {
             D3D12_BUFFER_BARRIER buf{};
@@ -2387,6 +2400,15 @@ void Dx12CommandList::copy_buffer(BufferHandle src, BufferHandle dst, std::uint6
     VEACH_ASSERT(from != nullptr && to != nullptr, "copy_buffer: invalid handles");
     VEACH_ASSERT(size <= from->desc.size && size <= to->desc.size, "copy_buffer: {} bytes do not fit", size);
     recorder_->list->CopyBufferRegion(to->resource.Get(), 0, from->resource.Get(), 0, size);
+}
+
+void Dx12CommandList::copy_buffer_regions(BufferHandle src, BufferHandle dst, std::span<const BufferCopy> regions) {
+    Dx12Buffer* from = device_.buffer(src);
+    Dx12Buffer* to = device_.buffer(dst);
+    check_buffer_copies(from ? &from->desc : nullptr, to ? &to->desc : nullptr, regions);
+    for (const BufferCopy& r : regions) {
+        recorder_->list->CopyBufferRegion(to->resource.Get(), r.dst_offset, from->resource.Get(), r.src_offset, r.size);
+    }
 }
 
 void Dx12CommandList::copy_buffer_to_texture(BufferHandle src, std::uint64_t offset, std::uint32_t row_pitch,

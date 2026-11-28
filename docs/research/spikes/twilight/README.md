@@ -1,6 +1,6 @@
 # Twilight: the banded sky
 
-[ADR 0093](../../../adr/0093-twilight-precision.md), [spec](../../../specs/planet-atmosphere/spec.md) atmosphere.AC7.
+[ADR 0094](../../../adr/0094-twilight-precision.md), [spec](../../../specs/planet-atmosphere/spec.md) atmosphere.AC7.
 From the sun a few degrees below the horizon to the end of twilight, the slice drew the planet's sky in hard
 concentric bands with stepped edges (VCH-136, first seen in [VCH-137's screenshot](../space-backdrop/day_s1_twilight_sun_-10.png)).
 Metal on the M5 Max, 2560 x 1440, release build, slice autopilot with `VEACH_SLICE_SHOTS`, whose tour now ends with

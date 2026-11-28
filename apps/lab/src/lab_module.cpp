@@ -45,7 +45,7 @@ LabModule::LabModule(veach::World& world) {
     auto& renderer = veach::services(world).get<veach::render::Renderer>();
     renderer.add_feature(std::make_unique<veach::render::SceneRenderer>(
         veach::render::SceneShaders{lab_shaders::path_tracer(), lab_shaders::realtime_visibility(),
-                                    lab_shaders::realtime_shade()},
+                                    lab_shaders::realtime_shade_bins()},
         lab_shaders::material_kinds, veach::services(world).get<veach::AssetServer>()));
 
     register_sp04_spike(world);    // spike SP-04 (VCH-080), throwaway: the sun from the system

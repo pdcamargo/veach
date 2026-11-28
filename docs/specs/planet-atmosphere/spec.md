@@ -35,7 +35,7 @@ cave: unoccluded aerial perspective filled the chamber with haze brighter than i
   per-medium cache.
 - The sky-view table MUST wrap in azimuth.
 - Every sphere test in the atmosphere MUST go through one numerically stable helper with a CPU twin.
-- The sky MUST stay a smooth gradient through twilight to night, at every scale (ADR 0093): the tables MUST hold
+- The sky MUST stay a smooth gradient through twilight to night, at every scale (ADR 0094): the tables MUST hold
   luminance per lux of sun at float32 precision, and a march step MUST be lit for the part of it outside the planet's
   shadow, not all or nothing.
 - Up to four occluder spheres MUST eclipse every sun per sample in the sky and in the volume.
@@ -99,7 +99,7 @@ None.
 
 - ADRs: [0063](../../adr/0063-astronomical-rendering.md), [0076](../../adr/0076-amendments-from-sp-10.md),
   [0082](../../adr/0082-amendments-from-sp-14.md), [0090](../../adr/0090-rhi-texture-kinds-updates-and-raster-state.md),
-  [0092](../../adr/0092-aerial-perspective-follows-the-air.md), [0093](../../adr/0093-twilight-precision.md)
+  [0092](../../adr/0092-aerial-perspective-follows-the-air.md), [0094](../../adr/0094-twilight-precision.md)
 - Backlog: VCH-135 (this), VCH-136 (follow-ups)
 - Guides: [rendering](../../guides/rendering.md), [space realization](../../guides/space-realization.md),
   [Luau API](../../guides/luau-api.md)

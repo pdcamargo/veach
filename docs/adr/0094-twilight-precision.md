@@ -1,4 +1,4 @@
-# 0093: Atmosphere luminance tables in float32; a march step is lit for its part outside the planet's shadow
+# 0094: Atmosphere luminance tables in float32; a march step is lit for its part outside the planet's shadow
 
 Date: 2026-11-28
 

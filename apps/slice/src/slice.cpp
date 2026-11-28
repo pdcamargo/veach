@@ -1048,7 +1048,7 @@ SliceModule::SliceModule(veach::World& world) {
     if (auto* renderer = veach::services(world).find<veach::render::Renderer>()) {
         renderer->add_feature(std::make_unique<veach::render::SceneRenderer>(
             veach::render::SceneShaders{slice_shaders::path_tracer(), slice_shaders::realtime_visibility(),
-                                        slice_shaders::realtime_shade()},
+                                        slice_shaders::realtime_shade_bins()},
             slice_shaders::material_kinds, veach::services(world).get<veach::AssetServer>()));
     }
 

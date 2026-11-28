@@ -6,6 +6,7 @@ add_executable(veach-tests
     determinism_tests.cpp
     ecs_tests.cpp
     gpu_driven_tests.cpp  # VCH-071, VCH-073: indirect work and readback
+    gpu_driven_renderer_tests.cpp  # VCH-138: the GPU-driven real-time renderer
     gpu_texture_tests.cpp
     lifecycle_tests.cpp
     physics_tests.cpp
@@ -52,6 +53,8 @@ veach_add_shader(veach-tests shaders/texture_kinds.slang ENTRIES write_volume:co
 veach_add_shader(veach-tests shaders/sampler_states.slang ENTRIES compare_depth:compute sample_grad:compute)
 veach_add_shader(veach-tests shaders/blend_states.slang ENTRIES vs_main:vertex fs_main:fragment)
 veach_add_shader(veach-tests shaders/msaa_triangle.slang ENTRIES vs_main:vertex fs_main:fragment)
+# The scene shaders with StandardMaterial only, for the renderer tests (gpu_driven_renderer_tests.cpp).
+veach_add_scene_shaders(veach-tests NAMESPACE test_shaders)
 veach_shader_library(veach-tests NAMESPACE test_shaders)
 target_compile_definitions(veach-tests PRIVATE VEACH_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 target_include_directories(veach-tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

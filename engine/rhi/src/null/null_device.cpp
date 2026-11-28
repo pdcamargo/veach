@@ -51,10 +51,19 @@ public:
     void refit_tlas(AccelHandle, std::span<const TlasInstance>) override {}
     void copy_texture_to_buffer(TextureHandle, BufferHandle) override {}
     void copy_buffer(BufferHandle, BufferHandle, std::uint64_t) override {}
+    void copy_buffer_regions(BufferHandle src, BufferHandle dst, std::span<const BufferCopy> regions) override {
+        check_buffer_copies(device_.buffer_desc(src), device_.buffer_desc(dst), regions);
+    }
     void copy_buffer_to_texture(BufferHandle, std::uint64_t, std::uint32_t, TextureHandle,
                                 const TextureRegion&) override {}
     void use(ResourceRef, ResourceState) override {}
-    void barrier(std::span<const Barrier>) override {}
+    void barrier(std::span<const Barrier> barriers) override {
+        for (const Barrier& b : barriers) {
+            if (b.resource.kind == ResourceKind::texture) {
+                check_barrier_mips(device_.texture_desc(TextureHandle{b.resource.index, b.resource.generation}), b);
+            }
+        }
+    }
     void push_debug_group(std::string_view) override {}
     void pop_debug_group() override {}
     void begin_timing(std::string_view) override {}

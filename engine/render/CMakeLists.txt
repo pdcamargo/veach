@@ -2,6 +2,7 @@ veach_add_engine_library(render
     SOURCES
         src/atmosphere.cpp
         src/backdrop.cpp
+        src/gpu_scene.cpp
         src/mesh_store.cpp
         src/realtime_renderer.cpp
         src/scene_renderer.cpp
@@ -22,9 +23,21 @@ veach_add_shader(veach_render shaders/exposure.slang ENTRIES exposure_histogram:
 # (veach_add_scene_shaders); this one also anchors the C++ parameter layout check (scene_renderer.cpp).
 veach_add_shader(veach_render shaders/path_tracer.slang ENTRIES trace_pixels:compute
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
-veach_add_shader(veach_render shaders/realtime_visibility.slang ENTRIES vis_vs:vertex vis_fs:fragment
+# The real-time renderer (ADR 0093). The visibility and shading passes are compiled per app with its materials
+# (veach_add_scene_shaders); these copies anchor the C++ parameter layout checks (realtime_renderer.cpp). Culling, the
+# HiZ pyramid and the classification run no material code.
+veach_add_shader(veach_render shaders/realtime_visibility.slang
+    ENTRIES vis_vs:vertex vis_fs:fragment vis_fs_masked:fragment
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
-veach_add_shader(veach_render shaders/realtime_shade.slang ENTRIES shade:compute
+veach_shade_bins("${CMAKE_CURRENT_BINARY_DIR}/generated" 1 _shade_entries)
+veach_add_shader(veach_render "${CMAKE_CURRENT_BINARY_DIR}/generated/realtime_shade_bins.slang"
+    ENTRIES ${_shade_entries} INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
+veach_add_shader(veach_render shaders/gpu_cull.slang
+    ENTRIES cull_reset:compute cull_instances:compute cull_meshlets:compute cull_recheck_meshlets:compute
+            cull_args:compute
+    INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
+veach_add_shader(veach_render shaders/hiz.slang ENTRIES hiz_reduce:compute)
+veach_add_shader(veach_render shaders/classify.slang ENTRIES classify:compute classify_args:compute
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
 veach_add_shader(veach_render shaders/atmosphere.slang ENTRIES transmittance_lut:compute multiscattering_lut:compute
     sky_view_lut:compute sky_irradiance:compute)

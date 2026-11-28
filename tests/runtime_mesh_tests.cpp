@@ -223,7 +223,8 @@ TEST_CASE("[rtmesh.AC5] GPU data is uploaded once per change and freed on remove
     CHECK(runtime_resources(*f.device) == 0);  // nothing until a frame draws it
     f.frame();
     const std::size_t per_mesh = runtime_resources(*f.device);
-    CHECK(per_mesh == 6);  // vertices, indices, slots, meshlets, meshlet vertices, meshlet triangles (no BLAS on null)
+    // vertices, indices, slots, meshlets, meshlet vertices, meshlet triangles, meshlet bounds (no BLAS on null)
+    CHECK(per_mesh == 7);
     const auto count_named = [&](std::string_view name) {
         const rhi::MemoryUsage usage = f.device->memory_usage();
         return std::ranges::count_if(usage.resources, [&](const rhi::ResourceMemory& r) { return r.name == name; });

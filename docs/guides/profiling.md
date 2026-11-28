@@ -98,3 +98,11 @@ Tracy records CPU zones only. GPU time comes from the render graph, which times 
 over MCP, `gpu_timings` returns the last completed frame's time per pass, in execution order, and the device's
 frame time ([mcp-server](../specs/mcp-server/spec.md)). Measure in a release or `profile` build on a real GPU; the
 null RHI reports why it has no timings.
+
+For a number to compare, let the engine take the median itself: `VEACH_GPU_TIMINGS=samples[,warmup]` (warmup
+defaults to 120 frames) makes the renderer log one `gpu_timings {"frames", "total_ms", "passes": {...}}` line with
+the median GPU ms of every pass over `samples` frames after frame `warmup`, while frames run back to back. Reading
+`gpu_timings` over MCP between single steps leaves the GPU idle, and an Apple GPU left idle clocks down: every pass,
+even untouched ones, then looks two to three times slower. The same holds when the CPU is the bottleneck, so compare
+builds at the same CPU cost per frame, or say what each one's was. `docs/research/gpu-driven/scripts/timings.py`
+drives a run this way, and resizes the window over MCP first.

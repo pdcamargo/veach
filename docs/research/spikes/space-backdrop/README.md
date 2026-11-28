@@ -55,4 +55,4 @@ half a radius up [day_s1_high_after.png](day_s1_high_after.png) and in orbit at 
 - **GPU cost.** `space backdrop` in deep space at 1440p, median of 60 frames: 0.300 ms before, 0.304 ms after (the
   gate returns early under a black sky).
 - **Seen on the way, not changed here:** at 10 degrees below the horizon the slice's sky is drawn in hard concentric
-  bands, before the fix as after; fixed since (ADR 0093, [twilight](../twilight/README.md)).
+  bands, before the fix as after; fixed since (ADR 0094, [twilight](../twilight/README.md)).

@@ -460,6 +460,17 @@ struct Barrier {
     /// The old contents are not needed (first use of a transient this frame). `before` is still the real
     /// previous state, so the barrier synchronizes with earlier frames' use; DX12 discards the layout.
     bool discard = false;
+    /// Textures: the mips it covers, every layer of each. `mip_count` 0 is the whole texture. The render graph tracks
+    /// a state per mip, so a pass can read one mip of a texture while it writes another (a HiZ pyramid's build).
+    std::uint32_t first_mip = 0;
+    std::uint32_t mip_count = 0;
+};
+
+/// One region of CommandList::copy_buffer_regions. Offsets and size are multiples of 4.
+struct BufferCopy {
+    std::uint64_t src_offset = 0;
+    std::uint64_t dst_offset = 0;
+    std::uint64_t size = 0;
 };
 
 }  // namespace veach::rhi

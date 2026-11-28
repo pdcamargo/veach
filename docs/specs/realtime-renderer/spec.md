@@ -4,6 +4,9 @@
 **Area:** render, asset
 **Owner:** dev lead
 
+> The interim path itself is gone: the [GPU-driven renderer](../gpu-driven-renderer/spec.md) (ADR 0093) draws every
+> camera without `PhotoMode` now. These criteria still hold for it and their tests still run.
+
 ## Summary
 
 The real-time image of a glTF scene until the research phase designs the real PBR rasterizer: a visibility buffer

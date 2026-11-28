@@ -1,6 +1,6 @@
 #pragma once
 
-// GPU records the scene renderer uploads and both renderers read (ADR 0040, ADR 0041). Each mirrors a Slang struct in
+// GPU records the scene renderer uploads and both renderers read (ADR 0093, ADR 0041). Each mirrors a Slang struct in
 // shaders/veach/scene.slang; the sizes are asserted here.
 
 #include <veach/core/math.hpp>
@@ -10,6 +10,7 @@
 #include "veach_render_shaders.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 namespace veach::render {
@@ -30,7 +31,7 @@ constexpr std::uint32_t alpha_blend = 1u << 5;
 constexpr std::uint32_t double_sided = 1u << 6;
 constexpr std::uint32_t emissive = 1u << 7;
 
-/// Mirrors InstanceRecord in shaders/veach/scene.slang.
+/// Mirrors InstanceRecord in shaders/veach/scene.slang: one per drawn mesh, kept in the GPU scene (gpu_scene.hpp).
 struct InstanceRecord {
     rhi::DescriptorHandle vertices;
     rhi::DescriptorHandle indices;
@@ -39,13 +40,22 @@ struct InstanceRecord {
     std::uint32_t flags = 0;
     std::array<math::vec4, 3> object_to_world{};
     std::array<math::vec4, 3> normal_to_world{};
+    std::array<math::vec4, 3> previous_object_to_world{};  ///< last frame's, in this frame's render space
     rhi::DescriptorHandle meshlets;
     rhi::DescriptorHandle meshlet_vertices;
     rhi::DescriptorHandle meshlet_triangles;
+    rhi::DescriptorHandle meshlet_bounds;
+    math::vec4 sphere{0.0f};  ///< object space: center, radius
     std::uint32_t meshlet_count = 0;
-    std::uint32_t pad = 0;
+    std::array<std::uint32_t, 3> pad{};
 };
-static_assert(sizeof(InstanceRecord) == 160);
+static_assert(sizeof(InstanceRecord) == 240);
+static_assert(offsetof(InstanceRecord, object_to_world) == 32);
+static_assert(offsetof(InstanceRecord, previous_object_to_world) == 128);
+static_assert(offsetof(InstanceRecord, meshlets) == 176);
+static_assert(offsetof(InstanceRecord, sphere) == 208);
+static_assert(offsetof(InstanceRecord, meshlet_count) == 224);
+constexpr std::uint32_t instance_cone_culling = 1u << 1;  ///< InstanceRecord::flags: normal cones hold in render space
 
 /// Mirrors LightRecord.
 struct LightRecord {

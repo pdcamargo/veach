@@ -35,10 +35,10 @@ Changing any of these needs the product owner's sign-off and a superseding ADR.
     (the owner's decision, [ADR 0066](adr/0066-owner-decisions-research-phase.md)); a base M1-class GPU at 1080p60 on
     the low preset is the working minimum. ([ADR 0003](adr/0003-platforms-and-hardware-target.md))
 11. **The real-time renderer is a rasterizer:** no real-time GI, no real-time path tracing.
-    ([ADR 0039](adr/0039-realtime-renderer-is-raster-pbr.md)) The planned renderer is a GPU-driven visibility
-    buffer with clustered lights and forward transparency
-    ([ADR 0060](adr/0060-gpu-driven-visibility-buffer.md), superseding
-    [ADR 0040](adr/0040-interim-realtime-path-visibility-buffer.md)).
+    ([ADR 0039](adr/0039-realtime-renderer-is-raster-pbr.md)) It is a GPU-driven visibility buffer with clustered
+    lights and forward transparency ([ADR 0060](adr/0060-gpu-driven-visibility-buffer.md), superseding
+    [ADR 0040](adr/0040-interim-realtime-path-visibility-buffer.md)); its core is in code
+    ([ADR 0093](adr/0093-gpu-driven-core.md)).
 12. **The engine never knows the space toolbox exists.** `space/` sits on top of `veach::veach`; nothing under
     `engine/` names it, and generic needs of the toolbox move down into the engine.
     ([ADR 0042](adr/0042-space-toolbox-layering.md))
@@ -181,12 +181,13 @@ bindless `DescriptorHandle`s in a small parameter block ([ADR 0027](adr/0027-res
 are compiled from Slang at build time for every target ([ADR 0009](adr/0009-shader-compilation.md)). Guide:
 [rendering](guides/rendering.md).
 
-The scene renderer draws each camera one of two ways. Without `PhotoMode`, the **real-time renderer**: in code today
-an interim visibility-buffer path with basic, unshadowed shading and no ray tracing
-([ADR 0040](adr/0040-interim-realtime-path-visibility-buffer.md)). The planned renderer grows it into a GPU-driven
-visibility buffer with clustered lights and forward transparency
-([ADR 0060](adr/0060-gpu-driven-visibility-buffer.md), which supersedes 0040). Extraction will compute every
-position camera-relative in double and hand the GPU float32 only, so `RenderWorld` holds no absolute positions
+The scene renderer draws each camera one of two ways. Without `PhotoMode`, the **real-time renderer**: a GPU-driven
+visibility buffer ([ADR 0060](adr/0060-gpu-driven-visibility-buffer.md)). Its core is in code
+([ADR 0093](adr/0093-gpu-driven-core.md)): a persistent GPU scene of instance records, culling of instances and
+meshlets in compute with two-phase HiZ occlusion into indirect draw lists, a visibility pass that also writes motion
+vectors, and shading binned by material kind; lighting is still basic and unshadowed (clustered lights, shadows and
+forward transparency come next). Extraction computes every position camera-relative in double and hands the GPU
+float32 only, so `RenderWorld` holds no absolute positions
 ([ADR 0045](adr/0045-large-world-positions-and-reference-frames.md)). With `PhotoMode`, **photo mode**: the reference path tracer, accumulating while nothing changes, on devices with
 hardware ray tracing ([ADR 0041](adr/0041-photo-mode.md)). Both share the Slang materials, lights, sky and display
 transform.

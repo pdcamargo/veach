@@ -3,7 +3,9 @@
 #include <veach/core/assert.hpp>
 #include <veach/rhi/types.hpp>
 
+#include <algorithm>
 #include <cstdint>
+#include <span>
 #include <string_view>
 
 namespace veach::rhi {
@@ -28,6 +30,28 @@ inline void check_index_buffer(const BufferDesc* indices, [[maybe_unused]] std::
     VEACH_ASSERT(indices != nullptr, "{}: invalid index buffer", call);
     VEACH_ASSERT(has(indices->usage, BufferUsage::index), "{}: buffer '{}' was not created with BufferUsage::index",
                  call, indices->debug_name);
+}
+
+/// copy_buffer_regions: every region 4-byte aligned and inside both buffers.
+inline void check_buffer_copies([[maybe_unused]] const BufferDesc* src, [[maybe_unused]] const BufferDesc* dst,
+                                std::span<const BufferCopy> regions) {
+    VEACH_ASSERT(src != nullptr && dst != nullptr, "copy_buffer_regions: invalid buffers");
+    for ([[maybe_unused]] const BufferCopy& r : regions) {
+        VEACH_ASSERT(r.src_offset % 4 == 0 && r.dst_offset % 4 == 0 && r.size % 4 == 0,
+                     "copy_buffer_regions: offsets {} and {} and size {} must be multiples of 4", r.src_offset,
+                     r.dst_offset, r.size);
+        VEACH_ASSERT(r.src_offset + r.size <= src->size && r.dst_offset + r.size <= dst->size,
+                     "copy_buffer_regions: {} bytes from {} to {} do not fit '{}' ({} bytes) and '{}' ({} bytes)",
+                     r.size, r.src_offset, r.dst_offset, src->debug_name, src->size, dst->debug_name, dst->size);
+    }
+}
+
+/// A barrier's mips lie inside its texture (null: a texture the backend does not describe, a swapchain image).
+inline void check_barrier_mips([[maybe_unused]] const TextureDesc* texture, [[maybe_unused]] const Barrier& b) {
+    VEACH_ASSERT(
+        texture == nullptr || b.mip_count == 0 || b.first_mip + b.mip_count <= std::max(1u, texture->mip_levels),
+        "barrier on mips {}..{} of '{}', which has {}", b.first_mip, b.first_mip + b.mip_count, texture->debug_name,
+        texture->mip_levels);
 }
 
 }  // namespace veach::rhi

@@ -1,4 +1,4 @@
-// The scene on the GPU, as both renderers read it (ADR 0040, ADR 0041): instance, material, light and emitter
+// The scene on the GPU, as both renderers read it (ADR 0093, ADR 0041): instance, material, light and emitter
 // records, surface reconstruction from barycentrics, alpha coverage, and photo mode's ray tracing with alpha
 // continuation. Entry points fill `veach_scene` from their parameters before calling anything here. Layouts
 // mirror render::InstanceRecord, LightRecord and EmissiveTriangle (render/src/scene_records.hpp).
@@ -8,25 +8,32 @@ import veach.material;
 import veach.materials_generated;  // evaluateSurface(kind, c), evaluateAlpha(kind, c)
 import veach.random;
 
-/// Mirrors render::InstanceRecord: 160 bytes per instance.
+/// Mirrors render::InstanceRecord: 240 bytes per instance, in the GPU scene's persistent buffer (ADR 0093).
 struct InstanceRecord {
     DescriptorHandle<StructuredBuffer<float>> vertices;  ///< 12 floats per vertex: position, normal, tangent, uv
     DescriptorHandle<StructuredBuffer<uint>> indices;
     DescriptorHandle<StructuredBuffer<uint>> slots;  ///< material slot per triangle
     uint material_base;                                 ///< slot 0's index in the material buffer
-    uint flags;                                         ///< instance_has_alpha
-    float4 object_to_world[3];  ///< rows of a 3x4 matrix
-    float4 normal_to_world[3];  ///< rows of the inverse transpose
+    uint flags;                                         ///< instance_has_alpha, instance_cone_culling
+    float4 object_to_world[3];           ///< rows of a 3x4 matrix: render space from object
+    float4 normal_to_world[3];           ///< rows of the inverse transpose
+    float4 previous_object_to_world[3];  ///< last frame's, in this frame's render space (motion vectors)
     // Meshlets (ADR 0011): 8 uints per meshlet (offsets, counts, slot, lod, parent, flags), a mesh vertex index
-    // per meshlet vertex, 3 local vertex indices packed per triangle.
+    // per meshlet vertex, 3 local vertex indices packed per triangle, and 3 float4s of bounds per meshlet (sphere,
+    // normal cone, error).
     DescriptorHandle<StructuredBuffer<uint>> meshlets;
     DescriptorHandle<StructuredBuffer<uint>> meshlet_vertices;
     DescriptorHandle<StructuredBuffer<uint>> meshlet_triangles;
+    DescriptorHandle<StructuredBuffer<float4>> meshlet_bounds;
+    float4 sphere;  ///< object space: center, radius
     uint meshlet_count;
-    uint pad;
+    uint pad0;
+    uint pad1;
+    uint pad2;
 };
 
-static const uint instance_has_alpha = 1;  ///< some slot is alpha-masked or blended
+static const uint instance_has_alpha = 1;     ///< some slot is alpha-masked or blended
+static const uint instance_cone_culling = 2;  ///< uniform scale, not mirrored: normal cones hold in render space
 
 static const uint light_directional = 0;
 static const uint light_point = 1;

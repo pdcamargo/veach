@@ -103,4 +103,5 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0090 | [Texture kinds as types with layer-addressed faces, uploads through a frame-recycled ring, raster state as presets](0090-rhi-texture-kinds-updates-and-raster-state.md) | Accepted |
 | 0091 | [The space backdrop: a baked band and nebulae, stars per pixel, its own exposure](0091-space-backdrop.md) | Accepted |
 | 0092 | [Aerial perspective follows each ray through the air; caves are found by the camera's sky visibility](0092-aerial-perspective-follows-the-air.md) | Accepted |
-| 0093 | [Atmosphere luminance tables in float32; a march step is lit for its part outside the planet's shadow](0093-twilight-precision.md) | Accepted |
+| 0093 | [The GPU-driven core: a persistent GPU scene, two-phase meshlet culling, binned shading](0093-gpu-driven-core.md) | Accepted |
+| 0094 | [Atmosphere luminance tables in float32; a march step is lit for its part outside the planet's shadow](0094-twilight-precision.md) | Accepted |

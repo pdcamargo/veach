@@ -22,6 +22,7 @@ Veach is MIT-licensed (see [LICENSE](LICENSE)). It includes or links the third-p
 | [simdutf](https://github.com/simdutf/simdutf) | 9.3.3 | Apache-2.0 or MIT (Veach uses simdutf under its MIT option) | Engine, through fastgltf (base64 decoding). Downloaded by fastgltf's build. |
 | [meshoptimizer](https://github.com/zeux/meshoptimizer) | 1.3 | MIT | Engine (meshlets at cook time). |
 | [bc7enc_rdo](https://github.com/richgel999/bc7enc_rdo) | b943862 | MIT or public domain (your choice) | Engine texture cooking (BC7 encoding); its decoder in tests. Only `bc7enc.cpp` and `bc7decomp.cpp` are built. |
+| [Jolt Physics](https://github.com/jrouwe/JoltPhysics) | 5.7.0 | MIT | Engine (rigid-body physics, private to `engine/physics`, ADR 0058); today only the SP-11 spike in `tests/sp11/`. |
 | [LLVM libc](https://github.com/llvm/llvm-project/tree/main/libc) (header-only math, `libc/shared/math`) | e6091a8 | Apache-2.0 WITH LLVM-exception | Engine (`veach::dmath`, correctly rounded math for canonical code). Headers only, compiled into `veach_core`. |
 | [Transvoxel data tables](https://github.com/EricLengyel/Transvoxel) (Eric Lengyel) | 51a494f | MIT | Engine (`veach::voxel`, spike SP-08: marching cubes and Transvoxel lookup tables). Vendored as `engine/voxel/src/transvoxel_tables.inl`. |
 | [DirectX 12 Agility SDK](https://aka.ms/directx12agility) (NuGet `Microsoft.Direct3D.D3D12`) | 1.620.2 | Microsoft Software License Terms (runtime DLLs); MIT (headers) | Windows builds only: headers, plus `D3D12Core.dll` and `d3d12SDKLayers.dll` copied next to each executable. |
@@ -711,6 +712,23 @@ AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
 ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ------------------------------------------------------------------------------
+```
+
+## Jolt Physics 5.7.0
+
+Source: https://github.com/jrouwe/JoltPhysics  
+License: MIT
+
+Rigid-body physics, built with double-precision positions and cross-platform determinism.
+
+```text
+Copyright 2021 Jorrit Rouwe
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 ## LLVM libc (e6091a8)

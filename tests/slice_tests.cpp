@@ -12,8 +12,8 @@
 #include <doctest/doctest.h>
 
 #include <format>
-#include <ostream>  // doctest prints string_view and string operands (MSVC needs it declared)
 #include <memory>
+#include <ostream>  // doctest prints string_view and string operands (MSVC needs it declared)
 #include <string>
 #include <vector>
 

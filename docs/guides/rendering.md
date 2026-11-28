@@ -172,7 +172,10 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   <ns>::realtime_visibility(), <ns>::realtime_shade()}, <ns>::material_kinds, assets)`. It keeps the scene on the GPU
   (meshes with their meshlets, material and light records) and draws each view with the renderer its camera asks for.
   Both share surface reconstruction and the BRDF (`veach/scene.slang`, `veach/brdf.slang`), so a material is the same
-  surface in both.
+  surface in both. Sidedness means something: a double-sided material is a thin sheet whose triangle is the surface; a
+  single-sided one bounds a solid whose vertex normals are the surface, so a triangle of it seen edge-on or from behind
+  (a fold, a Transvoxel seam) shades like the surface around it
+  ([VCH-108](../research/notes/vch-108-pinholes.md)).
 - **The real-time renderer** ([spec](../specs/realtime-renderer/spec.md)) draws a camera without `PhotoMode`:
   1. `visibility`: meshlet triangles into an `rg32_uint` visibility buffer, vertex pulling, reverse-Z depth;
   2. `shade`: one compute pass rebuilds each pixel's surface and lights it with every punctual light (unshadowed),

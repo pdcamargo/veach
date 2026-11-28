@@ -180,7 +180,7 @@ ADR 0053 reopens if "surface nets wins clearly". It doesn't.
 
 ## Follow-ups
 
-- Find the multi-primitive pinhole bug in the importer or the visibility path (a backlog item).
+- ~~Find the multi-primitive pinhole bug in the importer or the visibility path.~~ Done in VCH-108: shading, not the importer; both renderer-side artifacts were the transition triangles' lighting ([note](../notes/vch-108-pinholes.md)).
 - Shrink rule at chunk edges that moves the flat transition triangles off the face plane without breaking same-level
   seams (both chunks must apply the same rule from the same masks), or shade terrain without the back-face normal flip.
 - Secondary positions per vertex and per-face transition ranges, if decision 2 keeps the shader toggle.

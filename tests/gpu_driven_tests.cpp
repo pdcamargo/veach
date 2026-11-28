@@ -13,6 +13,7 @@
 #include <doctest/doctest.h>
 
 #include <array>
+#include <chrono>
 #include <cstring>
 #include <span>
 #include <thread>

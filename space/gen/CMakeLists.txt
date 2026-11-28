@@ -3,6 +3,7 @@
 # runtime (veach::procgen, VCH-112; stages.hpp), which also gives them their seeds and record hashing.
 add_library(veach_space_gen STATIC
     src/address.cpp
+    src/atmosphere.cpp  # VCH-115: the stage space:body.atmosphere
     src/realize.cpp
     src/stages.cpp
     src/system.cpp)

@@ -19,6 +19,7 @@ veach::Result<Stages> register_stages(pg::StageRegistry& registry, const Univers
     using HashUniverse = std::uint64_t (*)(const UniverseRecord&);
     using HashSystem = std::uint64_t (*)(const SystemRecord&);
     using HashBodies = std::uint64_t (*)(const BodyPhysicsSet&);
+    using HashAtmospheres = std::uint64_t (*)(const AtmosphereSet&);
     auto universe =
         registry.add<UniverseRecord>({.id = std::string(universe_stage_id), .version = universe_stage_version},
                                      HashUniverse{&stage_hash}, [settings](const pg::StageContext& ctx) {
@@ -47,7 +48,16 @@ veach::Result<Stages> register_stages(pg::StageRegistry& registry, const Univers
     if (!bodies) {
         return std::unexpected(bodies.error());
     }
-    return Stages{*universe, *system, *bodies};
+    auto atmospheres = registry.add<AtmosphereSet>(
+        {.id = std::string(atmosphere_stage_id), .version = atmosphere_stage_version}, HashAtmospheres{&stage_hash},
+        [](const pg::StageContext& ctx, const SystemRecord& s, const BodyPhysicsSet& b) {
+            return derive_all_atmospheres(ctx, s, b);
+        },
+        pg::from(*system), pg::from(*bodies));
+    if (!atmospheres) {
+        return std::unexpected(atmospheres.error());
+    }
+    return Stages{*universe, *system, *bodies, *atmospheres};
 }
 
 }  // namespace space::gen

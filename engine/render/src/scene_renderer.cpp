@@ -128,9 +128,10 @@ struct SceneRenderer::Impl {
     rhi::Device* device = nullptr;
     rhi::PipelineHandle pipeline;
     rhi::PipelineHandle display_pipeline;
-    RealtimeRenderer realtime;            ///< ADR 0093
-    std::unique_ptr<GpuScene> gpu_scene;  ///< the instances both renderers read
-    AtmosphereRenderer atmosphere;        ///< ADR 0038
+    RealtimeRenderer realtime;                   ///< ADR 0093
+    std::unique_ptr<GpuScene> gpu_scene;         ///< the instances both renderers read
+    std::vector<MaterialRecord> last_materials;  ///< the frame before's, to tell a still scene (cached shadows)
+    AtmosphereRenderer atmosphere;               ///< ADR 0038
     bool warned_no_sky = false;
     rhi::SamplerHandle sampler;
     std::unordered_map<AssetId, GpuMesh> meshes;
@@ -779,6 +780,11 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
 
     if (!photo) {
         // ---- the real-time renderer (ADR 0093).
+        // Nothing moved, came, went or changed its material since the frame before: cached shadow cascades hold.
+        const bool still = s.gpu_scene->still() && materials.size() == s.last_materials.size() &&
+                           (materials.empty() || std::memcmp(materials.data(), s.last_materials.data(),
+                                                             materials.size() * sizeof(MaterialRecord)) == 0);
+        s.last_materials = materials;
         const RealtimeScene realtime{.read_meshes = read_meshes,
                                      .read_geometry = read_geometry,
                                      .instances = instance_data,
@@ -789,7 +795,8 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
                                      .lights = light_buffer,
                                      .light_count = static_cast<std::uint32_t>(lights.size()),
                                      .sky = sky.frame,
-                                     .read_sky = sky.read};
+                                     .read_sky = sky.read,
+                                     .still = still};
         s.realtime.record(graph, frame, *view, realtime);
         return;
     }

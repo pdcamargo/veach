@@ -34,6 +34,9 @@ renderer pass (VCH-142).
   camera's depth, marked on each cascade's map as far as its lookups reach) and where they hide behind other casters
   as the light sees them (two-phase occlusion from the light: last frame's map of the cascade, then this frame's first
   phase), and the shading MUST skip the filter where every texel it could read is nearer the light (VCH-143).
+- The last two cascades (of three or four) MUST be kept from frame to frame while nothing in the scene, the render
+  frame or the lights changed since the frame before and their map still covers the slice they serve: drawn whole
+  once, with spheres 1.125 times their slice's (always, so their texels never change size), then not drawn again.
 - Casters between a cascade and the light MUST cast even when they lie beyond its near plane.
 - Acne and peter-panning MUST be held off by a slope-scaled raster bias on the casters and a normal offset and a
   constant bias on the receivers, sized in texels of each cascade.
@@ -97,13 +100,16 @@ const float shadow = light_shadow(shadows, i, position, facing, l, cos_l, view_d
 - **shadows.AC8** — On the GPU: a box hidden from the sun behind a roof, its shadow on a floor the camera sees, and a
   box whose shadow falls on floor the roof hides from the camera, are not drawn into the cascade; the image is the
   frame's before the culling knew of them.
+- **shadows.AC9** — On the GPU: in a still scene the third cascade is drawn by its receivers on the first frame, whole
+  on the second, then not at all, with the image unchanged; a box that moves has it drawn again until the scene is
+  still for a frame, then kept again.
 
 ## Out of scope
 
 - Shadows of point and spot lights, cloud shadows, ring shadows (ADR 0062's analytic occluders; eclipses already dim
   the sun's radiance), far-terrain self-shadowing beyond the last cascade (a horizon map from the toolbox's coarse
-  heights), cached or staggered cascades, quality presets choosing the cascade count and resolution (ADR 0064):
-  VCH-143.
+  heights), quality presets choosing the cascade count and resolution (ADR 0064), cached cascades in a scene where
+  something always moves (a static/dynamic caster split): VCH-143.
 - Temporal filtering of the penumbrae (with TAA, ADR 0061).
 
 ## Open questions

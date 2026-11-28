@@ -34,7 +34,11 @@ struct PyramidParams {
     float depth_margin;   ///< shadow-map texels the receiver's lookup point may lie farther from the light
     uint first_layer;     ///< pyramid_reduce, occluders_build: the first pyramid (z = 0) they write
     uint map_size;        ///< occluders_build: the map's texels per side
-    uint receivers;       ///< occluders_build: 1 if pyramids [0, first_layer) hold this frame's receivers
+    uint receivers;       ///< occluders_build: 1 if pyramid map_layer holds this frame's receivers for it
+    uint map_layer;       ///< occluders_build: the map's layer (z = 0) it reads
+    uint pad0;
+    uint pad1;
+    uint pad2;
 };
 [[vk::push_constant]] ConstantBuffer<PyramidParams> params;
 
@@ -279,16 +283,17 @@ void pyramid_reduce(uint3 id: SV_DispatchThreadID, uint3 thread: SV_GroupThreadI
 
 groupshared uint build_wave[1];
 
-/// Level 0 of the occluder pyramid of map layer z (pyramid first_layer + z): each group the smallest depth of one
-/// grid texel's map texels, [g * map_size / mask_size, (g + 1) * map_size / mask_size) per axis. Where this frame's
-/// receivers (pyramid z, when `receivers` is set) mark nothing, no lookup reads the map and anything there may be
-/// dropped: the texel is FLT_MAX, and the map is not read.
+/// Level 0 of the occluder pyramid of map layer map_layer + z (pyramid first_layer + z): each group the smallest depth
+/// of one grid texel's map texels, [g * map_size / mask_size, (g + 1) * map_size / mask_size) per axis. Where this
+/// frame's receivers (pyramid map_layer + z, when `receivers` is set) mark nothing, no lookup reads the map and
+/// anything there may be dropped: the texel is FLT_MAX, and the map is not read.
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void occluders_build(uint3 group: SV_GroupID, uint3 thread: SV_GroupThreadID, uint index: SV_GroupIndex) {
     const uint cell = group.y * params.mask_size + group.x;
+    const uint layer = params.map_layer + group.z;
     const uint target = (params.first_layer + group.z) * params.layer_stride + cell;
-    if (params.receivers != 0 && params.pyramids[group.z * params.layer_stride + cell] == empty) {
+    if (params.receivers != 0 && params.pyramids[layer * params.layer_stride + cell] == empty) {
         if (index == 0) {
             params.pyramids[target] = empty;
         }
@@ -299,7 +304,7 @@ void occluders_build(uint3 group: SV_GroupID, uint3 thread: SV_GroupThreadID, ui
     float farthest = 3.4e38;
     for (uint y = lo.y + thread.y; y < hi.y; y += 8) {
         for (uint x = lo.x + thread.x; x < hi.x; x += 8) {
-            farthest = min(farthest, params.map.Load(int4(int(x), int(y), int(group.z), 0)));
+            farthest = min(farthest, params.map.Load(int4(int(x), int(y), int(layer), 0)));
         }
     }
     const float wave = WaveActiveMin(farthest);

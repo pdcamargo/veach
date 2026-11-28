@@ -123,19 +123,14 @@ bool casts_into_view(CullView v, Sphere s) {
 /// `view_projection`, and the sphere's nearest depth to the light in `nearest`; a negative value if the footprint is
 /// off the map. The footprint and the level follow occluded()'s.
 float pyramid_farthest(CullView v, uint base, float4x4 view_projection, Sphere s, out float nearest) {
-    float2 lo = float2(1e30, 1e30);
-    float2 hi = float2(-1e30, -1e30);
-    nearest = -1e30;
-    [unroll]
-    for (uint i = 0; i < 8; ++i) {
-        const float3 corner = s.center + s.radius * float3((i & 1) != 0 ? 1.0 : -1.0, (i & 2) != 0 ? 1.0 : -1.0,
-                                                           (i & 4) != 0 ? 1.0 : -1.0);
-        const float4 clip = mul(view_projection, float4(corner, 1.0));  // orthographic: w is 1
-        const float2 uv = float2(clip.x * 0.5 + 0.5, 0.5 - clip.y * 0.5);
-        lo = min(lo, uv);
-        hi = max(hi, uv);
-        nearest = max(nearest, clip.z);  // reverse-Z: nearer the light is larger
-    }
+    // Orthographic: the sphere's box on the map is its center's projection give or take its radius on each axis.
+    const float4 clip = mul(view_projection, float4(s.center, 1.0));
+    const float3 reach = s.radius * float3(length(view_projection[0].xyz), length(view_projection[1].xyz),
+                                           length(view_projection[2].xyz));
+    const float2 at = float2(clip.x * 0.5 + 0.5, 0.5 - clip.y * 0.5);
+    const float2 lo = at - 0.5 * reach.xy;
+    const float2 hi = at + 0.5 * reach.xy;
+    nearest = clip.z + reach.z;  // reverse-Z: nearer the light is larger
     if (any(hi < float2(0.0, 0.0)) || any(lo > float2(1.0, 1.0))) {
         return -1.0;
     }

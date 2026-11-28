@@ -322,3 +322,94 @@ TEST_CASE("[shadows.AC8] casters that shadow no visible pixel, or hide behind ot
     }
     CHECK_MESSAGE(logs.errors().empty(), logs.errors());
 }
+
+TEST_CASE("[shadows.AC9] a still scene keeps its far cascades until something moves") {
+    test::LogCapture logs;
+    {
+        std::unique_ptr<rhi::Device> device = test::gpu_device();
+        if (!device) {
+            MESSAGE("skipped: no GPU device");
+            return;
+        }
+        test::TempProject project{"sun-shadow-cache"};
+        World world;
+        AssetServer assets{world, project.path()};
+        world.import<CoreModule>();
+        world.component<Camera>();
+        world.component<RuntimeMeshInstance>();
+        world.component<DirectionalLight>();
+        world.component<Sky>();
+        world.component<SunShadows>();
+        render::Renderer renderer(*device);
+        auto owned = std::make_unique<render::SceneRenderer>(
+            render::SceneShaders{test_shaders::path_tracer(), test_shaders::realtime_visibility(),
+                                 test_shaders::realtime_shade_bins()},
+            test_shaders::material_kinds, assets);
+        render::SceneRenderer* scene = owned.get();
+        renderer.add_feature(std::move(owned));
+        render::MeshData data = cube();
+        data.materials = {renderer.meshes().add_material(
+            {.name = "grey", .base_color = {0.6f, 0.6f, 0.6f, 1.0f}, .metallic = 0.0f, .roughness = 0.8f})};
+        const AssetId box = *renderer.meshes().add(data);
+        const auto place = [&](const char* name, math::dvec3 at, math::vec3 scale) {
+            return world.entity(name)
+                .set(Transform{at, math::quat(1.0f, 0.0f, 0.0f, 0.0f), scale})
+                .set(RuntimeMeshInstance{box});
+        };
+        // Seen from 100 m up, the floor and the boxes on it are in the third cascade (view depths 56 to 250 m), one of
+        // the two that cache.
+        place("floor", {0.0, -0.1, 0.0}, {300.0f, 0.2f, 300.0f});
+        place("tower", {-10.0, 10.0, 0.0}, {4.0f, 20.0f, 4.0f});
+        const Entity mover = place("mover", {20.0, 3.0, 10.0}, math::vec3(6.0f));
+        const math::vec3 travel = math::normalize(math::vec3(1.0f, -1.0f, 0.0f));
+        world.entity("sun")
+            .set(Transform{{0.0, 0.0, 0.0}, math::quatLookAtRH(travel, math::vec3(0, 0, 1)), math::vec3(1.0f)})
+            .set(DirectionalLight{math::vec3(1.0f), 5.0f});
+        world.entity("sky").set(Sky{.mode = SkyMode::constant, .color = math::vec3(0.2f, 0.3f, 0.5f)});
+        world.entity("camera")
+            .set(Transform{{0.0, 100.0, 0.0},
+                           math::angleAxis(-std::numbers::pi_v<float> / 2.0f, math::vec3(1, 0, 0)),
+                           math::vec3(1.0f)})
+            .set(Camera{math::radians(60.0f), 0.1f, true});
+        const render::CullStats& stats = scene->cull_stats();
+        const auto capture = [&] {
+            propagate_transforms(world);
+            renderer.extract(world);
+            render::Image out;
+            renderer.request_capture([&](Result<render::Image> image) {
+                REQUIRE(image.has_value());
+                out = std::move(*image);
+            });
+            renderer.render();
+            renderer.readbacks().flush();
+            REQUIRE(stats.shadow_meshlets_drawn.size() == 4);
+            return out;
+        };
+        const auto drawn = [&] {
+            return stats.shadow_meshlets_drawn[2];
+        };
+        const render::Image first = capture();  // no frame before: culled by its receivers
+        CHECK(drawn() > 0);
+        capture();  // still since the frame before: drawn whole, kept
+        CHECK(drawn() > 0);
+        capture();
+        CHECK(drawn() == 0);  // kept
+        const render::Image kept = capture();
+        CHECK(drawn() == 0);
+        int worst = 0;
+        for (std::size_t i = 0; i < first.rgba.size(); ++i) {
+            worst = std::max(worst, std::abs(int{first.rgba[i]} - int{kept.rgba[i]}));
+        }
+        CHECK(worst <= 1);  // the kept cascade shadows as the drawn one did
+
+        mover.set(Transform{{25.0, 3.0, 10.0}, math::quat(1.0f, 0.0f, 0.0f, 0.0f), math::vec3(6.0f)});
+        capture();
+        CHECK(drawn() > 0);  // something moved: drawn again
+        capture();           // its motion settles (last frame's transform)
+        capture();           // still again: drawn whole
+        capture();
+        CHECK(drawn() == 0);
+        device->wait_idle();
+    }
+    CHECK_MESSAGE(logs.errors().empty(), logs.errors());
+}

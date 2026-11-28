@@ -28,6 +28,9 @@ constexpr float cascade_blend = 0.1f;  ///< the share of a cascade's far distanc
 /// would be under a texel (the far cascades' small details).
 constexpr float small_caster_texels = 0.35f;
 constexpr float fade_share = 0.2f;  ///< the last cascade fades out over this share of the distance
+/// A cached cascade's sphere is this many times its slice's: the camera can move by the difference before the cached
+/// map stops covering the slice (12.5% wider texels in the far cascades, which are 35 cm and more at 2048^2).
+constexpr float cache_radius_scale = 1.125f;
 /// Rasterized bias on the casters (reverse-Z: negative pushes them away from the light), against the acne the
 /// receiver's own offsets leave on steep slopes.
 constexpr rhi::DepthBias caster_bias{.constant = 0, .slope = -1.5f, .clamp = 0.0f};
@@ -50,16 +53,32 @@ struct alignas(16) PyramidParams {
     std::uint32_t first_layer = 0;
     std::uint32_t map_size = 0;
     std::uint32_t receivers = 0;
+    std::uint32_t map_layer = 0;
+    std::uint32_t pad0 = 0;
+    std::uint32_t pad1 = 0;
+    std::uint32_t pad2 = 0;
 };
-static_assert(rhi::parameters_match<PyramidParams>(
-    veach_render_shaders::layout::shadow_pyramids,
-    {VEACH_PARAM(PyramidParams, inverse_view_projection), VEACH_PARAM(PyramidParams, depth),
-     VEACH_PARAM(PyramidParams, shadows), VEACH_PARAM(PyramidParams, pyramids), VEACH_PARAM(PyramidParams, map),
-     VEACH_PARAM(PyramidParams, size), VEACH_PARAM(PyramidParams, mask_size), VEACH_PARAM(PyramidParams, levels),
-     VEACH_PARAM(PyramidParams, layer_stride), VEACH_PARAM(PyramidParams, count), VEACH_PARAM(PyramidParams, level),
-     VEACH_PARAM(PyramidParams, margin_texels), VEACH_PARAM(PyramidParams, depth_margin),
-     VEACH_PARAM(PyramidParams, first_layer), VEACH_PARAM(PyramidParams, map_size),
-     VEACH_PARAM(PyramidParams, receivers)}));
+static_assert(rhi::parameters_match<PyramidParams>(veach_render_shaders::layout::shadow_pyramids,
+                                                   {VEACH_PARAM(PyramidParams, inverse_view_projection),
+                                                    VEACH_PARAM(PyramidParams, depth),
+                                                    VEACH_PARAM(PyramidParams, shadows),
+                                                    VEACH_PARAM(PyramidParams, pyramids),
+                                                    VEACH_PARAM(PyramidParams, map),
+                                                    VEACH_PARAM(PyramidParams, size),
+                                                    VEACH_PARAM(PyramidParams, mask_size),
+                                                    VEACH_PARAM(PyramidParams, levels),
+                                                    VEACH_PARAM(PyramidParams, layer_stride),
+                                                    VEACH_PARAM(PyramidParams, count),
+                                                    VEACH_PARAM(PyramidParams, level),
+                                                    VEACH_PARAM(PyramidParams, margin_texels),
+                                                    VEACH_PARAM(PyramidParams, depth_margin),
+                                                    VEACH_PARAM(PyramidParams, first_layer),
+                                                    VEACH_PARAM(PyramidParams, map_size),
+                                                    VEACH_PARAM(PyramidParams, receivers),
+                                                    VEACH_PARAM(PyramidParams, map_layer),
+                                                    VEACH_PARAM(PyramidParams, pad0),
+                                                    VEACH_PARAM(PyramidParams, pad1),
+                                                    VEACH_PARAM(PyramidParams, pad2)}));
 
 /// The culling pyramids' level 0 has a texel per 16 x 16 texels of the map (16 to 256 per side), so a lookup's reach
 /// (receiver_margin_texels) touches at most 2 x 2 of them.
@@ -88,7 +107,7 @@ std::array<float, max_shadow_cascades> cascade_splits(float distance, std::uint3
 }
 
 CascadeFit fit_cascade(const RenderView& view, const math::dvec3& origin, math::vec3 l, float near, float far,
-                       std::uint32_t resolution, float toward_light) {
+                       std::uint32_t resolution, float toward_light, float radius_scale) {
     // The slice's bounding sphere: on the view axis, through its far corners (and its near ones when it fits both).
     const float tan_x = 1.0f / view.projection[0][0];
     const float tan_y = 1.0f / view.projection[1][1];
@@ -101,6 +120,7 @@ CascadeFit fit_cascade(const RenderView& view, const math::dvec3& origin, math::
     } else {
         radius = std::sqrt((far - along) * (far - along) + far * far * k2);
     }
+    radius *= radius_scale;
     const math::mat4 world_from_view = math::inverse(view.view);
     const math::vec3 forward = -math::normalize(math::vec3(world_from_view[2]));
     const math::vec3 eye(world_from_view[3]);
@@ -128,6 +148,8 @@ CascadeFit fit_cascade(const RenderView& view, const math::dvec3& origin, math::
     const float range = radius + std::max(2.0f * radius, toward_light);
     CascadeFit fit;
     fit.center = center;
+    fit.x = x;
+    fit.y = y;
     fit.radius = radius;
     fit.texel = texel;
     fit.depth_range = range;
@@ -224,6 +246,24 @@ struct ShadowRenderer::Impl {
         bool valid = false;
     };
     std::array<Previous, max_shadowed_lights * max_shadow_cascades> previous{};
+    /// A cached cascade (the far ones): the fit its map and occluder pyramid were last drawn whole with.
+    struct Cached {
+        CascadeFit fit;
+        bool valid = false;
+    };
+    std::array<Cached, max_shadowed_lights * max_shadow_cascades> cached{};
+    /// What the frame before rendered with: a cached cascade holds only while none of it changed.
+    struct Last {
+        std::uint64_t space_frame = 0;
+        math::dvec3 origin{0.0};
+        std::vector<std::uint32_t> lights;
+        std::array<math::vec3, max_shadowed_lights> towards{};
+        std::uint32_t resolution = 0;
+        std::uint32_t cascade_count = 0;
+        float distance = 0.0f;
+        bool valid = false;
+    };
+    Last last;
     std::uint32_t pyramid_layers = 0;  ///< the layer count and size the occluder pyramids were built for
     std::uint32_t pyramid_size = 0;
     /// Per frame slot: a CullView per cascade, and the ShadowFrame the shading reads.
@@ -450,6 +490,10 @@ ShadowRenderer::Output ShadowRenderer::record(RenderGraph& graph, const FrameCon
         for (Impl::Previous& p : s.previous) {
             p.valid = false;
         }
+        for (Impl::Cached& c : s.cached) {
+            c.valid = false;
+        }
+        s.last.valid = false;
         write_frame();
         return out;
     }
@@ -513,6 +557,11 @@ ShadowRenderer::Output ShadowRenderer::record(RenderGraph& graph, const FrameCon
     }
     // Last frame's occluder pyramids serve phase 1 only if they were built for these layers in this buffer.
     const bool pyramids_kept = s.pyramids.written && s.pyramid_layers == layers && s.pyramid_size == pyramid_size;
+    if (!pyramids_kept || !maps.written) {
+        for (Impl::Cached& c : s.cached) {
+            c.valid = false;  // a cached map or pyramid is gone
+        }
+    }
     s.pyramid_layers = layers;
     s.pyramid_size = pyramid_size;
 
@@ -548,6 +597,7 @@ ShadowRenderer::Output ShadowRenderer::record(RenderGraph& graph, const FrameCon
     struct Cascade {
         std::uint32_t layer = 0;
         CascadeFit fit;
+        bool masked = false;  ///< culled by this frame's receivers (not drawn whole for the cache)
         GraphResource view;
         GraphResource counters;
         GraphResource draw_args;
@@ -559,18 +609,61 @@ ShadowRenderer::Output ShadowRenderer::record(RenderGraph& graph, const FrameCon
     };
     std::vector<Cascade> cascades;
     const math::dvec3 origin = frame.world.space.origin;
+    // Cached cascades (the last two of three or four): while nothing moved since the frame before, in the scene, the
+    // render frame or the lights, a far cascade is drawn whole once, then kept while its map still covers the slice
+    // it serves. Their spheres are cache_radius_scale times the slice's, always, so their texels never change size.
+    std::array<math::vec3, max_shadowed_lights> towards{};
+    for (std::uint32_t light = 0; light < lights.size(); ++light) {
+        towards.at(light) = -frame.world.lights.at(lights[light]).direction;
+    }
+    const bool stable = !env_is_one("VEACH_SHADOW_NO_CACHE") && scene.still && s.last.valid &&
+                        s.last.space_frame == frame.world.space.frame && s.last.origin == origin &&
+                        s.last.lights == lights && s.last.towards == towards && s.last.resolution == resolution &&
+                        s.last.cascade_count == cascade_count && s.last.distance == settings.distance;
+    s.last = {.space_frame = frame.world.space.frame,
+              .origin = origin,
+              .lights = lights,
+              .towards = towards,
+              .resolution = resolution,
+              .cascade_count = cascade_count,
+              .distance = settings.distance,
+              .valid = true};
+    const std::uint32_t first_cached = cascade_count >= 3 ? cascade_count - 2 : cascade_count;
+    stats.shadow_meshlets_drawn.resize(layers);
     for (std::uint32_t light = 0; light < lights.size(); ++light) {
         shadow.lights.at(light) = lights[light];
-        const math::vec3 toward = -frame.world.lights.at(lights[light]).direction;
+        const math::vec3 toward = towards.at(light);
         for (std::uint32_t c = 0; c < cascade_count; ++c) {
             const std::uint32_t layer = light * cascade_count + c;
             // Receivers: the slice of view depths this cascade serves, from where the previous one starts blending
             // into it. Its depth reaches the shadow distance toward the light, so casters between the cascade and the
             // light keep their depth order (occlusion) rather than all flattening onto its near plane.
             const float near = c == 0 ? view.near_plane : splits.at(c - 1) * (1.0f - cascade_blend);
-            const CascadeFit fit = fit_cascade(view, origin, toward, near, splits.at(c), resolution, settings.distance);
-            shadow.cascades.at(layer) = {.clip_from_render = fit.clip_from_render,
-                                         .scale = math::vec4(fit.texel, fit.depth_range, fit.radius, 0.0f)};
+            const bool cacheable = c >= first_cached;
+            const CascadeFit fit = fit_cascade(view, origin, toward, near, splits.at(c), resolution, settings.distance,
+                                               cacheable ? cache_radius_scale : 1.0f);
+            Impl::Cached& cache = s.cached.at(layer);
+            bool reuse = false;
+            if (cacheable && stable && cache.valid) {
+                // The slice's own sphere, and as far as its lookups reach, inside the cached map.
+                const CascadeFit need =
+                    fit_cascade(view, origin, toward, near, splits.at(c), resolution, settings.distance);
+                const math::vec3 d = need.center - cache.fit.center;
+                const float reach = need.radius + (receiver_margin_texels + 1.0f) * cache.fit.texel;
+                reuse = std::max(std::abs(math::dot(d, cache.fit.x)), std::abs(math::dot(d, cache.fit.y))) + reach <=
+                            cache.fit.radius &&
+                        need.radius - math::dot(d, toward) <= cache.fit.radius;
+            }
+            const CascadeFit& used = reuse ? cache.fit : fit;
+            shadow.cascades.at(layer) = {.clip_from_render = used.clip_from_render,
+                                         .scale = math::vec4(used.texel, used.depth_range, used.radius, 0.0f)};
+            if (reuse) {
+                stats.shadow_meshlets_drawn.at(layer) = 0;  // its map and occluder pyramid stay as they are
+                continue;
+            }
+            // Drawn whole (without the receivers) when it will be kept.
+            const bool whole = cacheable && stable;
+            cache = {.fit = fit, .valid = whole};
             // Phase 1's occluders: last frame's map of this layer, its view moved into this frame's render space.
             Impl::Previous& previous = s.previous.at(layer);
             const bool occlude = occlusion && pyramids_kept && previous.valid;
@@ -579,13 +672,14 @@ ShadowRenderer::Output ShadowRenderer::record(RenderGraph& graph, const FrameCon
                               math::translate(math::mat4(1.0f), math::vec3(origin - previous.origin))
                         : fit.clip_from_render;
             previous = {.clip_from_render = fit.clip_from_render, .origin = origin, .valid = occlusion};
+            const bool receivers = masked && !whole;
             CullView cull{
                 .view_projection = fit.clip_from_render,
                 .occlusion_view_projection = occlusion_view_projection,
                 .planes = fit.planes,
                 .camera = math::vec4(fit.center, 0.0f),
                 .screen = {resolution, resolution},
-                .flags = cull_shadow_view | (masked ? cull_receivers : 0u) | (occlude ? cull_previous_hiz : 0u),
+                .flags = cull_shadow_view | (receivers ? cull_receivers : 0u) | (occlude ? cull_previous_hiz : 0u),
                 .instance_count = scene.instance_count,
                 .phase_stride = meshlets,
                 .task_capacity = scene.task_count,
@@ -596,6 +690,10 @@ ShadowRenderer::Output ShadowRenderer::record(RenderGraph& graph, const FrameCon
                                                    (max_penumbra_texels + normal_offset_texels + 2.0f) * fit.texel),
                 .sweep = math::vec4(-toward, small_caster_texels * fit.texel),
                 .occluder_base = (layers + layer) * layer_stride};
+            if (whole) {
+                // Every receiver the slice may hold later: the slice planes widened to the whole cached sphere.
+                cull.receiver_planes = receiver_planes(view, near, splits.at(c), 2.0f * fit.radius);
+            }
             std::copy(list_offsets.begin(), list_offsets.end(), cull.list_offsets.begin());
             const rhi::BufferHandle view_buffer = s.views.at(slot).at(layer);
             if (void* mapped = s.device->map(view_buffer); mapped != nullptr) {
@@ -604,6 +702,7 @@ ShadowRenderer::Output ShadowRenderer::record(RenderGraph& graph, const FrameCon
             Impl::CascadeBuffers& b = s.cascades.at(layer);
             cascades.push_back({.layer = layer,
                                 .fit = fit,
+                                .masked = receivers,
                                 .view = graph.import(view_buffer, "shadow cull view", rhi::ResourceState::shader_read),
                                 .counters = s.import(graph, b.counters, "shadow cull counters"),
                                 .draw_args = s.import(graph, b.draw_args, "shadow draw args"),
@@ -616,6 +715,7 @@ ShadowRenderer::Output ShadowRenderer::record(RenderGraph& graph, const FrameCon
     }
     for (std::uint32_t k = layers; k < s.previous.size(); ++k) {
         s.previous.at(k).valid = false;
+        s.cached.at(k).valid = false;
     }
 
     std::optional<GraphResource> pyramids;
@@ -661,13 +761,15 @@ ShadowRenderer::Output ShadowRenderer::record(RenderGraph& graph, const FrameCon
         .count = layers * layer_stride,  // the receivers' half: the occluders stay for the next frame's phase 1
         .margin_texels = receiver_margin_texels,
         .depth_margin = receiver_depth_margin_texels,
-        .map_size = resolution,
-        .receivers = masked ? 1u : 0u};
+        .map_size = resolution};
     const auto bind_pyramids = [pyramid_params, pyramids, depth, frame_data, masked, map](
-                                   PassContext& ctx, std::uint32_t level, std::uint32_t first_layer) {
+                                   PassContext& ctx, std::uint32_t level, std::uint32_t first_layer,
+                                   std::uint32_t map_layer = 0, bool receivers = false) {
         PyramidParams p = pyramid_params;
         p.level = level;
         p.first_layer = first_layer;
+        p.map_layer = map_layer;
+        p.receivers = receivers ? 1u : 0u;
         p.depth = masked ? ctx.device.descriptor(ctx.texture(depth))
                          : ctx.device.null_descriptor(rhi::DescriptorKind::texture);
         p.shadows = ctx.device.descriptor(ctx.buffer(frame_data));
@@ -836,8 +938,12 @@ ShadowRenderer::Output ShadowRenderer::record(RenderGraph& graph, const FrameCon
             },
             [=, pipeline = s.occluders_build](PassContext& ctx) {
                 ctx.cmd.set_pipeline(pipeline);
-                bind_pyramids(ctx, 0, layers);
-                ctx.cmd.dispatch(pyramid_size, pyramid_size, layers);
+                // A cascade at a time: a cached one keeps its pyramid, one drawn whole for the cache ignores the
+                // receivers (later frames have others). Disjoint pyramids: no barrier between the dispatches.
+                for (const Cascade& c : cascades) {
+                    bind_pyramids(ctx, 0, layers + c.layer, c.layer, c.masked);
+                    ctx.cmd.dispatch(pyramid_size, pyramid_size, 1);
+                }
             });
         reduce("shadow: occluders", layers);
         cull_pass(Step::args, 1, "shadow: cull args (late)");

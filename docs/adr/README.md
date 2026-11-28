@@ -88,3 +88,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0075 | [Amendments from SP-11: Jolt's build flags, AVX2 on x64, Jolt optimized in Debug](0075-amendments-from-sp-11.md) | Accepted |
 | 0076 | [Amendments from SP-10: the march's cost, eclipses per sample, a body-sized aerial-perspective volume](0076-amendments-from-sp-10.md) | Accepted |
 | 0077 | [Amendments from SP-12: brush reach, owned override samples, K = 2, waking bodies on collider swaps](0077-amendments-from-sp-12.md) | Accepted |
+| 0078 | [Sidedness decides the shading surface: vertex normals for solids, the triangle for thin sheets](0078-sidedness-decides-the-shading-surface.md) | Accepted |

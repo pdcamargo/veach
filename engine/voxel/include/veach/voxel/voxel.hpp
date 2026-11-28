@@ -47,7 +47,18 @@ constexpr std::array<std::int64_t, 3> chunk_origin(const ChunkKey& k) {
 /// Faces, as bits of a 6-bit mask: bit 2a is the minimum face on axis a, bit 2a + 1 the maximum one.
 enum Face : std::uint8_t { neg_x = 0, pos_x = 1, neg_y = 2, pos_y = 3, neg_z = 4, pos_z = 5 };
 
-/// A density sample (ADR 0053): signed distance in 1/1024 m, negative solid, clamped to ±32 m; a material id.
+/// How a Sample's int16 distance encodes meters. `linear` is ADR 0053's: 1/1024 m, clamped to ±32 m. `companded`
+/// (spike SP-09) is the same within ±16 m and logarithmic beyond, with the same slope at the knee, reaching 32767 at
+/// 10,000 km (about 0.1 % of the distance per step): coarse cells (up to 262 km at level 19) keep their distances, so
+/// vertex placement and gradient normals stay right where the linear band is saturated. The sign is the same in both.
+enum class DistanceEncoding : std::uint8_t { linear, companded };
+
+/// The code of a signed distance in meters (round to nearest, ties away from zero; saturates at ±32767). Canonical.
+std::int16_t encode_distance(double meters, DistanceEncoding encoding);
+/// The distance a code stands for, meters. Canonical.
+double decode_distance(std::int16_t code, DistanceEncoding encoding);
+
+/// A density sample (ADR 0053): signed distance as an int16 code (DistanceEncoding), negative solid; a material id.
 struct Sample {
     std::int16_t distance = 0;
     std::uint8_t material = 0;
@@ -128,6 +139,9 @@ struct TransvoxelOptions {
     int width_256 = 128;
     /// Project the shrink on the tangent plane (Lengyel's 4.4.2); false moves vertices straight along the axes.
     bool project = true;
+    /// How to read the samples' distances. Linear interpolates and differences the codes themselves (SP-08's
+    /// committed hashes); companded decodes them to meters first.
+    DistanceEncoding encoding = DistanceEncoding::linear;
 };
 std::unique_ptr<IsoMesher> make_transvoxel_mesher(TransvoxelOptions options = {});
 

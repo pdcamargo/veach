@@ -50,7 +50,7 @@ struct SphereSpan {
 /// sphere_blocks along a ray: where origin + t * direction (unit) is in the shadow a sphere about the origin of
 /// coordinates casts away from `l` (unit), the cylinder of its radius behind its center; c = |origin|^2 - radius^2 as
 /// for sphere_span. Empty when the ray never is; an end
-/// the ray never reaches is +-1e30. The marches light the part of each step outside it (ADR 0093). The twin of
+/// the ray never reaches is +-1e30. The marches light the part of each step outside it (ADR 0094). The twin of
 /// sphere_shadow_span in shaders/veach/atmosphere.slang.
 [[nodiscard]] std::optional<SphereSpan> sphere_shadow_span(math::vec3 origin, math::vec3 direction, float c,
                                                            math::vec3 l);

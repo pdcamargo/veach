@@ -143,7 +143,7 @@ bool sphere_blocks(float3 p, float3 l, float radius) {
 /// of coordinates casts away from the unit direction `l`, the cylinder of its radius behind its center.
 /// c = |origin|^2 - radius^2, from the altitude as for sphere_span. Returns (enter, leave), enter >= leave when
 /// the ray never is. A march lights the part of each step outside it (lit_fraction), so the shadow's edge moves
-/// smoothly across the steps rather than switching a whole step at a time (arcs in twilight, ADR 0093).
+/// smoothly across the steps rather than switching a whole step at a time (arcs in twilight, ADR 0094).
 float2 sphere_shadow_span(float3 origin, float3 direction, float c, float3 l) {
     const float ol = dot(origin, l);
     const float dl = dot(direction, l);

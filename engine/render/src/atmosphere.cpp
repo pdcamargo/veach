@@ -110,7 +110,7 @@ static_assert(sizeof(SkyFrame) == 752);
 /// a backdrop with no band still fades under a sky this bright.
 constexpr float backdrop_reference_floor = 1e-4f;
 
-/// The format of the tables that hold luminance per lux of sun (ADR 0038, 0093): multiple scattering, the sky view,
+/// The format of the tables that hold luminance per lux of sun (ADR 0038, 0094): multiple scattering, the sky view,
 /// the irradiance and the aerial-perspective volume. Their values reach about 0.1 near a low sun, a few 1e-7 opposite
 /// it 10 degrees into twilight (multiple scattering only: that air is in the planet's shadow) and less as the sun
 /// sinks. rgba16_float's smallest normal is 6.1e-5, so twilight fell into its denormals, whose fixed step of 6e-8 drew

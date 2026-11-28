@@ -340,7 +340,7 @@ if(APPLE)
     # backdrop.AC7: the space backdrop alone (stars, band, nebulae), small.
     veach_golden_test("golden: space backdrop" space_backdrop_small space_backdrop metal)
     # atmosphere.AC7: a planet's sky 10 degrees into twilight, opposite the sun, through SP-10's lab path with the
-    # engine's 16 march steps (ADR 0093). At s = 1 it is all multiple scattering, a few 1e-7 per lux of sun: fp16
+    # engine's 16 march steps (ADR 0094). At s = 1 it is all multiple scattering, a few 1e-7 per lux of sun: fp16
     # tables drew it in flat bands (mean FLIP 0.22 against the golden). At s = 0.01 the planet's shadow crosses lit air
     # close by: a sun lighting whole steps or none drew arcs (0.055).
     foreach(_twilight ${_twilight_goldens})

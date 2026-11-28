@@ -214,7 +214,7 @@ std::pair<std::uint32_t, std::uint32_t> target_size(const RenderWorld& world) {
     return {world.target_width != 0 ? world.target_width : 1280, world.target_height != 0 ? world.target_height : 720};
 }
 
-Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device), uploads_(device) {
+Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device), readbacks_(device), uploads_(device) {
     add_extractor("frame", [](const World& world, RenderWorld& out) {
         if (const Time* time = world.try_get<Time>()) {
             out.frame = time->frame;
@@ -490,6 +490,7 @@ void Renderer::render() {
 
     // Frames in flight (ADR 0030): blocks only if the GPU is frames_in_flight frames behind.
     device_.begin_frame();
+    readbacks_.deliver();  // frame N - frames_in_flight's readbacks: begin_frame has waited for that frame
 
     RenderGraph graph(device_, &pool_);
     const GraphResource color = graph.import(scene_color_, "scene_color", scene_color_state_);
@@ -497,10 +498,10 @@ void Renderer::render() {
         "clear", [&](PassBuilder& b) { b.color_target(color, rhi::LoadOp::clear, background_color); },
         [](PassContext&) {});
 
-    const FrameContext frame{device_,  render_world_,
-                             color,    width,
-                             height,   render_world_.views.empty() ? nullptr : &render_world_.views.front(),
-                             &uploads_};
+    const FrameContext frame{device_,     render_world_,
+                             color,       width,
+                             height,      render_world_.views.empty() ? nullptr : &render_world_.views.front(),
+                             &readbacks_, &uploads_};
     for (std::size_t i = 0; i < features_.size(); ++i) {
         if (prepared_[i]) {
             features_[i]->record(graph, frame);
@@ -549,6 +550,7 @@ void Renderer::render() {
                 device_.create_buffer({size, rhi::BufferUsage::copy_dst, rhi::MemoryType::readback, "screenshot"});
             if (!buffer) {
                 std::exchange(capture_, {})(std::unexpected(buffer.error()));
+                readbacks_.abandon();
                 return;
             }
             readback_ = *buffer;
@@ -568,6 +570,7 @@ void Renderer::render() {
 
     if (auto compiled = graph.compile(); !compiled) {
         log::error("render", compiled.error());
+        readbacks_.abandon();
         return;
     }
     std::string described = graph.describe();
@@ -579,6 +582,7 @@ void Renderer::render() {
     auto cmd = device_.begin_commands(std::format("frame {}", render_world_.frame));
     graph.execute(*cmd);
     const rhi::SubmissionId submission = device_.submit(std::move(cmd), present);
+    readbacks_.submitted(submission);
     device_.end_frame();
     scene_color_state_ = graph.final_state(color);
 

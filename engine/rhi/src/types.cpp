@@ -162,6 +162,8 @@ std::string_view to_string(ResourceState state) {
         case ResourceState::accel_build: return "accel_build";
         case ResourceState::accel_read: return "accel_read";
         case ResourceState::present: return "present";
+        case ResourceState::indirect_argument: return "indirect_argument";
+        case ResourceState::index_read: return "index_read";
     }
     return "?";
 }

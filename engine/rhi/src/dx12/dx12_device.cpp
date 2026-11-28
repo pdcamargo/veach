@@ -5,6 +5,7 @@
 #include "dx12_device.hpp"
 
 #include "../frame_timings.hpp"
+#include "../indirect_validation.hpp"
 #include "../pipeline_validation.hpp"
 #include "../ray_tracing.hpp"
 #include "../slot_map.hpp"
@@ -33,6 +34,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 
@@ -585,6 +587,11 @@ BarrierState barrier_state(ResourceState state) {
                     D3D12_BARRIER_SYNC_ALL_SHADING};
         case ResourceState::present:
             return {D3D12_BARRIER_LAYOUT_PRESENT, D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_SYNC_NONE};
+        case ResourceState::indirect_argument:  // buffers only: they have no layout
+            return {D3D12_BARRIER_LAYOUT_UNDEFINED, D3D12_BARRIER_ACCESS_INDIRECT_ARGUMENT,
+                    D3D12_BARRIER_SYNC_EXECUTE_INDIRECT};
+        case ResourceState::index_read:
+            return {D3D12_BARRIER_LAYOUT_UNDEFINED, D3D12_BARRIER_ACCESS_INDEX_BUFFER, D3D12_BARRIER_SYNC_INDEX_INPUT};
     }
     return {D3D12_BARRIER_LAYOUT_UNDEFINED, D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_SYNC_NONE};
 }
@@ -688,6 +695,10 @@ public:
         recorder_->list->DrawInstanced(vertex_count, instance_count, first_vertex, 0);
     }
     void dispatch(std::uint32_t x, std::uint32_t y, std::uint32_t z) override { recorder_->list->Dispatch(x, y, z); }
+    void dispatch_indirect(BufferHandle args, std::uint64_t offset) override;
+    void draw_indirect(BufferHandle args, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) override;
+    void draw_indexed_indirect(BufferHandle indices, BufferHandle args, std::uint64_t offset, std::uint32_t count,
+                               std::uint32_t stride) override;
     void build_blas(AccelHandle blas) override { encode_accel(blas, false, {}); }
     void refit_blas(AccelHandle blas) override { encode_accel(blas, true, {}); }
     void build_tlas(AccelHandle tlas, std::span<const TlasInstance> instances) override {
@@ -1331,6 +1342,11 @@ public:
 
     void wait_idle() override { wait(tracker_.last_submitted()); }
 
+    [[nodiscard]] bool is_complete(SubmissionId submission) override {
+        poll();  // reads the fence; never waits
+        return tracker_.is_complete(submission);
+    }
+
     FrameInfo begin_frame() override {
         SubmissionId wait_for;
         const FrameInfo frame = tracker_.begin_frame(wait_for);
@@ -1390,6 +1406,27 @@ public:
     }
     [[nodiscard]] ID3D12Resource* timing_readback(std::uint32_t slot) const {
         return timing_readbacks_.empty() ? nullptr : timing_readbacks_.at(slot % timing_readbacks_.size()).Get();
+    }
+
+    /// ExecuteIndirect's command signature for one argument type and stride (VCH-071), made once. Commands change no
+    /// root arguments, so the signatures need no root signature.
+    ID3D12CommandSignature* command_signature(D3D12_INDIRECT_ARGUMENT_TYPE type, std::uint32_t stride) {
+        const std::uint64_t key = (std::uint64_t{static_cast<std::uint32_t>(type)} << 32) | stride;
+        if (const auto it = signatures_.find(key); it != signatures_.end()) {
+            return it->second.Get();
+        }
+        D3D12_INDIRECT_ARGUMENT_DESC argument{};
+        argument.Type = type;
+        D3D12_COMMAND_SIGNATURE_DESC desc{};
+        desc.ByteStride = stride;
+        desc.NumArgumentDescs = 1;
+        desc.pArgumentDescs = &argument;
+        ComPtr<ID3D12CommandSignature> created;
+        if (const HRESULT hr = device_->CreateCommandSignature(&desc, nullptr, IID_PPV_ARGS(&created)); FAILED(hr)) {
+            log::error("rhi", gpu_error("CreateCommandSignature", hr).error());
+            return nullptr;
+        }
+        return signatures_.emplace(key, std::move(created)).first->second.Get();
     }
 
     /// A list that was never submitted (an error path): nothing of it reached the GPU.
@@ -2104,6 +2141,7 @@ private:
     SlotMap<Dx12Accel, AccelHandle> accels_;
     std::vector<Dx12Surface> surfaces_;
     ComPtr<ID3D12RootSignature> root_signature_;
+    std::unordered_map<std::uint64_t, ComPtr<ID3D12CommandSignature>> signatures_;  ///< command_signature()
     // ADR 0027: the live-descriptor table (header, then one entry per view and sampler slot) and the error record
     // debug shaders write (count, first-recorded flag, slot, handle entry, kind). Bound to every command list.
     ComPtr<ID3D12Resource> validation_table_;
@@ -2184,6 +2222,48 @@ void Dx12CommandList::set_parameters(const void* data, std::size_t size) {
     } else {
         recorder_->list->SetGraphicsRoot32BitConstants(0, count, constants.data(), 0);
     }
+}
+
+// The RHI's indirect records are D3D12's argument structures (ADR 0089).
+static_assert(sizeof(DispatchIndirectArgs) == sizeof(D3D12_DISPATCH_ARGUMENTS));
+static_assert(sizeof(DrawIndirectArgs) == sizeof(D3D12_DRAW_ARGUMENTS));
+static_assert(sizeof(DrawIndexedIndirectArgs) == sizeof(D3D12_DRAW_INDEXED_ARGUMENTS));
+
+void Dx12CommandList::dispatch_indirect(BufferHandle args, std::uint64_t offset) {
+    Dx12Buffer* b = device_.buffer(args);
+    check_indirect_args(b ? &b->desc : nullptr, offset, 1, sizeof(DispatchIndirectArgs), sizeof(DispatchIndirectArgs),
+                        "dispatch_indirect");
+    if (ID3D12CommandSignature* command =
+            device_.command_signature(D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH, sizeof(DispatchIndirectArgs))) {
+        recorder_->list->ExecuteIndirect(command, 1, b->resource.Get(), offset, nullptr, 0);
+    }
+}
+
+void Dx12CommandList::draw_indirect(BufferHandle args, std::uint64_t offset, std::uint32_t count,
+                                    std::uint32_t stride) {
+    Dx12Buffer* b = device_.buffer(args);
+    check_indirect_args(b ? &b->desc : nullptr, offset, count, stride, sizeof(DrawIndirectArgs), "draw_indirect");
+    ID3D12CommandSignature* command = device_.command_signature(D3D12_INDIRECT_ARGUMENT_TYPE_DRAW, stride);
+    if (count != 0 && command != nullptr) {
+        recorder_->list->ExecuteIndirect(command, count, b->resource.Get(), offset, nullptr, 0);
+    }
+}
+
+void Dx12CommandList::draw_indexed_indirect(BufferHandle indices, BufferHandle args, std::uint64_t offset,
+                                            std::uint32_t count, std::uint32_t stride) {
+    Dx12Buffer* i = device_.buffer(indices);
+    Dx12Buffer* b = device_.buffer(args);
+    check_index_buffer(i ? &i->desc : nullptr, "draw_indexed_indirect");
+    check_indirect_args(b ? &b->desc : nullptr, offset, count, stride, sizeof(DrawIndexedIndirectArgs),
+                        "draw_indexed_indirect");
+    ID3D12CommandSignature* command = device_.command_signature(D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED, stride);
+    if (count == 0 || command == nullptr) {
+        return;
+    }
+    const D3D12_INDEX_BUFFER_VIEW view{i->resource->GetGPUVirtualAddress(), static_cast<UINT>(i->desc.size),
+                                       DXGI_FORMAT_R32_UINT};
+    recorder_->list->IASetIndexBuffer(&view);
+    recorder_->list->ExecuteIndirect(command, count, b->resource.Get(), offset, nullptr, 0);
 }
 
 void Dx12CommandList::encode_accel(AccelHandle handle, bool refit, std::span<const TlasInstance> instances) {

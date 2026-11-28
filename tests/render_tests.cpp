@@ -25,6 +25,14 @@ public:
     void set_parameters(const void*, std::size_t) override { log("set_parameters"); }
     void draw(std::uint32_t, std::uint32_t, std::uint32_t) override { log("draw"); }
     void dispatch(std::uint32_t, std::uint32_t, std::uint32_t) override { log("dispatch"); }
+    void dispatch_indirect(rhi::BufferHandle, std::uint64_t) override { log("dispatch_indirect"); }
+    void draw_indirect(rhi::BufferHandle, std::uint64_t, std::uint32_t, std::uint32_t) override {
+        log("draw_indirect");
+    }
+    void draw_indexed_indirect(rhi::BufferHandle, rhi::BufferHandle, std::uint64_t, std::uint32_t,
+                               std::uint32_t) override {
+        log("draw_indexed_indirect");
+    }
     void build_blas(rhi::AccelHandle) override { log("build_blas"); }
     void refit_blas(rhi::AccelHandle) override { log("refit_blas"); }
     void build_tlas(rhi::AccelHandle, std::span<const rhi::TlasInstance>) override { log("build_tlas"); }
@@ -180,6 +188,59 @@ TEST_CASE("[render.AC5] the null RHI runs the whole renderer without a GPU") {
     Engine engine(test::headless_config(project.path(), "main.luau", 2));
     CHECK(engine.run() == 0);
     CHECK_FALSE(logs.has_code("render.graph_invalid"));
+}
+
+TEST_CASE("[rhi.AC3] indirect arguments and indices are graph accesses with their own states") {
+    GraphFixture f;
+    const auto buffer = [&](std::string name, rhi::BufferUsage usage) {
+        return *f.device->create_buffer({.size = 64, .usage = usage, .debug_name = std::move(name), .stride = 4});
+    };
+    {
+        render::RenderGraph graph(*f.device, &f.pool);
+        const auto args = graph.import(buffer("args", rhi::BufferUsage::storage | rhi::BufferUsage::indirect), "args",
+                                       ResourceState::undefined);
+        const auto indices =
+            graph.import(buffer("indices", rhi::BufferUsage::index), "indices", ResourceState::undefined);
+        const auto out = graph.import(f.texture("out"), "out", ResourceState::undefined);
+        graph.add_compute_pass("cull", [&](render::PassBuilder& b) { b.write(args); }, noop());
+        graph.add_graphics_pass(
+            "draw",
+            [&](render::PassBuilder& b) {
+                b.read(args, ResourceState::indirect_argument);
+                b.read(indices, ResourceState::index_read);
+                b.color_target(out);
+            },
+            noop());
+        REQUIRE(graph.compile().has_value());
+        RecordingCommandList cmd;
+        graph.execute(cmd);
+        CHECK(std::ranges::find(cmd.calls, "barrier shader_write->indirect_argument") != cmd.calls.end());
+        CHECK(std::ranges::find(cmd.calls, "barrier undefined->index_read") != cmd.calls.end());
+        CHECK(graph.final_state(args) == ResourceState::indirect_argument);
+    }
+    const auto rejected = [&](std::string_view expected, const auto& add) {
+        render::RenderGraph graph(*f.device, &f.pool);
+        add(graph);
+        const auto result = graph.compile();
+        REQUIRE_FALSE(result.has_value());
+        CHECK(result.error().code == ErrorCode::render_graph_invalid);
+        CHECK_MESSAGE(result.error().message.find(expected) != std::string::npos, result.error().message);
+    };
+    rejected("is not a buffer", [&](render::RenderGraph& graph) {
+        const auto t = graph.import(f.texture("t"), "t", ResourceState::undefined);
+        graph.add_compute_pass(
+            "p", [&](render::PassBuilder& b) { b.read(t, ResourceState::indirect_argument); }, noop());
+    });
+    rejected("cannot draw or dispatch", [&](render::RenderGraph& graph) {
+        const auto args = graph.import(buffer("args", rhi::BufferUsage::indirect), "args", ResourceState::undefined);
+        graph.add_transfer_pass(
+            "p", [&](render::PassBuilder& b) { b.read(args, ResourceState::indirect_argument); }, noop());
+    });
+    rejected("cannot draw", [&](render::RenderGraph& graph) {
+        const auto indices = graph.import(buffer("indices", rhi::BufferUsage::index), "i", ResourceState::undefined);
+        graph.add_compute_pass(
+            "p", [&](render::PassBuilder& b) { b.read(indices, ResourceState::index_read); }, noop());
+    });
 }
 
 TEST_CASE("[frames.AC5] a pooled transient's first barrier in the next frame syncs with its last use") {

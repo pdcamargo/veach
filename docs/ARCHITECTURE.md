@@ -198,12 +198,12 @@ evaluation and meshing are visual-only, and nothing flows from the GPU back into
 ([ADR 0052](adr/0052-procgen-runtime.md), [ADR 0053](adr/0053-terrain-density-field.md)). The GPU's toolbox work is
 rendering: culling, indirect draws, atmospheres, volumes. What the RHI offers today, per backend, is audited in
 [reference/rhi-capabilities.md](reference/rhi-capabilities.md). In short: compute pipelines and dispatch,
-read-write storage buffers and 2D storage textures, 32-bit buffer atomics, upload and readback buffers and several
-submissions per frame all exist on Metal and DX12. Missing (VCH-071 to VCH-076, VCH-098): indirect dispatch and
-draw and 3D textures and arrays, which block the renderer; blend state, depth bias, comparison samplers and
-anisotropic filtering; texture updates after creation, texture and 64-bit atomics, an async compute queue, and a
-non-blocking way to ask whether GPU work finished (off the critical path, since no authoritative work waits on the
-GPU).
+read-write storage buffers and 2D storage textures, 32-bit buffer atomics, upload and readback buffers, several
+submissions per frame, indirect dispatches and draws, and readback that never waits (results a fixed
+`frames_in_flight` frames late, [ADR 0089](adr/0089-indirect-work-and-fixed-latency-readback.md)) all exist on Metal
+and DX12. Missing (VCH-072, VCH-074 to VCH-076, VCH-098): 3D textures and arrays, which block the renderer; blend
+state, depth bias, comparison samplers and anisotropic filtering; texture updates after creation, texture and 64-bit
+atomics, and an async compute queue.
 
 ## Scripting boundary
 

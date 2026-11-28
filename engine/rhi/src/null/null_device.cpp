@@ -1,5 +1,6 @@
 #include "null_device.hpp"
 
+#include "../indirect_validation.hpp"
 #include "../pipeline_validation.hpp"
 #include "../surface_validation.hpp"
 #include "../texture_validation.hpp"
@@ -17,6 +18,8 @@ namespace {
 
 class NullCommandList final : public CommandList {
 public:
+    explicit NullCommandList(const NullDevice& device) : device_(device) {}
+
     void begin_render_pass(const RenderPassDesc&) override {}
     void end_render_pass() override {}
     void begin_compute_pass(std::string_view) override {}
@@ -27,6 +30,21 @@ public:
     }
     void draw(std::uint32_t, std::uint32_t, std::uint32_t) override {}
     void dispatch(std::uint32_t, std::uint32_t, std::uint32_t) override {}
+    // Nothing runs, but the arguments are checked as the GPU backends check them.
+    void dispatch_indirect(BufferHandle args, std::uint64_t offset) override {
+        check_indirect_args(device_.buffer_desc(args), offset, 1, sizeof(DispatchIndirectArgs),
+                            sizeof(DispatchIndirectArgs), "dispatch_indirect");
+    }
+    void draw_indirect(BufferHandle args, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) override {
+        check_indirect_args(device_.buffer_desc(args), offset, count, stride, sizeof(DrawIndirectArgs),
+                            "draw_indirect");
+    }
+    void draw_indexed_indirect(BufferHandle indices, BufferHandle args, std::uint64_t offset, std::uint32_t count,
+                               std::uint32_t stride) override {
+        check_index_buffer(device_.buffer_desc(indices), "draw_indexed_indirect");
+        check_indirect_args(device_.buffer_desc(args), offset, count, stride, sizeof(DrawIndexedIndirectArgs),
+                            "draw_indexed_indirect");
+    }
     void build_blas(AccelHandle) override {}
     void refit_blas(AccelHandle) override {}
     void build_tlas(AccelHandle, std::span<const TlasInstance>) override {}
@@ -41,6 +59,9 @@ public:
     void pop_debug_group() override {}
     void begin_timing(std::string_view) override {}
     void end_timing() override {}
+
+private:
+    const NullDevice& device_;
 };
 
 }  // namespace
@@ -163,7 +184,7 @@ Result<TextureHandle> NullDevice::acquire_image(SurfaceId surface) {
 void NullDevice::destroy_surface(SurfaceId) {}
 
 std::unique_ptr<CommandList> NullDevice::begin_commands(std::string_view) {
-    return std::make_unique<NullCommandList>();
+    return std::make_unique<NullCommandList>(*this);
 }
 
 SubmissionId NullDevice::submit(std::unique_ptr<CommandList>, SurfaceId) {

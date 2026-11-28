@@ -469,6 +469,14 @@ maximum (65,504) reached the target unclamped, such as the sun's disk at a dark 
 a light or the sky (a division by zero, a degenerate normal). The run exits with code 1. Reproduce headless with the
 same frame count and look at the frame named.
 
+## render.readback_dropped
+
+**A GPU readback was dropped because its frame was never submitted.**
+
+`ReadbackQueue::read()` records a copy into the frame's render graph ([spec](../specs/gpu-driven-rhi/spec.md)). If
+that graph is not submitted, usually because it failed to compile (the error logged just before says why), the copy
+never runs and the callback gets this error instead of bytes. Fix the graph error; the next frame's readbacks work.
+
 ## render.mesh_invalid
 
 **A runtime mesh submitted to the MeshStore is malformed.**

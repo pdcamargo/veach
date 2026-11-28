@@ -37,6 +37,10 @@ public:
     [[nodiscard]] const TextureDesc* texture_desc(TextureHandle texture) const override {
         return textures_.get(texture);
     }
+    [[nodiscard]] const BufferDesc* buffer_desc(BufferHandle buffer) const {
+        const Buffer* b = buffers_.get(buffer);
+        return b ? &b->desc : nullptr;
+    }
 
     [[nodiscard]] DescriptorHandle descriptor(BufferHandle buffer, View view) override;
     [[nodiscard]] DescriptorHandle descriptor(TextureHandle texture, View view) override;
@@ -53,6 +57,7 @@ public:
     [[nodiscard]] std::unique_ptr<CommandList> begin_commands(std::string_view debug_name) override;
     SubmissionId submit(std::unique_ptr<CommandList> commands, SurfaceId present) override;
     void wait(SubmissionId) override {}
+    [[nodiscard]] bool is_complete(SubmissionId submission) override { return tracker_.is_complete(submission); }
     void wait_idle() override { tracker_.collect(); }
     FrameInfo begin_frame() override {
         SubmissionId unused;

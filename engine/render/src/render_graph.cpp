@@ -209,6 +209,20 @@ Result<> RenderGraph::compile() {
                 pass.kind != PassKind::graphics) {
                 return invalid(pass, std::format("{} access outside a graphics pass", rhi::to_string(a.state)));
             }
+            // VCH-071: indirect arguments feed a draw or a dispatch, indices a draw; both are buffers.
+            if (a.state == rhi::ResourceState::indirect_argument || a.state == rhi::ResourceState::index_read) {
+                const Resource& r = resources_[a.resource.id];
+                if (r.transient || r.ref.kind != rhi::ResourceKind::buffer) {
+                    return invalid(
+                        pass, std::format("'{}' is read in {} but is not a buffer", r.name, rhi::to_string(a.state)));
+                }
+                if (pass.kind == PassKind::transfer ||
+                    (a.state == rhi::ResourceState::index_read && pass.kind != PassKind::graphics)) {
+                    return invalid(pass,
+                                   std::format("{} access in a pass that cannot draw{}", rhi::to_string(a.state),
+                                               a.state == rhi::ResourceState::indirect_argument ? " or dispatch" : ""));
+                }
+            }
         }
     }
 

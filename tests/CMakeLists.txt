@@ -4,6 +4,7 @@ add_executable(veach-tests
     core_tests.cpp
     determinism_tests.cpp
     ecs_tests.cpp
+    gpu_driven_tests.cpp  # VCH-071, VCH-073: indirect work and readback
     gpu_texture_tests.cpp
     lifecycle_tests.cpp
     physics_tests.cpp
@@ -40,6 +41,8 @@ target_link_libraries(veach-tests PRIVATE veach::veach veach::space veach::voxel
 # Shaders for RHI tests (tests/rhi_tests.cpp): <test_shaders.hpp>.
 veach_add_shader(veach-tests shaders/raster_states.slang ENTRIES vs_main:vertex fs_main:fragment)
 veach_add_shader(veach-tests shaders/atmosphere_probe.slang ENTRIES transmittance_probe:compute)
+veach_add_shader(veach-tests shaders/indirect_cull.slang ENTRIES cull:compute write_args:compute count_threads:compute)
+veach_add_shader(veach-tests shaders/indirect_draw.slang ENTRIES vs_main:vertex fs_main:fragment)
 veach_add_shader(veach-tests shaders/texture_kinds.slang ENTRIES write_volume:compute write_faces:compute
     sample_volume:compute sample_layers:compute sample_cube:compute)
 veach_add_shader(veach-tests shaders/sampler_states.slang ENTRIES compare_depth:compute sample_grad:compute)

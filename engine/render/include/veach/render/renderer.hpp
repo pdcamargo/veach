@@ -62,7 +62,9 @@ struct AutoExposureSettings {
     float compensation = -1.0f;
     float highlight_percent = 0.99f;  ///< this percentile of the metered pixels is kept unclipped...
     float highlight_white = 16.0f;    ///< ...at or below this exposed luminance (AgX's white is 16.3)...
-    float highlight_max_pull = 4.0f;  ///< ...darkening the metered exposure by at most this (stops)
+    /// ...darkening the metered exposure by at most this (stops). 2 with bloom (ADR 0099): an opening that clips reads
+    /// as light through its glow, so a dark interior seen with it keeps 2 more stops than ADR 0082's 4.
+    float highlight_max_pull = 2.0f;
     float delta_time = 1.0f / 60.0f;
     bool reset = false;      ///< snap to the metered exposure this frame
     bool clamp_fp16 = true;  ///< clamp pre-exposed radiance to the fp16 maximum (off only to show the overflow)
@@ -129,6 +131,8 @@ struct RenderView {
     AmbientOcclusion ambient_occlusion;
     /// The camera's SunShadows (or the defaults): the real-time renderer's shadow maps (shadows.cpp).
     SunShadows shadows;
+    /// The camera's Bloom (or the defaults); intensity 0 with a PhotoMode or VEACH_DISABLE_BLOOM=1.
+    Bloom bloom;
     /// Temporal anti-aliasing (ADR 0061): on unless the camera's AntiAliasing turns it off, it has a PhotoMode, or
     /// VEACH_DISABLE_TAA=1 (the goldens). The matrices above are never jittered; the real-time renderer offsets its
     /// own projection by `jitter` (jittered_view_projection) and publishes motion without it.
@@ -150,6 +154,10 @@ struct MeshDraw {
     std::vector<AssetId> materials;
     math::mat4 world{1.0f};
     std::uint64_t entity = 0;  ///< the entity it was extracted from: identifies the draw across frames
+    /// Where the mesh's object origin is in a space shared by many draws, wrapped to a period the material knows
+    /// (SurfaceInput::material_origin): procedural materials continue across meshes there. Terrain chunks give their
+    /// origin in the body frame modulo 65,536 m (docs/specs/terrain-materials/spec.md).
+    math::vec3 material_origin{0.0f};
 };
 
 /// A punctual light this frame (ADR 0036). `radiance` is color x intensity (lux or candela).

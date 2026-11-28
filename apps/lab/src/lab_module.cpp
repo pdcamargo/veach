@@ -4,6 +4,7 @@
 #include "runtime_mesh_demo.hpp"
 #include "sp04_spike.hpp"
 #include "sp10_spike.hpp"
+#include "terrain_materials_demo.hpp"
 #include "terrain_view.hpp"
 #ifdef VEACH_LAB_SP13
 #include "sp13_spike.hpp"
@@ -38,8 +39,9 @@ LabModule::LabModule(veach::World& world) {
         [](veach::Iter& it, std::size_t, Spinner& s) { s.angle += s.radians_per_second * it.delta_time(); });
 
     register_triangle_demo(world);
-    register_blend_demo(world);         // the RHI's blend modes (docs/specs/rhi-textures/spec.md)
-    register_runtime_mesh_demo(world);  // VCH-102: a terrain-like patch meshed at run time
+    register_blend_demo(world);              // the RHI's blend modes (docs/specs/rhi-textures/spec.md)
+    register_runtime_mesh_demo(world);       // VCH-102: a terrain-like patch meshed at run time
+    register_terrain_materials_demo(world);  // VCH-130: terrain materials over the procedural layers
 
     // glTF scenes, with the lab's materials: in real time, or in photo mode (scripts put a PhotoMode on the camera).
     auto& renderer = veach::services(world).get<veach::render::Renderer>();

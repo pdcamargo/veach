@@ -36,7 +36,8 @@ veach.spawn("universe"):set(c.Universe, { seed = "42", system = "S:1000400100008
 `system` as strings (64-bit, [ADR 0046](../adr/0046-64-bit-values-across-luau-json-mcp.md)), `scale` (s_p, 0.01 to
 1), `orbit_scale` (s_o, 0 = s_p), `atmosphere_exponent` (s_a = s_p^e, [ADR 0081](../adr/0081-creator-control-over-atmosphere-scaling.md)),
 `relief_exponent`, `gravity` and `day` multipliers, `habitability_bias`, `home` (the body with terrain; empty: the
-first potentially habitable planet) and `start_tick`. Set it once: a second set with other values is refused.
+first potentially habitable planet), `start_tick` and `surface_colors` ("" automatic, "scanned" or "palette": how the
+ground is colored, below). Set it once: a second set with other values is refused.
 
 ## Realization in C++
 
@@ -95,6 +96,16 @@ applies only under a dark sky: the sky in front hides it where it outshines the 
 the image, so the ground's day sky is starless, space around the limb keeps its stars, and at dusk the brightest
 stars come out first ([rule](../specs/space-backdrop/spec.md#the-sky-in-front-hides-the-boost)). Screenshots:
 [space-backdrop](../research/spikes/space-backdrop/README.md).
+
+## The ground
+
+Home and its moons draw with terrain materials ([guide](terrain-materials.md), `veach/space/surface.hpp`): each body
+gets a biome set from its composition and climate (temperate on potentially habitable planets; arid, cold or airless
+otherwise), its layers placed by slope, height, depth below the generated surface, temperature (the body's mean,
+latitude and height) and moisture (continental noise in planet meters), and its colors: the scans' on habitable
+planets, palettes from the star and the body's rock elsewhere, unless `surface_colors` says otherwise. The layers come
+from the game's `TerrainLayers` service (the slice's: Quixel scans in `local-assets/`, `apps/slice/terrain_layers.json`)
+or, without one, the toolbox's procedural stand-ins.
 
 ## Flight policy
 

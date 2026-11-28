@@ -262,6 +262,10 @@ C++ components tagged `veach::Scriptable` (all fields Luau-representable). The e
   occlusion, which darkens the sky's ambient light in creases, under overhangs and against walls (never direct
   light). On without it (1.5 m, intensity 1); `intensity` 0 or `enabled = false` turns it off. See
   [ambient-light](../specs/ambient-light/spec.md).
+- `Bloom` (`intensity`, `radius`): on a camera, the real-time renderer's bloom, the glare that makes a cave's
+  opening, the sun's disk and glints read as light. `intensity` is the share of each pixel's light spread around it
+  (0.04; 0 turns it off), `radius` the widest blur as a fraction of the image height (0.12), the same at every
+  resolution. On without it; photo mode never blooms. See [bloom](../specs/bloom/spec.md).
 - `Sky` (on any one entity; none means the defaults): `mode` `"physical"` (default), `"constant"` (`color` in nits)
   or `"none"`; the physical sky's `time_of_day` (hours, solar time), `latitude` (degrees), `day_of_year`, `north`
   (radians: north is -Z turned about +Y), `sun_illuminance` (lux at the top of the atmosphere), `ground_albedo`,

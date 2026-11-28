@@ -144,6 +144,13 @@ function(veach_add_material target name file)
     set_property(TARGET ${target} APPEND PROPERTY VEACH_MATERIALS "${name}|${source}|${ARG_EMISSIVE}")
 endfunction()
 
+# The engine's terrain material (docs/specs/terrain-materials/spec.md): an app that draws TerrainModule bodies with
+# a TerrainSurface registers it like any material kind, by name "TerrainMaterial". Opt-in, so apps without terrain
+# keep their shading pipelines and path tracer as they were.
+function(veach_add_terrain_material target)
+    veach_add_material(${target} TerrainMaterial "${PROJECT_SOURCE_DIR}/engine/render/shaders/terrain/terrain_material.slang")
+endfunction()
+
 # Compiles the reference path tracer into <target>'s shader library with its materials: generates
 # veach/materials_generated.slang (the evaluateSurface switch) and <NAMESPACE>_materials.hpp (the kind table
 # for render::SceneRenderer). Call after veach_add_material() and before veach_shader_library().

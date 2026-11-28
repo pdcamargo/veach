@@ -14,6 +14,7 @@
 //   meshes.remove(*chunk);         // its GPU buffers are freed
 
 #include <veach/asset/scene.hpp>
+#include <veach/asset/texture.hpp>
 #include <veach/core/error.hpp>
 #include <veach/core/ids.hpp>
 
@@ -44,6 +45,7 @@ struct RuntimeMesh {
 struct RuntimeAssets {
     std::unordered_map<AssetId, std::shared_ptr<const RuntimeMesh>> meshes;
     std::unordered_map<AssetId, std::shared_ptr<const MaterialAsset>> materials;
+    std::unordered_map<AssetId, std::shared_ptr<const TextureAsset>> textures;
 };
 
 /// The most material slots a runtime mesh may use.
@@ -77,6 +79,11 @@ public:
     [[nodiscard]] AssetId add_material(MaterialAsset material);
     [[nodiscard]] Result<> update_material(AssetId material, MaterialAsset data);
     [[nodiscard]] Result<> remove_material(AssetId material);
+
+    /// A texture made at run time (2D or a 2D array; terrain layers), for materials to reference by id. Uploaded
+    /// once, when a drawn material first uses it; freed when removed. Errors are render.mesh_invalid.
+    [[nodiscard]] Result<AssetId> add_texture(TextureAsset texture);
+    [[nodiscard]] Result<> remove_texture(AssetId texture);
 
     [[nodiscard]] std::size_t mesh_count() const;
     [[nodiscard]] std::size_t material_count() const;

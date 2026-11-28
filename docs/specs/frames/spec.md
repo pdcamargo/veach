@@ -1,6 +1,6 @@
 # Reference frames and double positions
 
-**Status:** Approved
+**Status:** Implemented
 **Area:** ecs, render, script, runtime
 **Owner:** dev lead
 
@@ -169,7 +169,12 @@ local d: vector = here - veach.position(1.496e11, 0, 0)                   -- (0,
 
 ## Open questions
 
-None.
+None. Implementation decisions beyond ADR 0045 and 0046 (the 64 m render-origin grid, `ReferenceFrame::up`,
+`FrameTransform::frame`, pose sources in PostSimulation, what is cached): [ADR 0085](../../adr/0085-amendments-from-vch-111.md).
+
+Tests: `[frames.AC1]` to `[frames.AC7]`, `[frames.AC9]`, `[frames.AC10]` in `tests/frames_tests.cpp`; AC8 is the
+`golden: cornell box ... (frames)` tests and `frames: a scene in a far frame renders byte-identically to the origin`
+(`apps/lab/scripts/frames_*.luau`); AC11 is every golden test, the replay tests and `veach-bench-transforms`.
 
 ## Links
 

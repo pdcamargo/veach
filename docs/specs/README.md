@@ -28,6 +28,7 @@ acceptance criteria (`[area.ACn] ...`) → status Implemented.
 | [Runtime meshes](runtime-meshes/spec.md) | render | Implemented |
 | [Job system](job-system/spec.md) | core | Implemented |
 | [Procgen: stage runtime, field graphs, generator sandbox](procgen/spec.md) | procgen | Implemented |
+| [Reference frames and double positions](frames/spec.md) | ecs, render, script | Implemented |
 
 Specs of the raytracing-first era (the real-time renderer v0, temporal direct lighting, soft shadows, real-time GI)
 were removed at the reset ([ADR 0001](../adr/0001-reset.md)); they live in the `pathtracer-era` tag.

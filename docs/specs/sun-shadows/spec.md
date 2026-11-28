@@ -28,7 +28,7 @@ renderer pass (VCH-140).
   a grid fixed in the render frame, so static shadows neither change size as the camera turns nor shimmer as it moves,
   including when render space moves to another 64 m cell (ADR 0045, ADR 0085).
 - Casters MUST be culled per cascade on the GPU by the GPU-driven culling, against the cascade's box and against the
-  camera's frustum slice swept away from the light, dropping casters smaller than a third of a texel; survivors MUST
+  camera's frustum slice swept away from the light, dropping casters under 0.35 texel in radius; survivors MUST
   be drawn by indirect draws from compacted lists (ADR 0089), alpha-tested ones with their alpha test.
 - Casters between a cascade and the light MUST cast even when they lie beyond its near plane.
 - Acne and peter-panning MUST be held off by a slope-scaled raster bias on the casters and a normal offset and a

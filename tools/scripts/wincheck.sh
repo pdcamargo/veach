@@ -24,7 +24,7 @@ includes=()
 for area in "$root"/engine/*/include "$root"/space/include "$root"/space/*/include "$root"/engine/include "$root"/engine/rhi/src "$root"/tests; do
     includes+=(/I "$area")
 done
-for dep in flecs/*/include glm/* doctest/* nlohmann_json/*/include stb/* bc7enc/* fastgltf/*/include luau/*/VM/include luau/*/Compiler/include luau/*/Ast/include luau/*/Common/include llvm_libc/*/*/libc enkits/*/src; do
+for dep in flecs/*/include glm/* doctest/* nlohmann_json/*/include stb/* bc7enc/* fastgltf/*/include luau/*/VM/include luau/*/Compiler/include luau/*/Ast/include luau/*/Common/include llvm_libc/*/*/libc enkits/*/src joltphysics/*; do
     for dir in "$root"/.cpm-cache/$dep; do includes+=(/imsvc "$dir"); done
 done
 
@@ -35,6 +35,7 @@ for file in "$@"; do
         /imsvc "$xwin/crt/include" /imsvc "$xwin/sdk/include/ucrt" /imsvc "$xwin/sdk/include/um" \
         /imsvc "$xwin/sdk/include/shared" /imsvc "$xwin/sdk/include/winrt" \
         /I "$agility/build/native/include" "${includes[@]}" \
-        /DNOMINMAX /DWIN32_LEAN_AND_MEAN '/DVEACH_SOURCE_DIR="."' "$file"
+        /DNOMINMAX /DWIN32_LEAN_AND_MEAN /DJPH_DOUBLE_PRECISION /DJPH_CROSS_PLATFORM_DETERMINISTIC \
+        '/DVEACH_SOURCE_DIR="."' "$file"
     echo "wincheck: $file ok"
 done

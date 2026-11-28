@@ -90,18 +90,25 @@ float2 terrain_project(float3 p, uint axis) {
 }
 
 /// The two arrays at one projection: uv = projected position / tile, with its pixel gradients.
-TerrainTexel terrain_fetch(MaterialContext c, uint axis, float tile, float layer, float2 offset, bool filtered) {
+/// Without `with_detail` only the albedo array is read (flat normal, no AO; the caller ignores the roughness).
+TerrainTexel terrain_fetch(MaterialContext c, uint axis, float tile, float layer, float2 offset, bool filtered,
+                           bool with_detail) {
     const float2 uv = terrain_project(c.surface.object_position, axis) / tile + offset;
     const float3 coords = float3(uv, layer);
     TerrainTexel t;
+    t.detail = float4(0.5, 0.5, 0.0, 1.0);
     if (filtered) {
         const float2 dx = terrain_project(c.surface.object_dx, axis) / tile;
         const float2 dy = terrain_project(c.surface.object_dy, axis) / tile;
         t.albedo_height = terrain_albedo(c).SampleGrad(nonuniform(c.record.sampler), coords, dx, dy);
-        t.detail = terrain_detail(c).SampleGrad(nonuniform(c.record.sampler), coords, dx, dy);
+        if (with_detail) {
+            t.detail = terrain_detail(c).SampleGrad(nonuniform(c.record.sampler), coords, dx, dy);
+        }
     } else {
         t.albedo_height = terrain_albedo(c).SampleLevel(nonuniform(c.record.sampler), coords, 0.0);
-        t.detail = terrain_detail(c).SampleLevel(nonuniform(c.record.sampler), coords, 0.0);
+        if (with_detail) {
+            t.detail = terrain_detail(c).SampleLevel(nonuniform(c.record.sampler), coords, 0.0);
+        }
     }
     t.detail.xy = t.detail.xy * 2.0 - 1.0;
     return t;
@@ -118,7 +125,7 @@ struct TerrainScale {
 };
 
 TerrainScale terrain_scale(MaterialContext c, float3 projection, float tile, float layer, float2 offset,
-                           bool filtered) {
+                           bool filtered, bool with_detail) {
     TerrainScale s;
     s.albedo = float3(0.0, 0.0, 0.0);
     s.height = 0.0;
@@ -131,7 +138,7 @@ TerrainScale terrain_scale(MaterialContext c, float3 projection, float tile, flo
         if (w <= 0.0) {
             continue;
         }
-        const TerrainTexel t = terrain_fetch(c, axis, tile, layer, offset, filtered);
+        const TerrainTexel t = terrain_fetch(c, axis, tile, layer, offset, filtered, with_detail);
         s.albedo += t.albedo_height.rgb * w;
         s.height += t.albedo_height.a * w;
         s.roughness += t.detail.b * w;
@@ -178,8 +185,7 @@ struct TerrainMaterial : IMaterial {
 
         // The macro variation, in the body's frame (wrapped at terrain_period).
         const float3 macro_p = s.object_position + s.material_origin;
-        const float macro = terrain_value_noise(macro_p, 64.0) * 0.45 + terrain_value_noise(macro_p, 512.0) * 0.35 +
-                            terrain_value_noise(macro_p, 4096.0) * 0.2;
+        const float macro = terrain_value_noise(macro_p, 128.0) * 0.55 + terrain_value_noise(macro_p, 2048.0) * 0.45;
 
         // Each layer's surface at this pixel, then the height blend.
         float3 albedo[terrain_slots];
@@ -188,6 +194,7 @@ struct TerrainMaterial : IMaterial {
         float ao[terrain_slots];
         float3 bump[terrain_slots];
         float best = -1e9;
+        float detail = 0.0;  ///< how much of the layers' textures the pixel sees (0: only their means, far away)
         for (uint k = 0; k < terrain_slots; ++k) {
             albedo[k] = float3(0.0, 0.0, 0.0);
             height[k] = 0.0;
@@ -217,14 +224,17 @@ struct TerrainMaterial : IMaterial {
             float occlusion = 1.0;
             float3 b = float3(0.0, 0.0, 0.0);
             if (far_w > 0.0) {
-                const TerrainScale far = terrain_scale(c, projection, far_tile, layer, offset * 0.5, filtered);
+                // Where the near tile shows fully, the far one only varies its color: its detail array is not read.
+                const TerrainScale far =
+                    terrain_scale(c, projection, far_tile, layer, offset * 0.5, filtered, near_w < 0.999);
                 color = lerp(mean, far.albedo, far_w);
                 h = lerp(h, far.height, far_w);
                 r = lerp(r, far.roughness * row.r3.y, far_w);
                 occlusion = lerp(1.0, far.ao, far_w);
                 b = far.bump * far_w;
                 if (near_w > 0.0) {
-                    const TerrainScale near = terrain_scale(c, projection, near_tile, layer, offset, filtered);
+                    const TerrainScale near =
+                        terrain_scale(c, projection, near_tile, layer, offset, filtered, true);
                     // The near tile, varied by the far one's departure from the mean: the near pattern no
                     // longer repeats identically.
                     const float3 variation = clamp(color / max(mean, 1e-3), 0.6, 1.6);
@@ -246,14 +256,23 @@ struct TerrainMaterial : IMaterial {
             ao[k] = occlusion;
             bump[k] = b * row.r3.w;
             best = max(best, weights[k] + h * height_blend);
+            detail = max(detail, far_w);
         }
 
         // Height blending: a layer shows where its weight plus its height is near the best; sand fills the cracks
         // between stones instead of fading into them.
+        // Far away the heights are only the layers' means: there the weights blend as they are, or the borders would
+        // follow the coarse chunks' triangles.
         const float depth = 0.12;
+        float sharp_total = 0.0;
+        float sharp[terrain_slots];
+        for (uint k = 0; k < terrain_slots; ++k) {
+            sharp[k] = weights[k] > 0.0 ? max(weights[k] + height[k] * height_blend - (best - depth), 0.0) : 0.0;
+            sharp_total += sharp[k];
+        }
         float total = 0.0;
         for (uint k = 0; k < terrain_slots; ++k) {
-            weights[k] = weights[k] > 0.0 ? max(weights[k] + height[k] * height_blend - (best - depth), 0.0) : 0.0;
+            weights[k] = lerp(weights[k], sharp_total > 0.0 ? sharp[k] / sharp_total : 0.0, detail);
             total += weights[k];
         }
         float3 out_albedo = float3(0.0, 0.0, 0.0);

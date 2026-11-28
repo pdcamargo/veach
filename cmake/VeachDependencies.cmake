@@ -208,6 +208,16 @@ CPMAddPackage(
 # that would fight ours (static MSVC runtime, its own release flags, LTO, -Wall -Werror, /Zi) and everything a
 # headless simulation doesn't need (debug renderer, profiler, object stream, GPU compute, install). SP-11 (VCH-087):
 # docs/research/spikes/sp-11-jolt.md.
+# MSVC Debug optimizes Jolt too (VCH-113, the MSVC half of ADR 0075 decision 3): unoptimized Jolt made SP-13's tests
+# take 86 s on Windows CI. /O2 conflicts with /RTC1, which is in CMAKE_CXX_FLAGS_DEBUG for every target, so Jolt's
+# directory gets a copy of the Debug flags with /Od /Ob0 /RTC1 swapped for /O2 /Ob2 (a subdirectory keeps the value
+# it had when it was added); ours are restored right after. JPH_DEBUG, its asserts and the debug runtime stay.
+if(MSVC)
+    set(veach_debug_flags "${CMAKE_CXX_FLAGS_DEBUG}")
+    string(REGEX REPLACE "/RTC[1csu]+" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
+    string(REPLACE "/Od" "/O2" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
+    string(REPLACE "/Ob0" "/Ob2" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
+endif()
 CPMAddPackage(
     NAME JoltPhysics
     VERSION 5.7.0
@@ -223,11 +233,20 @@ CPMAddPackage(
         "DEBUG_RENDERER_IN_DEBUG_AND_RELEASE OFF" "PROFILER_IN_DEBUG_AND_RELEASE OFF" "ENABLE_OBJECT_STREAM OFF"
         "ENABLE_INSTALL OFF" "JPH_USE_DX12 OFF" "JPH_USE_VK OFF" "JPH_USE_MTL OFF" "JPH_USE_CPU_COMPUTE OFF"
         "CPP_RTTI_ENABLED OFF" "CPP_EXCEPTIONS_ENABLED OFF")
+if(MSVC)
+    set(CMAKE_CXX_FLAGS_DEBUG "${veach_debug_flags}")
+endif()
 # Unoptimized Jolt runs about 30x slower; Debug builds keep JPH_DEBUG and asserts but optimize Jolt itself. The state
-# hashes don't change with the optimization level (docs/adr/0075-amendments-from-sp-11.md). Clang only: MSVC's /O2
-# conflicts with the /RTC1 of its Debug flags.
+# hashes don't change with the optimization level (docs/adr/0075-amendments-from-sp-11.md). MSVC: above.
 if(TARGET Jolt AND NOT MSVC)
     target_compile_options(Jolt PRIVATE $<$<CONFIG:Debug>:-O2>)
+endif()
+# x64 compiles Jolt for AVX2 (ADR 0075 decision 2). Jolt adds /arch:AVX2 only for Visual Studio generators (it tests
+# CMAKE_VS_PLATFORM_NAME), so our Ninja + MSVC build got SSE2; Jolt's Core.h derives JPH_USE_AVX2 and the rest from
+# __AVX2__. PUBLIC: engine/physics, the only code that includes Jolt, must agree with it. Clang on x86-64 already gets
+# -mavx2 from Jolt's own CMake. The bits are equal for every ISA (SP-11); this is speed and the minimum CPU.
+if(TARGET Jolt AND MSVC AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|x86_64)$")
+    target_compile_options(Jolt PUBLIC /arch:AVX2)
 endif()
 # Jolt builds without RTTI, so UBSan's vptr check in code that uses Jolt's classes links against typeinfo that
 # doesn't exist. Code that links Jolt skips that one check.

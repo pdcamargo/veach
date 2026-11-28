@@ -141,8 +141,8 @@ The same ship 1e8 m and 1 AU (1.496e11 m) from the world origin:
   [ADR 0045](../../adr/0045-large-world-positions-and-reference-frames.md) decides): the images at 1e8 m and 1 AU are
   byte-identical to the one at the origin.
 - **Float32 world positions** (today's `Transform`, the view matrix carrying the translation): at 1e8 m (an 8 m
-  grid) and at 1 AU (16 km) the cockpit disappears: its vertices collapse onto a few grid points. The gas giant
-  survives, with a crack where the shade pass rebuilds positions from large numbers.
+  grid) and at 1 AU (16 km) the cockpit disappears: its vertices collapse onto a few grid points. The bodies survive
+  (a 16 km grid is invisible on a 7e7 m giant 7e8 m away).
 
 | float32, 1e8 m | float32, 1 AU | float32, 1e6 m, frame 35 | float32, 1e6 m, frame 34 |
 |---|---|---|---|
@@ -150,7 +150,7 @@ The same ship 1e8 m and 1 AU (1.496e11 m) from the world origin:
 
 S5's jitter test, the ship moving 1 cm per frame 1e6 m from the origin (a 6 cm float32 grid, so the cockpit survives
 but snaps): camera-relative, consecutive frames differ by a mean FLIP of 0.0000; float32, the cockpit is torn (the
-sensor housing gone, the mullion dashed) and jumps every sixth frame (mean FLIP 0.065 at the jump).
+sensor housing gone, the mullion dashed) and jumps every sixth frame (mean FLIP 0.064 at the jump).
 
 ## Exposure
 

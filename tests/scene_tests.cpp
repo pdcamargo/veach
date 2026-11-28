@@ -219,3 +219,15 @@ TEST_CASE("[scene.AC1] glTF imports into scenes, meshes and materials with stabl
     CHECK_FALSE(third.from_cache);
     CHECK(third.meshes == meshes);
 }
+
+TEST_CASE("[scene.AC1] a buffer shorter than declared, such as a Git LFS pointer, is an error, not a read past its end") {
+    CornellBox box;
+    box.project.write("box/cornell_box.bin",
+                      "version https://git-lfs.github.com/spec/v1\noid sha256:0000\nsize 4242\n");
+    box.reopen();
+    auto scene = box.assets->wait(box.assets->load<SceneAsset>("box/cornell_box.gltf"));
+    REQUIRE_FALSE(scene.has_value());
+    CHECK(scene.error().code == ErrorCode::asset_load_failed);
+    CHECK(scene.error().message.find("buffer 0 has") != std::string::npos);
+    CHECK(scene.error().hint.find("git lfs pull") != std::string::npos);
+}

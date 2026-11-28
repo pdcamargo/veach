@@ -325,6 +325,27 @@ Result<SceneAsset> GltfLoader::load(const LoadContext& ctx) const {
                           "Check the file with the Khronos glTF validator.");
     }
     const fastgltf::Asset& asset = parsed.get();
+    // fastgltf trusts the declared sizes; a short buffer (often a Git LFS pointer in place of the .bin) would be read
+    // past its end.
+    for (std::size_t i = 0; i < asset.buffers.size(); ++i) {
+        const std::size_t loaded = source_bytes(asset.buffers[i].data).size();
+        if (loaded < asset.buffers[i].byteLength) {
+            return make_error(ErrorCode::asset_load_failed,
+                              std::format("{}: buffer {} has {} bytes, the file declares {}", context, i, loaded,
+                                          asset.buffers[i].byteLength),
+                              "If the buffer is a Git LFS file, fetch it (git lfs pull); otherwise re-export the "
+                              "asset.");
+        }
+    }
+    for (std::size_t i = 0; i < asset.bufferViews.size(); ++i) {
+        const fastgltf::BufferView& bv = asset.bufferViews[i];
+        if (bv.bufferIndex >= asset.buffers.size() ||
+            bv.byteOffset + bv.byteLength > asset.buffers[bv.bufferIndex].byteLength) {
+            return make_error(ErrorCode::asset_load_failed,
+                              std::format("{}: buffer view {} lies outside its buffer", context, i),
+                              "Check the file with the Khronos glTF validator.");
+        }
+    }
     if (!asset.skins.empty() || !asset.animations.empty() || !asset.cameras.empty()) {
         log::warn("asset", "{}: skins, animations and cameras are not imported yet", context);
     }

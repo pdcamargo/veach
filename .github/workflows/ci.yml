@@ -78,7 +78,7 @@ jobs:
             hosted_windows: "1"  # tests/cmake/windowed_test.cmake: the runner's Present quirk (VCH-050)
     env:
       CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache
-      LFS_INCLUDE: tests/golden/**,apps/lab/assets/cornell_box/**,apps/lab/assets/flight_helmet/**
+      LFS_INCLUDE: tests/golden/**,apps/lab/assets/cornell_box/**,apps/lab/assets/flight_helmet/**,apps/lab/assets/thin_triangles/**
       VEACH_REQUIRE_GPU: ${{ matrix.require_gpu || '0' }}
       VEACH_CI_HOSTED_WINDOWS: ${{ matrix.hosted_windows || '0' }}
     steps:

@@ -24,6 +24,7 @@ public:
     void destroy_window(std::uint32_t id) override;
     void update_window(std::uint32_t id, const Window& desc, const Window& previous) override;
     [[nodiscard]] NativeWindowHandle native_handle(std::uint32_t id) const override;
+    void set_relative_mouse(std::uint32_t id, bool enabled) override;
     void poll_events(std::vector<PlatformEvent>& out) override;
 
 private:

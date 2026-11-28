@@ -547,11 +547,40 @@ struct ScriptRuntime::Impl {
         lua_pushboolean(S, check_action(S, 1).released ? 1 : 0);
         return 1;
     }
-    /// -1, 0 or 1 from two held actions: axis("move_back", "move_forward").
+    static const InputAxis& check_axis(lua_State* S, int index) {
+        Impl& rt = self(S);
+        const std::string name = luaL_checkstring(S, index);
+        const Entity e = rt.world.lookup(action_path(name).c_str());
+        const InputAxis* axis = e ? e.try_get<InputAxis>() : nullptr;
+        if (!axis) {
+            std::vector<std::string> names;
+            rt.world.each([&](Entity a, const InputAxis&) { names.emplace_back(a.name().c_str()); });
+            std::string hint = did_you_mean(name, names);
+            if (e && e.has<InputAction>()) {
+                hint += std::format("{}'{}' is a key action: read it with down(), or as axis(negative, positive).",
+                                    hint.empty() ? "" : " ", name);
+            }
+            hint += std::format("{}Analog actions are bound under \"axes\" in veach.project.json.",
+                                hint.empty() ? "" : " ");
+            raise(S, ErrorCode::input_unknown_action, std::format("no analog input action '{}'", name), hint);
+        }
+        return *axis;
+    }
+
+    /// axis("look_x"): an analog action's value. axis("move_back", "move_forward"): -1, 0 or 1 from two held
+    /// key actions.
     static int input_axis(lua_State* S) {
+        if (lua_isnoneornil(S, 2)) {
+            lua_pushnumber(S, static_cast<double>(check_axis(S, 1).value));
+            return 1;
+        }
         const bool negative = check_action(S, 1).down;
         const bool positive = check_action(S, 2).down;
         lua_pushnumber(S, (positive ? 1.0 : 0.0) - (negative ? 1.0 : 0.0));
+        return 1;
+    }
+    static int input_gamepads(lua_State* S) {
+        lua_pushnumber(S, static_cast<double>(self(S).world.get<Input>().gamepads));
         return 1;
     }
 
@@ -871,11 +900,12 @@ struct ScriptRuntime::Impl {
         lua_setreadonly(L, -1, 1);
         lua_setfield(L, -2, "quat");
 
-        constexpr std::array<std::pair<const char*, lua_CFunction>, 4> input_functions{{
+        constexpr std::array<std::pair<const char*, lua_CFunction>, 5> input_functions{{
             {"down", input_down},
             {"pressed", input_pressed},
             {"released", input_released},
             {"axis", input_axis},
+            {"gamepads", input_gamepads},
         }};
         lua_createtable(L, 0, static_cast<int>(input_functions.size()));
         for (const auto& [fn_name, fn] : input_functions) {

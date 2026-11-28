@@ -101,8 +101,18 @@ closest bound action. Add the action to the project file, or fix the name. See
 **An input binding or injected event names a key that does not exist.**
 
 Key names are the constants of `veach::Key`: `a`–`z`, `digit0`–`digit9`, `space`, `enter`, `escape`, `tab`,
-`backspace`, the arrows `left`/`right`/`up`/`down`, `left_shift`, `right_ctrl`…, `f1`–`f12`, and the mouse
-buttons `mouse_left`, `mouse_right`, `mouse_middle`. The hint suggests the closest one.
+`backspace`, the arrows `left`/`right`/`up`/`down`, `left_shift`, `right_ctrl`…, `f1`–`f12`, the mouse
+buttons `mouse_left`, `mouse_right`, `mouse_middle`, and the gamepad buttons `gamepad_south`, `gamepad_east`,
+`gamepad_west`, `gamepad_north`, `gamepad_left_shoulder`, `gamepad_dpad_up`…. The hint suggests the closest one.
+
+## input.unknown_axis
+
+**An analog axis name in a project or tool is not a `veach::Axis`.**
+
+The `source` of an entry under `"axes"` in `veach.project.json`, or the `axis` of MCP `send_input`, must be one
+of `mouse_x`, `mouse_y`, `mouse_wheel_x`, `mouse_wheel_y`, `gamepad_left_x`, `gamepad_left_y`,
+`gamepad_right_x`, `gamepad_right_y`, `gamepad_left_trigger`, `gamepad_right_trigger`. The hint suggests the
+closest one. See [input](../specs/input/spec.md).
 
 ## asset.not_found
 

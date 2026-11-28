@@ -61,7 +61,7 @@ veach-lab --mcp --rhi metal                      # windowed: the app keeps runni
 | `step_frames` | `count?` (default 1) | `{frame, fixed_step, elapsed, running}` |
 | `reload` | `path?` | `{reloaded: [{path, id, reloaded, error?}]}`: hot reload ([hot-reload](../hot-reload/spec.md)) |
 | `list_assets` | | `{assets: [{path, id, loader, state, reloads, error?, reload_error?}]}` |
-| `send_input` | `key` (a `veach::Key` name), `down` | `{key, down, delivered}`; the event drives input actions on the next frame ([input](../input/spec.md)) |
+| `send_input` | `key` (a `veach::Key` name), `down`; or `axis` (a `veach::Axis` name), `value`; or `gamepad` (true/false) | `{key, down, delivered}`, `{axis, value, relative, delivered}` (the value as quantized) or `{gamepad, delivered}`; the event drives input actions and axes on the next frame ([input](../input/spec.md)) |
 | `screenshot` | `path?` (also write the PNG there) | image content (PNG) and a text note |
 | `photo_mode` | `samples`, `path?` | restarts photo mode (the reference path tracer, on the camera's `PhotoMode`) and renders exactly `samples` per pixel, without advancing simulation; image content (PNG) ([photo-mode](../photo-mode/spec.md)) |
 | `render_graph_plan` | | the last compiled plan as text (`RenderGraph::describe`) |

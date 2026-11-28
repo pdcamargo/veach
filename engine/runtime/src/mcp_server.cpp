@@ -239,14 +239,23 @@ json McpServer::tools() const {
          {"properties", {{"count", {{"type", "integer"}, {"minimum", 1}, {"maximum", 100000}, {"default", 1}}}}}}));
     std::vector<std::string> keys = enum_constants(world, world.id<Key>());
     std::erase(keys, "unknown");
+    std::vector<std::string> axes = enum_constants(world, world.id<Axis>());
+    std::erase(axes, "none");
     list.push_back(
         tool("send_input",
-             "Press or release a key or mouse button as if the OS had sent it. It is delivered with the "
-             "next frame (step_frames), where it drives the input actions bound in veach.project.json "
-             "(entities under veach::actions).",
+             "Send input as if the OS had: press or release a key, mouse or gamepad button ('key' and 'down'), move an "
+             "analog axis ('axis' and 'value': mouse_x/mouse_y/mouse_wheel_* add a motion in window points or wheel "
+             "notches, +Y up; gamepad sticks (-1..1) and triggers (0..1) go to the value and stay there), or connect "
+             "or disconnect a gamepad ('gamepad': true/false). Values are rounded to 1/65536. Delivered with the next "
+             "frame (step_frames), where it drives the input actions and axes bound in veach.project.json (entities "
+             "under veach::actions).",
              {{"type", "object"},
-              {"properties", {{"key", {{"type", "string"}, {"enum", keys}}}, {"down", {{"type", "boolean"}}}}},
-              {"required", {"key", "down"}}}));
+              {"properties",
+               {{"key", {{"type", "string"}, {"enum", keys}}},
+                {"down", {{"type", "boolean"}}},
+                {"axis", {{"type", "string"}, {"enum", axes}}},
+                {"value", {{"type", "number"}}},
+                {"gamepad", {{"type", "boolean"}}}}}}));
     list.push_back(tool("reload",
                         "Hot reload: reload 'path' (a loaded asset, e.g. \"scripts/main.luau\"), or every asset whose "
                         "file changed. A script that already ran runs again as if fresh: its systems are replaced "
@@ -431,6 +440,36 @@ json McpServer::call_tool(std::string_view name, const json& arguments) {
             {{"frame", time.frame}, {"fixed_step", time.fixed_step}, {"elapsed", time.elapsed}, {"running", running}});
     }
 
+    if (name == "send_input" && arguments.contains("axis")) {
+        const std::string axis_name = require_string(arguments, "axis");
+        if (!arguments.contains("value") || !arguments["value"].is_number()) {
+            fail(ErrorCode::mcp_invalid_arguments, "'value' must be a number",
+                 "A mouse motion in window points (mouse_x: 12), or a stick position in -1..1.");
+        }
+        Axis axis = Axis::none;
+        if (axis_name == "none" || !write_enum(world, world.id<Axis>(), &axis, axis_name)) {
+            std::vector<std::string> axes = enum_constants(world, world.id<Axis>());
+            std::erase(axes, "none");
+            fail(ErrorCode::input_unknown_axis, std::format("unknown axis '{}'", axis_name),
+                 did_you_mean(axis_name, axes));
+        }
+        const std::int32_t value = quantize_axis(arguments["value"].get<double>());
+        engine_.services().get<Platform>().inject(
+            {.type = PlatformEvent::Type::axis_moved, .axis = axis, .value = value});
+        return json_result({{"axis", axis_name},
+                            {"value", axis_to_double(value)},
+                            {"relative", is_relative(axis)},
+                            {"delivered", "with the next frame"}});
+    }
+    if (name == "send_input" && arguments.contains("gamepad")) {
+        if (!arguments["gamepad"].is_boolean()) {
+            fail(ErrorCode::mcp_invalid_arguments, "'gamepad' must be a boolean", "true connects, false disconnects.");
+        }
+        const bool connected = arguments["gamepad"].get<bool>();
+        engine_.services().get<Platform>().inject(
+            {.type = connected ? PlatformEvent::Type::gamepad_added : PlatformEvent::Type::gamepad_removed});
+        return json_result({{"gamepad", connected}, {"delivered", "with the next frame"}});
+    }
     if (name == "send_input") {
         const std::string key_name = require_string(arguments, "key");
         if (!arguments.contains("down") || !arguments["down"].is_boolean()) {

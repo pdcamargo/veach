@@ -11,6 +11,7 @@
 #include <SDL3/SDL_metal.h>
 #endif
 
+#include <algorithm>
 #include <format>
 #include <unordered_map>
 
@@ -49,6 +50,49 @@ Key translate_scancode(SDL_Scancode code) {
     }
 }
 
+Key translate_gamepad_button(Uint8 button) {
+    switch (static_cast<SDL_GamepadButton>(button)) {
+        case SDL_GAMEPAD_BUTTON_SOUTH: return Key::gamepad_south;
+        case SDL_GAMEPAD_BUTTON_EAST: return Key::gamepad_east;
+        case SDL_GAMEPAD_BUTTON_WEST: return Key::gamepad_west;
+        case SDL_GAMEPAD_BUTTON_NORTH: return Key::gamepad_north;
+        case SDL_GAMEPAD_BUTTON_BACK: return Key::gamepad_back;
+        case SDL_GAMEPAD_BUTTON_GUIDE: return Key::gamepad_guide;
+        case SDL_GAMEPAD_BUTTON_START: return Key::gamepad_start;
+        case SDL_GAMEPAD_BUTTON_LEFT_STICK: return Key::gamepad_left_stick;
+        case SDL_GAMEPAD_BUTTON_RIGHT_STICK: return Key::gamepad_right_stick;
+        case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: return Key::gamepad_left_shoulder;
+        case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: return Key::gamepad_right_shoulder;
+        case SDL_GAMEPAD_BUTTON_DPAD_UP: return Key::gamepad_dpad_up;
+        case SDL_GAMEPAD_BUTTON_DPAD_DOWN: return Key::gamepad_dpad_down;
+        case SDL_GAMEPAD_BUTTON_DPAD_LEFT: return Key::gamepad_dpad_left;
+        case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: return Key::gamepad_dpad_right;
+        default: return Key::unknown;
+    }
+}
+
+/// A gamepad axis event as an Axis and its value in -1..1 (triggers 0..1), +Y up.
+PlatformEvent translate_gamepad_axis(Uint8 axis, Sint16 raw) {
+    double value = std::clamp(static_cast<double>(raw) / 32767.0, -1.0, 1.0);
+    Axis out = Axis::none;
+    switch (static_cast<SDL_GamepadAxis>(axis)) {
+        case SDL_GAMEPAD_AXIS_LEFTX: out = Axis::gamepad_left_x; break;
+        case SDL_GAMEPAD_AXIS_LEFTY:
+            out = Axis::gamepad_left_y;
+            value = -value;
+            break;  // SDL: +Y is down
+        case SDL_GAMEPAD_AXIS_RIGHTX: out = Axis::gamepad_right_x; break;
+        case SDL_GAMEPAD_AXIS_RIGHTY:
+            out = Axis::gamepad_right_y;
+            value = -value;
+            break;
+        case SDL_GAMEPAD_AXIS_LEFT_TRIGGER: out = Axis::gamepad_left_trigger; break;
+        case SDL_GAMEPAD_AXIS_RIGHT_TRIGGER: out = Axis::gamepad_right_trigger; break;
+        default: break;
+    }
+    return {.type = PlatformEvent::Type::axis_moved, .axis = out, .value = quantize_axis(value)};
+}
+
 }  // namespace
 
 struct SdlPlatform::Impl {
@@ -59,6 +103,7 @@ struct SdlPlatform::Impl {
 #endif
     };
     std::unordered_map<std::uint32_t, WindowEntry> windows;
+    std::unordered_map<SDL_JoystickID, SDL_Gamepad*> gamepads;
 };
 
 Result<std::unique_ptr<SdlPlatform>> SdlPlatform::create() {
@@ -69,6 +114,11 @@ Result<std::unique_ptr<SdlPlatform>> SdlPlatform::create() {
     }
     auto platform = std::unique_ptr<SdlPlatform>(new SdlPlatform());
     platform->impl_ = std::make_unique<Impl>();
+    // Gamepads are optional: without them keyboard and mouse still work. Connected pads arrive as
+    // SDL_EVENT_GAMEPAD_ADDED with the first poll.
+    if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) {
+        log::warn("platform", "no gamepad support: SDL_InitSubSystem(SDL_INIT_GAMEPAD) failed: {}", SDL_GetError());
+    }
     log::debug("platform", "SDL {}.{}.{} initialized (video driver: {})", SDL_MAJOR_VERSION, SDL_MINOR_VERSION,
                SDL_MICRO_VERSION, SDL_GetCurrentVideoDriver() ? SDL_GetCurrentVideoDriver() : "none");
     return platform;
@@ -76,6 +126,9 @@ Result<std::unique_ptr<SdlPlatform>> SdlPlatform::create() {
 
 SdlPlatform::~SdlPlatform() {
     if (impl_) {
+        for (const auto& [id, gamepad] : impl_->gamepads) {
+            SDL_CloseGamepad(gamepad);
+        }
         while (!impl_->windows.empty()) {
             destroy_window(impl_->windows.begin()->first);
         }
@@ -137,6 +190,13 @@ void SdlPlatform::update_window(std::uint32_t id, const Window& desc, const Wind
     }
 }
 
+void SdlPlatform::set_relative_mouse(std::uint32_t id, bool enabled) {
+    const auto it = impl_->windows.find(id);
+    if (it != impl_->windows.end() && !SDL_SetWindowRelativeMouseMode(it->second.window, enabled)) {
+        log::warn("platform", "relative mouse mode {} failed: {}", enabled ? "on" : "off", SDL_GetError());
+    }
+}
+
 NativeWindowHandle SdlPlatform::native_handle(std::uint32_t id) const {
     NativeWindowHandle handle;
     const auto it = impl_->windows.find(id);
@@ -195,6 +255,68 @@ void SdlPlatform::poll_events(std::vector<PlatformEvent>& out) {
                                .key = button});
                 break;
             }
+            // Mouse motion in window points, +Y up; quantized here so a recording holds exactly what was applied.
+            case SDL_EVENT_MOUSE_MOTION:
+                if (event.motion.xrel != 0.0f) {
+                    out.push_back({.type = PlatformEvent::Type::axis_moved,
+                                   .window = event.motion.windowID,
+                                   .axis = Axis::mouse_x,
+                                   .value = quantize_axis(event.motion.xrel)});
+                }
+                if (event.motion.yrel != 0.0f) {
+                    out.push_back({.type = PlatformEvent::Type::axis_moved,
+                                   .window = event.motion.windowID,
+                                   .axis = Axis::mouse_y,
+                                   .value = quantize_axis(-event.motion.yrel)});
+                }
+                break;
+            case SDL_EVENT_MOUSE_WHEEL: {
+                const float sign = event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -1.0f : 1.0f;
+                if (event.wheel.x != 0.0f) {
+                    out.push_back({.type = PlatformEvent::Type::axis_moved,
+                                   .window = event.wheel.windowID,
+                                   .axis = Axis::mouse_wheel_x,
+                                   .value = quantize_axis(sign * event.wheel.x)});
+                }
+                if (event.wheel.y != 0.0f) {
+                    out.push_back({.type = PlatformEvent::Type::axis_moved,
+                                   .window = event.wheel.windowID,
+                                   .axis = Axis::mouse_wheel_y,
+                                   .value = quantize_axis(sign * event.wheel.y)});
+                }
+                break;
+            }
+            case SDL_EVENT_GAMEPAD_ADDED:
+                if (!impl_->gamepads.contains(event.gdevice.which)) {
+                    if (SDL_Gamepad* pad = SDL_OpenGamepad(event.gdevice.which)) {
+                        impl_->gamepads.emplace(event.gdevice.which, pad);
+                        log::debug("platform", "gamepad '{}' opened",
+                                   SDL_GetGamepadName(pad) ? SDL_GetGamepadName(pad) : "?");
+                        out.push_back({.type = PlatformEvent::Type::gamepad_added});
+                    } else {
+                        log::warn("platform", "a gamepad was connected but cannot be opened: {}", SDL_GetError());
+                    }
+                }
+                break;
+            case SDL_EVENT_GAMEPAD_REMOVED:
+                if (const auto it = impl_->gamepads.find(event.gdevice.which); it != impl_->gamepads.end()) {
+                    SDL_CloseGamepad(it->second);
+                    impl_->gamepads.erase(it);
+                    out.push_back({.type = PlatformEvent::Type::gamepad_removed});
+                }
+                break;
+            case SDL_EVENT_GAMEPAD_AXIS_MOTION: {
+                PlatformEvent axis = translate_gamepad_axis(event.gaxis.axis, event.gaxis.value);
+                if (axis.axis != Axis::none) {
+                    out.push_back(axis);
+                }
+                break;
+            }
+            case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+            case SDL_EVENT_GAMEPAD_BUTTON_UP:
+                out.push_back({.type = event.gbutton.down ? PlatformEvent::Type::key_down : PlatformEvent::Type::key_up,
+                               .key = translate_gamepad_button(event.gbutton.button)});
+                break;
             default: break;
         }
     }

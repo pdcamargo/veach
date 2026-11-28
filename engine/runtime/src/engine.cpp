@@ -207,6 +207,9 @@ Result<> Engine::init() {
             for (const ActionBinding& binding : project.input) {
                 bind_action(*world_, binding.action, binding.primary, binding.secondary);
             }
+            for (const AxisActionBinding& binding : project.axes) {
+                bind_axis(*world_, binding.action, binding.binding);
+            }
             sync_windows(*world_);
             return std::format("flecs {}.{}.{}, seed {}", FLECS_VERSION_MAJOR, FLECS_VERSION_MINOR, FLECS_VERSION_PATCH,
                                project.seed);
@@ -481,6 +484,9 @@ bool Engine::frame() {
         run_phase(PhaseId::simulation, fixed_delta_seconds);
         run_phase(PhaseId::post_simulation, fixed_delta_seconds);
         run_phase(PhaseId::transform_propagation, fixed_delta_seconds);
+        if (i == 0) {
+            consume_relative_axes(*world_);  // mouse motion counts once, in the frame's first step
+        }
         ++fixed_steps_;
         Time& time = world_->get_mut<Time>();
         time.fixed_step = fixed_steps_;

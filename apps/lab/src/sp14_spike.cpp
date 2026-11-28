@@ -497,6 +497,8 @@ struct ExposureScene {
     render::AutoExposureSettings settings;
     std::uint64_t from = 0;
     bool hold = false;  ///< stay at frame `from` (timings)
+    bool open_cave =
+        false;  ///< VEACH_SP14_OPEN_CAVE=1: no sky visibility in the cave (the haze ADR 0082 rule 5 removes)
     std::filesystem::path out;
     Mesh cave;
 };
@@ -514,6 +516,7 @@ ExposureScene exposure_config(render::MeshStore& store) {
     e.settings.report = true;
     e.from = static_cast<std::uint64_t>(number("VEACH_SP14_FROM", 0.0));
     e.hold = veach::env_is_one("VEACH_SP14_HOLD");
+    e.open_cave = veach::env_is_one("VEACH_SP14_OPEN_CAVE");
     e.out = veach::env("VEACH_SP14_OUT").value_or("");
 
     // The cave: a rock block with a chamber, open at z = 0. Its inside faces inward.
@@ -557,12 +560,15 @@ void extract_exposure(const ExposureScene& e, render::Renderer& renderer, render
     p.ground_albedo = math::vec3(e.record.ground_albedo);
     p.suns.at(0) = {.direction = math::vec3(sun), .illuminance = math::vec3(static_cast<float>(sun_lux))};
     p.sun_count = 1;
-    p.ambient = static_cast<float>(m.ambient);
     out.sky.mode = veach::SkyMode::physical;
     out.sky.planet = p;
-    // Aerial perspective is in-scattering by sunlit air: it has no shadowing, so inside the cave it would fill the
-    // chamber with blue haze brighter than the walls. Off there (the cave's air is in shadow).
-    out.sky.settings.aerial_perspective = !m.headlamp;
+    // Inside the cave its walls hide the sky (ADR 0082 rule 5): the air and walls within reach of the camera (the
+    // chamber, back to the mouth) get no haze and the stand-in's share of the sky's ambient light. The spike knows
+    // the chamber; a game measures it (physics::sky_visibility) or marks its interiors.
+    if (m.headlamp && !e.open_cave) {
+        view.sky_visibility = {.visibility = static_cast<float>(m.ambient),
+                               .reach = static_cast<float>(std::max(-camera.z, 0.0) + 2.0)};
+    }
     if (e.common.stars > 0.0f) {
         out.sky.stars = render::Starfield{.brightness = e.common.stars};
     }

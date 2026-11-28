@@ -294,7 +294,18 @@ public:
             altitude_shots(world, r);
             if (pilot_.phase() == Autopilot::Phase::done && ++done_frames_ == 90) {
                 veach::log::info("slice", "done: dig hash {:016x}, landing hash {:016x}", h, landing_hash_);
-                world.quit();
+                if (shots_.empty()) {
+                    world.quit();
+                } else {
+                    tour_ = 1;  // the demo's extra views (tour_view)
+                }
+            }
+            if (tour_ > 0 && ++tour_frames_ == tour_hold(tour_)) {
+                shot(world, tour_name(tour_));
+                tour_frames_ = 0;
+                if (++tour_ > tour_views) {
+                    world.quit();
+                }
             }
         }
     }
@@ -667,15 +678,86 @@ private:
                 up_hint = o.to_system(up_hint);
             }
         }
+        if (tour_ > 0) {
+            camera_frame = fixed_;
+            tour_view(eye, look, up_hint);
+        }
         if (camera_.parent() != camera_frame) {
             camera_.child_of(camera_frame);
         }
+        camera_.set(sky_visibility(camera_frame == fixed_, eye));
         const dvec3 z = unit(eye - look);
         const dvec3 x = unit(math::cross(up_hint, z));
         const dvec3 y = math::cross(z, x);
         camera_.set(veach::Transform{.translation = eye,
                                      .rotation = math::quat(math::normalize(math::quat_cast(math::dmat3(x, y, z))))});
         static_cast<void>(world);
+    }
+
+    /// How open the camera's surroundings are to the sky, for the renderer's occluded aerial perspective (ADR 0082
+    /// rule 5): hemisphere rays against the surface scene's static colliders (terrain with the dug hole), smoothed
+    /// over a few frames. Display only: never hashed.
+    veach::SkyVisibility sky_visibility(bool body_fixed, const dvec3& eye) {
+        ph::SkyOpenness open;
+        if (body_fixed && physics_->scene_info(surface_).colliders > 0) {
+            open = ph::sky_visibility(*physics_, surface_, eye - physics_->origin_at(surface_), math::vec3(unit(eye)));
+        }
+        constexpr float alpha = 0.25f;
+        sky_.visibility += (open.visibility - sky_.visibility) * alpha;
+        sky_.reach += (open.reach - sky_.reach) * alpha;
+        return sky_;
+    }
+
+    // ---- The demo's extra views, after the landing and the dig (VEACH_SLICE_SHOTS only) ------------------------
+
+    static constexpr std::uint32_t tour_views = 3;
+
+    static const char* tour_name(std::uint32_t view) {
+        switch (view) {
+            case 1: return "hole_eye";
+            case 2: return "haze_200m";
+            default: return "sunset_300m";
+        }
+    }
+
+    /// Frames each view waits before its screenshot: terrain streams around the new camera, exposure adapts.
+    static std::uint32_t tour_hold(std::uint32_t view) { return view == 1 ? 60 : 900; }
+
+    /// The camera for tour view `tour_`, body-fixed.
+    void tour_view(dvec3& eye, dvec3& look, dvec3& up_hint) const {
+        const vs::Orientation o = orientation();
+        const dvec3 sun = o.to_body(sun_direction_inertial());
+        if (tour_ == 1) {
+            // From the pilot's eyes at the bottom of the hole, across it to its wall and the sky above the rim.
+            const Kin k = walker_body();
+            const dvec3 up = unit(k.r);
+            eye = k.r + up * 0.7 + walker_heading_.forward * 0.45;  // in front of the pilot's box
+            look = eye + walker_heading_.forward * 1.2 + up * 3.0;  // up the far wall to the rim and the sky
+            up_hint = up;
+            return;
+        }
+        if (tour_ == 2) {
+            // 200 m over the landing site, looking along the ground away from the sun: haze on far terrain.
+            const dvec3 up = unit(site_);
+            dvec3 away = -(sun - up * math::dot(sun, up));
+            away = length(away) > 1e-6 ? unit(away) : site_east_;
+            eye = up * (ground_radius(up) + 200.0);
+            look = eye + away * 1000.0 - up * 60.0;
+            up_hint = up;
+            return;
+        }
+        // A point on the planet where the sun is 2 degrees up, on the great circle through the site and the sun,
+        // looking toward the sun along the horizon.
+        const dvec3 site_up = unit(site_);
+        dvec3 axis = math::cross(sun, site_up);
+        axis = length(axis) > 1e-6 ? unit(axis) : site_east_;
+        const dvec3 toward = unit(math::cross(axis, sun));  // perpendicular to the sun, on the site's side
+        const double elevation = 2.0 * deg;
+        const dvec3 up = unit(toward * dmath::cos(elevation) + sun * dmath::sin(elevation));
+        const dvec3 horizontal = unit(sun - up * math::dot(sun, up));
+        eye = up * (ground_radius(up) + 300.0);
+        look = eye + horizontal * 1000.0 + up * 10.0;
+        up_hint = up;
     }
 
     [[nodiscard]] dvec3 sun_direction_inertial() const {
@@ -814,8 +896,8 @@ private:
             }
             veach::log::info("slice",
                              "frame times at '{}': cpu {:.2f} ms/frame, gpu {:.3f} ms (both smoothed over about 10 "
-                             "frames); last frame's passes:{}",
-                             name, frame_ms_, gpu_ms_, passes);
+                             "frames); last frame's passes:{}; sky visibility {:.2f} within {:.1f} m",
+                             name, frame_ms_, gpu_ms_, passes, sky_.visibility, sky_.reach);
         }
     }
 
@@ -890,6 +972,8 @@ private:
     Controls autopilot_controls_;
     std::string shots_;
     std::uint32_t shot_ = 0, altitude_marks_ = 0, done_frames_ = 0;
+    std::uint32_t tour_ = 0, tour_frames_ = 0;  ///< the demo's extra view (0: none) and frames on it
+    veach::SkyVisibility sky_;
     double frame_ms_ = 0.0, gpu_ms_ = 0.0, last_frame_ = 0.0;
 };
 

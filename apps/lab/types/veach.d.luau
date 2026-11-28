@@ -218,6 +218,10 @@ export type Sky = {
 	mie_g: number,
 	aerial_perspective: boolean,
 }
+export type SkyVisibility = {
+	visibility: number,
+	reach: number,
+}
 export type Spinner = {
 	radians_per_second: number,
 	angle: number,
@@ -338,6 +342,7 @@ export type Veach = {
 		read RuntimeMeshDemo: Component<RuntimeMeshDemo>,
 		read SceneInstance: Component<SceneInstance>,
 		read Sky: Component<Sky>,
+		read SkyVisibility: Component<SkyVisibility>,
 		read Spinner: Component<Spinner>,
 		read SpotLight: Component<SpotLight>,
 		read SunObserver: Component<SunObserver>,

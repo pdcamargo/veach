@@ -310,7 +310,10 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   slices) whose slices span each ray's own path through the air, so it serves orbit and the ground alike; a shading
   path applies it with `aerial_perspective(sky, direction, uv, distance)` and occludes the sky's ambient light with
   `sky_ambient_radiance(sky, distance)`. A camera's `SkyVisibility { visibility, reach }` keeps haze and sky light
-  out of caves and interiors; `physics::sky_visibility` measures it from static colliders.
+  out of caves and interiors; `physics::sky_visibility` measures it from static colliders. The tables that hold
+  luminance are float32 (twilight is millions of times fainter than day, under half floats' range), and every march
+  lights each step for its part outside the planet's shadow ([ADR 0093](../adr/0093-twilight-precision.md)); a new
+  march over the air should do the same (`planet_shadows`, `planet_in_scatter`).
 - **The space backdrop** ([ADR 0091](../adr/0091-space-backdrop.md), [spec](../specs/space-backdrop/spec.md)): stars,
   the galactic band and nebulae beyond every body, behind the sky and through its air. Data in
   `ResolvedSky::backdrop` (`render::Backdrop`, from a module's extractor or the `SpaceBackdrop` component's `seed`;

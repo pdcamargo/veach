@@ -9,8 +9,10 @@
 # A second run with it on (debug builds' default) must still exit 0, so it keeps checking every resource access.
 # Goldens are shared across backends (ADR 0031): GOLDEN is tests/golden/<name>.png unless a justified
 # per-backend override tests/golden/<name>.<RHI>.png exists.
+# LAB_ENV is a |-separated list of VAR=value the lab runs with (both runs).
 #   cmake -DLAB=... -DIMGDIFF=... -DRHI=metal -DSCRIPT=... -DGOLDEN=... -DOUT=... -DMAX_MEAN=... [-DFRAMES=3]
-#         [-DMAX_P999=...] [-DMAX_OUTLIERS=...] [-DNO_RAY_TRACING=1] [-DLAB_TIMEOUT=105] -P golden_test.cmake
+#         [-DMAX_P999=...] [-DMAX_OUTLIERS=...] [-DNO_RAY_TRACING=1] [-DLAB_TIMEOUT=105] [-DLAB_ENV=A=1|B=2]
+#         -P golden_test.cmake
 
 if(NOT DEFINED LAB_TIMEOUT)
     set(LAB_TIMEOUT 105)
@@ -35,6 +37,16 @@ endif()
 # frame's render graph, the RHI's "still waiting for the GPU") is printed below instead of being lost (VCH-110).
 if(NO_RAY_TRACING)
     set(ENV{VEACH_DISABLE_RAY_TRACING} 1)
+endif()
+if(DEFINED LAB_ENV)
+    string(REPLACE "|" ";" env_pairs "${LAB_ENV}")
+    foreach(pair IN LISTS env_pairs)
+        string(FIND "${pair}" "=" eq)
+        string(SUBSTRING "${pair}" 0 ${eq} var)
+        math(EXPR value_start "${eq} + 1")
+        string(SUBSTRING "${pair}" ${value_start} -1 value)
+        set(ENV{${var}} "${value}")
+    endforeach()
 endif()
 set(ENV{MTL_SHADER_VALIDATION} 0)
 execute_process(

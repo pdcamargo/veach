@@ -110,14 +110,23 @@ static_assert(sizeof(SkyFrame) == 752);
 /// a backdrop with no band still fades under a sky this bright.
 constexpr float backdrop_reference_floor = 1e-4f;
 
+/// The format of the tables that hold luminance per lux of sun (ADR 0038, 0093): multiple scattering, the sky view,
+/// the irradiance and the aerial-perspective volume. Their values reach about 0.1 near a low sun, a few 1e-7 opposite
+/// it 10 degrees into twilight (multiple scattering only: that air is in the planet's shadow) and less as the sun
+/// sinks. rgba16_float's smallest normal is 6.1e-5, so twilight fell into its denormals, whose fixed step of 6e-8 drew
+/// the sky in flat bands, a channel at a time. Float32 keeps its precision down to 1e-38. Transmittance (0 to 1, and
+/// read most often) stays rgba16_float.
+constexpr rhi::Format luminance_format = rhi::Format::rgba32_float;
+
 struct Lut {
     const char* name;
     const char* entry;
     std::uint32_t width;
     std::uint32_t height;
+    rhi::Format format = luminance_format;
 };
 /// The per-medium tables (one pair per cache slot) and the per-frame ones.
-constexpr Lut transmittance_lut{"sky transmittance", "transmittance_lut", 256, 64};
+constexpr Lut transmittance_lut{"sky transmittance", "transmittance_lut", 256, 64, rhi::Format::rgba16_float};
 constexpr Lut multiscattering_lut{"sky multiple scattering", "multiscattering_lut", 32, 32};
 constexpr Lut sky_view_lut{"sky view", "sky_view_lut", 192, 108};  // sky_view_size in the shader
 constexpr Lut irradiance_lut{"sky irradiance", "sky_irradiance", 1, 1};
@@ -159,6 +168,42 @@ std::optional<SphereSpan> sphere_span(math::vec3 origin, math::vec3 direction, f
 bool sphere_blocks(math::vec3 p, math::vec3 l, float radius) {
     const float b = math::dot(p, l);
     return b < 0.0f && math::dot(p, p) - b * b < radius * radius;
+}
+
+std::optional<SphereSpan> sphere_shadow_span(math::vec3 origin, math::vec3 direction, float c, math::vec3 l) {
+    const float ol = math::dot(origin, l);
+    const float dl = math::dot(direction, l);
+    const float a = std::max(1.0f - dl * dl, 0.0f);
+    const float b = math::dot(origin, direction) - ol * dl;
+    const float cc = c - ol * ol;
+    float enter = -1e30f;
+    float leave = 1e30f;
+    if (a < 1e-6f) {
+        if (cc >= 0.0f) {
+            return std::nullopt;
+        }
+    } else {
+        const float discriminant = b * b - a * cc;
+        if (discriminant <= 0.0f) {
+            return std::nullopt;
+        }
+        const float q = b >= 0.0f ? -b - std::sqrt(discriminant) : -b + std::sqrt(discriminant);
+        const float t0 = q / a;
+        const float t1 = q != 0.0f ? cc / q : t0;
+        enter = std::min(t0, t1);
+        leave = std::max(t0, t1);
+    }
+    if (dl > 0.0f) {
+        leave = std::min(leave, -ol / dl);
+    } else if (dl < 0.0f) {
+        enter = std::max(enter, -ol / dl);
+    } else if (ol >= 0.0f) {
+        return std::nullopt;
+    }
+    if (enter >= leave) {
+        return std::nullopt;
+    }
+    return SphereSpan{enter, leave};
 }
 
 float aerial_slice_w(float x) {
@@ -303,8 +348,8 @@ struct AtmosphereRenderer::Impl {
     }
 
     Result<Target> make_2d(const Lut& lut) {
-        auto texture = device->create_texture({lut.width, lut.height, rhi::Format::rgba16_float,
-                                               rhi::TextureUsage::storage | rhi::TextureUsage::sampled, lut.name});
+        auto texture = device->create_texture(
+            {lut.width, lut.height, lut.format, rhi::TextureUsage::storage | rhi::TextureUsage::sampled, lut.name});
         if (!texture) {
             return std::unexpected(texture.error());
         }
@@ -327,7 +372,7 @@ struct AtmosphereRenderer::Impl {
         destroy(aerial);
         auto texture = device->create_texture({.width = size[0],
                                                .height = size[1],
-                                               .format = rhi::Format::rgba16_float,
+                                               .format = luminance_format,
                                                .usage = rhi::TextureUsage::storage | rhi::TextureUsage::sampled,
                                                .debug_name = "aerial perspective",
                                                .type = rhi::TextureType::d3,

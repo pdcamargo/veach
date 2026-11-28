@@ -35,6 +35,9 @@ cave: unoccluded aerial perspective filled the chamber with haze brighter than i
   per-medium cache.
 - The sky-view table MUST wrap in azimuth.
 - Every sphere test in the atmosphere MUST go through one numerically stable helper with a CPU twin.
+- The sky MUST stay a smooth gradient through twilight to night, at every scale (ADR 0093): the tables MUST hold
+  luminance per lux of sun at float32 precision, and a march step MUST be lit for the part of it outside the planet's
+  shadow, not all or nothing.
 - Up to four occluder spheres MUST eclipse every sun per sample in the sky and in the volume.
 - The existing goldens MUST pass unchanged, or be regenerated on purpose and inspected.
 
@@ -59,7 +62,8 @@ camera:set(c.SkyVisibility, { visibility = 0, reach = 10 })
 - **atmosphere.AC1** — The ray-sphere helper keeps both roots within 2 m at 1e4 km from the center in float
   kilometers, keeps a 1.3 m altitude's near root within 1e-4 where `|o|^2 - R^2` loses it, never shadows a ground
   point rounded under the surface toward a sun above its horizon, and the shader's helper matches its CPU twin on the
-  GPU.
+  GPU. The planet's shadow along twilight rays (sun 0.5 to 18 degrees down, from 300 m and from 1e4 km) matches a
+  double-precision reference within 2 m plus 1e-6 of the distance, on the CPU and the GPU.
 - **atmosphere.AC2** — The volume's slice mapping is invertible and monotonic; with 32 slices over a 1,130 km span the
   first slice is under 1 m from the camera, the second under 50 m, and the last within 0.5 % of the span's end.
 - **atmosphere.AC3** — A medium's tables are built once while it is in use; returning to a cached medium builds
@@ -72,6 +76,11 @@ camera:set(c.SkyVisibility, { visibility = 0, reach = 10 })
   strengthens toward the limb, with no seam or band at the limb; haze on distant terrain from 200 m; no haze inside the
   dug hole; a sunset. In SP-14's cave, no haze in the chamber and the haze back through its mouth.
 - **atmosphere.AC6** — The real-time and photo-mode goldens pass unchanged.
+- **atmosphere.AC7** — A planet's sky 10 degrees into twilight, opposite the sun, at s = 1 and s = 0.01, with the
+  engine's 16 march steps, matches its golden (`golden: planet sky at twilight`, Metal): a smooth gradient. The
+  banded skies it replaced fail it (mean FLIP 0.22 with fp16 tables at s = 1, 0.055 with a sun lighting whole steps
+  at s = 0.01). By eye in `veach-slice`, the evening from the sun 2 degrees up to 18 down is a gradient at both scales
+  ([screenshots](../../research/spikes/twilight/README.md)).
 
 ## Out of scope
 
@@ -90,7 +99,7 @@ None.
 
 - ADRs: [0063](../../adr/0063-astronomical-rendering.md), [0076](../../adr/0076-amendments-from-sp-10.md),
   [0082](../../adr/0082-amendments-from-sp-14.md), [0090](../../adr/0090-rhi-texture-kinds-updates-and-raster-state.md),
-  [0092](../../adr/0092-aerial-perspective-follows-the-air.md)
+  [0092](../../adr/0092-aerial-perspective-follows-the-air.md), [0093](../../adr/0093-twilight-precision.md)
 - Backlog: VCH-135 (this), VCH-136 (follow-ups)
 - Guides: [rendering](../../guides/rendering.md), [space realization](../../guides/space-realization.md),
   [Luau API](../../guides/luau-api.md)

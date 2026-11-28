@@ -139,6 +139,61 @@ bool sphere_blocks(float3 p, float3 l, float radius) {
     return b < 0.0 && dot(p, p) - b * b < radius * radius;
 }
 
+/// sphere_blocks along a ray: where origin + t * direction (a unit vector) is in the shadow a sphere about the origin
+/// of coordinates casts away from the unit direction `l`, the cylinder of its radius behind its center.
+/// c = |origin|^2 - radius^2, from the altitude as for sphere_span. Returns (enter, leave), enter >= leave when
+/// the ray never is. A march lights the part of each step outside it (lit_fraction), so the shadow's edge moves
+/// smoothly across the steps rather than switching a whole step at a time (arcs in twilight, ADR 0093).
+float2 sphere_shadow_span(float3 origin, float3 direction, float c, float3 l) {
+    const float ol = dot(origin, l);
+    const float dl = dot(direction, l);
+    // Inside the cylinder: |p - (p.l) l|^2 < radius^2, i.e. a t^2 + 2 b t + cc < 0.
+    const float a = max(1.0 - dl * dl, 0.0);
+    const float b = dot(origin, direction) - ol * dl;
+    const float cc = c - ol * ol;
+    float enter = -1e30;
+    float leave = 1e30;
+    if (a < 1e-6) {  // along the axis: in the cylinder everywhere or nowhere
+        if (cc >= 0.0) {
+            return float2(1.0, 0.0);
+        }
+    } else {
+        const float discriminant = b * b - a * cc;
+        if (discriminant <= 0.0) {
+            return float2(1.0, 0.0);
+        }
+        const float q = b >= 0.0 ? -b - sqrt(discriminant) : -b + sqrt(discriminant);
+        const float t0 = q / a;
+        const float t1 = q != 0.0 ? cc / q : t0;
+        enter = min(t0, t1);
+        leave = max(t0, t1);
+    }
+    // ... and behind the center as seen from the sun: (origin + t * direction).l < 0.
+    if (dl > 0.0) {
+        leave = min(leave, -ol / dl);
+    } else if (dl < 0.0) {
+        enter = max(enter, -ol / dl);
+    } else if (ol >= 0.0) {
+        return float2(1.0, 0.0);
+    }
+    return float2(enter, leave);
+}
+
+/// The fraction of the step [t0, t1] outside `shadow` (sphere_shadow_span), and in `middle` the middle of its longer
+/// lit part: where the sun's light is sampled.
+float lit_fraction(float2 shadow, float t0, float t1, out float middle) {
+    const float a = max(shadow.x, t0);
+    const float b = min(shadow.y, t1);
+    middle = 0.5 * (t0 + t1);
+    if (b <= a) {
+        return 1.0;
+    }
+    const float before = a - t0;
+    const float after = t1 - b;
+    middle = before >= after ? 0.5 * (t0 + a) : 0.5 * (b + t1);
+    return (before + after) / max(t1 - t0, 1e-12);
+}
+
 // ---- the medium ----------------------------------------------------------------------------------------------
 
 struct Medium {
@@ -514,15 +569,45 @@ SunPhases sun_phases(SkyFrame s, float3 direction) {
     return ph;
 }
 
-/// Light scattered toward the viewer per km at `p` (per lux of sun.w), every sun with its eclipses; `m` is the medium
-/// there.
-float3 planet_in_scatter(SkyFrame s, float3 p, Medium m, SunPhases ph) {
+/// Where a camera ray (from `origin`, `altitude` above the ground) is in the planet's shadow, for each sun.
+struct PlanetShadows {
+    float4 enter;  ///< per sun, km along the ray (sphere_shadow_span)
+    float4 leave;
+};
+
+PlanetShadows planet_shadows(SkyFrame s, float3 origin, float altitude, float3 direction) {
+    PlanetShadows sh;
+    const float bottom = s.atmosphere.planet.x;
+    const float c = altitude * (2.0 * bottom + altitude);
+    sh.enter = float4(1.0, 1.0, 1.0, 1.0);
+    sh.leave = float4(0.0, 0.0, 0.0, 0.0);
+    for (uint i = 0; i < s.sun_count; ++i) {
+        const float2 span = sphere_shadow_span(origin, direction, c, s.sun_directions[i].xyz);
+        sh.enter[i] = span.x;
+        sh.leave[i] = span.y;
+    }
+    return sh;
+}
+
+/// Light scattered toward the viewer per km (per lux of sun.w) over the step [t0, t1] of the ray origin + t *
+/// direction, every sun with its eclipses; `m` is the medium at the step's middle. Each sun lights the part of the
+/// step outside the planet's shadow (`sh`), its light sampled in that part.
+float3 planet_in_scatter(SkyFrame s, float3 origin, float3 direction, float t0, float t1, Medium m, SunPhases ph,
+                         PlanetShadows sh) {
+    const float3 p = origin + direction * (0.5 * (t0 + t1));
     float3 in_scatter = float3(0.0, 0.0, 0.0);
     for (uint i = 0; i < s.sun_count; ++i) {
-        float visible;
-        const float3 sun = planet_sun_transmittance(s, p, i, visible);
-        const float3 single = (m.rayleigh * ph.rayleigh[i] + m.mie * ph.mie[i]) * sun;
-        in_scatter += (single + m.scattering * planet_multiple_scattering(s, p, i)) * s.sun_colors[i].xyz * visible;
+        const float3 l = s.sun_directions[i].xyz;
+        float middle;
+        const float lit = lit_fraction(float2(sh.enter[i], sh.leave[i]), t0, t1, middle);
+        const float3 q = origin + direction * middle;  // p unless the step's middle is in the shadow
+        float3 single = float3(0.0, 0.0, 0.0);
+        if (lit > 0.0) {
+            const float r = length(q);
+            single = (m.rayleigh * ph.rayleigh[i] + m.mie * ph.mie[i]) * sample_transmittance(s, r, dot(q / r, l)) * lit;
+        }
+        in_scatter += (single + m.scattering * planet_multiple_scattering(s, p, i)) * s.sun_colors[i].xyz *
+                      planet_sun_visible(s, q, i);
     }
     return in_scatter;
 }
@@ -552,12 +637,14 @@ void planet_march(SkyFrame s, float3 origin, float altitude, float3 direction, f
         return;
     }
     const SunPhases ph = sun_phases(s, direction);
+    const PlanetShadows sh = planet_shadows(s, origin, altitude, direction);
     const float dt = (end - start) / float(steps);
     for (uint k = 0; k < steps; ++k) {
         const float3 p = origin + direction * (start + (float(k) + 0.5) * dt);
         const Medium m = medium_at(s.atmosphere, length(p) - bottom);
         const float3 step_transmittance = exp(-m.extinction * dt);
-        const float3 in_scatter = planet_in_scatter(s, p, m, ph);
+        const float3 in_scatter =
+            planet_in_scatter(s, origin, direction, start + float(k) * dt, start + float(k + 1) * dt, m, ph, sh);
         luminance += transmittance * (in_scatter - in_scatter * step_transmittance) / max(m.extinction, 1e-9);
         transmittance *= step_transmittance;
     }

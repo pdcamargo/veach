@@ -1,7 +1,8 @@
 // The atmosphere's lookup tables (ADR 0038, 0063), after Hillaire 2020. The aerial-perspective volume is
-// aerial_volume.slang. One compute entry per table; all read this frame's
+// aerial_volume.slang. One compute entry per table (the ambient table: veach/ambient.slang); all read this frame's
 // SkyFrame (veach/atmosphere.slang). Mirrors render::AtmosphereLutParams.
 
+import veach.ambient;
 import veach.atmosphere;
 import veach.bindless;
 
@@ -158,30 +159,58 @@ void sky_view_lut(uint3 id: SV_DispatchThreadID) {
     lut_params.output[id.xy] = float4(luminance, 1.0);
 }
 
-/// The sky's cosine-weighted average over the upper hemisphere, for an upward normal (the real-time renderer's ambient light).
+// ---- the ambient table (veach/ambient.slang, ADR 0095) ------------------------------------------------------------
+
+groupshared float3 ambient_sums[6][64];
+
+/// One entry of the medium's ambient table per group of 64 threads: the L2 SH of the radiance around a point at the
+/// group's altitude under a sun of color 1 at the group's zenith cosine, every direction through planet_march (the
+/// analytic ground lit below the horizon). 512 directions over the half sphere on the sun's side of its plane (the
+/// other half mirrors it), 8 per thread, in equal-area cells. Writes block b of the entry at (b * angles + x, y).
 [shader("compute")]
-[numthreads(1, 1, 1)]
-void sky_irradiance(uint3 id: SV_DispatchThreadID) {
-    const SkyFrame s = lut_params.sky[0];
-    float3 sum = float3(0.0, 0.0, 0.0);
-    float weight = 0.0;
-    const uint n = 16;
-    for (uint i = 0; i < n; ++i) {
-        for (uint j = 0; j < n; ++j) {
-            // Cosine-distributed directions: the plain average is the cosine-weighted one.
-            const float u = (float(i) + 0.5) / float(n);
-            const float phi = 2.0 * atmosphere_pi * (float(j) + 0.5) / float(n);
-            const float r = sqrt(u);
-            const float3 direction = float3(r * cos(phi), sqrt(1.0 - u), r * sin(phi));
-            if (s.planet != 0) {  // the hemisphere around the planet's up
-                const float3 world =
-                    s.frame_x.xyz * direction.x + planet_up(s) * direction.y + planet_frame_z(s) * direction.z;
-                sum += sample_sky_view(s, planet_sky_view_uv(s, world));
-            } else {
-                sum += sample_sky_view(s, sky_view_uv(s, direction));
-            }
-            weight += 1.0;
+[numthreads(64, 1, 1)]
+void sky_ambient_lut(uint3 group: SV_GroupID, uint3 thread: SV_GroupThreadID) {
+    const SkyFrame s0 = lut_params.sky[0];
+    const float bottom = s0.atmosphere.planet.x;
+    const float thickness = s0.atmosphere.planet.y - bottom;
+    const float mu = -1.0 + 2.0 * float(group.x) / float(ambient_table_angles - 1);
+    const float t = float(group.y) / float(ambient_table_heights - 1);
+    const float altitude = max(t * t * thickness, 0.01);
+    // The entry's frame: up is +Y, the sun in the XY plane toward +X; Z is across the sun's plane.
+    SkyFrame s = s0;
+    s.sun_count = 1;
+    s.sun_directions[0] = float4(sqrt(max(1.0 - mu * mu, 0.0)), mu, 0.0, sun_angular_radius);
+    s.sun_colors[0] = float4(1.0, 1.0, 1.0, 0.0);
+    s.occluder_count = 0;
+    s.ground = float4(s0.planet != 0 ? s0.ground.xyz : s0.atmosphere.planet.zzz, 0.0);
+    const float3 origin = float3(0.0, bottom + altitude, 0.0);
+    float3 sums[6] = { float3(0.0), float3(0.0), float3(0.0), float3(0.0), float3(0.0), float3(0.0) };
+    for (uint k = 0; k < 8; ++k) {
+        const uint index = thread.x + 64 * k;
+        const float up = 1.0 - 2.0 * (float(index / 16) + 0.5) / 32.0;
+        const float phi = atmosphere_pi * (float(index % 16) + 0.5) / 16.0;
+        const float side = sqrt(max(1.0 - up * up, 0.0));
+        const float3 direction = float3(side * cos(phi), up, side * sin(phi));
+        float3 luminance;
+        float3 transmittance;
+        planet_march(s, origin, altitude, direction, 1e9, 24, true, luminance, transmittance);
+        float y[6];
+        ambient_basis(float3(direction.x, direction.z, direction.y), y);
+        for (uint i = 0; i < 6; ++i) {
+            sums[i] += luminance * y[i];
         }
     }
-    lut_params.output[uint2(0, 0)] = float4(sum / weight, 1.0);
+    for (uint i = 0; i < 6; ++i) {
+        ambient_sums[i][thread.x] = sums[i];
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (thread.x < 6) {
+        float3 total = float3(0.0, 0.0, 0.0);
+        for (uint j = 0; j < 64; ++j) {
+            total += ambient_sums[thread.x][j];
+        }
+        // Each cell is 4 pi / 1024 of the sphere and stands for its mirror image too.
+        lut_params.output[uint2(thread.x * ambient_table_angles + group.x, group.y)] =
+            float4(total * (8.0 * atmosphere_pi / 1024.0), 1.0);
+    }
 }

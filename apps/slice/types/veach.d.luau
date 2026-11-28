@@ -99,6 +99,11 @@ export type TimeApi = {
 }
 
 -- Reflected components and their types (C++ components tagged veach::Scriptable).
+export type AmbientOcclusion = {
+	enabled: boolean,
+	radius: number,
+	intensity: number,
+}
 export type Camera = {
 	fov_y: number,
 	near_plane: number,
@@ -347,6 +352,7 @@ export type Veach = {
 	read log: LogApi,
 	read time: TimeApi,
 	read components: {
+		read AmbientOcclusion: Component<AmbientOcclusion>,
 		read Camera: Component<Camera>,
 		read CelestialBody: Component<CelestialBody>,
 		read CelestialFrame: Component<CelestialFrame>,

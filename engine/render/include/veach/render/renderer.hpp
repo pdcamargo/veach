@@ -125,6 +125,8 @@ struct RenderView {
     std::optional<AutoExposureSettings> auto_exposure;
     /// The camera's SkyVisibility (or the open sky): aerial perspective and the sky's ambient light near the camera.
     SkyVisibility sky_visibility;
+    /// The camera's AmbientOcclusion (or its defaults: on).
+    AmbientOcclusion ambient_occlusion;
 };
 
 /// A mesh to draw this frame: an imported or runtime mesh (MeshStore), the material of each of its slots, and where

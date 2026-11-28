@@ -52,7 +52,7 @@ struct alignas(16) SkyFrame {
     rhi::DescriptorHandle multiscattering;
     rhi::DescriptorHandle sky_view;
     rhi::DescriptorHandle aerial;
-    rhi::DescriptorHandle irradiance;
+    rhi::DescriptorHandle ambient;  ///< the medium's ambient table (veach/ambient.slang)
     rhi::DescriptorHandle linear_clamp;
     std::uint32_t mode = 0;  ///< 0 none, 1 constant, 2 physical
     std::uint32_t aerial_on = 0;
@@ -129,7 +129,13 @@ struct Lut {
 constexpr Lut transmittance_lut{"sky transmittance", "transmittance_lut", 256, 64, rhi::Format::rgba16_float};
 constexpr Lut multiscattering_lut{"sky multiple scattering", "multiscattering_lut", 32, 32};
 constexpr Lut sky_view_lut{"sky view", "sky_view_lut", 192, 108};  // sky_view_size in the shader
-constexpr Lut irradiance_lut{"sky irradiance", "sky_irradiance", 1, 1};
+/// The medium's ambient table (veach/ambient.slang, ADR 0095): 6 blocks of L2 SH coefficients, each sun angles x
+/// altitudes, one entry per group of 64 threads. rgba32_float: deep twilight is below half floats' precision.
+constexpr std::uint32_t ambient_table_angles = 64;
+constexpr std::uint32_t ambient_table_heights = 16;
+constexpr std::uint32_t ambient_table_blocks = 6;
+constexpr Lut ambient_lut{"sky ambient", "sky_ambient_lut", ambient_table_angles * ambient_table_blocks,
+                          ambient_table_heights, rhi::Format::rgba32_float};
 
 /// The aerial-perspective volume: one cell per this many pixels across and down, and its depth slices.
 constexpr std::uint32_t aerial_cell_pixels = 16;
@@ -290,13 +296,16 @@ struct AtmosphereRenderer::Impl {
     struct MediumTables {
         Target transmittance;
         Target multiscattering;
+        Target ambient;
+        /// The ground albedo the ambient table was built for: the medium's cache key leaves out a planet's own.
+        std::optional<math::vec3> ambient_ground;
     };
     rhi::Device* device = nullptr;
-    rhi::PipelineHandle transmittance_pipeline, multiscattering_pipeline, sky_view_pipeline, irradiance_pipeline,
+    rhi::PipelineHandle transmittance_pipeline, multiscattering_pipeline, sky_view_pipeline, ambient_pipeline,
         aerial_pipeline;
     std::array<MediumTables, AtmosphereLutCache::slots> media{};
     AtmosphereLutCache cache;
-    Target sky_view, irradiance, aerial;
+    Target sky_view, aerial;
     std::array<std::uint32_t, 2> aerial_size{};
     rhi::SamplerHandle linear_clamp, linear_wrap;
     std::vector<rhi::BufferHandle> frame_buffers;
@@ -308,8 +317,8 @@ struct AtmosphereRenderer::Impl {
         }
         device->wait_idle();
         release_frame_buffers();
-        for (rhi::PipelineHandle p : {transmittance_pipeline, multiscattering_pipeline, sky_view_pipeline,
-                                      irradiance_pipeline, aerial_pipeline}) {
+        for (rhi::PipelineHandle p :
+             {transmittance_pipeline, multiscattering_pipeline, sky_view_pipeline, ambient_pipeline, aerial_pipeline}) {
             if (p.is_valid()) {
                 device->destroy(p);
             }
@@ -317,9 +326,9 @@ struct AtmosphereRenderer::Impl {
         for (MediumTables& m : media) {
             destroy(m.transmittance);
             destroy(m.multiscattering);
+            destroy(m.ambient);
         }
         destroy(sky_view);
-        destroy(irradiance);
         destroy(aerial);
         for (rhi::SamplerHandle s : {linear_clamp, linear_wrap}) {
             if (s.is_valid()) {
@@ -356,9 +365,9 @@ struct AtmosphereRenderer::Impl {
         return Target{*texture, false};
     }
 
-    Result<rhi::PipelineHandle> make_pipeline(const rhi::ShaderLibrary* library, const char* entry, std::uint32_t group,
-                                              const char* name) {
-        return device->create_compute_pipeline({library, entry, {group, group, 1}, name});
+    Result<rhi::PipelineHandle> make_pipeline(const rhi::ShaderLibrary* library, const char* entry,
+                                              std::array<std::uint32_t, 3> group, const char* name) {
+        return device->create_compute_pipeline({library, entry, group, name});
     }
 
     /// The volume's cells for a view of width x height pixels; recreated when they change.
@@ -402,14 +411,14 @@ Result<> AtmosphereRenderer::prepare(rhi::Device& device) {
         rhi::PipelineHandle* out;
         const rhi::ShaderLibrary* library;
         const char* entry;
-        std::uint32_t group;
+        std::array<std::uint32_t, 3> group;
         const char* name;
     } pipelines[] = {
-        {&s.transmittance_pipeline, luts, transmittance_lut.entry, 8, transmittance_lut.name},
-        {&s.multiscattering_pipeline, luts, multiscattering_lut.entry, 8, multiscattering_lut.name},
-        {&s.sky_view_pipeline, luts, sky_view_lut.entry, 8, sky_view_lut.name},
-        {&s.irradiance_pipeline, luts, irradiance_lut.entry, 1, irradiance_lut.name},
-        {&s.aerial_pipeline, &veach_render_shaders::aerial_volume(), "aerial_volume", 8, "aerial perspective"},
+        {&s.transmittance_pipeline, luts, transmittance_lut.entry, {8, 8, 1}, transmittance_lut.name},
+        {&s.multiscattering_pipeline, luts, multiscattering_lut.entry, {8, 8, 1}, multiscattering_lut.name},
+        {&s.sky_view_pipeline, luts, sky_view_lut.entry, {8, 8, 1}, sky_view_lut.name},
+        {&s.ambient_pipeline, luts, ambient_lut.entry, {64, 1, 1}, ambient_lut.name},  // a group per entry
+        {&s.aerial_pipeline, &veach_render_shaders::aerial_volume(), "aerial_volume", {8, 8, 1}, "aerial perspective"},
     };
     for (const auto& p : pipelines) {
         auto pipeline = s.make_pipeline(p.library, p.entry, p.group, p.name);
@@ -429,14 +438,17 @@ Result<> AtmosphereRenderer::prepare(rhi::Device& device) {
             return std::unexpected(ms.error());
         }
         m.multiscattering = *ms;
-    }
-    for (auto [target, lut] : {std::pair{&s.sky_view, &sky_view_lut}, std::pair{&s.irradiance, &irradiance_lut}}) {
-        auto t = s.make_2d(*lut);
-        if (!t) {
-            return std::unexpected(t.error());
+        auto ambient = s.make_2d(ambient_lut);
+        if (!ambient) {
+            return std::unexpected(ambient.error());
         }
-        *target = *t;
+        m.ambient = *ambient;
     }
+    auto sky_view = s.make_2d(sky_view_lut);
+    if (!sky_view) {
+        return std::unexpected(sky_view.error());
+    }
+    s.sky_view = *sky_view;
     if (auto aerial = s.ensure_aerial(1280, 720); !aerial) {
         return aerial;
     }
@@ -535,7 +547,7 @@ SkyResources AtmosphereRenderer::record(RenderGraph& graph, const ResolvedSky& s
     f.multiscattering = device.descriptor(tables.multiscattering.handle);
     f.sky_view = device.descriptor(s.sky_view.handle);
     f.aerial = device.descriptor(s.aerial.handle);
-    f.irradiance = device.descriptor(s.irradiance.handle);
+    f.ambient = device.descriptor(tables.ambient.handle);
     f.linear_clamp = device.descriptor(s.linear_clamp);
     f.linear_repeat = device.descriptor(s.linear_wrap);  // the backdrop's, when it draws, is the same
 
@@ -589,7 +601,7 @@ SkyResources AtmosphereRenderer::record(RenderGraph& graph, const ResolvedSky& s
     const GraphResource transmittance = import(tables.transmittance, transmittance_lut.name);
     const GraphResource multiscattering = import(tables.multiscattering, multiscattering_lut.name);
     const GraphResource sky_view = import(s.sky_view, sky_view_lut.name);
-    const GraphResource irradiance = import(s.irradiance, irradiance_lut.name);
+    const GraphResource ambient = import(tables.ambient, ambient_lut.name);
     const GraphResource aerial = import(s.aerial, "aerial perspective");
 
     if (sky.mode == SkyMode::physical) {
@@ -598,7 +610,10 @@ SkyResources AtmosphereRenderer::record(RenderGraph& graph, const ResolvedSky& s
             AtmosphereLutParams params{.sky = device.descriptor(*buffer),
                                        .output = device.descriptor(target.handle, rhi::View::storage),
                                        .size = {lut.width, lut.height}};
-            const std::uint32_t group = &lut == &irradiance_lut ? 1u : 8u;
+            // The ambient table runs a group of 64 threads per entry; the others a thread per texel.
+            const std::array<std::uint32_t, 2> groups =
+                &lut == &ambient_lut ? std::array<std::uint32_t, 2>{ambient_table_angles, ambient_table_heights}
+                                     : std::array<std::uint32_t, 2>{(lut.width + 7) / 8, (lut.height + 7) / 8};
             const std::vector<GraphResource> reads(inputs);
             graph.add_compute_pass(
                 lut.name,
@@ -609,10 +624,10 @@ SkyResources AtmosphereRenderer::record(RenderGraph& graph, const ResolvedSky& s
                     }
                     b.write(out, rhi::ResourceState::shader_write);
                 },
-                [params, pipeline, group](PassContext& ctx) {
+                [params, pipeline, groups](PassContext& ctx) {
                     ctx.cmd.set_pipeline(pipeline);
                     ctx.cmd.set_parameters(params);
-                    ctx.cmd.dispatch((params.size[0] + group - 1) / group, (params.size[1] + group - 1) / group);
+                    ctx.cmd.dispatch(groups[0], groups[1]);
                 });
             target.written = true;
         };
@@ -622,8 +637,14 @@ SkyResources AtmosphereRenderer::record(RenderGraph& graph, const ResolvedSky& s
             pass(multiscattering_lut, s.multiscattering_pipeline, tables.multiscattering, multiscattering,
                  {transmittance});
         }
+        // The ambient table depends on the medium and its ground: built with the medium's tables, or when a planet's
+        // ground albedo changes.
+        const math::vec3 ground = sky.planet ? sky.planet->ground_albedo : math::vec3(f.atmosphere.planet.z);
+        if (slot.build || tables.ambient_ground != ground) {
+            pass(ambient_lut, s.ambient_pipeline, tables.ambient, ambient, {transmittance, multiscattering});
+            tables.ambient_ground = ground;
+        }
         pass(sky_view_lut, s.sky_view_pipeline, s.sky_view, sky_view, {transmittance, multiscattering});
-        pass(irradiance_lut, s.irradiance_pipeline, s.irradiance, irradiance, {sky_view});
         const AerialVolumeParams params{.sky = device.descriptor(*buffer),
                                         .output = device.descriptor(s.aerial.handle, rhi::View::storage),
                                         .size = {s.aerial_size[0], s.aerial_size[1], aerial_slices, 0}};
@@ -643,7 +664,7 @@ SkyResources AtmosphereRenderer::record(RenderGraph& graph, const ResolvedSky& s
         s.aerial.written = true;
     }
 
-    const std::array<GraphResource, 5> targets{transmittance, multiscattering, sky_view, irradiance, aerial};
+    const std::array<GraphResource, 5> targets{transmittance, multiscattering, sky_view, ambient, aerial};
     return {*buffer, [frame, targets, backdrop](PassBuilder& b) {
                 b.read(frame);
                 for (const GraphResource& t : targets) {

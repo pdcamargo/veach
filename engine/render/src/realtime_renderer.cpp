@@ -1,6 +1,9 @@
 #include "realtime_renderer.hpp"
 
+#include "ambient_occlusion.hpp"
+
 #include <veach/asset/scene.hpp>
+#include <veach/core/env.hpp>
 #include <veach/core/log.hpp>
 #include <veach/core/profile.hpp>
 
@@ -157,7 +160,7 @@ struct alignas(16) ShadeParams {
     std::uint32_t flags = 0;  ///< shade_auto_exposure, shade_no_fp16_clamp
     std::uint32_t tile_capacity = 0;
     std::uint32_t pad0 = 0;
-    std::array<std::uint32_t, 2> pad1{};
+    rhi::DescriptorHandle ambient_occlusion;  ///< with shade_ambient_occlusion (ambient_occlusion.hpp)
 };
 static_assert(rhi::parameters_match<ShadeParams>(
     veach_render_shaders::layout::realtime_shade_bins,
@@ -166,9 +169,11 @@ static_assert(rhi::parameters_match<ShadeParams>(
      VEACH_PARAM(ShadeParams, materials), VEACH_PARAM(ShadeParams, lights), VEACH_PARAM(ShadeParams, sky),
      VEACH_PARAM(ShadeParams, exposure_state), VEACH_PARAM(ShadeParams, bin_tiles), VEACH_PARAM(ShadeParams, size),
      VEACH_PARAM(ShadeParams, light_count), VEACH_PARAM(ShadeParams, flags), VEACH_PARAM(ShadeParams, tile_capacity),
-     VEACH_PARAM(ShadeParams, pad0), VEACH_PARAM(ShadeParams, pad1)}));
+     VEACH_PARAM(ShadeParams, pad0), VEACH_PARAM(ShadeParams, ambient_occlusion)}));
 constexpr std::uint32_t shade_auto_exposure = 1u;
 constexpr std::uint32_t shade_no_fp16_clamp = 2u;
+constexpr std::uint32_t shade_ambient_occlusion = 4u;
+constexpr std::uint32_t shade_show_occlusion = 8u;
 
 /// Mirrors ExposureParams in shaders/exposure.slang (spike SP-14, VCH-090).
 struct alignas(16) ExposureParams {
@@ -272,7 +277,8 @@ struct RealtimeRenderer::Impl {
     rhi::PipelineHandle classify_args;
     std::vector<rhi::PipelineHandle> shade;  ///< per bin: the sky, then each material kind
     rhi::PipelineHandle display_pipeline;
-    rhi::PipelineHandle backdrop_pipeline;  ///< the space backdrop's composite (ADR 0091)
+    rhi::PipelineHandle backdrop_pipeline;       ///< the space backdrop's composite (ADR 0091)
+    AmbientOcclusionRenderer ambient_occlusion;  ///< ADR 0095
 
     /// A persistent buffer of culling's, grown on demand. Every frame leaves it in shader_read.
     struct Buffer {
@@ -593,6 +599,9 @@ Result<> RealtimeRenderer::prepare(rhi::Device& device, const SceneShaders& shad
     if (auto made =
             compute(veach_render_shaders::backdrop_composite(), "backdrop_composite", {8, 8, 1}, s.backdrop_pipeline);
         !made) {
+        return made;
+    }
+    if (auto made = s.ambient_occlusion.prepare(device); !made) {
         return made;
     }
     for (std::uint32_t i = 0; i < device.frames_in_flight(); ++i) {
@@ -957,6 +966,12 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
         }
     }
 
+    // ---- ambient occlusion from the final depth (ADR 0095): the shading's ambient light reads it.
+    const std::optional<GraphResource> occlusion = s.ambient_occlusion.record(graph, depth, view, width, height);
+    if (occlusion && frame.blackboard != nullptr) {
+        frame.blackboard->set("ambient_occlusion", *occlusion);
+    }
+
     // ---- shade, a dispatch per bin: lights, the sky's ambient light, emission, the sky and aerial perspective.
     ShadeParams shade{.inverse_view_projection = view.inverse_view_projection,
                       .camera_position = math::vec4(view.position, view.exposure),
@@ -965,6 +980,11 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
                       .tile_capacity = tiles};
     if (exposure_state) {
         shade.flags = shade_auto_exposure | (auto_exposure->clamp_fp16 ? 0u : shade_no_fp16_clamp);
+    }
+    if (occlusion) {
+        shade.flags |= shade_ambient_occlusion;
+        // A debugging view: VEACH_SHOW_AO=1 draws the occlusion instead of the lit surfaces.
+        shade.flags |= env_is_one("VEACH_SHOW_AO") ? shade_show_occlusion : 0u;
     }
     graph.add_compute_pass(
         "shade",
@@ -977,13 +997,19 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
             if (exposure_state) {
                 b.read(*exposure_state);
             }
+            if (occlusion) {
+                b.read(*occlusion);
+            }
             b.write(radiance, rhi::ResourceState::shader_write);
         },
         [shade, pipelines = s.shade, visibility, radiance, bin_tiles, bin_args, instances = scene.instances,
-         materials = scene.materials, lights = scene.lights, sky = scene.sky,
-         exposure = exposure_state](PassContext& ctx) mutable {
+         materials = scene.materials, lights = scene.lights, sky = scene.sky, exposure = exposure_state,
+         occlusion](PassContext& ctx) mutable {
             if (exposure) {
                 shade.exposure_state = ctx.device.descriptor(ctx.buffer(*exposure));
+            }
+            if (occlusion) {
+                shade.ambient_occlusion = ctx.device.descriptor(ctx.texture(*occlusion));
             }
             shade.visibility = ctx.device.descriptor(ctx.texture(visibility));
             shade.radiance = ctx.device.descriptor(ctx.texture(radiance), rhi::View::storage);

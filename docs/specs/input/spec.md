@@ -109,8 +109,10 @@ Backlog: VCH-006, VCH-101 (analog axes), VCH-036 (gamepads).
   `"mouse_xx"` with `input.unknown_axis` and a suggestion.
 - **input.AC16**: That MCP session, recorded, stores axis events as integers (0.575 as 37683) and replays
   headless to the same camera with every frame's state matching.
+- **input.AC17**: An action or axis bound from C++ inside a module's scope (`bind_action` and `bind_axis` called
+  from a module constructor) lives at `veach::actions::<name>`, and `action_down` and `axis_value` read it.
 
-Tests: `[input.AC1]`–`[input.AC14]` in `tests/input_tests.cpp`; AC5 and AC6 in `mcp: fly camera through
+Tests: `[input.AC1]`–`[input.AC14]` and `[input.AC17]` in `tests/input_tests.cpp`; AC5 and AC6 in `mcp: fly camera through
 send_input (null RHI)`; AC15 and AC16 in `mcp: analog axes through send_input, recorded and replayed (null RHI)`
 (`tests/mcp/test_mcp_lab.py`).
 

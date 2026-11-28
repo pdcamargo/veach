@@ -102,6 +102,22 @@ void resolve_sky(const World& world, RenderWorld& out) {
         }
     });
     ResolvedSky& r = out.sky;
+    // The space backdrop (ADR 0091): the creator's settings, and a backdrop of the component's own when it has a
+    // seed, with the galactic center toward -Z and the north galactic pole +Y.
+    std::optional<std::pair<std::uint64_t, SpaceBackdrop>> backdrop;
+    world.each([&](Entity e, const SpaceBackdrop& b) {
+        if (!backdrop || e.id() < backdrop->first) {
+            backdrop = std::pair{e.id(), b};
+        }
+    });
+    r.backdrop_settings = backdrop ? backdrop->second : SpaceBackdrop{};
+    r.backdrop.reset();
+    if (backdrop && backdrop->second.seed != 0) {
+        GalaxyView view = galaxy_view_from_seed(backdrop->second.seed);
+        view.north = math::dvec3(0.0, 1.0, 0.0);
+        view.center = math::dvec3(0.0, 0.0, -1.0);
+        r.backdrop = generate_backdrop(backdrop->second.seed, view);
+    }
     r.settings = found ? found->second : Sky{};
     r.mode = r.settings.mode;
     r.sun_direction = sun_direction(r.settings);
@@ -657,6 +673,12 @@ RenderModule::RenderModule(World& world) {
         .member(&Sky::ozone, "ozone")
         .member(&Sky::mie_g, "mie_g")
         .member(&Sky::aerial_perspective, "aerial_perspective")
+        .add<Scriptable>();
+    world.component<SpaceBackdrop>()
+        .member(&SpaceBackdrop::seed, "seed")
+        .member(&SpaceBackdrop::visible, "visible")
+        .member(&SpaceBackdrop::exposure_compensation, "exposure_compensation")
+        .member(&SpaceBackdrop::exposure_follow, "exposure_follow")
         .add<Scriptable>();
     world.component<PhotoMode>()
         .member(&PhotoMode::samples_per_frame, "samples_per_frame")

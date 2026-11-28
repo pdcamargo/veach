@@ -19,6 +19,7 @@
 #include <veach/ecs/frames.hpp>
 #include <veach/ecs/transform.hpp>
 #include <veach/render/atmosphere.hpp>
+#include <veach/render/backdrop.hpp>
 #include <veach/render/camera.hpp>
 #include <veach/render/mesh_store.hpp>
 #include <veach/render/png.hpp>
@@ -153,6 +154,10 @@ struct ResolvedSky {
     std::optional<PlanetSky> planet;
     /// Spike SP-14 (VCH-090), throwaway: a starfield, in planet mode or with mode none.
     std::optional<Starfield> stars;
+    /// The space backdrop (ADR 0091): drawn behind the sky when set and `backdrop_settings.visible`. From the
+    /// SpaceBackdrop component's seed, or a module's extractor (which sets its orientation every frame).
+    std::optional<Backdrop> backdrop;
+    SpaceBackdrop backdrop_settings;  ///< the first SpaceBackdrop in entity order, or the defaults
 };
 
 /// Renderer-owned snapshot of what to draw this frame. Rebuilt by extraction every frame.

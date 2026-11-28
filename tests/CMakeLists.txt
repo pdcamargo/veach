@@ -1,6 +1,7 @@
 add_executable(veach-tests
     main.cpp
     asset_tests.cpp
+    backdrop_tests.cpp  # VCH-133: the space backdrop
     core_tests.cpp
     determinism_tests.cpp
     ecs_tests.cpp
@@ -307,6 +308,8 @@ if(APPLE)
     veach_golden_test("golden: triangle (camera, raster)" triangle_camera_raster triangle_camera metal)
     veach_golden_test("golden: triangle (camera, raytraced)" triangle_camera_raytraced triangle_camera metal)
     veach_scene_goldens(metal)
+    # backdrop.AC7: the space backdrop alone (stars, band, nebulae), small.
+    veach_golden_test("golden: space backdrop" space_backdrop_small space_backdrop metal)
     # rtmesh.AC4: a mesh made at run time (and updated on frame 2), in real time and in photo mode.
     # sky.AC4, rt.AC3: Bistro under the physical sky at noon and at sunset (Metal only: Bistro is too heavy for WARP).
     foreach(_time noon sunset)
@@ -347,7 +350,8 @@ if(APPLE)
             "cornell_box_realtime:cornell_box_realtime:3" "flight_helmet_realtime:flight_helmet_realtime:3"
             "bistro_noon:bistro_noon:3" "bistro_sunset:bistro_sunset:3"
             "runtime_mesh_realtime:runtime_mesh_realtime:3" "runtime_mesh:runtime_mesh:4"
-            "thin_triangles_realtime:thin_triangles_realtime:3" "blend_modes:blend_modes:3")
+            "thin_triangles_realtime:thin_triangles_realtime:3" "blend_modes:blend_modes:3"
+            "space_backdrop_small:space_backdrop:3")
         string(REPLACE ":" ";" _golden "${_golden}")
         list(GET _golden 0 _script)
         list(GET _golden 1 _image)
@@ -367,6 +371,12 @@ elseif(WIN32)
     veach_golden_test("golden: triangle (camera, raster, dx12)" triangle_camera_raster triangle_camera dx12)
     veach_golden_test("golden: triangle (camera, raytraced, dx12)" triangle_camera_raytraced triangle_camera dx12)
     veach_scene_goldens(dx12)
+    # backdrop.AC7 on DX12 (WARP): the bake and the composite run and log no error. The image is Metal's golden only:
+    # a star exactly on a cell edge may land in another pixel with another GPU's float rounding.
+    add_test(NAME "lab: the space backdrop renders (dx12)"
+        COMMAND veach-lab --rhi dx12 --headless --frames 3 --script scripts/space_backdrop_small.luau)
+    set_tests_properties("lab: the space backdrop renders (dx12)" PROPERTIES
+        SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable")
     add_test(NAME "lab: NaN samples are errors (dx12)"
         COMMAND veach-lab --rhi dx12 --headless --frames 3 --script scripts/nonfinite_light.luau)
     set_tests_properties("lab: NaN samples are errors (dx12)" PROPERTIES

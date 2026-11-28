@@ -4,6 +4,7 @@
 
 #include <veach/core/dmath.hpp>
 #include <veach/physics/module.hpp>
+#include <veach/space/backdrop.hpp>
 #include <veach/space/clock.hpp>
 #include <veach/space/gen/address.hpp>
 #include <veach/space/orrery.hpp>
@@ -108,6 +109,7 @@ void build(World& world, Entity e, UniverseWorld& u, const Universe& settings) {
         return;
     }
     u.system_ = system;
+    u.backdrop_ = system_backdrop(system->config);
     u.home_ = home->index;
     u.key_ = key;
     u.poses_.assign(system->orbits.nodes().size(), Pose{});
@@ -241,7 +243,13 @@ void extract_sky(const World& world, const UniverseWorld& u, render::RenderWorld
     // The rotation of render space into the axes the renderer works in is the identity: render space has the camera
     // frame's axes, and the sky is camera-relative.
     out.sky.mode = SkyMode::physical;
-    out.sky.stars = render::Starfield{};
+    // The system's backdrop (ADR 0091), its galactic frame turned from the system frame's axes into render space's.
+    render::RenderSpaceMap map(world, out.space);
+    if (const auto rotation = map.rotation(u.system_frame().id())) {
+        render::Backdrop backdrop = u.backdrop_;
+        backdrop.orientation = math::mat3(*rotation) * backdrop.orientation;
+        out.sky.backdrop = backdrop;
+    }
     std::erase_if(out.lights, [](const render::RenderLight& l) { return l.kind == LightKind::directional; });
     math::vec3 transmittance(1.0f);
     if (best != nullptr) {

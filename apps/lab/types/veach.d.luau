@@ -218,6 +218,12 @@ export type Sky = {
 	mie_g: number,
 	aerial_perspective: boolean,
 }
+export type SpaceBackdrop = {
+	seed: number,
+	visible: boolean,
+	exposure_compensation: number,
+	exposure_follow: number,
+}
 export type Spinner = {
 	radians_per_second: number,
 	angle: number,
@@ -338,6 +344,7 @@ export type Veach = {
 		read RuntimeMeshDemo: Component<RuntimeMeshDemo>,
 		read SceneInstance: Component<SceneInstance>,
 		read Sky: Component<Sky>,
+		read SpaceBackdrop: Component<SpaceBackdrop>,
 		read Spinner: Component<Spinner>,
 		read SpotLight: Component<SpotLight>,
 		read SunObserver: Component<SunObserver>,

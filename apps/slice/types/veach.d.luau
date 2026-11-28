@@ -251,6 +251,12 @@ export type SliceReadout = {
 	landing_hi: number,
 	landing_lo: number,
 }
+export type SpaceBackdrop = {
+	seed: number,
+	visible: boolean,
+	exposure_compensation: number,
+	exposure_follow: number,
+}
 export type SpotLight = {
 	color: vector,
 	intensity: number,
@@ -355,6 +361,7 @@ export type Veach = {
 		read Sky: Component<Sky>,
 		read Slice: Component<Slice>,
 		read SliceReadout: Component<SliceReadout>,
+		read SpaceBackdrop: Component<SpaceBackdrop>,
 		read SpotLight: Component<SpotLight>,
 		read SunObserver: Component<SunObserver>,
 		read Transform: Component<Transform>,

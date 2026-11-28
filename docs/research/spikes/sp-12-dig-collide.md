@@ -38,7 +38,7 @@ need as they are.
 | Planet field and terrain region | `tests/sp12/sp12_terrain.*` (`veach-sp12` library) | Earth radius, three octaves of `veach::hash` value noise (±7.85 m), regolith over rock. Holds (2h + 1)³ LOD0 chunks around the site and applies ops on `veach::JobSystem` |
 | Colliders and physics scene | `tests/sp12/sp12_physics.*` | The only SP-12 file that includes Jolt; Jolt links `PRIVATE`. Shares SP-11's process-wide Jolt init (`sp11::ensure_jolt`) because both run in `veach-tests` |
 | The scenario | `tests/sp12/sp12_scenario.*` | Load, cook, install, drop the ball, apply the log at its ticks, recook, install at t + K |
-| Tests `[sp12.AC1]`..`[sp12.AC4]` | `tests/sp12/sp12_tests.cpp` | In `veach-tests`, the fast set: about 9 s in Debug on an M5 Max |
+| Tests `[sp12.AC1]`..`[sp12.AC4]` | `tests/sp12/sp12_tests.cpp` | In `veach-tests`, the fast set. AC2 to AC4 are subcases of one test case, so the four scenario runs they share happen once per process: about 8 s in Debug on an M5 Max |
 | `veach-bench-sp12` | `tests/sp12/sp12_bench.cpp` | The tables below; `--out DIR` writes a lab project for screenshots; `--surface E N` and `--basins` survey the ground |
 
 Tracy zones (`sp12 sample chunk`, `sp12 apply brush`, `sp12 mesh chunk`, `sp12 cook collider`,

@@ -112,65 +112,67 @@ TEST_CASE("[sp12.AC1] isqrt is exact and brush ops don't commute") {
     CHECK(a.at(0, 0, 0).distance == -4096);
 }
 
-TEST_CASE("[sp12.AC2] the edit log replays to the committed chunk hashes, on 1 and 4 workers, in any chunk order") {
-    const Runs& r = runs();
-    for (const ScenarioResult* run : {&r.one, &r.four, &r.reversed}) {
-        INFO(std::format("base samples {} mesh {}; edited samples {} mesh {}", hex(run->base_samples_hash),
-                         hex(run->base_mesh_hash), hex(run->samples_hash), hex(run->mesh_hash)));
-        CHECK(run->base_samples_hash == base_samples_expected);
-        CHECK(run->base_mesh_hash == base_mesh_expected);
-        CHECK(run->samples_hash == samples_expected);
-        CHECK(run->mesh_hash == mesh_expected);
-        CHECK(run->outside == 0);
-        CHECK(run->mismatches == 0);  // neighbors hold equal samples at shared positions
-        CHECK(run->open_edges == 0);  // the dug terrain is watertight
-        // As in SP-08, a few triangles fold at thin features (the mound's rim): 2 of 98,504 here.
-        CHECK(static_cast<double>(run->wound_out) > 0.9999 * static_cast<double>(run->triangles));
-    }
-    CHECK(r.one.changed >= 4);
-    CHECK(r.one.materialized >= 1);  // the cavity reached a chunk the bounds had proven solid
-    CHECK(r.control.samples_hash == r.one.base_samples_hash);
-}
-
-TEST_CASE("[sp12.AC3] colliders cooked from the chunks install with the committed hashes") {
-    const Runs& r = runs();
-    for (const ScenarioResult* run : {&r.one, &r.four, &r.reversed}) {
-        INFO(std::format("colliders {} install {}", hex(run->colliders_hash), hex(run->install_hash)));
-        CHECK(run->colliders_hash == colliders_expected);
-        CHECK(run->install_hash == install_expected);
-        CHECK(run->terrain_bodies == run->meshed);
-    }
-}
-
-TEST_CASE("[sp12.AC4] a ball on the dig site falls into the pit and comes to rest below the original surface") {
-    const Runs& r = runs();
-    for (const ScenarioResult* run : {&r.one, &r.four, &r.reversed}) {
-        REQUIRE(run->step_hashes.size() == static_cast<std::size_t>(snapshot_steps[std::size(snapshot_steps) - 1]));
-        for (std::size_t i = 0; i < std::size(snapshot_steps); ++i) {
-            const auto step = static_cast<std::size_t>(snapshot_steps[i]);
-            INFO(std::format("ball after step {}: {}", step, hex(run->step_hashes[step - 1])));
-            CHECK(run->step_hashes[step - 1] == ball_expected[i]);
+// One test case with a subcase per criterion: ctest runs each test case in its own process, and the four scenario
+// runs they share take most of the time in a Debug build.
+TEST_CASE("[sp12.AC2] [sp12.AC3] [sp12.AC4] dig and collide: hashes, colliders and the ball, on 1 and 4 workers") {
+    SUBCASE("[sp12.AC2] the edit log replays to the committed chunk hashes, in any chunk order") {
+        const Runs& r = runs();
+        for (const ScenarioResult* run : {&r.one, &r.four, &r.reversed}) {
+            INFO(std::format("base samples {} mesh {}; edited samples {} mesh {}", hex(run->base_samples_hash),
+                             hex(run->base_mesh_hash), hex(run->samples_hash), hex(run->mesh_hash)));
+            CHECK(run->base_samples_hash == base_samples_expected);
+            CHECK(run->base_mesh_hash == base_mesh_expected);
+            CHECK(run->samples_hash == samples_expected);
+            CHECK(run->mesh_hash == mesh_expected);
+            CHECK(run->outside == 0);
+            CHECK(run->mismatches == 0);  // neighbors hold equal samples at shared positions
+            CHECK(run->open_edges == 0);  // the dug terrain is watertight
+            // As in SP-08, a few triangles fold at thin features: 2 of 98,584 here.
+            CHECK(static_cast<double>(run->wound_out) > 0.9999 * static_cast<double>(run->triangles));
         }
-        INFO(std::format("chain {}", hex(run->chain)));
-        CHECK(run->chain == chain_expected);
-        CHECK(run->jolt_state == r.one.jolt_state);
-        INFO(
-            std::format("before the pit: {} m; before the sump: {} m ({}); at the end: {} m deep, {} m off the "
-                        "axis, {} m/s",
-                        run->batches[0].depth_before, run->batches[1].depth_before,
-                        run->batches[1].asleep_before ? "asleep" : "awake", run->depth, run->lateral, run->speed));
-        // On the ground before the dig: the ball's center is about its radius (0.4 m) above the surface.
-        CHECK(run->batches[0].depth_before > -0.2);
-        CHECK(run->batches[0].depth_before < 0.6);
-        // At rest in the pit (3 m deep) before the sump: asleep, so the install must wake it.
-        CHECK(run->batches[1].depth_before < -2.0);
-        CHECK(run->batches[1].asleep_before);
-        // In the sump (4.4 m deep), at rest.
-        CHECK(run->depth < -3.5);
-        CHECK(run->lateral < 1.5);
-        CHECK(run->speed < 0.01);
+        CHECK(r.one.changed >= 4);
+        CHECK(r.one.materialized >= 1);  // the cavity reached a chunk the bounds had proven solid
+        CHECK(r.control.samples_hash == r.one.base_samples_hash);
     }
-    INFO(std::format("control: {} m, {} m/s", r.control.depth, r.control.speed));
-    CHECK(r.control.depth > -0.2);  // without the dig the ball stays on the ground
-    CHECK(r.control.chain != r.one.chain);
+    SUBCASE("[sp12.AC3] colliders cooked from the chunks install with the committed hashes") {
+        const Runs& r = runs();
+        for (const ScenarioResult* run : {&r.one, &r.four, &r.reversed}) {
+            INFO(std::format("colliders {} install {}", hex(run->colliders_hash), hex(run->install_hash)));
+            CHECK(run->colliders_hash == colliders_expected);
+            CHECK(run->install_hash == install_expected);
+            CHECK(run->terrain_bodies == run->meshed);
+        }
+    }
+    SUBCASE("[sp12.AC4] a ball on the dig site falls into the pit and comes to rest below the surface") {
+        const Runs& r = runs();
+        for (const ScenarioResult* run : {&r.one, &r.four, &r.reversed}) {
+            REQUIRE(run->step_hashes.size() == static_cast<std::size_t>(snapshot_steps[std::size(snapshot_steps) - 1]));
+            for (std::size_t i = 0; i < std::size(snapshot_steps); ++i) {
+                const auto step = static_cast<std::size_t>(snapshot_steps[i]);
+                INFO(std::format("ball after step {}: {}", step, hex(run->step_hashes[step - 1])));
+                CHECK(run->step_hashes[step - 1] == ball_expected[i]);
+            }
+            INFO(std::format("chain {}", hex(run->chain)));
+            CHECK(run->chain == chain_expected);
+            CHECK(run->jolt_state == r.one.jolt_state);
+            INFO(
+                std::format("before the pit: {} m; before the sump: {} m ({}); at the end: {} m deep, {} m off the "
+                            "axis, {} m/s",
+                            run->batches[0].depth_before, run->batches[1].depth_before,
+                            run->batches[1].asleep_before ? "asleep" : "awake", run->depth, run->lateral, run->speed));
+            // On the ground before the dig: the ball's center is about its radius (0.4 m) above the surface.
+            CHECK(run->batches[0].depth_before > -0.2);
+            CHECK(run->batches[0].depth_before < 0.6);
+            // At rest in the pit (3 m deep) before the sump: asleep, so the install must wake it.
+            CHECK(run->batches[1].depth_before < -2.0);
+            CHECK(run->batches[1].asleep_before);
+            // In the sump (4.4 m deep), at rest.
+            CHECK(run->depth < -3.5);
+            CHECK(run->lateral < 1.5);
+            CHECK(run->speed < 0.01);
+        }
+        INFO(std::format("control: {} m, {} m/s", r.control.depth, r.control.speed));
+        CHECK(r.control.depth > -0.2);  // without the dig the ball stays on the ground
+        CHECK(r.control.chain != r.one.chain);
+    }
 }

@@ -10,6 +10,7 @@
 #include <veach/space/gen/address.hpp>
 #include <veach/space/orrery.hpp>
 #include <veach/space/sun.hpp>
+#include <veach/space/surface.hpp>
 
 #include <algorithm>
 #include <charconv>
@@ -33,9 +34,9 @@ math::dquat quat_of(const Orientation& o) {
 }
 
 std::string key_of(const Universe& u) {
-    return std::format("{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}", u.seed, u.system, u.scale, u.orbit_scale,
+    return std::format("{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}", u.seed, u.system, u.scale, u.orbit_scale,
                        u.atmosphere_exponent, u.relief_exponent, u.gravity, u.day, u.habitability_bias, u.home,
-                       u.start_tick);
+                       u.start_tick, u.surface_colors);
 }
 
 Result<UniverseConfig> config_of(const Universe& u) {
@@ -95,6 +96,12 @@ void build(World& world, Entity e, UniverseWorld& u, const Universe& settings) {
         }
         return;
     }
+    const auto parsed_colors = parse_surface_colors(settings.surface_colors);
+    if (!parsed_colors) {
+        log::error("space", parsed_colors.error());
+        return;
+    }
+    const SurfaceColors colors = *parsed_colors;
     auto config = config_of(settings);
     auto realized = config ? realize(*config) : Result<StarSystem>(std::unexpected(config.error()));
     if (!realized) {
@@ -132,20 +139,20 @@ void build(World& world, Entity e, UniverseWorld& u, const Universe& settings) {
     write_poses(world, u, settings.start_tick);
     e.set(UniverseClock{.tick = settings.start_tick, .rate = 1});
 
-    // Terrain on home and its moons, in their body-fixed frames.
+    // Terrain on home and its moons, in their body-fixed frames, each with its surface (surface.hpp): the game's layer
+    // library (the TerrainLayers service) or the toolbox's procedural one. Only with a renderer: a server streams
+    // the shapes alone.
     auto* bodies = services(world).find<TerrainBodies>();
     auto* store = services(world).find<render::MeshStore>();
-    std::vector<AssetId> rocky, moon;
+    std::shared_ptr<const TerrainLayerLibrary> library;
     if (store != nullptr) {
-        const auto material = [&](const char* name, math::vec3 c, float roughness) {
-            return store->add_material(
-                {.name = name, .base_color = math::vec4(c, 1.0f), .metallic = 0.0f, .roughness = roughness});
-        };
-        rocky = {material("lowland", math::vec3(0.20f, 0.30f, 0.11f), 0.9f),
-                 material("highland", math::vec3(0.36f, 0.33f, 0.20f), 0.9f),
-                 material("rock", math::vec3(0.33f, 0.30f, 0.27f), 0.8f)};
-        const AssetId regolith = material("regolith", math::vec3(0.30f, 0.29f, 0.28f), 0.95f);
-        moon = {regolith, regolith, regolith};
+        if (const auto* layers = services(world).find<TerrainLayers>(); layers != nullptr && layers->library) {
+            library = layers->library;
+        } else if (auto made = load_terrain_library(surface_layers(), {}, services(world).get<JobSystem>())) {
+            library = *made;
+        } else {
+            log::error("space", made.error());
+        }
     }
     for (const RealizedBody& b : system->bodies) {
         if (!b.solid || (b.index != home->index && b.parent != home->index)) {
@@ -162,9 +169,23 @@ void build(World& world, Entity e, UniverseWorld& u, const Universe& settings) {
         ts.lambda = 4.0;
         auto terrain = std::make_shared<voxel::TerrainBody>(*density, ts);
         u.terrains_[b.index] = terrain;
-        if (bodies != nullptr) {
-            bodies->add(u.fixed_frame(b.index), terrain, {.materials = b.parent == 0 ? rocky : moon});
+        if (bodies == nullptr) {
+            continue;
         }
+        TerrainLook look;
+        if (library != nullptr) {
+            auto desc = surface_desc(*system, b, *library, colors);
+            auto surface = desc ? TerrainSurface::make(library, std::move(*desc))
+                                : Result<std::shared_ptr<const TerrainSurface>>(std::unexpected(desc.error()));
+            auto material = surface ? (*surface)->material(*store) : Result<AssetId>(std::unexpected(surface.error()));
+            if (material) {
+                look = {.materials = {*material}, .surface = *surface};
+                log::info("space", "{}: terrain surface {}", b.name, (*surface)->desc().name);
+            } else {
+                log::error("space", material.error());
+            }
+        }
+        bodies->add(u.fixed_frame(b.index), terrain, std::move(look));
     }
 
     // Gravity: each body frame gets its own body's g R² (ADR 0059's dominant body, in that body's frame).
@@ -408,6 +429,7 @@ UniverseModule::UniverseModule(World& world) {
         .member(&Universe::day, "day")
         .member(&Universe::habitability_bias, "habitability_bias")
         .member(&Universe::home, "home")
+        .member(&Universe::surface_colors, "surface_colors")
         .member(&Universe::start_tick, "start_tick")
         .add<Scriptable>();
     world.component<CelestialFrame>()

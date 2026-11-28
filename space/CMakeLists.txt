@@ -14,6 +14,7 @@ add_library(veach_space STATIC
     src/presets.cpp
     src/realization.cpp   # VCH-115: the realization layer (ADR 0049, 0088)
     src/sun.cpp
+    src/surface.cpp       # VCH-130: terrain materials per body (biomes, climate, palettes)
     src/terrain.cpp       # VCH-115: terrain fields per body
     src/universe.cpp)     # VCH-115: UniverseModule
 add_library(veach::space ALIAS veach_space)

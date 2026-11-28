@@ -509,8 +509,28 @@ ColliderStats TerrainBody::update_colliders(std::span<const ColliderProbe> probe
     for (const auto& [k, unused] : needed) {
         keys.push_back(k);
     }
+    // The source's class of each chunk is a pure function of its key: classify each once while it stays needed (a
+    // surface chunk's bound recurses classify_depth levels, far more work than a step has). Edits still decide live.
+    std::vector<ChunkKey> unknown;
+    for (const ChunkKey& k : keys) {
+        if (!collider_classes_.contains(k)) {
+            unknown.push_back(k);
+        }
+    }
+    std::vector<BoxClass> fresh(unknown.size(), BoxClass::surface);
+    jobs.parallel_for("voxel: classify colliders", unknown.size(), 8, [&](std::size_t begin, std::size_t end) {
+        for (std::size_t i = begin; i < end; ++i) {
+            fresh[i] = source_->classify_shallow(sample_box(unknown[i]));
+        }
+    });
+    for (std::size_t i = 0; i < unknown.size(); ++i) {
+        collider_classes_.emplace(unknown[i], fresh[i]);
+    }
+    std::erase_if(collider_classes_, [&](const auto& e) { return !needed.contains(e.first); });
     std::vector<BoxClass> classes(keys.size(), BoxClass::surface);
-    classify(keys, classes, jobs);
+    for (std::size_t i = 0; i < keys.size(); ++i) {
+        classes[i] = edits_.touches(sample_box(keys[i])) ? BoxClass::surface : collider_classes_.at(keys[i]);
+    }
     std::vector<ChunkKey> to_mesh;
     for (std::size_t i = 0; i < keys.size(); ++i) {
         needed[keys[i]] = classes[i] == BoxClass::surface;
@@ -550,6 +570,27 @@ ColliderStats TerrainBody::update_colliders(std::span<const ColliderProbe> probe
             continue;
         }
         ++stats.wanted;
+        // A ring only changes when its chunk's mesh or a neighbor's does: skip the weld while every input hash is the
+        // one it was built from and the collider is still installed.
+        std::uint64_t inputs = absorb(hash_id("veach:voxel.collider"), own->second.hash);
+        for (int dz = -1; dz <= 1; ++dz) {
+            for (int dy = -1; dy <= 1; ++dy) {
+                for (int dx = -1; dx <= 1; ++dx) {
+                    if (dx == 0 && dy == 0 && dz == 0) {
+                        continue;
+                    }
+                    if (const auto it = collider_meshes_.find({0, k.x + dx, k.y + dy, k.z + dz});
+                        it != collider_meshes_.end() && !it->second.mesh.indices.empty()) {
+                        inputs = absorb(inputs, it->second.hash);
+                    }
+                }
+            }
+        }
+        if (const auto r = ring_inputs_.find(k);
+            r != ring_inputs_.end() && r->second == inputs && installed_.contains(k)) {
+            continue;
+        }
+        ring_inputs_[k] = inputs;
         ColliderMesh c{.key = k};
         std::map<std::array<std::int64_t, 3>, std::uint32_t> index;
         const auto vertex = [&](const std::array<std::int64_t, 3>& p) {
@@ -594,7 +635,7 @@ ColliderStats TerrainBody::update_colliders(std::span<const ColliderProbe> probe
                                 c.indices.insert(c.indices.end(), {vertex(a), vertex(b), vertex(d)});
                             }
                         }
-                        if (!self) {
+                        if (!self && !m.indices.empty()) {  // a neighbor without triangles feeds no ring
                             h = absorb(h, it->second.hash);
                         }
                     }
@@ -616,6 +657,7 @@ ColliderStats TerrainBody::update_colliders(std::span<const ColliderProbe> probe
         const auto own = collider_meshes_.find(it->first);
         if (w == wanted.end() || !w->second || own == collider_meshes_.end() || own->second.mesh.indices.empty()) {
             update.remove.push_back(it->first);
+            ring_inputs_.erase(it->first);
             it = installed_.erase(it);
         } else {
             ++it;

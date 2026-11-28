@@ -573,7 +573,9 @@ TEST_CASE("[voxel.AC8] colliders: LOD0 meshes with an adjacency ring, for instal
     CHECK(with_ring == u.install.size());
     const std::uint64_t colliders = combine_hashes(hashes);
     INFO(std::format("colliders {}", hex(colliders)));
-    CHECK(colliders == 0x86de58d91149c791ULL);
+    // A ring's hash covers its chunk and the neighbors with triangles (ADR 0088: since collider chunks classify
+    // shallow, neighbors without triangles no longer enter it; the meshes and shapes are the same as before).
+    CHECK(colliders == 0xbede9c57daef8a37ULL);
 
     // Nothing changed: nothing to submit.
     body.update_colliders(std::span(&probe, 1), 101, jobs);

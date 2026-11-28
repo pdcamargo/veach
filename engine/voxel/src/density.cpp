@@ -237,6 +237,14 @@ double ProgramDensity::center_distance(const std::array<std::int64_t, 3>& c, flo
 }
 
 BoxClass ProgramDensity::classify(const LatticeBox& box) const {
+    return classify_to(box, settings_.classify_depth);
+}
+
+BoxClass ProgramDensity::classify_shallow(const LatticeBox& box) const {
+    return classify_to(box, std::min(settings_.classify_depth, 1));
+}
+
+BoxClass ProgramDensity::classify_to(const LatticeBox& box, int depth) const {
     std::array<std::int64_t, 3> lo{}, hi{};
     for (std::size_t a = 0; a < 3; ++a) {
         lo[a] = box.lo[a] * fine;
@@ -246,7 +254,7 @@ BoxClass ProgramDensity::classify(const LatticeBox& box) const {
     const procgen::LatticePoint point{c[0], c[1], c[2]};
     std::vector<float> values(program_.outputs.size());
     procgen::evaluate(program_, fine_lattice, std::span(&point, 1), values);
-    return classify_fine(lo, hi, settings_.classify_depth, center_distance(c, values[density_index_]));
+    return classify_fine(lo, hi, depth, center_distance(c, values[density_index_]));
 }
 
 BoxClass ProgramDensity::classify_fine(const std::array<std::int64_t, 3>& lo, const std::array<std::int64_t, 3>& hi,

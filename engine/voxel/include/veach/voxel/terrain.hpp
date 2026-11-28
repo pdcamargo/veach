@@ -252,7 +252,9 @@ private:
     std::vector<std::unique_ptr<Job>> in_flight_;
 
     std::map<ChunkKey, ColliderChunk> collider_meshes_;
-    std::map<ChunkKey, std::uint64_t> installed_;  ///< collider hash per installed chunk
+    std::map<ChunkKey, BoxClass> collider_classes_;  ///< the source's class of each chunk colliders need
+    std::map<ChunkKey, std::uint64_t> installed_;    ///< collider hash per installed chunk
+    std::map<ChunkKey, std::uint64_t> ring_inputs_;  ///< the mesh hashes each installed ring was built from
     ColliderSink* sink_ = nullptr;
 };
 

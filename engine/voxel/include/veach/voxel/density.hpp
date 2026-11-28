@@ -41,6 +41,9 @@ public:
     virtual void sample(const ChunkKey& key, std::uint8_t face_mask, ChunkSamples& out) const = 0;
     /// Conservative class of every sample on the lattice points of `box`: `empty` or `solid` only when proven.
     [[nodiscard]] virtual BoxClass classify(const LatticeBox& box) const = 0;
+    /// The same with little or no subdivision, for LOD0 collider chunks: they sit within a few meters of the surface,
+    /// where a bound rarely proves anything and a deep split costs more than sampling the chunk (VCH-115).
+    [[nodiscard]] virtual BoxClass classify_shallow(const LatticeBox& box) const { return classify(box); }
     /// How the source encodes distances (the mesher decodes with the same).
     [[nodiscard]] virtual DistanceEncoding encoding() const = 0;
 };
@@ -96,6 +99,8 @@ public:
 
     void sample(const ChunkKey& key, std::uint8_t face_mask, ChunkSamples& out) const override;
     [[nodiscard]] BoxClass classify(const LatticeBox& box) const override;
+    /// One split at most.
+    [[nodiscard]] BoxClass classify_shallow(const LatticeBox& box) const override;
     [[nodiscard]] DistanceEncoding encoding() const override { return settings_.encoding; }
 
     /// The signed distance at a body-local point in meters, unquantized (tools, flight, tests). Canonical.
@@ -116,6 +121,7 @@ private:
     [[nodiscard]] double shape_at(double x, double y, double z) const;
     [[nodiscard]] Range shape_range(const std::array<double, 3>& lo, const std::array<double, 3>& hi) const;
     /// Class of a box given in 1/256 LOD0 units, split up to `depth` times.
+    [[nodiscard]] BoxClass classify_to(const LatticeBox& box, int depth) const;
     [[nodiscard]] BoxClass classify_fine(const std::array<std::int64_t, 3>& lo, const std::array<std::int64_t, 3>& hi,
                                          int depth, double center) const;
     /// d at a fine-lattice point from the program's value there.

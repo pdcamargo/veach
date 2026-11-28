@@ -133,6 +133,11 @@ positions exactly. Swapping a chunk's shape must wake the bodies over it (ADR 00
 `engine/physics`'s (VCH-113): `veach::TerrainColliders` in `engine/runtime` is the `ColliderSink` that hands the
 updates to a physics scene ([physics guide](physics.md#terrain-colliders)).
 
+Collider chunks are classified once while they stay needed, with at most one split (`classify_shallow`): LOD0 chunks
+sit within meters of the surface, where a bound proves little and the full 6-level split costs more than sampling.
+A chunk's ring is welded again only when its own mesh or a neighbor's changed. Calling `update_colliders` every
+fixed step is cheap when nothing moved (ADR 0088).
+
 ## In a world: TerrainModule
 
 ```cpp

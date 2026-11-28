@@ -62,7 +62,9 @@ struct AutoExposureSettings {
     float compensation = -1.0f;
     float highlight_percent = 0.99f;  ///< this percentile of the metered pixels is kept unclipped...
     float highlight_white = 16.0f;    ///< ...at or below this exposed luminance (AgX's white is 16.3)...
-    float highlight_max_pull = 4.0f;  ///< ...darkening the metered exposure by at most this (stops)
+    /// ...darkening the metered exposure by at most this (stops). 2 with bloom (ADR 0099): an opening that clips reads
+    /// as light through its glow, so a dark interior seen with it keeps 2 more stops than ADR 0082's 4.
+    float highlight_max_pull = 2.0f;
     float delta_time = 1.0f / 60.0f;
     bool reset = false;      ///< snap to the metered exposure this frame
     bool clamp_fp16 = true;  ///< clamp pre-exposed radiance to the fp16 maximum (off only to show the overflow)

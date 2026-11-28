@@ -49,7 +49,12 @@ add_subdirectory(sp13)  # Spike SP-13 (VCH-089): walk, hover, land; its tests jo
 add_subdirectory(seams)  # The seams sweep: octant planes, poles, chunk corners; its tests join veach-tests; its bench is veach-bench-seams
 
 include("${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake")
-doctest_discover_tests(veach-tests TEST_PREFIX "unit: ")
+# Sanitized builds run the heavier canonical tests (octree welds, physics replays) about ten times slower.
+if(VEACH_SANITIZE)
+    doctest_discover_tests(veach-tests TEST_PREFIX "unit: " PROPERTIES TIMEOUT 600)
+else()
+    doctest_discover_tests(veach-tests TEST_PREFIX "unit: ")
+endif()
 
 # ---- Integration checks (acceptance criteria that need the real binaries) ----
 

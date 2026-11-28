@@ -8,6 +8,7 @@
 #include <veach/core/jobs.hpp>
 #include <veach/platform/fs.hpp>
 #include <veach/procgen/field_graph.hpp>
+#include <veach/procgen/sandbox.hpp>
 
 #include <doctest/doctest.h>
 
@@ -323,4 +324,44 @@ TEST_CASE("[procgen.AC6] a program with two outputs writes them planar, each as 
     const std::vector<float> mask = eval_box(only("mask"), box);
     CHECK(bit_equal(std::span(planar).first(box.size()), height));
     CHECK(bit_equal(std::span(planar).last(box.size()), mask));
+}
+
+TEST_CASE("[procgen.AC10] the Luau builder makes the same program as the JSON file") {
+    auto source = fs::read_file(test::source_dir() / "tests/procgen/terrain.graph.luau");
+    REQUIRE(source.has_value());
+    pg::Sandbox sandbox;
+    auto built = sandbox.build_graph(*source, "terrain.graph.luau");
+    REQUIRE_MESSAGE(built.has_value(), (built ? std::string() : built.error().message));
+    CHECK(built->id() == "sp06:terrain");
+    auto program = pg::compile(*built, {.seed = 42, .radius_planet_m = 6.0e6});
+    REQUIRE(program.has_value());
+    CHECK(program->words == terrain().words);
+
+    // The builder's own errors carry the script's line; the graph's errors name the node, as from JSON.
+    const auto twice = sandbox.build_graph(R"(return function(procgen)
+        local g = procgen.graph("t:t")
+        local p = g:input("p", "p_planet")
+        g:node("n", "veach:fbm@1", { p = p, wavelength = procgen.planet_m(10), octaves = 1 })
+        g:node("n", "veach:fbm@1", { p = p, wavelength = procgen.planet_m(10), octaves = 1 })
+        return g
+    end)",
+                                           "twice.luau");
+    REQUIRE_FALSE(twice.has_value());
+    CHECK(twice.error().code == ErrorCode::procgen_graph_invalid);
+    CHECK(twice.error().message.find("twice.luau:5:") != std::string::npos);
+    const auto bare = sandbox.build_graph(R"(return function(procgen)
+        local g = procgen.graph("t:t")
+        g:output("h", g:node("n", "veach:fbm@1", { p = g:input("p", "p_planet"), wavelength = 10, octaves = 1 }))
+        return g
+    end)",
+                                          "bare.luau");
+    REQUIRE_FALSE(bare.has_value());
+    CHECK(bare.error().code == ErrorCode::procgen_graph_invalid);
+    CHECK(bare.error().message.find("node 'n'") != std::string::npos);
+    CHECK(bare.error().hint.find("planet_m") != std::string::npos);
+    // The generator rules hold in builders too (ADR 0070): no ^.
+    const auto pow =
+        sandbox.build_graph("return function(procgen) local x = 2 ^ 3 return procgen.graph('t:t') end", "pow.luau");
+    REQUIRE_FALSE(pow.has_value());
+    CHECK(pow.error().code == ErrorCode::script_compile_failed);
 }

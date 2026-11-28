@@ -442,7 +442,7 @@ Result<FieldGraph> parse_field_graph_json(const json& doc, std::string_view sour
     if (!cycle.empty()) {
         return err.node(ErrorCode::procgen_graph_invalid, cycle, "is part of a cycle", "field graphs are acyclic");
     }
-    impl->hash = hash_id(doc.dump());
+    impl->hash = hash_id(doc.dump(-1, ' ', false, json::error_handler_t::replace));
     return FieldGraph(std::move(impl));
 }
 

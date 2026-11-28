@@ -76,7 +76,8 @@ add_test(NAME "lab: runtime mesh on the null RHI"
 set_tests_properties("lab: runtime mesh on the null RHI" PROPERTIES FAIL_REGULAR_EXPRESSION "\\] error ")
 
 file(GLOB_RECURSE _luau_scripts RELATIVE "${PROJECT_SOURCE_DIR}" CONFIGURE_DEPENDS
-    "${PROJECT_SOURCE_DIR}/apps/*.luau" "${PROJECT_SOURCE_DIR}/tests/scripts/*.luau")
+    "${PROJECT_SOURCE_DIR}/apps/*.luau" "${PROJECT_SOURCE_DIR}/tests/scripts/*.luau"
+    "${PROJECT_SOURCE_DIR}/tests/procgen/*.luau")
 add_test(NAME "luau-analyze: scripts type-check under --!strict"
     COMMAND Luau.Analyze.CLI ${_luau_scripts} types/veach.d.luau
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")

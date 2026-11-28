@@ -16,8 +16,12 @@
 // A hook is a chunk that returns one function `(ctx, inputs, outputs)`. Each call loads the chunk afresh into a new
 // sandboxed thread, so nothing (globals, upvalues) survives from one invocation to the next and results never depend
 // on call order. One Sandbox per worker thread; a Sandbox is not thread-safe.
+//
+// The same sandbox runs field-graph builder scripts (build_graph): Luau that declares a graph and gets the IR the JSON
+// loader would read (docs/guides/procgen.md).
 
 #include <veach/core/error.hpp>
+#include <veach/procgen/field_graph.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -86,6 +90,11 @@ public:
     [[nodiscard]] Result<HookId> load(std::string_view source, std::string_view chunk_name);
     /// Runs a hook once. Fails with procgen.budget_exceeded or script.runtime_error; outputs are untouched on failure.
     [[nodiscard]] Result<> run(HookId hook, const HookCall& call);
+    /// Runs a field-graph builder: a chunk that returns `function(procgen)`, which makes a graph with
+    /// procgen.graph(id), adds inputs, nodes and outputs, and returns it. The result is validated like JSON. Fails with
+    /// script.compile_failed, procgen.graph_invalid (the builder raised an error, with its line, or the graph is
+    /// invalid) or procgen.budget_exceeded (the same budgets as hooks).
+    [[nodiscard]] Result<FieldGraph> build_graph(std::string_view source, std::string_view chunk_name);
 
     [[nodiscard]] const HookStats& last_stats() const;
     [[nodiscard]] const SandboxOptions& options() const;

@@ -25,6 +25,8 @@ constexpr double float_eps = 1.0 / 16777216.0;
 /// bound) and about thirty float operations on values below 4. Generous on purpose.
 constexpr double noise_error = 1.0e-5;
 
+/// An interval, a slope term and the rounding bound. `lipschitz` is the Lipschitz constant in Lipschitz mode and the
+/// largest change within the radius in variation mode: the ops combine both the same way.
 struct Value {
     double lo = 0.0, hi = 0.0, lipschitz = 0.0, error = 0.0;
     [[nodiscard]] double magnitude() const { return std::max(std::fabs(lo), std::fabs(hi)); }
@@ -54,7 +56,9 @@ Value rounded(Value v) {
     return v;
 }
 
-Value fbm(const std::uint32_t* payload) {
+/// radius < 0: Lipschitz mode. Otherwise each octave changes by at most the smaller of its slope times the radius
+/// and its whole range (4 per unit amplitude).
+Value fbm(const std::uint32_t* payload, double radius) {
     const std::uint32_t octaves = payload[0];
     const double gain = as_float(payload[3]);
     double amplitude = as_float(payload[4]);
@@ -63,7 +67,8 @@ Value fbm(const std::uint32_t* payload) {
     for (std::uint32_t o = 0; o < octaves; ++o) {
         const double a = std::fabs(amplitude) * (1.0 + 1.0e-6);  // the kernel steps the amplitude in float
         sum += a;
-        lipschitz += a * noise_lipschitz * std::fabs(as_double(lattice_f + 2 * o));
+        const double slope = a * noise_lipschitz * std::fabs(as_double(lattice_f + 2 * o));
+        lipschitz += radius < 0.0 ? slope : std::min(slope * radius, 2.0 * noise_bound * a);
         amplitude *= gain;
     }
     Value v{-noise_bound * sum, noise_bound * sum, lipschitz, sum * noise_error};
@@ -72,9 +77,7 @@ Value fbm(const std::uint32_t* payload) {
     return v;
 }
 
-}  // namespace
-
-std::vector<FieldBound> lattice_bounds(const FieldProgram& program) {
+std::vector<Value> pass(const FieldProgram& program, double radius) {
     std::vector<Value> reg(max_registers);
     const std::uint32_t* w = program.words.data();
     const std::size_t end = program.words.size();
@@ -86,7 +89,7 @@ std::vector<FieldBound> lattice_bounds(const FieldProgram& program) {
         const std::uint32_t* payload = w + pc + op_header_words;
         Value out;
         switch (op) {
-            case Op::fbm: out = fbm(payload); break;
+            case Op::fbm: out = fbm(payload, radius); break;
             case Op::ridge: {
                 // (offset - |a|)^2, with r = offset - |a| in [offset - max|a|, offset - min|a|].
                 const double offset = as_float(payload[0]);
@@ -127,15 +130,35 @@ std::vector<FieldBound> lattice_bounds(const FieldProgram& program) {
             case Op::add: out = {a.lo + b.lo, a.hi + b.hi, a.lipschitz + b.lipschitz, a.error + b.error}; break;
             case Op::mul: out = product(a, b); break;
         }
+        if (radius >= 0.0) {
+            out.lipschitz = std::min(out.lipschitz, out.hi - out.lo);  // never more than the whole range
+        }
         reg[w[pc + 1]] = rounded(out);
     }
-    std::vector<FieldBound> bounds;
-    bounds.reserve(program.outputs.size());
+    std::vector<Value> out;
+    out.reserve(program.outputs.size());
     for (const FieldOutput& o : program.outputs) {
-        const Value& v = reg[o.reg];
+        out.push_back(reg[o.reg]);
+    }
+    return out;
+}
+
+}  // namespace
+
+std::vector<FieldBound> lattice_bounds(const FieldProgram& program) {
+    std::vector<FieldBound> bounds;
+    for (const Value& v : pass(program, -1.0)) {
         bounds.push_back({v.lo, v.hi, v.lipschitz, v.error});
     }
     return bounds;
+}
+
+std::vector<double> lattice_variation(const FieldProgram& program, double radius_m) {
+    std::vector<double> out;
+    for (const Value& v : pass(program, std::max(radius_m, 0.0))) {
+        out.push_back(v.lipschitz);
+    }
+    return out;
 }
 
 }  // namespace veach::procgen

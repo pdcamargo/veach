@@ -195,4 +195,10 @@ struct FieldBound {
 /// amplitude and its gradient by 8.5 * sqrt(3) per cycle (Perlin's gradients, quintic fade), not by its typical range.
 [[nodiscard]] std::vector<FieldBound> lattice_bounds(const FieldProgram& program);
 
+/// The most each output can change within `radius_m` of any point (the exact function; evaluated values add twice
+/// the error): each veach:fbm@1 octave contributes the smaller of its slope times the radius and its whole range,
+/// so fine octaves stop counting once a box is many of their wavelengths across. Never more than
+/// lipschitz * radius_m. One pass over the op list: cheap enough per box.
+[[nodiscard]] std::vector<double> lattice_variation(const FieldProgram& program, double radius_m);
+
 }  // namespace veach::procgen

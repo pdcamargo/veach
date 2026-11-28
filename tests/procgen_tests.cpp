@@ -382,7 +382,7 @@ TEST_CASE("[procgen.AC10] the Luau builder makes the same program as the JSON fi
     CHECK(pow.error().code == ErrorCode::script_compile_failed);
 }
 
-TEST_CASE("[procgen.AC12] lattice bounds hold every evaluated value and every difference") {
+TEST_CASE("[procgen.AC12] lattice bounds and variations hold every evaluated value and every difference") {
     const pg::FieldProgram caves = program_of(caves_json, {.seed = 7});
     const pg::FieldProgram hills = program_of(terrain_json(), {.seed = 42, .planet_m_per_m = 1000.0});
     for (const pg::FieldProgram* p : {&caves, &hills}) {
@@ -405,7 +405,7 @@ TEST_CASE("[procgen.AC12] lattice bounds hold every evaluated value and every di
         }
         std::vector<float> out(points.size());
         pg::evaluate(*p, lod0, points, out);
-        int outside = 0, steep = 0;
+        int outside = 0, steep = 0, varied = 0, loose = 0;
         double steepest = 0.0;
         for (std::size_t i = 0; i < points.size(); i += 2) {
             for (const std::size_t j : {i, i + 1}) {
@@ -421,9 +421,18 @@ TEST_CASE("[procgen.AC12] lattice bounds hold every evaluated value and every di
                 std::sqrt(d2);
             steepest = std::max(steepest, slope);
             steep += slope > b.lipschitz;
+            // The variation within that distance bounds the change too, and never exceeds the slope bound.
+            const double variation = pg::lattice_variation(*p, std::sqrt(d2))[0];
+            varied +=
+                std::fabs(static_cast<double>(out[i + 1]) - static_cast<double>(out[i])) - 2.0 * b.error > variation;
+            loose += variation > b.lipschitz * std::sqrt(d2) * (1.0 + 1e-12);
         }
         CHECK(outside == 0);
         CHECK(steep == 0);
+        CHECK(varied == 0);
+        CHECK(loose == 0);
+        // Far beyond every wavelength the variation is the whole range, not the slope times the distance.
+        CHECK(pg::lattice_variation(*p, 1.0e9)[0] <= (b.hi - b.lo) * (1.0 + 1e-9));
         // Conservative, but not absurdly so.
         INFO(std::format("steepest {} of bound {}", steepest, b.lipschitz));
         CHECK(steepest > 0.005 * b.lipschitz);

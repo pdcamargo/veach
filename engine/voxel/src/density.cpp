@@ -86,7 +86,6 @@ ProgramDensity::ProgramDensity(procgen::FieldProgram program, ProgramDensitySett
       material_index_(material_index) {
     bound_ = procgen::lattice_bounds(program_)[density_index_];
     const double scale = std::fabs(settings_.density_scale);
-    lipschitz_ = (settings_.shape == BaseShape::none ? 0.0 : 1.0) + scale * bound_.lipschitz;
     const double extent = std::max(std::fabs(settings_.radius_m), std::fabs(settings_.height_m));
     // A quantum (a code is negative only below -1/2048 m), the interpreter's error twice (center and point), and the
     // shape's double rounding.
@@ -221,17 +220,37 @@ void ProgramDensity::sample(const ChunkKey& key, std::uint8_t face_mask, ChunkSa
     out.has_surface = neg && pos;
 }
 
+namespace {
+
+/// The center of a box in fine units (rounded down) and its radius to the farthest corner.
+std::array<std::int64_t, 3> center_of(const std::array<std::int64_t, 3>& lo, const std::array<std::int64_t, 3>& hi) {
+    return {floor_half(lo[0] + hi[0]), floor_half(lo[1] + hi[1]), floor_half(lo[2] + hi[2])};
+}
+
+}  // namespace
+
+double ProgramDensity::center_distance(const std::array<std::int64_t, 3>& c, float value) const {
+    constexpr double unit = lod0_cell_meters / static_cast<double>(fine);
+    return shape_at(static_cast<double>(c[0]) * unit, static_cast<double>(c[1]) * unit,
+                    static_cast<double>(c[2]) * unit) +
+           settings_.density_scale * static_cast<double>(value);
+}
+
 BoxClass ProgramDensity::classify(const LatticeBox& box) const {
     std::array<std::int64_t, 3> lo{}, hi{};
     for (std::size_t a = 0; a < 3; ++a) {
         lo[a] = box.lo[a] * fine;
         hi[a] = box.hi[a] * fine;
     }
-    return classify_fine(lo, hi, settings_.classify_depth);
+    const std::array<std::int64_t, 3> c = center_of(lo, hi);
+    const procgen::LatticePoint point{c[0], c[1], c[2]};
+    std::vector<float> values(program_.outputs.size());
+    procgen::evaluate(program_, fine_lattice, std::span(&point, 1), values);
+    return classify_fine(lo, hi, settings_.classify_depth, center_distance(c, values[density_index_]));
 }
 
 BoxClass ProgramDensity::classify_fine(const std::array<std::int64_t, 3>& lo, const std::array<std::int64_t, 3>& hi,
-                                       int depth) const {
+                                       int depth, double center) const {
     constexpr double unit = lod0_cell_meters / static_cast<double>(fine);
     std::array<double, 3> mlo{}, mhi{};
     for (std::size_t a = 0; a < 3; ++a) {
@@ -243,51 +262,47 @@ BoxClass ProgramDensity::classify_fine(const std::array<std::int64_t, 3>& lo, co
     const double s = settings_.density_scale;
     double dlo = shape.lo + std::min(s * bound_.lo, s * bound_.hi) - margin_;
     double dhi = shape.hi + std::max(s * bound_.lo, s * bound_.hi) + margin_;
+    // The center's value plus how far d can move within the half diagonal: the shape is 1-Lipschitz, the program
+    // moves by at most its variation (procgen::lattice_variation: fine octaves count by their range, not slope).
+    const std::array<std::int64_t, 3> c = center_of(lo, hi);
+    double r2 = 0.0;
+    for (std::size_t a = 0; a < 3; ++a) {
+        const double r = static_cast<double>(std::max(c[a] - lo[a], hi[a] - c[a])) * unit;
+        r2 += r * r;
+    }
+    const double radius = std::sqrt(r2);
+    const double reach = (settings_.shape == BaseShape::none ? 0.0 : radius) +
+                         std::fabs(s) * procgen::lattice_variation(program_, radius)[density_index_];
+    dlo = std::max(dlo, center - reach - margin_);
+    dhi = std::min(dhi, center + reach + margin_);
     if (dlo > 0.0) {
         return BoxClass::empty;
     }
     if (dhi < 0.0) {
         return BoxClass::solid;
     }
-    if (settings_.shape != BaseShape::none || bound_.lipschitz > 0.0) {
-        // One evaluation at the center plus the Lipschitz bound over the half diagonal.
-        std::array<std::int64_t, 3> c{};
-        double r2 = 0.0;
-        for (std::size_t a = 0; a < 3; ++a) {
-            c[a] = floor_half(lo[a] + hi[a]);
-            const double r = static_cast<double>(std::max(c[a] - lo[a], hi[a] - c[a])) * unit;
-            r2 += r * r;
-        }
-        const procgen::LatticePoint point{c[0], c[1], c[2]};
-        float values[8];
-        procgen::evaluate(program_, fine_lattice, std::span(&point, 1), std::span(values, program_.outputs.size()));
-        const double cx = static_cast<double>(c[0]) * unit;
-        const double cy = static_cast<double>(c[1]) * unit;
-        const double cz = static_cast<double>(c[2]) * unit;
-        const double dc = shape_at(cx, cy, cz) + s * static_cast<double>(values[density_index_]);
-        const double reach = lipschitz_ * std::sqrt(r2);
-        dlo = std::max(dlo, dc - reach - margin_);
-        dhi = std::min(dhi, dc + reach + margin_);
-        if (dlo > 0.0) {
-            return BoxClass::empty;
-        }
-        if (dhi < 0.0) {
-            return BoxClass::solid;
-        }
-    }
     if (depth == 0) {
         return BoxClass::surface;
     }
-    bool empty = false, solid = false;
-    for (int i = 0; i < 8; ++i) {
-        std::array<std::int64_t, 3> clo{}, chi{};
+    // Split in eight; the children's centers in one evaluation.
+    std::array<std::array<std::int64_t, 3>, 8> clo{}, chi{};
+    std::array<procgen::LatticePoint, 8> centers{};
+    for (std::size_t i = 0; i < 8; ++i) {
         for (std::size_t a = 0; a < 3; ++a) {
-            const std::int64_t mid = floor_half(lo[a] + hi[a]);
             const bool upper = ((i >> a) & 1) != 0;
-            clo[a] = upper ? mid : lo[a];
-            chi[a] = upper ? hi[a] : mid;
+            clo[i][a] = upper ? c[a] : lo[a];
+            chi[i][a] = upper ? hi[a] : c[a];
         }
-        const BoxClass cc = classify_fine(clo, chi, depth - 1);
+        const auto cc = center_of(clo[i], chi[i]);
+        centers[i] = {cc[0], cc[1], cc[2]};
+    }
+    std::vector<float> values(program_.outputs.size() * 8);
+    procgen::evaluate(program_, fine_lattice, centers, values);
+    bool empty = false, solid = false;
+    for (std::size_t i = 0; i < 8; ++i) {
+        const double dc =
+            center_distance({centers[i][0], centers[i][1], centers[i][2]}, values[density_index_ * 8 + i]);
+        const BoxClass cc = classify_fine(clo[i], chi[i], depth - 1, dc);
         if (cc == BoxClass::surface) {
             return cc;
         }

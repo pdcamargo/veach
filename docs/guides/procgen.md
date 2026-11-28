@@ -100,8 +100,10 @@ job; `evaluate(jobs, ...)` cuts one box into jobs of 4,096 samples, which only p
 constant per realized meter and a bound on the interpreter's rounding, from the op list alone (interval arithmetic;
 `veach:fbm@1`'s noise is bounded by 2 per unit amplitude and its gradient by 8.5·√3 per cycle). With one evaluation
 at a box's center, `value(c) ± (lipschitz · radius + 2 · error)` bounds the whole box: terrain streaming uses it to
-skip chunks that are all air or all rock ([voxel guide](voxel-terrain.md)). The bounds are conservative by design,
-loose by a factor of 10 to 100 on real graphs, so split boxes until they decide.
+skip chunks that are all air or all rock ([voxel guide](voxel-terrain.md)). For a box of radius r,
+`pg::lattice_variation(program, r)` is tighter: each octave moves by the smaller of its slope times r and its whole
+range, so the fine octaves of a detail band stop counting once the box spans many of their wavelengths. The bounds
+are conservative by design, so split boxes until they decide.
 
 ### The Luau builder
 

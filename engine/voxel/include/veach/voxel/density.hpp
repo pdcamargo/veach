@@ -13,7 +13,8 @@
 //
 // with shape a sphere (|p| - radius: a planet or an asteroid), a plane (p.y - height: a flat world) or nothing (the
 // program is the whole density). Its box bounds come from procgen::lattice_bounds: one evaluation at the box center
-// plus the Lipschitz bound, split into eight up to `classify_depth` times.
+// plus how far the field can move within the box (procgen::lattice_variation), split into eight up to
+// `classify_depth` times.
 //
 // Canonical (docs/adr/0043-determinism-tiers-and-strict-floating-point.md): the same samples and the same box classes
 // on every platform.
@@ -116,18 +117,16 @@ private:
     [[nodiscard]] Range shape_range(const std::array<double, 3>& lo, const std::array<double, 3>& hi) const;
     /// Class of a box given in 1/256 LOD0 units, split up to `depth` times.
     [[nodiscard]] BoxClass classify_fine(const std::array<std::int64_t, 3>& lo, const std::array<std::int64_t, 3>& hi,
-                                         int depth) const;
-    /// Writes d and the material for samples whose program outputs are in `values` (planar, `count` samples).
-    void finish(std::span<const float> values, std::size_t count, std::size_t index, double x, double y, double z,
-                Sample& out) const;
+                                         int depth, double center) const;
+    /// d at a fine-lattice point from the program's value there.
+    [[nodiscard]] double center_distance(const std::array<std::int64_t, 3>& c, float value) const;
 
     procgen::FieldProgram program_;
     ProgramDensitySettings settings_;
     std::size_t density_index_ = 0;
     std::ptrdiff_t material_index_ = -1;
     procgen::FieldBound bound_;
-    double lipschitz_ = 1.0;  ///< of d, per meter
-    double margin_ = 0.0;     ///< meters: float error plus a quantum
+    double margin_ = 0.0;  ///< meters: float error plus a quantum
 };
 
 }  // namespace veach::voxel

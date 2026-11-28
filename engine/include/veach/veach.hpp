@@ -7,6 +7,7 @@
 #include <veach/core/assert.hpp>
 #include <veach/core/error.hpp>
 #include <veach/core/ids.hpp>
+#include <veach/core/jobs.hpp>
 #include <veach/core/log.hpp>
 #include <veach/core/math.hpp>
 #include <veach/core/profile.hpp>

@@ -15,10 +15,13 @@
     ZoneScopedN(name);                    \
     ZoneText(text, size)
 #define VEACH_FRAME_MARK() FrameMark
+/// Names the calling thread in Tracy (the job system's workers). Tracy copies the name.
+#define VEACH_THREAD_NAME(name) tracy::SetThreadName(name)
 #define VEACH_PROFILER_ENABLED 1
 #else
 #define VEACH_ZONE(name) static_cast<void>(0)
 #define VEACH_ZONE_TEXT(name, text, size) static_cast<void>(0)
 #define VEACH_FRAME_MARK() static_cast<void>(0)
+#define VEACH_THREAD_NAME(name) static_cast<void>(sizeof(name))
 #define VEACH_PROFILER_ENABLED 0
 #endif

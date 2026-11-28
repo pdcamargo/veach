@@ -93,7 +93,7 @@ int main(int argc, char** argv) {
 ## Built with
 
 [Flecs](https://github.com/SanderMertens/flecs) (ECS), [Luau](https://luau.org) (scripting),
-[SDL3](https://libsdl.org) (windowing and input), [glm](https://github.com/g-truc/glm),
+[SDL3](https://libsdl.org) (windowing and input), [enkiTS](https://github.com/dougbinks/enkiTS) (jobs), [glm](https://github.com/g-truc/glm),
 [nlohmann/json](https://github.com/nlohmann/json), [Tracy](https://github.com/wolfpld/tracy) and
 [doctest](https://github.com/doctest/doctest), [Slang](https://shader-slang.org) (shaders, build time),
 [fastgltf](https://github.com/spnda/fastgltf), [meshoptimizer](https://github.com/zeux/meshoptimizer),

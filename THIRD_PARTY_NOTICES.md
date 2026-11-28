@@ -16,6 +16,7 @@ Veach is MIT-licensed (see [LICENSE](LICENSE)). It includes or links the third-p
 | [DirectX Shader Compiler](https://github.com/microsoft/DirectXShaderCompiler) | 1.9.2609 | LLVM Release License; `dxil.dll` under the Microsoft Software License Terms | Windows build tool only (Slang's DXIL backend); not linked into or shipped with apps. |
 | [stb](https://github.com/nothings/stb) (`stb_image`, `stb_image_write`) | c16853e | MIT or public domain (your choice) | Engine (PNG screenshots), test tools. |
 | [NVIDIA FLIP](https://github.com/NVlabs/flip) | d3ab02a | BSD-3-Clause | `veach imgdiff` (golden-image comparison) only. |
+| [enkiTS](https://github.com/dougbinks/enkiTS) | 1.12 | zlib | Engine (the job system's task scheduler), compiled into `veach_core`. |
 | [fastgltf](https://github.com/spnda/fastgltf) | 1.0.1 | MIT | Engine (glTF import). |
 | [simdjson](https://github.com/simdjson/simdjson) | 5.1.0 | Apache-2.0 or MIT (Veach uses simdjson under its MIT option) | Engine, through fastgltf (JSON parsing). Downloaded by fastgltf's build. |
 | [simdutf](https://github.com/simdutf/simdutf) | 9.3.3 | Apache-2.0 or MIT (Veach uses simdutf under its MIT option) | Engine, through fastgltf (base64 decoding). Downloaded by fastgltf's build. |
@@ -468,6 +469,31 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES
 SPDX-License-Identifier: BSD-3-Clause
+```
+
+## enkiTS 1.12
+
+Source: https://github.com/dougbinks/enkiTS  
+License: zlib
+
+```text
+Copyright (c) 2013 Doug Binks
+
+This software is provided 'as-is', without any express or implied
+warranty. In no event will the authors be held liable for any damages
+arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not
+   claim that you wrote the original software. If you use this software
+   in a product, an acknowledgement in the product documentation would be
+   appreciated but is not required.
+2. Altered source versions must be plainly marked as such, and must not be
+   misrepresented as being the original software.
+3. This notice may not be removed or altered from any source distribution.
 ```
 
 ## fastgltf 1.0.1

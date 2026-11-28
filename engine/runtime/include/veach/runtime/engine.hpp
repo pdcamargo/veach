@@ -10,8 +10,8 @@
 //       return engine.run();
 //   }
 //
-// Init order:    core -> platform -> ecs -> assets -> script -> rhi -> render -> modules
-// Shutdown:      the exact reverse, each step undone by RAII.
+// Init order:    core -> jobs -> platform -> ecs -> assets -> script -> rhi -> render -> modules
+// Shutdown:      jobs drained, then the exact reverse, each step undone by RAII.
 
 #include <veach/asset/asset_server.hpp>
 #include <veach/core/error.hpp>
@@ -36,6 +36,7 @@
 namespace veach {
 
 class AssetServer;
+class JobSystem;
 class Platform;
 class ScriptRuntime;
 namespace rhi {
@@ -109,6 +110,7 @@ private:
     std::vector<std::function<void(World&)>> modules_;
 
     Services services_;
+    std::unique_ptr<JobSystem> jobs_;  ///< Before everything that may run jobs, so it is destroyed after them
     std::unique_ptr<Platform> platform_;
     std::unique_ptr<World> world_;
     PhaseRunner phases_;

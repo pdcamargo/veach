@@ -111,6 +111,10 @@
       "description": "Input actions: each action name maps to one or two keys (docs/specs/input/spec.md).",
       "type": "object"
     },
+    "jobs": {
+      "default": 0,
+      "type": "integer"
+    },
     "log_format": {
       "default": "human",
       "enum": [

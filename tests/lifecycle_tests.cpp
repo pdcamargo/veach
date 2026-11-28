@@ -36,9 +36,9 @@ TEST_CASE("[lifecycle.AC1] init runs in order and shutdown in exact reverse") {
         CHECK(engine.frame_count() == 2);
     }
     const std::vector<std::string> expected{
-        "init core",       "init platform", "init ecs",          "init assets",     "init script",  "init rhi",
-        "init render",     "init modules",  "shutdown modules",  "shutdown render", "shutdown rhi", "shutdown script",
-        "shutdown assets", "shutdown ecs",  "shutdown platform", "shutdown core",
+        "init core",       "init jobs",       "init platform", "init ecs",          "init assets",     "init script",
+        "init rhi",        "init render",     "init modules",  "shutdown modules",  "shutdown render", "shutdown rhi",
+        "shutdown script", "shutdown assets", "shutdown ecs",  "shutdown platform", "shutdown jobs",   "shutdown core",
     };
     CHECK(lifecycle(logs) == expected);
     CHECK(logs.messages("probe") == std::vector<std::string>{"startup", "shutdown"});
@@ -57,9 +57,9 @@ TEST_CASE("[lifecycle.AC2] a failed init step unwinds the steps that completed")
     Engine engine(std::move(config));
     CHECK(engine.run() == 1);
     CHECK(logs.has_code("engine.init_failed"));
-    const std::vector<std::string> expected{"init core",         "init platform",   "init ecs",        "init assets",
-                                            "init script",       "shutdown script", "shutdown assets", "shutdown ecs",
-                                            "shutdown platform", "shutdown core"};
+    const std::vector<std::string> expected{"init core",    "init jobs",         "init platform",   "init ecs",
+                                            "init assets",  "init script",       "shutdown script", "shutdown assets",
+                                            "shutdown ecs", "shutdown platform", "shutdown jobs",   "shutdown core"};
     CHECK(lifecycle(logs) == expected);
 }
 

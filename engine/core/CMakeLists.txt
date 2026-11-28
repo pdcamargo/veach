@@ -5,9 +5,11 @@ veach_add_engine_library(core
         src/env.cpp
         src/error.cpp
         src/ids.cpp
+        src/jobs.cpp
         src/log.cpp
         src/suggest.cpp
-    PUBLIC_DEPS glm::glm)
+    PUBLIC_DEPS glm::glm
+    PRIVATE_DEPS veach_enkits)
 
 # veach::dmath's implementation (src/dmath.cpp only): LLVM libc's math headers, pinned in cmake/VeachDependencies.cmake.
 target_include_directories(veach_core SYSTEM PRIVATE "${VEACH_LLVM_LIBC_DIR}")

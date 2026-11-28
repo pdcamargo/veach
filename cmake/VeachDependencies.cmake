@@ -161,6 +161,22 @@ add_library(veach_bc7enc STATIC "${bc7enc_SOURCE_DIR}/bc7enc.cpp" "${bc7enc_SOUR
 target_include_directories(veach_bc7enc SYSTEM PUBLIC "${bc7enc_SOURCE_DIR}")
 set_target_properties(veach_bc7enc PROPERTIES FOLDER "third_party")
 
+# enkiTS (zlib): the task scheduler behind veach::JobSystem (docs/adr/0073-job-system-enkits.md). Private to
+# veach_core: no engine header includes it. Only TaskScheduler.cpp is built (no C interface, no examples), with the
+# default three priorities set explicitly so every translation unit agrees on the size of its task types.
+CPMAddPackage(
+    NAME enkits
+    VERSION 1.12
+    URL https://github.com/dougbinks/enkiTS/archive/refs/tags/v1.12.tar.gz
+    URL_HASH SHA256=8373b6199d56816bd3ba58432eae74e2ebd5afcfdffb723073cc34730b189fd5
+    DOWNLOAD_ONLY YES)
+find_package(Threads REQUIRED)
+add_library(veach_enkits STATIC "${enkits_SOURCE_DIR}/src/TaskScheduler.cpp")
+target_include_directories(veach_enkits SYSTEM PUBLIC "${enkits_SOURCE_DIR}/src")
+target_compile_definitions(veach_enkits PUBLIC ENKITS_TASK_PRIORITIES_NUM=3)
+target_link_libraries(veach_enkits PUBLIC Threads::Threads)
+set_target_properties(veach_enkits PROPERTIES FOLDER "third_party")
+
 # fastgltf (MIT): glTF 2.0 import (ADR 0011). Its CMake fetches simdjson 5.1.0 and simdutf 9.3.3 and checks
 # their SHA256. find_package is disabled for both, so a copy installed on the machine (Homebrew) is never used
 # instead of the pinned one.

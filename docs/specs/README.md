@@ -25,6 +25,7 @@ acceptance criteria (`[area.ACn] ...`) → status Implemented.
 | [Physical sky and atmosphere](physical-sky/spec.md) | render | Implemented |
 | [Real-time renderer (interim visibility-buffer path)](realtime-renderer/spec.md) | render, asset | Implemented |
 | [Photo mode: the reference path tracer](photo-mode/spec.md) | render | Implemented |
+| [Job system](job-system/spec.md) | core | Implemented |
 
 Specs of the raytracing-first era (the real-time renderer v0, temporal direct lighting, soft shadows, real-time GI)
 were removed at the reset ([ADR 0001](../adr/0001-reset.md)); they live in the `pathtracer-era` tag.

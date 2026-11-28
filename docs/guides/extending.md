@@ -1,7 +1,7 @@
 # Extending Veach
 
 How to add a component, system, module, Luau binding, engine subsystem, asset loader,
-error code or extractor. App and game code uses `veach::` names only and includes
+error code, extractor or material, and how to run work in parallel. App and game code uses `veach::` names only and includes
 `<veach/veach.hpp>`; engine code may use Flecs directly. Background:
 [ARCHITECTURE.md](../ARCHITECTURE.md), [ADR 0019](../adr/0019-veach-modules-and-services.md) (modules and services).
 
@@ -148,3 +148,29 @@ Extractors run in registration order during the `Extract` phase, into a freshly 
 A Slang type conforming to `IMaterial` that overrides only the functions it changes, registered in the app's
 CMake with `veach_add_material()`. See [rendering](rendering.md)
 and [ADR 0035](../adr/0035-material-model.md).
+
+## (j) Parallel work (jobs)
+
+Never start a thread: get the engine's job system and give it the work ([spec](../specs/job-system/spec.md),
+[ADR 0073](../adr/0073-job-system-enkits.md)).
+
+```cpp
+veach::JobSystem& jobs = veach::services(world).get<veach::JobSystem>();
+
+// Outputs in indexed slots; the grain is part of the algorithm, never derived from the thread count.
+std::vector<Mesh> meshes(chunks.size());
+jobs.parallel_for("mesh chunks", chunks.size(), 1, [&](std::size_t begin, std::size_t end) {
+    for (std::size_t i = begin; i < end; ++i) meshes[i] = mesh(chunks[i]);
+});
+
+// Reductions combine chunk results in chunk order, so a float sum is the same on 1 or 18 threads.
+const double total = jobs.parallel_reduce("total mass", bodies.size(), 1024, 0.0,
+    [&](std::size_t begin, std::size_t end) { double m = 0; for (auto i = begin; i < end; ++i) m += bodies[i].mass; return m; },
+    [](double a, double b) { return a + b; });
+```
+
+1. Prepare the inputs on the main thread, run the jobs, apply the outputs to the world on the main thread. A job
+   never reads or writes the World or a `CommandBuffer`.
+2. Pick a grain that gives each chunk at least ~10 µs of work and several chunks per thread.
+3. Label every call: the label names the Tracy zone (`jobs` / `job`) on whichever worker runs it.
+4. Test with `--jobs 1` and the default: canonical results must match bit for bit (see `tests/jobs_tests.cpp`).

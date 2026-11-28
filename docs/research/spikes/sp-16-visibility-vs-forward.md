@@ -31,6 +31,9 @@ Metal, release build, 2026-11-28.
   way, and forward with 4x MSAA and alpha to coverage is clearly cleaner at edges (images below). The ghosting question
   moves to the TAA work: if TAA on thin foliage turns out unacceptable, this spike's forward-MSAA path and its numbers
   are the fallback, at 1.2 to 1.75 times the frame cost.
+- **Judged in VCH-144** ([findings](vch-144-taa.md), [ADR 0097](../../adr/0097-temporal-aa-as-built.md)): TAA on
+  this field through the engine shows no ghost trails by eye in pans and strafes, lowers FLIP against a 16-sample
+  reference by 10 to 19 % and removes the shimmer. ADR 0060 stands; the MSAA fallback is not needed.
 
 ## What was built
 

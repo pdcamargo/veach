@@ -1,5 +1,6 @@
 veach_add_engine_library(render
     SOURCES
+        src/ambient_occlusion.cpp
         src/atmosphere.cpp
         src/backdrop.cpp
         src/gpu_scene.cpp
@@ -41,10 +42,16 @@ veach_add_shader(veach_render shaders/gpu_cull.slang
 veach_add_shader(veach_render shaders/hiz.slang ENTRIES hiz_reduce:compute)
 veach_add_shader(veach_render shaders/shadow_pyramids.slang
     ENTRIES receivers_clear:compute receivers_mark:compute pyramid_reduce:compute occluders_build:compute)
+# GTAO and its blur (ADR 0096, ambient_occlusion.cpp).
+veach_add_shader(veach_render shaders/ambient_occlusion.slang
+    ENTRIES ao_view_depth:compute ao_depth_mip:compute ao_trace:compute ao_denoise:compute ao_upsample:compute)
 veach_add_shader(veach_render shaders/classify.slang ENTRIES classify:compute classify_args:compute
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
+# Temporal anti-aliasing (ADR 0061, docs/specs/temporal-aa/spec.md).
+veach_add_shader(veach_render shaders/taa.slang ENTRIES taa_resolve:compute taa_sharpen:compute
+    INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
 veach_add_shader(veach_render shaders/atmosphere.slang ENTRIES transmittance_lut:compute multiscattering_lut:compute
-    sky_view_lut:compute sky_irradiance:compute)
+    sky_view_lut:compute sky_ambient_lut:compute)
 veach_add_shader(veach_render shaders/aerial_volume.slang ENTRIES aerial_volume:compute)
 # The space backdrop's bake and its composite on the real-time image (ADR 0091, backdrop.cpp).
 veach_add_shader(veach_render shaders/backdrop.slang ENTRIES backdrop_bake:compute)

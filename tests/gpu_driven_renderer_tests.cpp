@@ -100,6 +100,8 @@ struct Scene {
                      .set(Transform{{0.0, 0.0, 0.0}, math::quat(1.0f, 0.0f, 0.0f, 0.0f), math::vec3(1.0f)})
                      .set(Camera{math::radians(60.0f), 0.1f, true});
     }
+    /// Each frame's image alone, for images compared byte for byte: no jitter and no history (ADR 0061).
+    void without_taa() { camera.set(AntiAliasing{.temporal = false}); }
     void look_from(math::dvec3 position, float yaw) {
         camera.set(Transform{position, math::angleAxis(yaw, math::vec3(0.0f, 1.0f, 0.0f)), math::vec3(1.0f)});
     }
@@ -227,6 +229,7 @@ TEST_CASE("[gpudriven.AC3] culling drops what is outside the frustum or hidden, 
         return;
     }
     Scene f(std::move(device));
+    f.without_taa();
     const render::Image first = f.capture();  // no pyramid yet: only the frustum culls
     const render::CullStats& early = f.stats();
     CHECK(early.instances == 4);
@@ -252,6 +255,7 @@ TEST_CASE("[gpudriven.AC4] a camera that jumps to see what was hidden sees it th
         return;
     }
     Scene f(std::move(device));
+    f.without_taa();
     for (int i = 0; i < 3; ++i) {
         f.frame();
     }
@@ -265,12 +269,15 @@ TEST_CASE("[gpudriven.AC4] a camera that jumps to see what was hidden sees it th
     auto other = test::gpu_device();
     REQUIRE(other != nullptr);
     Scene fresh(std::move(other));
+    fresh.without_taa();
     fresh.look_from({9.5, 0.0, -9.0}, std::numbers::pi_v<float> / 2.0f);
     const render::Image reference = fresh.capture();  // its first frame: no pyramid, nothing occluded
     REQUIRE(jumped.rgba.size() == reference.rgba.size());
     CHECK(jumped.rgba == reference.rgba);
 }
 
+// Temporal AA is on (the default): the projection is jittered, and the motion vectors leave the jitter out, so the
+// wall and the sky read no motion (taa.AC2).
 TEST_CASE("[gpudriven.AC5] the visibility pass writes motion vectors: where each pixel was last frame") {
     auto device = test::gpu_device();
     if (!device) {
@@ -280,6 +287,7 @@ TEST_CASE("[gpudriven.AC5] the visibility pass writes motion vectors: where each
     auto owned = std::make_unique<MotionProbe>();
     MotionProbe& probe = *owned;
     f.renderer->add_feature(std::move(owned));
+    f.world.set(Time{.frame = 2});  // a jitter of (-0.25, -0.28) pixels
     f.frame();
     f.front.set(Transform{{0.2, -0.5, -3.0}, math::quat(1.0f, 0.0f, 0.0f, 0.0f), math::vec3(1.0f)});
     f.frame();

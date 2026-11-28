@@ -42,7 +42,7 @@ struct SkyFrame {
     DescriptorHandle<Texture2D<float4>> multiscattering;
     DescriptorHandle<Texture2D<float4>> sky_view;
     DescriptorHandle<Texture3D<float4>> aerial;      ///< the froxel volume (aerial_volume.slang)
-    DescriptorHandle<Texture2D<float4>> irradiance;  ///< 1 x 1: the sky's average for an upward normal
+    DescriptorHandle<Texture2D<float4>> ambient;  ///< the medium's ambient table (veach/ambient.slang)
     DescriptorHandle<SamplerState> linear_clamp;
     uint mode;           ///< sky_*
     uint aerial_on;      ///< 1: apply aerial perspective
@@ -353,15 +353,6 @@ float sky_visibility_at(SkyFrame s, float distance_km) {
         return 1.0;
     }
     return lerp(s.occlusion.x, 1.0, smoothstep(reach, 2.0 * reach, distance_km));
-}
-
-/// The real-time renderer's ambient radiance over the upper hemisphere (nits) on a surface `distance_m` from the
-/// camera: the sky's cosine-weighted average, occluded near the camera as the sky visibility says.
-float3 sky_ambient_radiance(SkyFrame s, float distance_m) {
-    if (s.mode == sky_physical) {
-        return s.irradiance.Load(int3(0, 0, 0)).rgb * s.sun.w * sky_visibility_at(s, distance_m * 0.001);
-    }
-    return s.mode == sky_constant ? s.constant.xyz : float3(0.0, 0.0, 0.0);
 }
 
 // ---- the aerial-perspective volume (ADR 0076 decision 3, ADR 0091) ----------------------------------------------

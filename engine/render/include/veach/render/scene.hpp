@@ -106,6 +106,13 @@ struct PhotoMode {
     std::uint32_t max_bounces = 8;
 };
 
+/// On a camera entity: anti-aliasing in the real-time renderer (ADR 0061, docs/specs/temporal-aa/spec.md). Without
+/// it, temporal anti-aliasing is on: the projection is jittered by a sub-pixel offset each frame and each pixel blends
+/// with its reprojected history. Photo mode never uses it. Visual only. Scriptable.
+struct AntiAliasing {
+    bool temporal = true;  ///< false: no jitter and no history, each frame's image alone (a debug and test view)
+};
+
 /// On a camera entity: how open its surroundings are to the sky (ADR 0082 rule 5, ADR 0091). Air and surfaces nearer
 /// than `reach` receive the sky's light times `visibility`, rising to all of it at twice the reach: caves and
 /// interiors get no aerial-perspective haze and less of the sky's ambient light, and both return through openings.
@@ -114,6 +121,15 @@ struct PhotoMode {
 struct SkyVisibility {
     float visibility = 1.0f;  ///< 0..1: the fraction of the sky the surroundings leave open
     float reach = 0.0f;       ///< meters from the camera; 0: no enclosure
+};
+
+/// On a camera entity: the real-time renderer's screen-space ambient occlusion (ADR 0096), which darkens the sky's
+/// ambient light in creases, under overhangs and against walls (never direct light). On by default: a camera without
+/// it uses these values. `radius` is meters in the world and never follows scale. Visual only. Scriptable.
+struct AmbientOcclusion {
+    bool enabled = true;
+    float radius = 1.5f;     ///< meters: how far an occluder darkens a surface
+    float intensity = 1.0f;  ///< scales the darkening (the power on the visible fraction); 0 turns it off
 };
 
 /// On a camera entity: the sun shadows of the real-time renderer (docs/specs/sun-shadows/spec.md, ADR 0095). The

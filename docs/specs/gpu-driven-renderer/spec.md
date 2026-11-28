@@ -77,7 +77,7 @@ const render::CullStats& stats = scene_renderer.cull_stats();  // instances_visi
 
 ## Out of scope
 
-- Temporal accumulation and jitter (ADR 0061, the next task), shadows, clustered lights, transparency (ADR 0060).
+- Temporal accumulation and jitter (ADR 0061: [temporal-aa](../temporal-aa/spec.md), VCH-144), shadows, clustered lights, transparency (ADR 0060).
 - LOD and draw distances for distant vegetation; a single-pass HiZ build; a static-instance path that writes records
   once instead of comparing them every frame (VCH-139).
 

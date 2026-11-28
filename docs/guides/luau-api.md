@@ -258,6 +258,10 @@ C++ components tagged `veach::Scriptable` (all fields Luau-representable). The e
   surfaces nearer than `reach` get the sky's light times `visibility` (no aerial-perspective haze in a cave or a
   cabin, less ambient light), rising to all of it at twice the reach. Without it the camera is in the open; set it
   to `{ visibility = 0, reach = 10 }` inside an interior. See [planet-atmosphere](../specs/planet-atmosphere/spec.md).
+- `AmbientOcclusion` (`enabled`, `radius` m, `intensity`): on a camera, the real-time renderer's screen-space ambient
+  occlusion, which darkens the sky's ambient light in creases, under overhangs and against walls (never direct
+  light). On without it (1.5 m, intensity 1); `intensity` 0 or `enabled = false` turns it off. See
+  [ambient-light](../specs/ambient-light/spec.md).
 - `Sky` (on any one entity; none means the defaults): `mode` `"physical"` (default), `"constant"` (`color` in nits)
   or `"none"`; the physical sky's `time_of_day` (hours, solar time), `latitude` (degrees), `day_of_year`, `north`
   (radians: north is -Z turned about +Y), `sun_illuminance` (lux at the top of the atmosphere), `ground_albedo`,

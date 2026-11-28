@@ -27,7 +27,7 @@ struct InstanceRecord {
     DescriptorHandle<StructuredBuffer<float4>> meshlet_bounds;
     float4 sphere;  ///< object space: center, radius
     uint meshlet_count;
-    uint pad0;
+    uint id;  ///< 24 bits from the drawing entity, the same every frame: what temporal AA tells surfaces apart by
     uint pad1;
     uint pad2;
 };

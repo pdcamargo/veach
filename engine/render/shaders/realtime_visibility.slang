@@ -13,14 +13,14 @@ import veach.scene;
 
 struct VisibilityParams {
     float4x4 view_projection;
-    float4x4 previous_view_projection;  ///< last frame's, in this frame's render space
+    float4x4 previous_view_projection;  ///< last frame's without jitter, in this frame's render space
     DescriptorHandle<StructuredBuffer<InstanceRecord>> instances;
     DescriptorHandle<StructuredBuffer<MaterialRecord>> materials;
     DescriptorHandle<StructuredBuffer<uint2>> visible;  ///< the draw lists: instance, meshlet
     float2 inverse_size;                                ///< 1 / the target's size in pixels
     uint list_offset;                                   ///< this draw's list in `visible`
     uint pad0;
-    uint2 pad1;
+    float2 jitter;  ///< UV: how far view_projection's sub-pixel jitter moves every point this frame (ADR 0061)
 };
 [[vk::push_constant]] ConstantBuffer<VisibilityParams> visibility;
 
@@ -61,11 +61,12 @@ VisibilityVertex vis_vs(uint vertex: SV_VertexID, uint draw_instance: SV_Instanc
     return out;
 }
 
-/// Previous minus current position on screen, in UV (y down).
+/// Previous minus current position on screen, in UV (y down), without this frame's jitter: a still surface under a
+/// still camera has none.
 float2 motion_of(VisibilityVertex in) {
     const float2 ndc = in.previous.xy / in.previous.w;
     const float2 previous = float2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
-    return previous - in.position.xy * visibility.inverse_size;
+    return previous - (in.position.xy * visibility.inverse_size - visibility.jitter);
 }
 
 [shader("fragment")]

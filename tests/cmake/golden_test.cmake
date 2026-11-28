@@ -4,6 +4,9 @@
 # If the GPU cannot run the test (no Metal 3, e.g. GitHub's virtualized runners, or no ray tracing for photo
 # mode), print VEACH_GPU_UNAVAILABLE so CTest reports SKIPPED, unless VEACH_REQUIRE_GPU=1, in which case that is a
 # failure. NO_RAY_TRACING=1 renders with VEACH_DISABLE_RAY_TRACING=1 (the real-time renderer never needs it).
+# Goldens render without temporal anti-aliasing (VEACH_DISABLE_TAA=1: no jitter, no history, ADR 0061), so each tests
+# one frame's shading, unless TAA=1: a temporal golden, its last frame after FRAMES frames of the fixed jitter sequence
+# (docs/specs/temporal-aa/spec.md).
 # On Metal the image is rendered with Metal's shader validation off: with it on, ray queries that read instance data
 # after a hit, or trace twice, return slightly different shadows from run to run (seen on the M5 Max, macOS 26).
 # A second run with it on (debug builds' default) must still exit 0, so it keeps checking every resource access.
@@ -11,7 +14,8 @@
 # per-backend override tests/golden/<name>.<RHI>.png exists.
 # LAB_ENV is a |-separated list of VAR=value the lab runs with (both runs).
 #   cmake -DLAB=... -DIMGDIFF=... -DRHI=metal -DSCRIPT=... -DGOLDEN=... -DOUT=... -DMAX_MEAN=... [-DFRAMES=3]
-#         [-DMAX_P999=...] [-DMAX_OUTLIERS=...] [-DNO_RAY_TRACING=1] [-DLAB_TIMEOUT=105] [-DLAB_ENV=A=1|B=2]
+#         [-DMAX_P999=...] [-DMAX_OUTLIERS=...] [-DNO_RAY_TRACING=1] [-DTAA=1] [-DLAB_TIMEOUT=105]
+#         [-DLAB_ENV=A=1|B=2]
 #         -P golden_test.cmake
 
 if(NOT DEFINED LAB_TIMEOUT)
@@ -37,6 +41,9 @@ endif()
 # frame's render graph, the RHI's "still waiting for the GPU") is printed below instead of being lost (VCH-110).
 if(NO_RAY_TRACING)
     set(ENV{VEACH_DISABLE_RAY_TRACING} 1)
+endif()
+if(NOT TAA)
+    set(ENV{VEACH_DISABLE_TAA} 1)
 endif()
 if(DEFINED LAB_ENV)
     string(REPLACE "|" ";" env_pairs "${LAB_ENV}")

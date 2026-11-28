@@ -31,6 +31,7 @@ acceptance criteria (`[area.ACn] ...`) → status Implemented.
 | [Procgen: stage runtime, field graphs, generator sandbox](procgen/spec.md) | procgen | Implemented |
 | [Space backdrop](space-backdrop/spec.md) | render, space | Implemented |
 | [Planet atmosphere: aerial perspective from orbit to a cave](planet-atmosphere/spec.md) | render, physics, space | Implemented |
+| [Ambient light and occlusion in the real-time renderer](ambient-light/spec.md) | render | Implemented |
 | [Reference frames and double positions](frames/spec.md) | ecs, render, script | Implemented |
 | [Physics: Jolt behind veach::physics, one scene per frame](physics/spec.md) | physics, runtime | Implemented |
 | [Voxel terrain: streaming, edits and collider meshes](voxel-terrain/spec.md) | voxel, runtime | Implemented |
@@ -38,6 +39,7 @@ acceptance criteria (`[area.ACn] ...`) → status Implemented.
 | [GPU-driven RHI: indirect work and non-blocking readback](gpu-driven-rhi/spec.md) | rhi, render | Implemented |
 | [RHI textures and raster state: texture kinds, updates, blending, depth bias, samplers](rhi-textures/spec.md) | rhi, render | Implemented |
 | [Sun shadows in the real-time renderer](sun-shadows/spec.md) | render | Implemented |
+| [Temporal anti-aliasing](temporal-aa/spec.md) | render | Implemented |
 
 Specs of the raytracing-first era (the real-time renderer v0, temporal direct lighting, soft shadows, real-time GI)
 were removed at the reset ([ADR 0001](../adr/0001-reset.md)); they live in the `pathtracer-era` tag.

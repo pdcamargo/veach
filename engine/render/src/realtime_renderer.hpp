@@ -4,8 +4,9 @@
 // instances and meshlets in two phases against a HiZ pyramid, a visibility buffer drawn from the compacted lists with
 // motion vectors, the suns' cascaded shadow maps (shadows.hpp, ADR 0095), shading binned by material kind (every
 // punctual light, the suns through their shadow maps; the sky's ambient light; emission; the sky and aerial
-// perspective), then the display transform. No ray tracing. The scene renderer owns the
-// scene on the GPU and hands it over each frame.
+// perspective), temporal anti-aliasing (docs/specs/temporal-aa/spec.md, ADR 0097: a jittered projection, a history
+// resolve on pre-exposed radiance), the space backdrop, then the display transform. No ray tracing. The scene renderer
+// owns the scene on the GPU and hands it over each frame.
 
 #include <veach/core/error.hpp>
 #include <veach/render/render_graph.hpp>

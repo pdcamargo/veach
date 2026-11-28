@@ -26,6 +26,7 @@ add_executable(veach-tests
     sp14_depth_tests.cpp  # spike SP-14 (VCH-090)
     space_gen_tests.cpp
     space_realization_tests.cpp  # VCH-115: the realization layer
+    slice_tests.cpp  # VCH-115: the first slice, end to end (links the slice app's module)
     mcp_tools_tests.cpp
     space_tests.cpp
     transform_tests.cpp
@@ -34,7 +35,7 @@ add_executable(veach-tests
 if(WIN32)
     target_sources(veach-tests PRIVATE dx12_tests.cpp)  # DX12 on WARP in hosted CI (ADR 0033)
 endif()
-target_link_libraries(veach-tests PRIVATE veach::veach veach::space veach::voxel doctest::doctest veach_bc7enc)
+target_link_libraries(veach-tests PRIVATE veach::veach veach::space veach::voxel veach-slice-lib doctest::doctest veach_bc7enc)
 # Shaders for RHI tests (tests/rhi_tests.cpp): <test_shaders.hpp>.
 veach_add_shader(veach-tests shaders/raster_states.slang ENTRIES vs_main:vertex fs_main:fragment)
 veach_add_shader(veach-tests shaders/atmosphere_probe.slang ENTRIES transmittance_probe:compute)
@@ -98,6 +99,17 @@ add_test(NAME "generated: apps/lab/types/veach.d.luau is up to date"
     COMMAND "${CMAKE_COMMAND}" -DCOMMAND=$<TARGET_FILE:veach-lab> -DOUT=${CMAKE_CURRENT_BINARY_DIR}/lab.d.luau
             -DCOMMITTED=${PROJECT_SOURCE_DIR}/apps/lab/types/veach.d.luau
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/check_lab_types.cmake")
+# The slice's (engine + space + slice modules): veach-slice --write-types apps/slice/types/veach.d.luau.
+add_test(NAME "generated: apps/slice/types/veach.d.luau is up to date"
+    COMMAND "${CMAKE_COMMAND}" -DCOMMAND=$<TARGET_FILE:veach-slice> -DOUT=${CMAKE_CURRENT_BINARY_DIR}/slice.d.luau
+            -DCOMMITTED=${PROJECT_SOURCE_DIR}/apps/slice/types/veach.d.luau
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/check_lab_types.cmake")
+# The slice's startup script at s = 0.01 on the null RHI: the universe realizes, the craft spawns in orbit.
+add_test(NAME "slice: s = 0.01 starts in orbit on the null RHI"
+    COMMAND veach-slice --script scripts/slice_s0.01.luau --frames 30 --headless)
+set_tests_properties("slice: s = 0.01 starts in orbit on the null RHI" PROPERTIES
+    PASS_REGULAR_EXPRESSION "landing site on b1 at .* local solar time [0-9][0-9]:[0-9][0-9]"
+    FAIL_REGULAR_EXPRESSION "\\] error ")
 
 add_test(NAME "generated: types/veach.d.luau is up to date"
     COMMAND veach-cli types --check types/veach.d.luau

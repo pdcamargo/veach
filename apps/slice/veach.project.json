@@ -1,0 +1,10 @@
+{
+  "$schema": "../../schemas/veach.project.schema.json",
+  "name": "veach-slice",
+  "script": "scripts/slice.luau",
+  "window": {
+    "title": "Veach: first slice",
+    "width": 2560,
+    "height": 1440
+  }
+}

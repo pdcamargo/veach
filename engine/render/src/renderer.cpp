@@ -318,6 +318,9 @@ Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device), readba
             if (const AmbientOcclusion* ao = world.entity(id).try_get<AmbientOcclusion>()) {
                 view.ambient_occlusion = *ao;
             }
+            if (const SunShadows* shadows = world.entity(id).try_get<SunShadows>()) {
+                view.shadows = *shadows;
+            }
             view.camera = id;
             out.views.push_back(view);
         }
@@ -649,6 +652,7 @@ void Renderer::collect_timings() {
         r.passes[name].push_back(ms);
     }
     r.totals.push_back(total);
+    r.frames.push_back(device_.last_frame_gpu_ms());
     if (r.totals.size() < r.samples) {
         return;
     }
@@ -662,8 +666,10 @@ void Renderer::collect_timings() {
         padded.resize(r.samples, 0.0);  // a pass missing from some frames counts 0 there
         passes += std::format("{}\"{}\": {:.4f}", passes.empty() ? "" : ", ", name, median(padded));
     }
-    log::info("render", "gpu_timings {{\"frames\": {}, \"total_ms\": {:.4f}, \"passes\": {{{}}}}}", r.samples,
-              median(r.totals), passes);
+    // total_ms sums the passes; frame_ms is the command buffer's span, where passes that overlap count once.
+    log::info("render",
+              "gpu_timings {{\"frames\": {}, \"total_ms\": {:.4f}, \"frame_ms\": {:.4f}, \"passes\": {{{}}}}}",
+              r.samples, median(r.totals), median(r.frames), passes);
     r.samples = 0;  // once
 }
 
@@ -751,6 +757,12 @@ RenderModule::RenderModule(World& world) {
         .member(&AmbientOcclusion::enabled, "enabled")
         .member(&AmbientOcclusion::radius, "radius")
         .member(&AmbientOcclusion::intensity, "intensity")
+        .add<Scriptable>();
+    world.component<SunShadows>()
+        .member(&SunShadows::suns, "suns")
+        .member(&SunShadows::distance, "distance")
+        .member(&SunShadows::cascades, "cascades")
+        .member(&SunShadows::resolution, "resolution")
         .add<Scriptable>();
     world.observer<const SceneInstance>("SpawnSceneInstances")
         .event(flecs::OnSet)

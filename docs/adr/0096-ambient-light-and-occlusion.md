@@ -1,4 +1,4 @@
-# 0095: The sky's ambient light per shaded point from an SH table per medium; GTAO at half resolution without history
+# 0096: The sky's ambient light per shaded point from an SH table per medium; GTAO at half resolution without history
 
 Date: 2026-11-28
 

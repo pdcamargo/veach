@@ -665,7 +665,8 @@ json McpServer::call_tool(std::string_view name, const json& arguments) {
                               {"meshlets_culled", c.meshlets_culled},
                               {"meshlets_rechecked", c.meshlets_rechecked},
                               {"meshlets_occluded", c.meshlets_occluded},
-                              {"meshlets_drawn", {c.meshlets_drawn[0], c.meshlets_drawn[1]}}};
+                              {"meshlets_drawn", {c.meshlets_drawn[0], c.meshlets_drawn[1]}},
+                              {"shadow_meshlets_drawn", c.shadow_meshlets_drawn}};
         }
         if (!timings.unavailable.empty()) {
             out["passes_unavailable"] = timings.unavailable;

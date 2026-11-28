@@ -1,6 +1,6 @@
 #pragma once
 
-// Screen-space ambient occlusion for the real-time renderer (ADR 0095, docs/specs/ambient-light/spec.md): GTAO from
+// Screen-space ambient occlusion for the real-time renderer (ADR 0096, docs/specs/ambient-light/spec.md): GTAO from
 // the visibility pass's depth at full resolution, then an edge-aware blur (shaders/ambient_occlusion.slang). The
 // shade pass multiplies the sky's ambient light by it (veach/ambient.slang); direct light never sees it.
 

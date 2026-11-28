@@ -1,4 +1,4 @@
-// The real-time renderer's ambient light and occlusion (docs/specs/ambient-light/spec.md, ADR 0095), on the platform's
+// The real-time renderer's ambient light and occlusion (docs/specs/ambient-light/spec.md, ADR 0096), on the platform's
 // GPU (Metal in the pre-push gate, DX12/WARP in hosted CI): runtime boxes under a sky, lit by the sky alone unless a
 // test adds a sun.
 

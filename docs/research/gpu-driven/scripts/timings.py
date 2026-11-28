@@ -79,8 +79,8 @@ def measure(app: str, project: str, script: str | None, size: str, warmup: int, 
     line = next(line for line in client.stderr if "gpu_timings" in line)
     report = json.loads(line.split("gpu_timings ", 1)[1])
     return {"size": size, "script": script, "env": env, "until": until, "from_frame": first,
-            "total_ms": report["total_ms"], "passes": report["passes"], "wall_ms_per_frame": wall_ms,
-            "culling": culling}
+            "total_ms": report["total_ms"], "frame_ms": report.get("frame_ms"), "passes": report["passes"],
+            "wall_ms_per_frame": wall_ms, "culling": culling}
 
 
 def measure_direct(app: str, project: str, script: str | None, samples: int, first: int,
@@ -100,7 +100,8 @@ def measure_direct(app: str, project: str, script: str | None, samples: int, fir
         raise RuntimeError(f"no gpu_timings line (exit {proc.returncode}):\n{proc.stderr[-2000:]}")
     report = json.loads(lines[0].split("gpu_timings ", 1)[1])
     return {"script": script, "env": env, "from_frame": first, "total_ms": report["total_ms"],
-            "passes": report["passes"], "wall_ms_per_frame": wall_ms, "culling": None}
+            "frame_ms": report.get("frame_ms"), "passes": report["passes"], "wall_ms_per_frame": wall_ms,
+            "culling": None}
 
 
 def main() -> int:

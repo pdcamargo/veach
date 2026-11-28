@@ -18,7 +18,7 @@ struct CullView {
     uint2 screen;                        ///< the depth buffer's size
     uint2 hiz_size;                      ///< mip 0 of the pyramid: half the depth buffer, rounded down
     uint hiz_levels;
-    uint flags;  ///< cull_previous_hiz
+    uint flags;  ///< cull_previous_hiz, cull_shadow_view
     uint instance_count;
     uint phase_stride;      ///< entries from a phase-1 draw list to the same phase-2 list
     uint4 list_offsets[2];  ///< first entry of each of the 8 draw lists (phase 1)
@@ -26,6 +26,9 @@ struct CullView {
     uint pad0;
     uint pad1;
     uint pad2;
+    /// cull_shadow_view: the camera's frustum slice the cascade's shadows fall in (inside where dot(xyz, p) + w >= 0)...
+    float4 receiver_planes[6];
+    float4 sweep;  ///< ...the way shadows go (xyz, away from the light), w: the smallest sphere radius that casts
 };
 
 struct CullParams {
@@ -49,6 +52,9 @@ struct CullParams {
 [[vk::push_constant]] ConstantBuffer<CullParams> params;
 
 static const uint cull_previous_hiz = 1u;  ///< CullView::flags: last frame's pyramid is valid for phase 1
+/// CullView::flags: a shadow cascade (shadows.cpp). No normal cones (every meshlet casts, whichever way it faces);
+/// what passes must also be big enough to cast (sweep.w) and its shadow must fall in the receivers' slice.
+static const uint cull_shadow_view = 2u;
 static const uint meshlet_task_size = 64;  ///< meshlets per task (a thread group of cull_meshlets)
 static const uint bucket_count = 4;        ///< draw lists by triangle count: <= 16, <= 32, <= 64, <= 124
 static const uint list_count = 8;          ///< opaque buckets, then alpha-tested buckets (render::draw_list_of)
@@ -89,13 +95,29 @@ Sphere world_sphere(InstanceRecord inst, float4 s) {
     return out;
 }
 
+/// For a shadow cascade, whether the sphere can shadow anything in the receivers' slice: the sphere swept away from
+/// the light stays outside none of the slice's planes. A plane the sweep heads into is never a reason to cull
+/// (conservative: a sweep past a corner of the slice is kept).
+bool casts_into_view(CullView v, Sphere s) {
+    if (s.radius < v.sweep.w) {
+        return false;  // smaller than the cascade can show
+    }
+    for (uint i = 0; i < 6; ++i) {
+        const float4 p = v.receiver_planes[i];
+        if (dot(p.xyz, s.center) + p.w < -s.radius && dot(p.xyz, v.sweep.xyz) <= 0.0) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool in_frustum(CullView v, Sphere s) {
     for (uint i = 0; i < 5; ++i) {
         if (dot(v.planes[i].xyz, s.center) + v.planes[i].w < -s.radius) {
             return false;
         }
     }
-    return true;
+    return (v.flags & cull_shadow_view) == 0 || casts_into_view(v, s);
 }
 
 /// True if the sphere is hidden behind the pyramid built from `view_projection`'s depth: its nearest point is farther
@@ -168,8 +190,9 @@ void test_meshlet(CullView v, uint phase, InstanceRecord inst, uint instance, ui
     const Sphere s = world_sphere(inst, nonuniform(inst.meshlet_bounds)[meshlet * 3]);
     const MaterialRecord material = params.materials[inst.material_base + slot];
     const bool masked = (material.flags & (material_alpha_mask | material_alpha_blend)) != 0;
-    if (!in_frustum(v, s) || ((material.flags & material_double_sided) == 0 &&
-                              backfacing(inst, s, nonuniform(inst.meshlet_bounds)[meshlet * 3 + 1], v.camera.xyz))) {
+    if (!in_frustum(v, s) ||
+        ((v.flags & cull_shadow_view) == 0 && (material.flags & material_double_sided) == 0 &&
+         backfacing(inst, s, nonuniform(inst.meshlet_bounds)[meshlet * 3 + 1], v.camera.xyz))) {
         InterlockedAdd(params.counters[counter_meshlets_culled], 1u);
         return;
     }

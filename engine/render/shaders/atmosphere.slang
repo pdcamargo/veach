@@ -159,7 +159,7 @@ void sky_view_lut(uint3 id: SV_DispatchThreadID) {
     lut_params.output[id.xy] = float4(luminance, 1.0);
 }
 
-// ---- the ambient table (veach/ambient.slang, ADR 0095) ------------------------------------------------------------
+// ---- the ambient table (veach/ambient.slang, ADR 0096) ------------------------------------------------------------
 
 /// Each thread's partial sums, coefficient-major. float4 in one dimension: a 2D threadgroup array of float3 read back
 /// other threads' sums nondeterministically on Metal (Bistro's ambient light varied by up to FLIP 0.04 between runs).

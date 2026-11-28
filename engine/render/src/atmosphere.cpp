@@ -129,7 +129,7 @@ struct Lut {
 constexpr Lut transmittance_lut{"sky transmittance", "transmittance_lut", 256, 64, rhi::Format::rgba16_float};
 constexpr Lut multiscattering_lut{"sky multiple scattering", "multiscattering_lut", 32, 32};
 constexpr Lut sky_view_lut{"sky view", "sky_view_lut", 192, 108};  // sky_view_size in the shader
-/// The medium's ambient table (veach/ambient.slang, ADR 0095): 6 blocks of L2 SH coefficients, each sun angles x
+/// The medium's ambient table (veach/ambient.slang, ADR 0096): 6 blocks of L2 SH coefficients, each sun angles x
 /// altitudes, one entry per group of 64 threads. rgba32_float: deep twilight is below half floats' precision.
 constexpr std::uint32_t ambient_table_angles = 64;
 constexpr std::uint32_t ambient_table_heights = 16;

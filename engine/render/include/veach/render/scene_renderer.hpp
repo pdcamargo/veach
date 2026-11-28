@@ -22,6 +22,7 @@
 #include <memory>
 #include <span>
 #include <string_view>
+#include <vector>
 
 namespace veach {
 class AssetServer;
@@ -78,6 +79,8 @@ struct CullStats {
     std::uint32_t meshlets_rechecked = 0;           ///< phase 1 found them occluded
     std::uint32_t meshlets_occluded = 0;            ///< hidden in phase 2: not drawn
     std::array<std::uint32_t, 2> meshlets_drawn{};  ///< by phase 1 and by phase 2
+    /// Sun shadows (ADR 0095): meshlets drawn into each cascade, by layer (light slot x cascades + cascade).
+    std::vector<std::uint32_t> shadow_meshlets_drawn;
 };
 
 class SceneRenderer final : public RenderFeature {

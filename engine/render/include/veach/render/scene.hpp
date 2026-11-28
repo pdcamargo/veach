@@ -32,7 +32,8 @@ struct RuntimeMeshInstance {
 };
 
 /// Shines down the entity's −Z (ADR 0036). Illuminance in lux. Light sizes (angle, radius) give soft shadows in photo
-/// mode; the real-time renderer treats every light as punctual and unshadowed for now (ADR 0093). Scriptable.
+/// mode. In the real-time renderer the two brightest directional lights cast cascaded shadow maps whose penumbrae
+/// follow `angle` (SunShadows); every other light is punctual and unshadowed. Scriptable.
 struct DirectionalLight {
     math::vec3 color{1.0f};
     float illuminance = 1.0f;
@@ -115,13 +116,25 @@ struct SkyVisibility {
     float reach = 0.0f;       ///< meters from the camera; 0: no enclosure
 };
 
-/// On a camera entity: the real-time renderer's screen-space ambient occlusion (ADR 0095), which darkens the sky's
+/// On a camera entity: the real-time renderer's screen-space ambient occlusion (ADR 0096), which darkens the sky's
 /// ambient light in creases, under overhangs and against walls (never direct light). On by default: a camera without
 /// it uses these values. `radius` is meters in the world and never follows scale. Visual only. Scriptable.
 struct AmbientOcclusion {
     bool enabled = true;
     float radius = 1.5f;     ///< meters: how far an occluder darkens a surface
     float intensity = 1.0f;  ///< scales the darkening (the power on the visible fraction); 0 turns it off
+};
+
+/// On a camera entity: the sun shadows of the real-time renderer (docs/specs/sun-shadows/spec.md, ADR 0095). The
+/// brightest directional lights (`suns` of them, at most two) cast cascaded shadow maps from the camera out to
+/// `distance` meters, fading out over its last fifth; beyond it, and for every other light, geometry casts no shadow.
+/// Distances are meters at every body scale. Without it a camera has these defaults. Photo mode traces its own
+/// shadows and ignores it. Scriptable.
+struct SunShadows {
+    std::uint32_t suns = 2;           ///< 0 turns shadow maps off; at most 2 (ADR 0062)
+    float distance = 1000.0f;         ///< meters from the camera where the last cascade ends
+    std::uint32_t cascades = 4;       ///< 1 to 4, each four times the reach of the one before
+    std::uint32_t resolution = 2048;  ///< texels per side of every cascade, 256 to 4096
 };
 
 }  // namespace veach

@@ -1,4 +1,4 @@
-// Screen-space ambient occlusion for the real-time renderer (ADR 0095, docs/specs/ambient-light/spec.md): GTAO
+// Screen-space ambient occlusion for the real-time renderer (ADR 0096, docs/specs/ambient-light/spec.md): GTAO
 // (Jimenez et al. 2016) laid out as Intel's XeGTAO, from the visibility pass's depth alone, traced at half resolution.
 //
 //   ao_view_depth   the reverse-Z depth buffer as view distance (meters): mip 0 of a small pyramid;

@@ -1,4 +1,4 @@
-// The real-time renderer's ambient light (ADR 0095, docs/specs/ambient-light/spec.md): the sky's light on a surface,
+// The real-time renderer's ambient light (ADR 0096, docs/specs/ambient-light/spec.md): the sky's light on a surface,
 // diffuse and specular, as the air around that surface gives it, times its ambient occlusion. The one function the
 // shading calls is ambient_light().
 //

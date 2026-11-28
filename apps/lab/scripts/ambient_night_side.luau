@@ -3,7 +3,7 @@
 -- ambient.AC2): the camera stands where the sun is 5 degrees up (the equator, the equinox, 17:40); two flat patches lie
 -- 1,500 km away on the curve of the Sky's 6,360 km planet, one toward the sun (18 degrees up there) and one away from
 -- it (8 degrees down: night). Only the sky lights them (its sun is no light here) and there is no haze, so the patch
--- away from the sun is dark: before ADR 0095 both got the camera's sky.
+-- away from the sun is dark: before ADR 0096 both got the camera's sky.
 -- Run: veach-lab --rhi metal --headless --frames 3 --script scripts/ambient_night_side.luau --screenshot out.png
 local veach = require("@veach")
 local c = veach.components

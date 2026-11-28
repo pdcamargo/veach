@@ -1,6 +1,6 @@
 # Ambient light and occlusion (VCH-140)
 
-Item 6 of the renderer pass ([spec](../../specs/ambient-light/spec.md), [ADR 0095](../../adr/0095-ambient-light-and-occlusion.md)):
+Item 6 of the renderer pass ([spec](../../specs/ambient-light/spec.md), [ADR 0096](../../adr/0096-ambient-light-and-occlusion.md)):
 the sky's diffuse and specular light from the air around each shaded point, and GTAO. Apple M5 Max, Metal, release
 builds, 2026-11-28. "Before" is `main` at `f7be0b4` (the GPU-driven core and the twilight fix) with the same slice
 tour views added; "after" is this branch.

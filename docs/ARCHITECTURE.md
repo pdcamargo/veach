@@ -185,8 +185,9 @@ The scene renderer draws each camera one of two ways. Without `PhotoMode`, the *
 visibility buffer ([ADR 0060](adr/0060-gpu-driven-visibility-buffer.md)). Its core is in code
 ([ADR 0093](adr/0093-gpu-driven-core.md)): a persistent GPU scene of instance records, culling of instances and
 meshlets in compute with two-phase HiZ occlusion into indirect draw lists, a visibility pass that also writes motion
-vectors, and shading binned by material kind; lighting is still basic and unshadowed (clustered lights, shadows and
-forward transparency come next). Extraction computes every position camera-relative in double and hands the GPU
+vectors, and shading binned by material kind; the brightest suns cast cascaded shadow maps culled and drawn the same
+way ([ADR 0095](adr/0095-sun-shadows.md)); other lights are unshadowed (clustered lights and forward transparency come
+next). Extraction computes every position camera-relative in double and hands the GPU
 float32 only, so `RenderWorld` holds no absolute positions
 ([ADR 0045](adr/0045-large-world-positions-and-reference-frames.md)). With `PhotoMode`, **photo mode**: the reference path tracer, accumulating while nothing changes, on devices with
 hardware ray tracing ([ADR 0041](adr/0041-photo-mode.md)). Both share the Slang materials, lights, sky and display

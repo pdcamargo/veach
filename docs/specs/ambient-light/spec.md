@@ -88,7 +88,7 @@ None.
 
 ## Links
 
-- ADRs: [0095](../../adr/0095-ambient-light-and-occlusion.md), [0062](../../adr/0062-shadows-ambient-reflections.md),
+- ADRs: [0096](../../adr/0096-ambient-light-and-occlusion.md), [0062](../../adr/0062-shadows-ambient-reflections.md),
   [0092](../../adr/0092-aerial-perspective-follows-the-air.md), [0093](../../adr/0093-gpu-driven-core.md),
   [0039](../../adr/0039-realtime-renderer-is-raster-pbr.md)
 - Backlog: VCH-140, VCH-141

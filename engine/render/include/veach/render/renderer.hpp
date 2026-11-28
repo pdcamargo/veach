@@ -127,6 +127,8 @@ struct RenderView {
     SkyVisibility sky_visibility;
     /// The camera's AmbientOcclusion (or its defaults: on).
     AmbientOcclusion ambient_occlusion;
+    /// The camera's SunShadows (or the defaults): the real-time renderer's shadow maps (shadows.cpp).
+    SunShadows shadows;
 };
 
 /// A mesh to draw this frame: an imported or runtime mesh (MeshStore), the material of each of its slots, and where
@@ -342,6 +344,7 @@ private:
         std::uint64_t last_frame = 0;
         std::map<std::string, std::vector<double>> passes;
         std::vector<double> totals;
+        std::vector<double> frames;  ///< the command buffers' GPU spans (Device::last_frame_gpu_ms)
     };
     std::optional<TimingReport> timing_report_;
     void collect_timings();

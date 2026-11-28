@@ -31,6 +31,7 @@ add_executable(veach-tests
     sp10_atmosphere_tests.cpp  # spike SP-10 (VCH-086)
     sp14_depth_tests.cpp  # spike SP-14 (VCH-090)
     sp16_msaa_tests.cpp  # spike SP-16 (VCH-092): MSAA in tile memory, Metal only
+    sun_shadows_tests.cpp  # VCH-142: sun shadows
     space_gen_tests.cpp
     space_realization_tests.cpp  # VCH-115: the realization layer
     slice_tests.cpp  # VCH-115: the first slice, end to end (links the slice app's module)

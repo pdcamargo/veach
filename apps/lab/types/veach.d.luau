@@ -256,6 +256,12 @@ export type SunObserver = {
 	up: number,
 	tick: number,
 }
+export type SunShadows = {
+	suns: number,
+	distance: number,
+	cascades: number,
+	resolution: number,
+}
 export type TerrainDescent = {
 	scale: number,
 	start_altitude: number,
@@ -359,6 +365,7 @@ export type Veach = {
 		read Spinner: Component<Spinner>,
 		read SpotLight: Component<SpotLight>,
 		read SunObserver: Component<SunObserver>,
+		read SunShadows: Component<SunShadows>,
 		read TerrainDescent: Component<TerrainDescent>,
 		read TerrainDescentState: Component<TerrainDescentState>,
 		read Transform: Component<Transform>,

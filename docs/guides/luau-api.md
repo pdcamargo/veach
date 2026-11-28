@@ -246,8 +246,12 @@ C++ components tagged `veach::Scriptable` (all fields Luau-representable). The e
 - `SceneInstance` (`path` of a glTF asset): spawns the scene as children
 - `DirectionalLight` (`color`, `illuminance` lux, `angle` apparent diameter in radians), `PointLight` (`color`,
   `intensity` cd, `radius` m), `SpotLight` (`color`, `intensity`, `inner_angle`, `outer_angle`, `radius`). Photo mode
-  honors `angle` and `radius` (soft shadows); the real-time renderer treats every light as punctual. See
+  honors `angle` and `radius` (soft shadows); in real time the two brightest directional lights cast shadow maps
+  (`SunShadows`) and every other light is punctual and unshadowed. See
   [ADR 0036](../adr/0036-lights-in-photometric-units.md).
+- `SunShadows` (`suns`, `distance` m, `cascades`, `resolution`): on a camera, its real-time sun shadows: how many
+  of the brightest directional lights cast (0 to 2; 0 turns them off), where the last cascade ends, how many cascades
+  (1 to 4) and how many texels a side; see [sun-shadows](../specs/sun-shadows/spec.md).
 - `PhotoMode` (`samples_per_frame`, `max_bounces`): on a camera, renders its view with the reference path tracer,
   accumulating while nothing changes; see [photo-mode](../specs/photo-mode/spec.md). It needs hardware ray tracing.
 - `SkyVisibility` (`visibility` 0..1, `reach` m): on a camera, how open its surroundings are to the sky. Air and

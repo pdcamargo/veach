@@ -754,7 +754,7 @@ private:
         }
         if (tour_ == 8) {
             // 2 km up on the day side, the sun up by 0.4 of the angle to the horizon, looking away from it just below
-            // the horizon: the terminator and the night side beyond it, under a lit sky (ADR 0095). At s = 1 the
+            // the horizon: the terminator and the night side beyond it, under a lit sky (ADR 0096). At s = 1 the
             // horizon is 1.4 degrees of the planet away; at s = 0.01, 14.
             const double altitude = 2000.0;
             const double r_site = ground_radius(unit(site_));

@@ -220,7 +220,8 @@ TEST_CASE("[scene.AC1] glTF imports into scenes, meshes and materials with stabl
     CHECK(third.meshes == meshes);
 }
 
-TEST_CASE("[scene.AC1] a buffer shorter than declared, such as a Git LFS pointer, is an error, not a read past its end") {
+TEST_CASE(
+    "[scene.AC1] a buffer shorter than declared, such as a Git LFS pointer, is an error, not a read past its end") {
     CornellBox box;
     box.project.write("box/cornell_box.bin",
                       "version https://git-lfs.github.com/spec/v1\noid sha256:0000\nsize 4242\n");

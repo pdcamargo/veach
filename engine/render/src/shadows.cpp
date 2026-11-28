@@ -362,8 +362,8 @@ Result<> ShadowRenderer::prepare(rhi::Device& device, const SceneShaders& shader
                      &s.cull_args},
           std::tuple{&veach_render_shaders::shadow_pyramids(), "receivers_clear",
                      std::array<std::uint32_t, 3>{64, 1, 1}, &s.receivers_clear},
-          std::tuple{&veach_render_shaders::shadow_pyramids(), "receivers_mark", std::array<std::uint32_t, 3>{8, 8, 1},
-                     &s.receivers_mark},
+          std::tuple{&veach_render_shaders::shadow_pyramids(), "receivers_mark",
+                     std::array<std::uint32_t, 3>{16, 16, 1}, &s.receivers_mark},
           std::tuple{&veach_render_shaders::shadow_pyramids(), "pyramid_reduce", std::array<std::uint32_t, 3>{8, 8, 1},
                      &s.pyramid_reduce},
           std::tuple{&veach_render_shaders::shadow_pyramids(), "occluders_build", std::array<std::uint32_t, 3>{8, 8, 1},
@@ -818,7 +818,7 @@ ShadowRenderer::Output ShadowRenderer::record(RenderGraph& graph, const FrameCon
             [=, pipeline = s.receivers_mark](PassContext& ctx) {
                 ctx.cmd.set_pipeline(pipeline);
                 bind_pyramids(ctx, 0, 0);
-                ctx.cmd.dispatch((pyramid_params.size[0] + 7) / 8, (pyramid_params.size[1] + 7) / 8);
+                ctx.cmd.dispatch((pyramid_params.size[0] + 15) / 16, (pyramid_params.size[1] + 15) / 16);
             });
         reduce("shadow: receivers", 0);
     }

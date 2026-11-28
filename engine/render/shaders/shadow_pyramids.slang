@@ -41,7 +41,7 @@ struct PyramidParams {
 static const uint empty = 0x7F7FFFFFu;  ///< asuint(FLT_MAX): no receiver
 static const uint max_layers = max_shadowed_lights * max_shadow_cascades;
 /// A tile marks its box over a layer as a whole when it spans at most this many texels per side; a wider one
-/// (a depth edge inside its 8 x 8 pixels) has each pixel mark its own.
+/// (a depth edge inside its 16 x 16 pixels) has each pixel mark its own.
 static const uint group_box_limit = 4;
 
 /// Where level `level` starts in a layer: the sizes before it sum to (4 M^2 - 4 (M >> level)^2) / 3.
@@ -100,6 +100,8 @@ Mark mark_of(uint layer, float2 at_lo, float2 at_hi, float depth, float reach) {
     return mark;
 }
 
+groupshared Mark tile_marks[max_layers];  ///< each layer's box, when narrow enough to mark whole
+
 void write_mark(uint layer, Mark mark) {
     const uint base = layer * params.layer_stride;
     for (uint y = mark.lo.y; y <= mark.hi.y; ++y) {
@@ -123,16 +125,21 @@ float3 render_position(float2 pixel, float depth) {
     return h.xyz / h.w;
 }
 
-/// An 8 x 8 tile's receivers lie in the piece of the view frustum between its pixel centers' rays and its depth
-/// range: its eight corners bound them, on every cascade's map (orthographic). One thread per layer marks that box;
-/// where it is too wide (a depth edge in the tile), every pixel marks its own.
+/// A 16 x 16 tile's receivers lie in the piece of the view frustum between its pixel centers' rays and its depth
+/// range: its eight corners bound them, on every cascade's map (orthographic). One thread per layer finds that box
+/// and 32 mark its texels; where it is too wide (a depth edge in the tile), every pixel marks its own.
 [shader("compute")]
-[numthreads(8, 8, 1)]
+[numthreads(16, 16, 1)]
 void receivers_mark(uint3 id: SV_DispatchThreadID, uint3 group: SV_GroupID, uint index: SV_GroupIndex) {
     if (index == 0) {
         tile_far = empty;
         tile_near = 0;
         tile_fallback = 0;
+    }
+    if (index < max_layers) {
+        tile_marks[index].lo = uint2(0u, 0u);
+        tile_marks[index].hi = uint2(0u, 0u);
+        tile_marks[index].depth = empty;
     }
     GroupMemoryBarrierWithGroupSync();
     const uint light_count = params.shadows[0].light_count;
@@ -151,8 +158,8 @@ void receivers_mark(uint3 id: SV_DispatchThreadID, uint3 group: SV_GroupID, uint
         return;  // the whole group: no receiver
     }
     if (index < 8) {
-        const uint2 first = group.xy * 8;
-        const uint2 last = min(first + 7, params.size - 1);
+        const uint2 first = group.xy * 16;
+        const uint2 last = min(first + 15, params.size - 1);
         const float2 pixel = float2((index & 1) != 0 ? last.x : first.x, (index & 2) != 0 ? last.y : first.y) + 0.5;
         tile_corners[index] = render_position(pixel, asfloat((index & 4) != 0 ? tile_near : tile_far));
     }
@@ -183,7 +190,7 @@ void receivers_mark(uint3 id: SV_DispatchThreadID, uint3 group: SV_GroupID, uint
             const Mark mark = mark_of(layer, at_lo, at_hi, depth, reach);
             if (mark.depth != empty) {
                 if (all(mark.hi - mark.lo < uint2(group_box_limit, group_box_limit))) {
-                    write_mark(layer, mark);
+                    tile_marks[layer] = mark;
                 } else {
                     InterlockedOr(tile_fallback, 1u << layer);
                 }
@@ -191,6 +198,20 @@ void receivers_mark(uint3 id: SV_DispatchThreadID, uint3 group: SV_GroupID, uint
         }
     }
     GroupMemoryBarrierWithGroupSync();
+    // The tile's boxes, a texel per thread: 32 threads per layer, at most group_box_limit^2 texels each.
+    {
+        const uint layer = index / 32;
+        const uint k = index % 32;
+        if (layer < layers) {
+            const Mark mark = tile_marks[layer];
+            const uint2 extent = mark.hi - mark.lo + 1;
+            if (mark.depth != empty && k < extent.x * extent.y) {
+                lower(layer * params.layer_stride + (mark.lo.y + k / extent.x) * params.mask_size + mark.lo.x +
+                          k % extent.x,
+                      mark.depth);
+            }
+        }
+    }
     if (tile_fallback == 0 || !receiver) {
         return;
     }

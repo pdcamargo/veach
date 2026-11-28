@@ -20,6 +20,9 @@ veach_add_shader(veach-lab shaders/triangle_rt.slang ENTRIES trace:compute)
 veach_add_shader(veach-lab shaders/blend_demo.slang ENTRIES vs_main:vertex fs_main:fragment)
 # The material model's proof (ADR 0035): GlowMaterial overrides only evalEmission.
 veach_add_material(veach-lab GlowMaterial shaders/glow_material.slang EMISSIVE)
+# The SP-16 field through the engine's renderer (VEACH_SP16=engine): alpha-tested cards with coverage from UV.
+veach_add_material(veach-lab FieldGrass shaders/field_materials.slang)
+veach_add_material(veach-lab FieldLeaves shaders/field_materials.slang)
 # Spike SP-16 (VCH-092), throwaway: the vegetation field, visibility buffer against forward (src/sp16_spike.cpp).
 set(sp16_includes INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
 veach_add_shader(veach-lab shaders/sp16_cull.slang

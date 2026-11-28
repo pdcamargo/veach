@@ -10,6 +10,8 @@
 //   VEACH_SP16=vis       A: visibility buffer (opaque, then masked), compute material pass
 //   VEACH_SP16=forward   B: forward, opaque then masked, the full shader on every masked fragment
 //   VEACH_SP16=prepass   B: a depth prepass (alpha-tested), then the full shader once per pixel (depth equal)
+//   VEACH_SP16=engine    the engine's own real-time renderer (ADR 0093): models as runtime meshes, instances as
+//                        entities, cards in the lab's FieldGrass and FieldLeaves materials; VIEW and SIZE apply
 //     VEACH_SP16_MSAA=4            forward and prepass: 4x MSAA in tile memory, alpha to coverage, resolved on tile
 //     VEACH_SP16_VIEW=ground|mid|far   eye 1 m above the grass / 18 m above / 90 m above (default ground)
 //     VEACH_SP16_SIZE=WxH          default 1920x1080

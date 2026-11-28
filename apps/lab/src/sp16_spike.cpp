@@ -1671,13 +1671,85 @@ void Sp16Feature::record(render::RenderGraph& graph, const render::FrameContext&
 
 }  // namespace
 
+/// VEACH_SP16=engine: the same field drawn by the engine's real-time renderer (ADR 0093), to measure it on the
+/// content the spike measured: each model a runtime mesh (MeshStore), each instance an entity, the cards in the
+/// lab's FieldGrass and FieldLeaves materials (coverage from UV, shaders/field_materials.slang), the sun and the
+/// physical sky. No draw distance: the engine has no LOD yet, so the far view draws every grass card in view.
+void spawn_engine_field(veach::World& world, const Config& config) {
+    const Field f = build_field(config);
+    render::MeshStore& store = veach::services(world).get<render::MeshStore>();
+    const auto material = [&](const char* name, const char* kind, math::vec3 color, bool masked) {
+        veach::MaterialAsset m{
+            .name = name, .kind = kind, .base_color = math::vec4(color, 1.0f), .metallic = 0.0f, .roughness = 0.85f};
+        if (masked) {
+            m.alpha_mode = veach::AlphaMode::mask;
+            m.double_sided = true;
+        }
+        return store.add_material(m);
+    };
+    const std::array<veach::AssetId, material_count> materials{
+        material("ground", "StandardMaterial", {0.30f, 0.28f, 0.18f}, false),
+        material("rock", "StandardMaterial", {0.42f, 0.40f, 0.38f}, false),
+        material("bark", "StandardMaterial", {0.25f, 0.18f, 0.12f}, false),
+        material("leaves", "FieldLeaves", {0.20f, 0.38f, 0.12f}, true),
+        material("bush", "FieldLeaves", {0.22f, 0.36f, 0.14f}, true),
+        material("grass", "FieldGrass", {0.28f, 0.45f, 0.15f}, true)};
+    std::array<veach::AssetId, model_count> meshes{};
+    for (std::uint32_t model = 0; model < model_count; ++model) {
+        render::MeshData data;
+        std::map<std::uint32_t, std::uint32_t> remap;
+        for (std::uint32_t slot = 0; slot < f.models[model].part_count; ++slot) {
+            const Part& part = f.mesh.parts[f.models[model].first_part + slot];
+            data.materials.push_back(materials[part.material]);
+            for (std::uint32_t i = 0; i < part.index_count; ++i) {
+                const std::uint32_t source = f.mesh.indices[part.first_index + i];
+                const auto [it, added] = remap.try_emplace(source, static_cast<std::uint32_t>(data.vertices.size()));
+                if (added) {
+                    const Vertex& v = f.mesh.vertices[source];
+                    veach::MeshVertex out;
+                    out.position = {v.position_u.x, v.position_u.y, v.position_u.z};
+                    out.normal = {v.normal_v.x, v.normal_v.y, v.normal_v.z};
+                    out.uv = {v.position_u.w, v.normal_v.w};
+                    data.vertices.push_back(out);
+                }
+                data.indices.push_back(it->second);
+            }
+            data.triangle_slots.insert(data.triangle_slots.end(), part.index_count / 3, slot);
+        }
+        auto added = store.add(std::move(data));
+        if (!added) {
+            veach::log::error("sp16", added.error());
+            return;
+        }
+        meshes[model] = *added;
+    }
+    for (const Instance& inst : f.instances) {
+        const float c = inst.rows[0].x;
+        const float s = inst.rows[0].z;
+        world.entity()
+            .set(veach::Transform{math::dvec3(inst.rows[0].w, inst.rows[1].w, inst.rows[2].w),
+                                  math::angleAxis(std::atan2(s, c), math::vec3(0.0f, 1.0f, 0.0f)),
+                                  math::vec3(std::sqrt(c * c + s * s))})
+            .set(veach::RuntimeMeshInstance{meshes[inst.model]});
+    }
+    const View v = view_named(config.view);
+    world.entity("sp16 camera")
+        .set(veach::Transform{math::dvec3(v.eye),
+                              math::angleAxis(v.yaw, math::vec3(0.0f, 1.0f, 0.0f)) *
+                                  math::angleAxis(v.pitch, math::vec3(1.0f, 0.0f, 0.0f)),
+                              math::vec3(1.0f)})
+        .set(veach::Camera{.fov_y = math::radians(60.0f), .near_plane = 0.1f, .active = true, .ev100 = 14.0f});
+    world.entity("sp16 sky").set(veach::Sky{.time_of_day = 15.0f, .latitude = 45.0f});
+    veach::log::info("sp16", "engine field: {} instances as entities, {} meshes", f.instances.size(), meshes.size());
+}
+
 void register_sp16_spike(veach::World& world) {
     const std::optional<std::string> mode = veach::env("VEACH_SP16");
     if (!mode) {
         return;
     }
-    if (*mode != "vis" && *mode != "forward" && *mode != "prepass") {
-        veach::log::error("sp16", "VEACH_SP16 is '{}': use vis, forward or prepass", *mode);
+    if (*mode != "vis" && *mode != "forward" && *mode != "prepass" && *mode != "engine") {
+        veach::log::error("sp16", "VEACH_SP16 is '{}': use vis, forward, prepass or engine", *mode);
         return;
     }
     const Config config = config_from_env(*mode);
@@ -1687,6 +1759,10 @@ void register_sp16_spike(veach::World& world) {
             window.width = w;
             window.height = h;
         });
+    if (*mode == "engine") {
+        spawn_engine_field(world, config);
+        return;
+    }
     veach::services(world).get<render::Renderer>().add_feature(std::make_unique<Sp16Feature>(config));
 }
 

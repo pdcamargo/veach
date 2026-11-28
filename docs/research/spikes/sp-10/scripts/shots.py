@@ -33,7 +33,7 @@ def shots() -> list[tuple[str, dict[str, str]]]:
                     out.append((f"seam/{comp}_s{scale}_{name}_{march}", env))
     # Sunsets: the horizontal optical depth does not follow s_a (it goes as s_p^(1/4)).
     for comp in ["earth", "mars"]:
-        for scale in ["1", "0.01"]:
+        for scale in ["1", "0.1", "0.01"]:
             out.append((f"sunset/{comp}_s{scale}", {"VEACH_SP10": comp, "VEACH_SP10_SCALE": scale,
                                                     "VEACH_SP10_SUN_ELEVATION": "1.5", "VEACH_SP10_SUN_AZIMUTH": "0",
                                                     "VEACH_SP10_PITCH": "8", "VEACH_SP10_FOV": "70",

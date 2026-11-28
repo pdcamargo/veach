@@ -164,6 +164,9 @@ not:
   horizon air mass scales as s_p^¼: 34.5 at s = 1, 10.9 at s = 0.01.
 - **The effect.** At s = 0.01 the sunset sky stays pale blue with a white glow, where s = 1 gives orange and
   purple. Mars at s = 0.01 likewise loses most of its sunset darkening (transmittance 0.0004 → 0.043).
+- **At s = 0.1, the default scale** (rendered after the spike, `sunset/earth_s0.1.png`), transmittance toward the
+  sun is (0.451, 0.181, 0.029): about what s_p^0.75 gives at s = 0.01. The glow stays warm; the purple band above it
+  is mostly gone. Mars at s = 0.1: 0.006.
 - **The limb from orbit** gets relatively thicker, as 0063 expects. That reads well (thicker blue rim, softer
   Mars halo).
 - **s_a = s_p is exactly invariant** (orbit FLIP 0.0003). That confirms the renderer applies the scale law
@@ -317,8 +320,7 @@ The other passes (clear 0.005, visibility 0.034, display 0.043) are the same in 
 - **Recommendation:** A now, with D as a later stylization task if the owner finds small-scale sunsets lacking.
   - The default scale is s = 0.1, where the horizon path is only 1.8× shorter (s^¼), not 3.2×.
   - The layer thickness affects gameplay; sunset color does not.
-  - What would change my mind: the owner judging the s = 0.1 sunset wrong by eye (not rendered in this spike; one
-    more run of `shots.py`).
+  - What would change my mind: the owner judging the s = 0.1 sunset wrong by eye (now rendered: `sunset/earth_s0.1.png`).
 - **Risks and reversibility.**
   - s_a is applied only when records become geometry (ADR 0049), so changing it later is cheap until scale locks in
     a universe.
@@ -333,4 +335,4 @@ The other passes (clear 0.005, visibility 0.034, display 0.043) are the same in 
 - **Questions for the owner.**
   1. At small scale, are paler sunsets acceptable (A), or should we trade atmosphere thickness (B, C) or add a
      stylized term (D)?
-  2. Should the next run render s = 0.1 sunsets before you decide (yes/no)?
+  2. The s = 0.1 sunset is rendered (`sunset/earth_s0.1.png`): does it look acceptable at the default scale?

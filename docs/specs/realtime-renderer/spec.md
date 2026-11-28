@@ -25,9 +25,12 @@ still need a real-time image of real scenes on any GPU at the engine's floor
   covering every triangle once ([ADR 0011](../../adr/0011-gltf-import-and-cooking.md)).
 - The visibility pass MUST store `{instance, meshlet << 7 | triangle}` per pixel in an `rg32_uint` target cleared to
   `0xFFFFFFFF`, with a reverse-Z depth test, and alpha-test masked materials.
-- The shade pass MUST light each pixel with every punctual light (unshadowed, none from behind the geometric surface),
-  the sky's ambient irradiance on the diffuse lobe, and emission, and MUST show the sky with the sun's disk where there
-  is no geometry and apply aerial perspective.
+- The shade pass MUST light each pixel with every punctual light (unshadowed, none from behind the surface: the triangle
+  for a double-sided material, the interpolated normal for a single-sided one), the sky's ambient irradiance on the
+  diffuse lobe, and emission, and MUST show the sky with the sun's disk where there is no geometry and apply aerial
+  perspective. It MUST interpolate the surface inside the pixel's triangle, never outside it.
+- A single-sided triangle seen from behind MUST keep a vertex normal that faces the viewer (VCH-108); a double-sided
+  one turns its normal with it.
 - Exposure MUST follow the physical camera ([ADR 0037](../../adr/0037-exposure-and-agx.md)).
 - Every pass MUST be timed and reported by MCP `gpu_timings`.
 
@@ -53,6 +56,9 @@ camera:set(veach.components.Camera, { fov_y = math.rad(40), ev100 = 0 })
 - **rt.AC6** — The reverse-Z depth test keeps the nearer triangle in any draw order; a pipeline that tests depth
   without a depth format is rejected on every backend.
 - **rt.AC7** — An `rg32_uint` target clears to `0xFFFFFFFF` and keeps what the fragment shader writes, exactly.
+- **rt.AC8** — Thin triangles standing upright in a smooth surface, with its normals and material, shade like the
+  surface, whichever side faces the camera: `golden: thin triangles (realtime)`, on Metal and on DX12/WARP
+  ([VCH-108](../../research/notes/vch-108-pinholes.md)).
 
 ## Out of scope
 

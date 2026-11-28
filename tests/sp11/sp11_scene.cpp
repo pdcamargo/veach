@@ -33,8 +33,6 @@
 namespace veach::sp11 {
 namespace {
 
-using test::ensure_jolt;
-
 std::uint64_t mix(std::uint64_t x) {
     x ^= x >> 33;
     x *= 0xff51afd7ed558ccdULL;
@@ -119,6 +117,10 @@ std::uint64_t hash_bytes(const std::string& bytes) {
 }
 
 }  // namespace
+
+void ensure_jolt() {
+    test::ensure_jolt();
+}
 
 SceneResult run_scene(const SceneConfig& config) {
     ensure_jolt();

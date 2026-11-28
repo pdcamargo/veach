@@ -46,6 +46,10 @@ struct SceneResult {
 
 SceneResult run_scene(const SceneConfig& config);
 
+/// Initializes Jolt's process-wide state (allocator hooks, factory, type registry) once; also used by SP-12, which
+/// shares the test binary. The one instance lives in tests/support/jolt_runtime.hpp, shared with SP-13.
+void ensure_jolt();
+
 /// Steps in the committed snapshots (1-based): the hash is checked after these steps.
 inline constexpr int snapshot_steps[] = {1, 60, 300, 600};
 

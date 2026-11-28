@@ -47,6 +47,13 @@ struct SphereSpan {
 /// coordinates (it heads inward and passes closer than the radius). A point rounded under the surface does not shadow
 /// itself toward a sun above its horizon.
 [[nodiscard]] bool sphere_blocks(math::vec3 p, math::vec3 l, float radius);
+/// sphere_blocks along a ray: where origin + t * direction (unit) is in the shadow a sphere about the origin of
+/// coordinates casts away from `l` (unit), the cylinder of its radius behind its center; c = |origin|^2 - radius^2 as
+/// for sphere_span. Empty when the ray never is; an end
+/// the ray never reaches is +-1e30. The marches light the part of each step outside it (ADR 0094). The twin of
+/// sphere_shadow_span in shaders/veach/atmosphere.slang.
+[[nodiscard]] std::optional<SphereSpan> sphere_shadow_span(math::vec3 origin, math::vec3 direction, float c,
+                                                           math::vec3 l);
 
 /// The aerial-perspective volume's slice coordinate (0..1) of a fraction x of a ray's span through the air, and its
 /// inverse: x = ((1 - cos(pi w)) / 2)^2, slices going as w^4 near the camera and crowding at the far end too. Twins of

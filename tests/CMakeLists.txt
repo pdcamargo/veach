@@ -46,7 +46,7 @@ target_link_libraries(veach-tests PRIVATE veach::veach veach::space veach::voxel
 # Shaders for RHI tests (tests/rhi_tests.cpp): <test_shaders.hpp>.
 veach_add_shader(veach-tests shaders/raster_states.slang ENTRIES vs_main:vertex fs_main:fragment)
 veach_add_shader(veach-tests shaders/atmosphere_probe.slang ENTRIES transmittance_probe:compute)
-veach_add_shader(veach-tests shaders/sphere_probe.slang ENTRIES sphere_probe:compute)
+veach_add_shader(veach-tests shaders/sphere_probe.slang ENTRIES sphere_probe:compute shadow_probe:compute)
 veach_add_shader(veach-tests shaders/indirect_cull.slang ENTRIES cull:compute write_args:compute count_threads:compute)
 veach_add_shader(veach-tests shaders/indirect_draw.slang ENTRIES vs_main:vertex fs_main:fragment)
 veach_add_shader(veach-tests shaders/texture_kinds.slang ENTRIES write_volume:compute write_faces:compute
@@ -234,11 +234,16 @@ endif()
 # Golden images: one shared set, run on this platform's GPU backend (ADR 0031), DX12 on WARP in hosted CI
 # (ADR 0033). Skipped on GPUs that can't run them, unless VEACH_REQUIRE_GPU=1.
 set(_golden_dir "${PROJECT_SOURCE_DIR}/tests/golden")
+# The twilight goldens (atmosphere.AC7): name:scale:EV100, all with this view (the lab's SP-10 spike).
+set(_twilight_goldens "planet_twilight_s1:1:-2" "planet_twilight_s0.01:0.01:8")
+set(_twilight_env VEACH_SP10=earth VEACH_SP10_ALTITUDE=300 VEACH_SP10_SUN_ELEVATION=-10 VEACH_SP10_SUN_AZIMUTH=0
+    VEACH_SP10_YAW=180 VEACH_SP10_PITCH=30 VEACH_SP10_FOV=90 VEACH_SP10_STEPS=16 VEACH_SP10_SIZE=480x270)
 # veach_golden_test(<name> <script> <golden> <rhi> [FRAMES n] [MAX_MEAN x] [MAX_P999 x] [MAX_OUTLIERS n]
-#                   [NO_RAY_TRACING] [TIMEOUT s])
+#                   [NO_RAY_TRACING] [TIMEOUT s] [ENV VAR=value...])
 # TIMEOUT is CTest's (default 120 s); the lab gets 15 s less, so a hang prints its log (golden_test.cmake).
 function(veach_golden_test name script golden rhi)
-    cmake_parse_arguments(ARG "NO_RAY_TRACING" "FRAMES;MAX_MEAN;MAX_P999;MAX_OUTLIERS;TIMEOUT" "" ${ARGN})
+    # ENV: VAR=value pairs the lab runs with (the SP-10 spike's planet sky is set up from the environment).
+    cmake_parse_arguments(ARG "NO_RAY_TRACING" "FRAMES;MAX_MEAN;MAX_P999;MAX_OUTLIERS;TIMEOUT" "ENV" ${ARGN})
     if(NOT ARG_TIMEOUT)
         set(ARG_TIMEOUT 120)
     endif()
@@ -258,6 +263,11 @@ function(veach_golden_test name script golden rhi)
         list(APPEND extra -DMAX_OUTLIERS=${ARG_MAX_OUTLIERS})
     endif()
     set(out_name "${script}.${rhi}")  # per script: several scripts may share a golden
+    if(ARG_ENV)
+        string(REPLACE ";" "|" env_list "${ARG_ENV}")
+        list(APPEND extra "-DLAB_ENV=${env_list}")
+        set(out_name "${golden}.${rhi}")  # the environment makes the image: one script may serve several goldens
+    endif()
     if(ARG_NO_RAY_TRACING)
         list(APPEND extra -DNO_RAY_TRACING=1)
         set(out_name "${script}.${rhi}.no_rt")
@@ -330,6 +340,18 @@ if(APPLE)
     veach_scene_goldens(metal)
     # backdrop.AC7: the space backdrop alone (stars, band, nebulae), small.
     veach_golden_test("golden: space backdrop" space_backdrop_small space_backdrop metal)
+    # atmosphere.AC7: a planet's sky 10 degrees into twilight, opposite the sun, through SP-10's lab path with the
+    # engine's 16 march steps (ADR 0094). At s = 1 it is all multiple scattering, a few 1e-7 per lux of sun: fp16
+    # tables drew it in flat bands (mean FLIP 0.22 against the golden). At s = 0.01 the planet's shadow crosses lit air
+    # close by: a sun lighting whole steps or none drew arcs (0.055).
+    foreach(_twilight ${_twilight_goldens})
+        string(REPLACE ":" ";" _twilight "${_twilight}")
+        list(GET _twilight 0 _name)
+        list(GET _twilight 1 _scale)
+        list(GET _twilight 2 _ev)
+        veach_golden_test("golden: planet sky at twilight (s = ${_scale})" hello ${_name} metal
+            ENV ${_twilight_env} VEACH_SP10_SCALE=${_scale} VEACH_SP10_EV=${_ev})
+    endforeach()
     # rtmesh.AC4: a mesh made at run time (and updated on frame 2), in real time and in photo mode.
     # sky.AC4, rt.AC3: Bistro under the physical sky at noon and at sunset (Metal only: Bistro is too heavy for WARP).
     foreach(_time noon sunset)
@@ -379,6 +401,15 @@ if(APPLE)
         list(APPEND _update COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab>
                 --rhi metal --headless --frames ${_frames} --script scripts/${_script}.luau
                 --screenshot "${_golden_dir}/${_image}.png")
+    endforeach()
+    foreach(_twilight ${_twilight_goldens})
+        string(REPLACE ":" ";" _twilight "${_twilight}")
+        list(GET _twilight 0 _name)
+        list(GET _twilight 1 _scale)
+        list(GET _twilight 2 _ev)
+        list(APPEND _update COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 ${_twilight_env}
+                VEACH_SP10_SCALE=${_scale} VEACH_SP10_EV=${_ev} $<TARGET_FILE:veach-lab> --rhi metal --headless
+                --frames 3 --script scripts/hello.luau --screenshot "${_golden_dir}/${_name}.png")
     endforeach()
     # Shader validation off, as in golden_test.cmake: with it, Metal's ray-query results vary run to run.
     add_custom_target(update-goldens ${_update}

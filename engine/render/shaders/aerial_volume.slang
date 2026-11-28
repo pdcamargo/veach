@@ -37,6 +37,7 @@ void aerial_volume(uint3 id: SV_DispatchThreadID) {
     const float bottom = s.atmosphere.planet.x;
     const float top_height = s.atmosphere.planet.y - bottom;
     const SunPhases ph = sun_phases(s, direction);
+    const PlanetShadows sh = planet_shadows(s, s.origin.xyz, max(s.origin.w, 0.001), direction);
     float3 luminance = float3(0.0, 0.0, 0.0);
     float3 transmittance = float3(1.0, 1.0, 1.0);
     float previous = 0.0;  // km into the air
@@ -53,7 +54,9 @@ void aerial_volume(uint3 id: SV_DispatchThreadID) {
             }
             const Medium m = medium_at(s.atmosphere, height);
             const float3 step_transmittance = exp(-m.extinction * dt);
-            const float3 in_scatter = planet_in_scatter(s, p, m, ph) * sky_visibility_at(s, t);
+            const float t0 = ray.t_in + previous + float(j) * dt;
+            const float3 in_scatter =
+                planet_in_scatter(s, s.origin.xyz, direction, t0, t0 + dt, m, ph, sh) * sky_visibility_at(s, t);
             luminance += transmittance * (in_scatter - in_scatter * step_transmittance) / max(m.extinction, 1e-9);
             transmittance *= step_transmittance;
         }

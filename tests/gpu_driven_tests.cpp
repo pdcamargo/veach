@@ -5,6 +5,7 @@
 #include "support/test_support.hpp"
 #include "test_shaders.hpp"
 
+#include <chrono>
 #include <veach/render/readback.hpp>
 #include <veach/render/render_graph.hpp>
 #include <veach/render/renderer.hpp>
@@ -12,6 +13,7 @@
 #include <doctest/doctest.h>
 
 #include <array>
+#include <chrono>
 #include <cstring>
 #include <span>
 #include <thread>
@@ -381,9 +383,10 @@ TEST_CASE("[rhi.AC4] is_complete never waits") {
             const rhi::SubmissionId id = device->submit(std::move(cmd));
             device->end_frame();
             CHECK_FALSE(device->is_complete({id.value + 1}));
-            // Poll only; the GPU finishes a 64-thread dispatch in well under the bound.
+            // Poll only, bounded by wall time: WARP on a loaded CI runner can take far longer than an Apple GPU.
             bool complete = false;
-            for (int i = 0; i < 100000 && !complete; ++i) {
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+            while (!complete && std::chrono::steady_clock::now() < deadline) {
                 complete = device->is_complete(id);
                 if (!complete) {
                     std::this_thread::yield();

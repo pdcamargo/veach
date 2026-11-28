@@ -28,3 +28,17 @@ void sphere_probe(uint3 id: SV_DispatchThreadID) {
     const bool blocks = sphere_blocks(a.xyz, b.xyz, b.w);
     probe.results[id.x] = float4(t0, t1, hit ? 1.0 : 0.0, blocks ? 1.0 : 0.0);
 }
+
+/// atmosphere.AC1: sphere_shadow_span. Three per query: (origin.xyz, c), (direction.xyz, 0), (l.xyz, 0); results are
+/// (enter, leave, 0, 0).
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void shadow_probe(uint3 id: SV_DispatchThreadID) {
+    if (id.x >= probe.count) {
+        return;
+    }
+    const float4 a = probe.queries[3 * id.x];
+    const float4 b = probe.queries[3 * id.x + 1];
+    const float4 c = probe.queries[3 * id.x + 2];
+    probe.results[id.x] = float4(sphere_shadow_span(a.xyz, b.xyz, a.w, c.xyz), 0.0, 0.0);
+}

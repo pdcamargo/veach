@@ -21,6 +21,7 @@
 #include <veach/space/universe.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <filesystem>
@@ -710,7 +711,7 @@ private:
 
     // ---- The demo's extra views, after the landing and the dig (VEACH_SLICE_SHOTS only) ------------------------
 
-    static constexpr std::uint32_t tour_views = 6;
+    static constexpr std::uint32_t tour_views = 7;
 
     static const char* tour_name(std::uint32_t view) {
         switch (view) {
@@ -719,7 +720,8 @@ private:
             case 3: return "sunset_300m";
             case 4: return "dusk_sun_-3";
             case 5: return "twilight_sun_-6";
-            default: return "twilight_sun_-10";
+            case 6: return "twilight_sun_-10";
+            default: return "night_sun_-18";
         }
     }
 
@@ -749,10 +751,11 @@ private:
             up_hint = up;
             return;
         }
-        // A point on the planet where the sun is 2 degrees up (sunset), or 3, 6 and 10 degrees down (dusk and
-        // twilight), on the great circle through the site and the sun. At sunset, looking toward the sun along the
-        // horizon; in twilight, away from it 30 degrees up, where the stars come out.
-        const double elevation = (tour_ == 3 ? 2.0 : tour_ == 4 ? -3.0 : tour_ == 5 ? -6.0 : -10.0) * deg;
+        // A point on the planet where the sun is 2 degrees up (sunset), or 3, 6, 10 and 18 degrees down (dusk,
+        // twilight and the end of astronomical twilight), on the great circle through the site and the sun. At sunset,
+        // looking toward the sun along the horizon; in twilight, away from it 30 degrees up, where the stars come out.
+        constexpr std::array<double, 5> elevations{2.0, -3.0, -6.0, -10.0, -18.0};  // views 3 to 7
+        const double elevation = elevations.at(tour_ - 3) * deg;
         const dvec3 site_up = unit(site_);
         dvec3 axis = math::cross(sun, site_up);
         axis = length(axis) > 1e-6 ? unit(axis) : site_east_;

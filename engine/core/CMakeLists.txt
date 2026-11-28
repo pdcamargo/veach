@@ -20,7 +20,8 @@ if(MSVC)
 endif()
 
 # Conventions from ADR 0013 must be identical in every translation unit.
-target_compile_definitions(veach_core PUBLIC GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_RADIANS GLM_FORCE_XYZW_ONLY)
+target_compile_definitions(veach_core PUBLIC GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_RADIANS GLM_FORCE_XYZW_ONLY
+    GLM_FORCE_EXPLICIT_CTOR)
 
 if(VEACH_TRACY)
     target_link_libraries(veach_core PUBLIC Tracy::TracyClient)

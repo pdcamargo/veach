@@ -2,6 +2,8 @@
 #include <veach/runtime/mcp_server.hpp>
 #include <veach/runtime/mcp_tools.hpp>
 
+#include "frames_tool.hpp"
+
 #include <veach/asset/asset_server.hpp>
 #include <veach/asset/scene.hpp>
 #include <veach/asset/texture.hpp>
@@ -195,6 +197,7 @@ Result<> Engine::init() {
             mcp_tools_ = std::make_unique<McpTools>();
             services_.provide<McpTools>(*mcp_tools_);  // before any module, so every module can add MCP tools
             world_->import<CoreModule>();
+            register_frames_tool(*mcp_tools_);
             phases_.register_phases(*world_);
             world_->import<PlatformModule>();
             world_->set<Time>({});

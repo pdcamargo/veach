@@ -1,6 +1,6 @@
 #pragma once
 
-// Cameras (docs/specs/render-views/spec.md). A Camera looks down its GlobalTransform's -Z with +Y up,
+// Cameras (docs/specs/render-views/spec.md). A Camera looks down its FrameTransform's -Z with +Y up,
 // through an infinite reverse-Z perspective (ADR 0013). Extraction turns active cameras into
 // render::RenderView; gameplay only writes the component.
 

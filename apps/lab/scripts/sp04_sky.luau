@@ -29,13 +29,13 @@ veach.system("Sp04Sky", "PostSimulation", veach.query(c.SunObserver), function(_
 		north = math.atan2(hz, -hx),
 	})
 	helmet:set(c.Transform, {
-		translation = vector.create(2 * hx, 0, 2 * hz),
+		translation = veach.position(2 * hx, 0, 2 * hz),
 		rotation = veach.quat.look_rotation(vector.create(hx, 0, hz)), -- its face (+Z) toward the camera
 		scale = vector.one,
 	})
 	-- Look toward the sun's azimuth, 20 degrees up.
 	camera:set(c.Transform, {
-		translation = vector.create(0, 0.3, 0),
+		translation = veach.position(0, 0.3, 0),
 		rotation = veach.quat.look_rotation(vector.create(hx, math.tan(math.rad(20)), hz)),
 		scale = vector.one,
 	})

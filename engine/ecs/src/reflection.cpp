@@ -59,6 +59,14 @@ void register_builtin_reflection(World& world) {
         .member(&math::vec4::y, "y")
         .member(&math::vec4::z, "z")
         .member(&math::vec4::w, "w");
+    world.component<math::dvec3>("veach::math::dvec3")
+        .member(&math::dvec3::x, "x")
+        .member(&math::dvec3::y, "y")
+        .member(&math::dvec3::z, "z");
+    world.component<math::mat3>("veach::math::mat3")
+        .member<math::vec3>("c0", 1, 0)
+        .member<math::vec3>("c1", 1, sizeof(math::vec3))
+        .member<math::vec3>("c2", 1, 2 * sizeof(math::vec3));
     // glm keeps a matrix's columns private, so its members are declared by offset: c0..c3, column-major.
     world.component<math::mat4>("veach::math::mat4")
         .member<math::vec4>("c0", 1, 0)
@@ -70,6 +78,11 @@ void register_builtin_reflection(World& world) {
         .member(&math::quat::y, "y")
         .member(&math::quat::z, "z")
         .member(&math::quat::w, "w");
+    world.component<math::dquat>("veach::math::dquat")
+        .member(&math::dquat::x, "x")
+        .member(&math::dquat::y, "y")
+        .member(&math::dquat::z, "z")
+        .member(&math::dquat::w, "w");
 }
 
 ValueKind value_kind(const World& world, ecs::entity_t type) {
@@ -81,6 +94,9 @@ ValueKind value_kind(const World& world, ecs::entity_t type) {
     }
     if (type == world.id<math::vec3>()) {
         return ValueKind::vec3;
+    }
+    if (type == world.id<math::dvec3>()) {
+        return ValueKind::dvec3;
     }
     const EcsType* t = ecs_get(world.c_ptr(), type, EcsType);
     if (!t) {
@@ -171,6 +187,7 @@ std::string type_name(const World& world, ecs::entity_t type) {
     switch (value_kind(world, type)) {
         case ValueKind::string: return "string";
         case ValueKind::vec3: return "vec3";
+        case ValueKind::dvec3: return "dvec3";
         case ValueKind::entity: return "entity";
         default: break;
     }

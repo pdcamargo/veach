@@ -121,6 +121,10 @@ running window. Look at screenshots you take; a successful call is not a correct
   [ARCHITECTURE.md](docs/ARCHITECTURE.md#toolbox-architecture-decided-in-the-research-phase) and [docs/research/00-synthesis.md](docs/research/00-synthesis.md)
   before toolbox work. Validate a decision with its spike (VCH-077 to VCH-097) before building on it. What the GPU
   layer can do: [docs/reference/rhi-capabilities.md](docs/reference/rhi-capabilities.md).
+- **Positions are doubles in reference frames** ([ADR 0045](docs/adr/0045-large-world-positions-and-reference-frames.md),
+  [frames](docs/specs/frames/spec.md)). `Transform.translation` is a `dvec3` (a `Position` in Luau); `FrameTransform` is
+  the pose in the entity's frame, not a world pose. Compare entities in different frames with `veach::frame_pose`, and
+  never read `math::world_up` or `view.position.y` as "up" or altitude outside a flat frame.
 - **Determinism has tiers** ([ADR 0043](docs/adr/0043-determinism-tiers-and-strict-floating-point.md)): canonical
   code (seeds, generation records, orbits, terrain density, edits, generator hooks) must be bit-identical on Mac and
   Windows, uses `veach::dmath` and counter-based hashing, never platform `sin`/`exp` or a shared random stream; GPU

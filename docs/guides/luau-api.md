@@ -174,6 +174,49 @@ match C++ exactly. Conventions: right-handed, +Y up, −Z forward, radians.
 | `inverse(q)`, `normalize(q)` | |
 | `look_rotation(forward: vector, up: vector?)` | The rotation that turns −Z to `forward`, keeping +Y close to `up`. |
 
+### Positions and reference frames: `veach.position`, `veach.frames`
+
+Positions are doubles relative to a reference frame ([ADR 0045](../adr/0045-large-world-positions-and-reference-frames.md),
+[ADR 0046](../adr/0046-64-bit-values-across-luau-json-mcp.md), [frames](../specs/frames/spec.md)). In Luau they are a
+`Position` userdata, which is what `Transform.translation` (and every other double vector field) holds; `vector` stays
+float32 for offsets, directions, velocities and shapes.
+
+| Expression | Result |
+|---|---|
+| `veach.position(x, y, z)`, `veach.position(v: vector)` | A `Position` (three doubles; a vector converts exactly) |
+| `p.x`, `p.y`, `p.z` | Numbers, exact (Luau numbers are doubles). A `Position` is immutable. |
+| `p + v`, `p - v` (`v: vector`) | A `Position`: moved by an offset |
+| `p - q` | A `vector`: the difference computed in double, then float32, so it stays precise however far both are from the origin |
+| `p == q`, `tostring(p)` | Exact comparison; `Position(149597870700.125, 2, 3)` with round-trip digits |
+
+`p + q` and scaling a `Position` are errors (in the type checker, and at run time with a hint). Writing a `vector`
+where a `Position` belongs fails with `script.invalid_value`: use `veach.position(...)`. A `Position` default declares a
+double field in a script component: `veach.component("Waypoint", { at = veach.position(0, 0, 0) })`.
+
+A frame is an entity with `ReferenceFrame` (`kind` `"inertial" | "rotating"`, `up` `"axis_y" | "radial"`, `position`,
+`orientation`, `linear_velocity`, `angular_velocity`, relative to its parent frame). Children of a frame live in it.
+`FrameSpin` (`tilt`, `rate`, `phase`) spins a frame from exact tick time. `nil` is the root world.
+
+| Function | Result |
+|---|---|
+| `veach.frames.of(e) -> Entity?` | The frame `e` lives in (its nearest frame ancestor; for a frame, its parent frame) |
+| `veach.frames.convert(p, from?, to?) -> Position` | `p` given in frame `from`, expressed in frame `to`, composed in double through their common ancestor |
+| `veach.frames.offset(a, b) -> vector` | Where `b` is relative to `a`, in the frame `a` lives in |
+| `veach.frames.up(frame?, p) -> vector` | "Up" at `p`: +Y in the root and `axis_y` frames, away from the origin in `radial` (body) frames |
+
+```lua
+local ship = veach.spawn("ship")
+ship:set(veach.components.ReferenceFrame, { kind = "inertial", up = "axis_y",
+	position = veach.position(1.496e11, 0, 0), orientation = veach.quat.identity(),
+	linear_velocity = veach.position(0, 0, 29780), angular_velocity = veach.position(0, 0, 0) })
+local pilot = veach.spawn({ name = "pilot", parent = ship } :: veach.SpawnOptions)
+pilot:set(veach.components.Transform, { translation = veach.position(0, 1.8, 0),
+	rotation = veach.quat.identity(), scale = vector.one })
+```
+
+`ReferenceFrame`'s velocities are double vectors too, so they are `Position` values in Luau (read them with `.x`,
+`.y`, `.z`). Moving an entity between frames without a jump (the handoff) is C++ for now: `veach::handoff`.
+
 ### `veach.log.debug / info / warn / error(message: string)`
 
 Logs under category `script`. Anything logged at `error` makes the process exit with code 1.
@@ -194,7 +237,9 @@ C++ components tagged `veach::Scriptable` (all fields Luau-representable). The e
 
 - `Window` (`title`, `width`, `height`, `mode: "windowed" | "fullscreen"`, `vsync`)
 - `RelativeMouse` (`enabled`), on a window: captures the cursor and reports mouse motion as deltas (mouse look)
-- `Transform` (`translation: vector`, `rotation: { x, y, z, w }` quaternion, `scale: vector`)
+- `Transform` (`translation: Position`, `rotation: { x, y, z, w }` quaternion, `scale: vector`), relative to the
+  parent; see [Positions and reference frames](#positions-and-reference-frames-veachposition-veachframes)
+- `ReferenceFrame` and `FrameSpin`: reference frames (above)
 - `Camera` (`fov_y` radians, `near_plane` meters, `active`, `ev100` exposure, or 0 to derive it from `aperture`
   f-number, `shutter` seconds and `iso`); see [render-views](../specs/render-views/spec.md) and
   [ADR 0037](../adr/0037-exposure-and-agx.md)
@@ -219,7 +264,7 @@ C++ components tagged `veach::Scriptable` (all fields Luau-representable). The e
 ```lua
 local camera = veach.spawn("camera")
 camera:set(veach.components.Transform, {
-	translation = vector.create(1.5, -0.05, 2.6),
+	translation = veach.position(1.5, -0.05, 2.6),
 	rotation = { x = 0, y = 0.258819, z = 0, w = 0.965926 }, -- 30° about +Y
 	scale = vector.create(1, 1, 1),
 })

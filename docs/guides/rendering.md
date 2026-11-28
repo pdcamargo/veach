@@ -21,8 +21,16 @@ Render:   RenderGraph: "clear" -> every RenderFeature::record() -> "present" / "
 
 **Cameras.** A `veach::Camera` on an entity with a `veach::Transform` becomes a `render::RenderView` (view and
 projection matrices, reverse-Z, infinite far plane). `FrameContext::view` is the primary one, or null when no
-camera is active: a feature that draws in world space multiplies by `view->view_projection` (or unprojects with
+camera is active: a feature that draws in render space multiplies by `view->view_projection` (or unprojects with
 `inverse_view_projection` for rays) and falls back to identity. Spec: [render-views](../specs/render-views/spec.md).
+
+**Render space, not world space.** Positions are doubles in reference frames ([frames](../specs/frames/spec.md),
+ADR 0045). Extraction picks one render origin per frame, the primary camera's position in its frame rounded to a 64 m
+grid, and puts every view, draw and light relative to it, in that frame's axes (`RenderWorld::space`), computing in
+double and casting to float32. So the GPU never sees a large number, and a flat scene near the origin renders exactly
+as before. Use `view.height_in_frame` and `view.up` for altitude-like quantities, never `view.position.y`. A module that
+draws its own content gets it into render space with `render::RenderSpaceMap(world, out.space)` (`matrix(pose)`,
+`point(frame, p)`); keep GPU vertices relative to small local origins and rebase only the origins.
 
 Gameplay never sees GPU handles. A module gets data across by registering an **extractor**, which copies
 components into a type stored in `RenderWorld`. It draws by adding a **feature**:

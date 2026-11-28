@@ -6,10 +6,11 @@
 
 ## Summary
 
-`Transform` is an entity's pose relative to its parent. `GlobalTransform` is its world pose, computed by
-TransformPropagation, parents before children. Scripts build hierarchies with `veach.spawn{ parent = e }`, walk
+`Transform` is an entity's pose relative to its parent. `FrameTransform` is its pose in its reference frame,
+computed by TransformPropagation, parents before children (it replaced `GlobalTransform`, the world pose, with
+[frames](../frames/spec.md), VCH-111: translations are doubles and there is no world pose). Scripts build hierarchies with `veach.spawn{ parent = e }`, walk
 them with `e:parent()` and `e:children()`, and compose rotations with `veach.quat`. Cameras read
-`GlobalTransform`.
+`FrameTransform`.
 
 ## Motivation
 
@@ -18,9 +19,10 @@ A camera on a rig, a weapon on a hand and a light on a lamp all need poses relat
 
 ## Requirements
 
-- Every entity with `Transform` MUST also have `GlobalTransform` (Flecs `With` trait); nothing writes it but the
+- Every entity with `Transform` MUST also have `FrameTransform` (Flecs `With` trait); nothing writes it but the
   propagation.
-- `GlobalTransform = parent.GlobalTransform * Transform.matrix()` (ChildOf), or `Transform.matrix()` at the root.
+- `FrameTransform = parent.FrameTransform * Transform` (ChildOf; translation in double, basis in float32), or the
+  `Transform` at the root of a chain and directly under a frame.
   Parents MUST be computed before children (`cascade`), so any depth settles in one pass.
 - Propagation MUST run in the `TransformPropagation` phase (per fixed step, for gameplay) and again in
   `PreExtract` (per frame), so a pose written in any phase reaches extraction in the same frame.
@@ -33,12 +35,12 @@ A camera on a rig, a weapon on a hand and a light on a lamp all need poses relat
 
 ## Acceptance criteria
 
-- **transform.AC1**: Setting `Transform` adds `GlobalTransform`. After propagation, a root's GlobalTransform
-  equals its Transform matrix.
+- **transform.AC1**: Setting `Transform` adds `FrameTransform`. After propagation, a root's FrameTransform
+  equals its Transform.
 - **transform.AC2**: In a three-level hierarchy (a translated and rotated parent, a child, a scaled grandchild),
-  each GlobalTransform is its parent's times its local, in one propagation.
+  each FrameTransform is its parent's times its local, in one propagation.
 - **transform.AC3**: A script spawns a rig and a child with `veach.spawn{ parent = rig }` and moves the rig in
-  the per-frame `Input` phase. After that frame, the child's GlobalTransform already follows the rig. `parent()`
+  the per-frame `Input` phase. After that frame, the child's FrameTransform already follows the rig. `parent()`
   and `children()` report the hierarchy.
 - **transform.AC4**: `veach.quat` helpers: rotating −Z by `from_axis_angle(+Y, π/2)` gives −X, and so does
   `from_euler(π/2, 0)`. `look_rotation(+X)` turns −Z to +X. `mul(inverse(q), q)` is the identity. A

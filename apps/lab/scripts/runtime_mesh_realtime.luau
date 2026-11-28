@@ -9,7 +9,7 @@ local veach = require("@veach")
 local c = veach.components
 
 local patch = veach.spawn("patch")
-patch:set(c.Transform, { translation = vector.zero, rotation = veach.quat.identity(), scale = vector.one })
+patch:set(c.Transform, { translation = veach.position(0, 0, 0), rotation = veach.quat.identity(), scale = vector.one })
 patch:set(c.RuntimeMeshDemo, { size = 8, cells = 64, height = 0, rock_above = 0.15 })
 
 veach.system("RaiseRelief", "Simulation", veach.query(c.RuntimeMeshDemo), function(e, demo)
@@ -20,7 +20,7 @@ end)
 
 local camera = veach.spawn("camera")
 camera:set(c.Transform, {
-	translation = vector.create(0, 3, 7.5),
+	translation = veach.position(0, 3, 7.5),
 	rotation = veach.quat.look_rotation(vector.create(0, -2.7, -7.5)),
 	scale = vector.one,
 })

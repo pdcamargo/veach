@@ -7,11 +7,13 @@
 #include <veach/core/suggest.hpp>
 #include <veach/ecs/command_buffer.hpp>
 #include <veach/ecs/components.hpp>
+#include <veach/ecs/frames.hpp>
 #include <veach/ecs/phases.hpp>
 #include <veach/ecs/reflection.hpp>
 #include <veach/platform/input.hpp>
 
 #include "marshal.hpp"
+#include "position.hpp"
 
 #include <lua.h>
 #include <lualib.h>
@@ -31,9 +33,9 @@ namespace {
 using script::entity_tag;
 constexpr std::size_t max_query_components = 4;
 
-constexpr std::array<std::string_view, 16> api_function_names{
-    "component", "query", "system", "spawn", "log",    "time",     "components", "f32",
-    "f64",       "i32",   "u32",    "vec3",  "entity", "optional", "quat",       "input",
+constexpr std::array<std::string_view, 18> api_function_names{
+    "component", "query", "system", "spawn",  "log",      "time", "components", "f32",      "f64",
+    "i32",       "u32",   "vec3",   "entity", "optional", "quat", "input",      "position", "frames",
 };
 
 /// Explicit field types: veach.f32(...) and friends return a marker the
@@ -284,11 +286,16 @@ struct ScriptRuntime::Impl {
             case LUA_TNUMBER: return world.id<double>();
             case LUA_TSTRING: return world.id<std::string>();
             case LUA_TVECTOR: return world.id<math::vec3>();
+            case LUA_TUSERDATA:
+                if (script::to_position(S, index) != nullptr) {
+                    return world.id<math::dvec3>();
+                }
+                [[fallthrough]];
             default:
                 raise(S, ErrorCode::script_unsupported_field,
                       std::format("component '{}': field '{}' has a default of type {}", component, field,
                                   luaL_typename(S, index)),
-                      "Use a boolean, number, string or vector default, or an explicit type: veach.f32(), "
+                      "Use a boolean, number, string, vector or Position default, or an explicit type: veach.f32(), "
                       "veach.i32(), veach.u32(), veach.f64(), veach.vec3(), veach.entity(), veach.optional(...).");
         }
     }
@@ -659,6 +666,65 @@ struct ScriptRuntime::Impl {
         return push_quat(S, math::quatLookAtRH(math::normalize(forward), math::normalize(up)));
     }
 
+    // ---- bindings: veach.frames (docs/specs/frames/spec.md) ----------------------
+
+    /// An optional frame argument: nil is the root world.
+    Entity check_frame(lua_State* S, int index) {
+        if (lua_isnoneornil(S, index)) {
+            return Entity{};
+        }
+        return world.entity(check_entity(S, index));
+    }
+
+    [[noreturn]] static void raise_error(lua_State* S, const Error& error) {
+        raise(S, error.code, error.message, error.hint);
+    }
+
+    static int frames_of(lua_State* S) {
+        Impl& rt = self(S);
+        const Entity frame = frame_of(rt.world, rt.world.entity(check_entity(S, 1)));
+        if (!frame) {
+            lua_pushnil(S);
+        } else {
+            rt.push_entity(S, frame.id());
+        }
+        return 1;
+    }
+
+    static int frames_convert(lua_State* S) {
+        Impl& rt = self(S);
+        const math::dvec3 p = script::check_position(S, 1, "veach.frames.convert");
+        const auto pose = frame_pose(rt.world, rt.check_frame(S, 2), rt.check_frame(S, 3));
+        if (!pose) {
+            raise_error(S, pose.error());
+        }
+        script::push_position(S, pose->point(p));
+        return 1;
+    }
+
+    static int frames_offset(lua_State* S) {
+        Impl& rt = self(S);
+        const auto d = offset(rt.world, rt.world.entity(check_entity(S, 1)), rt.world.entity(check_entity(S, 2)));
+        if (!d) {
+            raise_error(S, d.error());
+        }
+        const math::vec3 v(*d);
+        lua_pushvector(S, v.x, v.y, v.z);
+        return 1;
+    }
+
+    static int frames_up(lua_State* S) {
+        Impl& rt = self(S);
+        const Entity frame = rt.check_frame(S, 1);
+        if (frame && !frame.has<ReferenceFrame>()) {
+            raise(S, ErrorCode::ecs_not_a_frame, "veach.frames.up: the entity is not a reference frame",
+                  "Pass a frame (veach.frames.of(e) gives an entity's), or nil for the root world.");
+        }
+        const math::vec3 u(up(rt.world, frame, script::check_position(S, 2, "veach.frames.up")));
+        lua_pushvector(S, u.x, u.y, u.z);
+        return 1;
+    }
+
     static int api_log(lua_State* S) {
         const auto level = static_cast<log::Level>(lua_tointeger(S, lua_upvalueindex(2)));
         log::write(level, "script", luaL_checkstring(S, 1));
@@ -839,6 +905,7 @@ struct ScriptRuntime::Impl {
         lua_setreadonly(L, -1, 1);
         entity_metatable_ref = lua_ref(L, -1);
         lua_setuserdatametatable(L, entity_tag);  // pops; new Entity userdata get it for free
+        script::open_position(L);
 
         // The @veach module.
         lua_createtable(L, 0, static_cast<int>(api_function_names.size()));
@@ -899,6 +966,22 @@ struct ScriptRuntime::Impl {
         }
         lua_setreadonly(L, -1, 1);
         lua_setfield(L, -2, "quat");
+
+        lua_pushcfunction(L, script::api_position, "position");
+        lua_setfield(L, -2, "position");
+        constexpr std::array<std::pair<const char*, lua_CFunction>, 4> frame_functions{{
+            {"of", frames_of},
+            {"convert", frames_convert},
+            {"offset", frames_offset},
+            {"up", frames_up},
+        }};
+        lua_createtable(L, 0, static_cast<int>(frame_functions.size()));
+        for (const auto& [fn_name, fn] : frame_functions) {
+            push_function(fn, fn_name);
+            lua_setfield(L, -2, fn_name);
+        }
+        lua_setreadonly(L, -1, 1);
+        lua_setfield(L, -2, "frames");
 
         constexpr std::array<std::pair<const char*, lua_CFunction>, 5> input_functions{{
             {"down", input_down},

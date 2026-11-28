@@ -76,6 +76,24 @@ Add reflection for every listed component: `world.component<T>().member(&T::fiel
 
 Phases are fixed: Startup, Input, Simulation, PostSimulation, TransformPropagation, PreExtract, Extract, Render, Shutdown. The hint suggests the closest one.
 
+## ecs.not_a_frame
+
+**An entity given as a reference frame has no ReferenceFrame.**
+
+`frame_pose`, `handoff`, `veach.frames.convert` and `veach.frames.up` take a frame: an entity with `ReferenceFrame`, or nil (C++: a null `Entity`) for the root world. Pass the frame itself, not an entity inside it (`veach.frames.of(e)` finds that). See [docs/specs/frames/spec.md](../specs/frames/spec.md).
+
+## ecs.frame_has_transform
+
+**A ReferenceFrame entity also has a Transform, which the frame ignores.**
+
+A frame's pose relative to its parent frame is its `ReferenceFrame` (`position`, `orientation`); its children start from the identity. Remove the `Transform`, and move the frame by writing `ReferenceFrame`. Put a mesh for the frame (a ship's hull) on a child entity.
+
+## ecs.handoff_name_conflict
+
+**A handoff would put an entity next to a sibling with the same name.**
+
+Names are unique among siblings. Rename the entity, or the sibling in the target frame, before handing it off.
+
 ## platform.init_failed
 
 **The platform backend failed to initialize.**

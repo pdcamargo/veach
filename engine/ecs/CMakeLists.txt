@@ -2,6 +2,7 @@ veach_add_engine_library(ecs
     SOURCES
         src/command_buffer.cpp
         src/core_module.cpp
+        src/frames.cpp
         src/json.cpp
         src/phases.cpp
         src/reflection.cpp

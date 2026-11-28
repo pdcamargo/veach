@@ -27,6 +27,11 @@ VEACH_ERROR(mcp_invalid_arguments, "mcp.invalid_arguments", "An MCP tool call ha
 VEACH_ERROR(mcp_duplicate_tool, "mcp.duplicate_tool", "A module registered an MCP tool name that is already taken")
 VEACH_ERROR(mcp_invalid_tool, "mcp.invalid_tool", "A module registered an MCP tool with a bad name, schema or handler")
 VEACH_ERROR(ecs_unknown_phase, "ecs.unknown_phase", "A system was attached to a phase that does not exist")
+VEACH_ERROR(ecs_not_a_frame, "ecs.not_a_frame", "An entity given as a reference frame has no ReferenceFrame")
+VEACH_ERROR(ecs_frame_has_transform, "ecs.frame_has_transform",
+            "A ReferenceFrame entity also has a Transform, which the frame ignores")
+VEACH_ERROR(ecs_handoff_name_conflict, "ecs.handoff_name_conflict",
+            "A handoff would put an entity next to a sibling with the same name")
 
 VEACH_ERROR(platform_init_failed, "platform.init_failed", "The platform backend failed to initialize")
 VEACH_ERROR(platform_window_failed, "platform.window_failed", "The OS window could not be created")

@@ -18,6 +18,7 @@
 #include <veach/ecs/command_buffer.hpp>
 #include <veach/ecs/components.hpp>
 #include <veach/ecs/flecs.hpp>
+#include <veach/ecs/frames.hpp>
 #include <veach/ecs/json.hpp>
 #include <veach/ecs/module.hpp>
 #include <veach/ecs/phases.hpp>

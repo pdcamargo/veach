@@ -17,6 +17,7 @@ add_executable(veach-tests
     jobs_tests.cpp
     scene_tests.cpp
     script_tests.cpp
+    frames_tests.cpp
     sky_tests.cpp
     sp10_atmosphere_tests.cpp  # spike SP-10 (VCH-086)
     sp14_depth_tests.cpp  # spike SP-14 (VCH-090)
@@ -355,6 +356,12 @@ target_link_libraries(veach-bench-script PRIVATE veach::veach)
 set_target_properties(veach-bench-script PROPERTIES FOLDER "tests")
 veach_apply_warnings(veach-bench-script)
 
+# Transform propagation over 100k entities: flat, wide and deep hierarchies (docs/specs/frames/spec.md).
+add_executable(veach-bench-transforms bench/transform_bench.cpp)
+target_link_libraries(veach-bench-transforms PRIVATE veach::veach)
+set_target_properties(veach-bench-transforms PROPERTIES FOLDER "tests")
+veach_apply_warnings(veach-bench-transforms)
+
 # veach::JobSystem: ms and speedup of the canonical 10^7-item workload per thread count (ADR 0073).
 add_executable(veach-bench-jobs bench/jobs_bench.cpp)
 target_link_libraries(veach-bench-jobs PRIVATE veach::core)
@@ -373,11 +380,7 @@ if(NOT VEACH_SANITIZE AND NOT VEACH_LEAK_CHECK)
     add_test(NAME "dmath: 10^7-input hashes match the committed ones" COMMAND veach-bench-dmath --hash-only)
     set_tests_properties("dmath: 10^7-input hashes match the committed ones" PROPERTIES LABELS full TIMEOUT 900)
 endif()
-# Spike SP-03 (VCH-079), throwaway: float vs double propagation, and a Luau Position userdata vs vector.
-add_executable(veach-bench-sp03-propagation bench/sp03_propagation_bench.cpp)
-target_link_libraries(veach-bench-sp03-propagation PRIVATE veach::veach)
-set_target_properties(veach-bench-sp03-propagation PROPERTIES FOLDER "tests")
-veach_apply_warnings(veach-bench-sp03-propagation)
+# Spike SP-03 (VCH-079), throwaway: a Luau Position userdata vs vector (propagation: veach-bench-transforms).
 add_executable(veach-bench-sp03-position bench/sp03_position_bench.cpp)
 target_link_libraries(veach-bench-sp03-position PRIVATE Luau.VM Luau.Compiler)
 set_target_properties(veach-bench-sp03-position PROPERTIES FOLDER "tests")

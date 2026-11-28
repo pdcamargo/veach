@@ -25,7 +25,7 @@ struct MeshInstance {
 };
 
 /// Draws a mesh made at run time (render::MeshStore, docs/specs/runtime-meshes/spec.md) at the entity's
-/// GlobalTransform, with the materials the mesh was submitted with. The store owns the mesh: removing this component
+/// FrameTransform, with the materials the mesh was submitted with. The store owns the mesh: removing this component
 /// does not free it, and a removed mesh draws nothing. Not Scriptable.
 struct RuntimeMeshInstance {
     AssetId mesh;

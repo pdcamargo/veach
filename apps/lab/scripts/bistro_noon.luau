@@ -10,7 +10,7 @@ veach.spawn("bistro"):set(c.SceneInstance, { path = "assets/bistro/BistroExterio
 
 local camera = veach.spawn("camera")
 camera:set(c.Transform, {
-	translation = vector.create(-3, 2.5, -8),
+	translation = veach.position(-3, 2.5, -8),
 	rotation = veach.quat.look_rotation(vector.create(-10, 4, -21)),
 	scale = vector.one,
 })

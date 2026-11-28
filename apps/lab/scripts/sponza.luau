@@ -10,7 +10,7 @@ veach.spawn("sponza"):set(c.SceneInstance, { path = "assets/sponza/NewSponza_Mai
 
 local camera = veach.spawn("camera")
 camera:set(c.Transform, {
-	translation = vector.create(-8.81, 1.59, -0.86),
+	translation = veach.position(-8.81, 1.59, -0.86),
 	rotation = { x = 0.0623, y = -0.7662, z = 0.0752, w = 0.6351 }, -- the scene's PhysCamera001
 	scale = vector.one,
 })
@@ -19,7 +19,7 @@ camera:set(c.Camera, { fov_y = math.rad(55), near_plane = 0.05, active = true, e
 -- The sun, down the direction of the scene's own (disabled) directional light; daylight sky for the ambient.
 local sun = veach.spawn("sun")
 sun:set(c.Transform, {
-	translation = vector.zero,
+	translation = veach.position(0, 0, 0),
 	rotation = veach.quat.look_rotation(vector.create(0.551, -0.828, 0.105)),
 	scale = vector.one,
 })

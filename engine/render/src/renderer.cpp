@@ -64,7 +64,7 @@ void spawn_scene(Entity root, const SceneInstance& instance) {
             name = std::format("{} ({})", node.name.empty() ? std::format("node {}", index) : node.name, k);
         }
         e.set_name(name.c_str());
-        e.set(Transform{node.translation, node.rotation, node.scale});
+        e.set(Transform{math::dvec3(node.translation), node.rotation, node.scale});
         if (node.mesh) {
             e.set(MeshInstance{handle.id, index});
         }
@@ -140,6 +140,76 @@ void resolve_sky(const World& world, RenderWorld& out) {
 
 }  // namespace
 
+math::dvec3 render_origin(const math::dvec3& position) {
+    constexpr double cell = 64.0;
+    if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z)) {
+        return math::dvec3(0.0);
+    }
+    return math::dvec3(std::round(position.x / cell), std::round(position.y / cell), std::round(position.z / cell)) *
+           cell;
+}
+
+RenderSpaceMap::RenderSpaceMap(const World& world, const RenderSpace& space) : world_(world.c_ptr()), space_(space) {}
+
+const FramePose* RenderSpaceMap::pose_of(std::uint64_t frame) {
+    auto it = poses_.find(frame);
+    if (it == poses_.end()) {
+        const Entity from = frame != 0 ? world_.entity(frame) : Entity{};
+        const Entity to = space_.frame != 0 ? world_.entity(space_.frame) : Entity{};
+        Result<FramePose> pose = frame_pose(world_, from, to);
+        it = poses_.emplace(frame, pose ? std::optional<FramePose>(*pose) : std::nullopt).first;
+    }
+    return it->second ? &*it->second : nullptr;
+}
+
+std::optional<math::vec3> RenderSpaceMap::point(std::uint64_t frame, const math::dvec3& p) {
+    if (frame == space_.frame) {
+        return math::vec3(p - space_.origin);  // the common case: no composition, one subtraction in double
+    }
+    const FramePose* pose = pose_of(frame);
+    if (pose == nullptr) {
+        return std::nullopt;
+    }
+    return math::vec3(pose->point(p) - space_.origin);
+}
+
+std::optional<math::vec3> RenderSpaceMap::direction(std::uint64_t frame, const math::vec3& d) {
+    if (frame == space_.frame) {
+        return d;
+    }
+    const FramePose* pose = pose_of(frame);
+    if (pose == nullptr) {
+        return std::nullopt;
+    }
+    return math::vec3(pose->rotation * math::dvec3(d));
+}
+
+std::optional<math::dmat3> RenderSpaceMap::rotation(std::uint64_t frame) {
+    if (frame == space_.frame) {
+        return math::dmat3(1.0);
+    }
+    const FramePose* pose = pose_of(frame);
+    if (pose == nullptr) {
+        return std::nullopt;
+    }
+    return pose->rotation;
+}
+
+std::optional<math::mat4> RenderSpaceMap::matrix(const FrameTransform& pose) {
+    if (pose.frame == space_.frame) {
+        math::mat4 m(pose.basis);
+        m[3] = math::vec4(math::vec3(pose.translation - space_.origin), 1.0f);
+        return m;
+    }
+    const FramePose* frame = pose_of(pose.frame);
+    if (frame == nullptr) {
+        return std::nullopt;
+    }
+    math::mat4 m(math::mat3(frame->rotation * math::dmat3(pose.basis)));
+    m[3] = math::vec4(math::vec3(frame->point(pose.translation) - space_.origin), 1.0f);
+    return m;
+}
+
 std::pair<std::uint32_t, std::uint32_t> target_size(const RenderWorld& world) {
     return {world.target_width != 0 ? world.target_width : 1280, world.target_height != 0 ? world.target_height : 720};
 }
@@ -164,49 +234,75 @@ Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device) {
     add_extractor("views", [](const World& world, RenderWorld& out) {
         const auto [width, height] = target_size(out);
         const float aspect = static_cast<float>(width) / static_cast<float>(height);
-        std::vector<std::pair<std::uint64_t, RenderView>> views;
+        std::vector<std::pair<std::uint64_t, const Camera*>> cameras;
         world.each([&](Entity e, const Camera& camera) {
-            if (!camera.active) {
-                return;
+            if (camera.active) {
+                cameras.emplace_back(e.id(), &camera);
             }
-            // The camera's world pose without scale: a scaled camera would skew its view.
-            math::mat4 world_from_camera(1.0f);
-            if (const GlobalTransform* global = e.try_get<GlobalTransform>()) {
-                world_from_camera = math::mat4_cast(global->rotation());
-                world_from_camera[3] = math::vec4(global->translation(), 1.0f);
+        });
+        std::ranges::sort(cameras, {}, &std::pair<std::uint64_t, const Camera*>::first);
+        // One render origin per frame (ADR 0045, SP-03): the primary camera's position in its frame, on a 64 m grid.
+        const FrameTransform identity;
+        const auto pose_of = [&](std::uint64_t camera) {
+            const FrameTransform* pose = world.entity(camera).try_get<FrameTransform>();
+            return pose != nullptr ? pose : &identity;
+        };
+        if (!cameras.empty()) {
+            const FrameTransform& primary = *pose_of(cameras.front().first);
+            out.space = {.frame = primary.frame, .origin = render_origin(primary.translation)};
+        }
+        RenderSpaceMap space(world, out.space);
+        for (const auto& [id, camera] : cameras) {
+            const FrameTransform& pose = *pose_of(id);
+            const std::optional<math::vec3> position = space.point(pose.frame, pose.translation);
+            const std::optional<math::dmat3> axes = space.rotation(pose.frame);
+            if (!position || !axes) {
+                continue;  // in a frame render space can't reach (removed this tick)
             }
+            // The camera's pose without scale: a scaled camera would skew its view.
+            math::quat rotation = pose.rotation();
+            if (pose.frame != out.space.frame) {
+                rotation = math::quat(math::normalize(math::quat_cast(*axes) * math::dquat(rotation)));
+            }
+            math::mat4 world_from_camera = math::mat4_cast(rotation);
+            world_from_camera[3] = math::vec4(*position, 1.0f);
             RenderView view;
             view.view = math::inverse(world_from_camera);
-            view.projection = math::perspective_reverse_z(camera.fov_y, aspect, camera.near_plane);
+            view.projection = math::perspective_reverse_z(camera->fov_y, aspect, camera->near_plane);
             view.view_projection = view.projection * view.view;
             view.inverse_view_projection = math::inverse(view.view_projection);
             view.position = math::vec3(world_from_camera[3]);
-            view.near_plane = camera.near_plane;
+            const Entity frame = pose.frame != 0 ? world.entity(pose.frame) : Entity{};
+            const math::dvec3 up_here = up(world, frame, pose.translation);
+            view.height_in_frame = math::dot(up_here, pose.translation);
+            view.up = math::vec3(*axes * up_here);
+            view.near_plane = camera->near_plane;
             view.width = width;
             view.height = height;
-            view.exposure = 1.0f / (1.2f * std::exp2(ev100_of(camera)));
-            if (const PhotoMode* photo = e.try_get<PhotoMode>()) {
+            view.exposure = 1.0f / (1.2f * std::exp2(ev100_of(*camera)));
+            if (const PhotoMode* photo = world.entity(id).try_get<PhotoMode>()) {
                 view.photo_mode = *photo;
             }
-            view.camera = e.id();
-            views.emplace_back(e.id(), view);
-        });
-        std::ranges::sort(views, {}, &std::pair<std::uint64_t, RenderView>::first);
-        for (auto& [id, view] : views) {
+            view.camera = id;
             out.views.push_back(view);
         }
     });
     add_extractor("scene", [this](const World& world, RenderWorld& out) {
+        RenderSpaceMap space(world, out.space);
         const Services* registry = find_services(world);
         const auto* assets = registry ? registry->find<AssetServer>() : nullptr;
         std::vector<std::pair<std::uint64_t, MeshDraw>> draws;
-        world.each([&](Entity e, const MeshInstance& instance, const GlobalTransform& global) {
+        world.each([&](Entity e, const MeshInstance& instance, const FrameTransform& pose) {
             const SceneAsset* scene = assets ? assets->get(Handle<SceneAsset>{instance.scene}) : nullptr;
             if (scene == nullptr || instance.node >= scene->nodes.size() || !scene->nodes[instance.node].mesh) {
                 return;
             }
+            const std::optional<math::mat4> matrix = space.matrix(pose);
+            if (!matrix) {
+                return;
+            }
             const SceneNode& node = scene->nodes[instance.node];
-            MeshDraw draw{.mesh = scene->meshes.at(*node.mesh), .world = global.matrix, .entity = e.id()};
+            MeshDraw draw{.mesh = scene->meshes.at(*node.mesh), .world = *matrix, .entity = e.id()};
             for (const std::uint32_t material : node.materials) {
                 draw.materials.push_back(scene->materials.at(material));
             }
@@ -214,41 +310,52 @@ Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device) {
         });
         // Runtime meshes (MeshStore): the snapshot is the same pointer until the store changes.
         out.runtime_assets = meshes_.snapshot();
-        world.each([&](Entity e, const RuntimeMeshInstance& instance, const GlobalTransform& global) {
+        world.each([&](Entity e, const RuntimeMeshInstance& instance, const FrameTransform& pose) {
             const auto it = out.runtime_assets->meshes.find(instance.mesh);
-            if (it == out.runtime_assets->meshes.end()) {
+            const std::optional<math::mat4> matrix = space.matrix(pose);
+            if (it == out.runtime_assets->meshes.end() || !matrix) {
                 return;  // removed (an evicted terrain chunk): nothing to draw
             }
-            draws.emplace_back(e.id(), MeshDraw{.mesh = instance.mesh,
-                                                .materials = it->second->materials,
-                                                .world = global.matrix,
-                                                .entity = e.id()});
+            draws.emplace_back(
+                e.id(),
+                MeshDraw{
+                    .mesh = instance.mesh, .materials = it->second->materials, .world = *matrix, .entity = e.id()});
         });
         std::ranges::sort(draws, {}, &std::pair<std::uint64_t, MeshDraw>::first);
         for (auto& [id, draw] : draws) {
             out.meshes.push_back(std::move(draw));
         }
-        const auto light = [&](LightKind kind, const GlobalTransform& g, math::vec3 radiance) {
-            RenderLight l{.kind = kind, .position = g.translation(), .radiance = radiance};
-            l.direction = math::normalize(g.rotation() * math::world_forward);
-            return l;
+        const auto light = [&](LightKind kind, const FrameTransform& g,
+                               math::vec3 radiance) -> std::optional<RenderLight> {
+            const std::optional<math::vec3> position = space.point(g.frame, g.translation);
+            const std::optional<math::vec3> direction = space.direction(g.frame, g.rotation() * math::world_forward);
+            if (!position || !direction) {
+                return std::nullopt;
+            }
+            return RenderLight{
+                .kind = kind, .position = *position, .direction = math::normalize(*direction), .radiance = radiance};
         };
-        world.each([&](const DirectionalLight& d, const GlobalTransform& g) {
-            RenderLight l = light(LightKind::directional, g, d.color * d.illuminance);
-            l.size = 0.5f * d.angle;
-            out.lights.push_back(l);
+        world.each([&](const DirectionalLight& d, const FrameTransform& g) {
+            if (std::optional<RenderLight> l = light(LightKind::directional, g, d.color * d.illuminance)) {
+                l->size = 0.5f * d.angle;
+                out.lights.push_back(*l);
+            }
         });
-        world.each([&](const PointLight& p, const GlobalTransform& g) {
-            RenderLight l = light(LightKind::point, g, p.color * p.intensity);
-            l.size = p.radius;
-            out.lights.push_back(l);
+        world.each([&](const PointLight& p, const FrameTransform& g) {
+            if (std::optional<RenderLight> l = light(LightKind::point, g, p.color * p.intensity)) {
+                l->size = p.radius;
+                out.lights.push_back(*l);
+            }
         });
-        world.each([&](const SpotLight& s, const GlobalTransform& g) {
-            RenderLight l = light(LightKind::spot, g, s.color * s.intensity);
-            l.cos_inner = std::cos(s.inner_angle);
-            l.cos_outer = std::cos(s.outer_angle);
-            l.size = s.radius;
-            out.lights.push_back(l);
+        world.each([&](const SpotLight& s, const FrameTransform& g) {
+            std::optional<RenderLight> l = light(LightKind::spot, g, s.color * s.intensity);
+            if (!l) {
+                return;
+            }
+            l->cos_inner = std::cos(s.inner_angle);
+            l->cos_outer = std::cos(s.outer_angle);
+            l->size = s.radius;
+            out.lights.push_back(*l);
         });
         resolve_sky(world, out);
     });

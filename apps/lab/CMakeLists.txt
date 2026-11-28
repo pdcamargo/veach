@@ -3,7 +3,6 @@ veach_add_app(veach-lab
         src/lab_module.cpp
         src/main.cpp
         src/runtime_mesh_demo.cpp
-        src/sp03_spike.cpp
         src/sp04_spike.cpp
         src/sp09_spike.cpp
         src/sp09_terrain.cpp

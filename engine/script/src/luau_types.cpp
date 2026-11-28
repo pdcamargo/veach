@@ -64,6 +64,28 @@ export type QuatApi = {
 	read look_rotation: (forward: vector, up: vector?) -> quat,
 }
 
+--- A point relative to a reference frame, in double precision (ADR 0046). Position + vector and Position - vector
+--- give a Position; Position - Position gives the vector between them. Positions don't add or scale.
+type PositionFields = { read x: number, read y: number, read z: number }
+type PositionOps = {
+	__add: (Position, vector) -> Position,
+	__sub: ((Position, Position) -> vector) & ((Position, vector) -> Position),
+	__eq: (Position, Position) -> boolean,
+}
+export type Position = typeof(setmetatable({} :: PositionFields, {} :: PositionOps))
+
+--- Reference frames (docs/specs/frames/spec.md). A frame is an entity with ReferenceFrame; nil is the root world.
+export type FramesApi = {
+	--- The frame an entity lives in (its nearest ReferenceFrame ancestor; a frame's parent frame), nil for the root.
+	read of: (entity: Entity) -> Entity?,
+	--- A position given in frame `from`, in frame `to`, through their lowest common ancestor in double.
+	read convert: (position: Position, from: Entity?, to: Entity?) -> Position,
+	--- Where `to` is relative to `from`, in the frame `from` lives in.
+	read offset: (from: Entity, to: Entity) -> vector,
+	--- "Up" at a position: +Y in the root world and axis_y frames, away from the origin in radial frames.
+	read up: (frame: Entity?, position: Position) -> vector,
+}
+
 export type SpawnOptions = { name: string?, parent: Entity? }
 
 --- Input actions, bound in veach.project.json: keys under "input" ({ "jump": ["space"] }), analog actions under
@@ -97,6 +119,7 @@ std::string luau_type(const World& world, ecs::entity_t type) {
         case ValueKind::number: return "number";
         case ValueKind::string: return "string";
         case ValueKind::vec3: return "vector";
+        case ValueKind::dvec3: return "Position";
         case ValueKind::enumeration:
         case ValueKind::structure: return type_name(world, type);
         case ValueKind::entity: return "Entity?";
@@ -187,7 +210,8 @@ std::string generate_luau_types(const World& world) {
     out += R"(
 export type Veach = {
 	--- Defines a script component. Each field's type comes from its default (boolean, number = f64,
-	--- string, vector = vec3) or from an explicit type: veach.f32(100), veach.entity(), veach.optional(...).
+	--- string, vector = vec3, Position = dvec3) or from an explicit type: veach.f32(100), veach.entity(),
+	--- veach.optional(...).
 	read component: <T>(name: string, defaults: T) -> Component<T>,
 	--- Explicit field types, for what a default value cannot express. Each one type-checks as the
 	--- value it stores, so `{ hp = veach.f32(100) }` is `{ hp: number }`.
@@ -207,6 +231,9 @@ export type Veach = {
 	--- current invocation succeeds.
 	read spawn: ((name: string?) -> Entity) & ((options: SpawnOptions) -> Entity),
 	read quat: QuatApi,
+	--- A Position from three doubles, or from a vector.
+	read position: ((x: number, y: number, z: number) -> Position) & ((v: vector) -> Position),
+	read frames: FramesApi,
 	read input: InputApi,
 	read log: LogApi,
 	read time: TimeApi,

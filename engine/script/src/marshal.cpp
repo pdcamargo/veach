@@ -1,7 +1,11 @@
 #include "marshal.hpp"
 
+#include "position.hpp"
+
 #include <veach/core/math.hpp>
 #include <veach/core/suggest.hpp>
+
+#include <lualib.h>
 
 #include <cstring>
 #include <format>
@@ -17,6 +21,7 @@ const char* kind_label(ValueKind kind) {
         case ValueKind::number: return "number";
         case ValueKind::string: return "string";
         case ValueKind::vec3: return "vector";
+        case ValueKind::dvec3: return "Position";
         case ValueKind::enumeration: return "string (enum constant)";
         case ValueKind::structure: return "table";
         case ValueKind::entity: return "Entity or nil";
@@ -156,6 +161,7 @@ void Marshal::push(lua_State* L, const TypePlan& plan, const void* ptr) const {
             lua_pushvector(L, v.x, v.y, v.z);
             return;
         }
+        case ValueKind::dvec3: push_position(L, *static_cast<const math::dvec3*>(ptr)); return;
         case ValueKind::enumeration: {
             const auto value = static_cast<std::int64_t>(load_number(plan.primitive, ptr));
             for (const auto& [constant, name] : plan.constants) {
@@ -222,6 +228,17 @@ void Marshal::read(lua_State* L, int index, const TypePlan& plan, void* ptr, con
                 mismatch();
             }
             *static_cast<math::vec3*>(ptr) = math::vec3(v[0], v[1], v[2]);
+            return;
+        }
+        case ValueKind::dvec3: {
+            const math::dvec3* p = to_position(L, index);
+            if (!p) {
+                raise(L, ErrorCode::script_invalid_value,
+                      std::format("'{}' expects a Position, got {}", path.str(), luaL_typename(L, index)),
+                      "Positions are doubles relative to a frame: write veach.position(x, y, z), or "
+                      "veach.position(v) for a vector v.");
+            }
+            *static_cast<math::dvec3*>(ptr) = *p;
             return;
         }
         case ValueKind::enumeration: {

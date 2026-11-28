@@ -240,7 +240,7 @@ SkyResources AtmosphereRenderer::record(RenderGraph& graph, const ResolvedSky& s
     SkyFrame f;
     f.atmosphere = atmosphere_params(sky.settings);
     f.sun = math::vec4(sky.sun_direction, sky.sun_illuminance_top);
-    f.camera = math::vec4(std::max(view.position.y, 0.0f) * 0.001f, 0.0f, 0.0f, 0.0f);
+    f.camera = math::vec4(std::max(static_cast<float>(view.height_in_frame), 0.0f) * 0.001f, 0.0f, 0.0f, 0.0f);
     f.constant = math::vec4(sky.settings.color, 0.0f);
     f.inverse_view_projection = view.inverse_view_projection;
     f.transmittance = device.descriptor(s.targets[transmittance_lut].handle);

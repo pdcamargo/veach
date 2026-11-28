@@ -9,7 +9,7 @@ veach.spawn("triangle"):set(veach.components.TriangleDemo, { mode = "raster" })
 -- 1.5 m right, 0.05 m down and 2.6 m back, turned 30° left (about +Y) to face the triangle at the origin.
 local camera = veach.spawn("camera")
 camera:set(veach.components.Transform, {
-	translation = vector.create(1.5, -0.05, 2.6),
+	translation = veach.position(1.5, -0.05, 2.6),
 	rotation = { x = 0, y = 0.258819, z = 0, w = 0.965926 },
 	scale = vector.create(1, 1, 1),
 })

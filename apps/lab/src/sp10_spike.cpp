@@ -339,7 +339,7 @@ void register_sp10_spike(veach::World& world) {
     }
 
     world.entity("sp10_camera")
-        .set<veach::Transform>({.translation = math::vec3(0.0f), .rotation = camera_rotation(c)})
+        .set<veach::Transform>({.translation = math::dvec3(0.0), .rotation = camera_rotation(c)})
         .set<veach::Camera>(
             {.fov_y = static_cast<float>(c.fov), .near_plane = 0.1f, .ev100 = static_cast<float>(c.ev100)});
     // The renderer draws nothing without a mesh: the helmet stands behind the camera, or in view with HELMET=1.
@@ -348,8 +348,8 @@ void register_sp10_spike(veach::World& world) {
     const math::dvec3 at = c.helmet ? f * 1.6 - c.up * 0.35 + right * 0.45 : -f * 3.0;
     world.entity("sp10_helmet")
         .set<veach::SceneInstance>({.path = "assets/flight_helmet/FlightHelmet.gltf"})
-        .set<veach::Transform>(
-            {.translation = math::vec3(at), .rotation = camera_rotation(c)});  // its face (+Z) toward the camera
+        .set<veach::Transform>({.translation = math::dvec3(math::vec3(at)),
+                                .rotation = camera_rotation(c)});  // its face (+Z) toward the camera
     world.system<veach::Window>("Sp10Size")
         .kind<veach::phase::Startup>()
         .each([w = c.width, h = c.height](veach::Window& window) {

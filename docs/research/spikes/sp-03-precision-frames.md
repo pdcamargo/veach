@@ -7,6 +7,10 @@ camera-relative float32 on the GPU, computed in double at extraction) and
 
 ## What was built (throwaway)
 
+Removed with VCH-111, which implemented ADR 0045 in the engine ([frames](../../specs/frames/spec.md)): the lab module,
+`sp03_ladder.luau` and the propagation bench are gone (their successors are `apps/lab/scripts/frames_*.luau`, the
+`frames` golden tests and `veach-bench-transforms`). Check out the commit before VCH-111 to reproduce the tables below.
+
 No engine type changed. The spike code lives in the lab and in two bench executables:
 
 - `apps/lab/src/sp03_spike.{hpp,cpp}`: a `Sp03LargePosition { double x, y, z }` component, and an extractor

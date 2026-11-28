@@ -181,10 +181,11 @@ TEST_CASE("[mcp.AC12] a module's tools are listed after the built-in ones and ru
         names.push_back(t["name"].get<std::string>());
     }
     std::vector<std::string> expected(builtin_mcp_tools().begin(), builtin_mcp_tools().end());
+    expected.emplace_back("frames");  // the engine's own module tool (docs/specs/frames/spec.md)
     expected.emplace_back("probe_frame");
     expected.emplace_back("probe_content");
     CHECK(names == expected);  // also keeps builtin_mcp_tools() in sync with McpServer::tools()
-    CHECK(list[13]["inputSchema"]["properties"].contains("fail"));
+    CHECK(list[14]["inputSchema"]["properties"].contains("fail"));
 
     CHECK(call_json(server, "probe_frame")["frame"] == 0);
     call_json(server, "step_frames", {{"count", 2}});

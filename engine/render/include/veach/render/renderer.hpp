@@ -16,6 +16,8 @@
 #include <veach/core/error.hpp>
 #include <veach/core/math.hpp>
 #include <veach/ecs/flecs.hpp>
+#include <veach/ecs/frames.hpp>
+#include <veach/ecs/transform.hpp>
 #include <veach/render/atmosphere.hpp>
 #include <veach/render/camera.hpp>
 #include <veach/render/mesh_store.hpp>
@@ -62,14 +64,52 @@ struct AutoExposureSettings {
     bool report = false;     ///< log each frame's exposure and counters (a few frames late)
 };
 
-/// One camera's view of the frame, extracted from a Camera and its Transform (docs/specs/render-views/spec.md).
-/// Column-major matrices, reverse-Z, infinite far plane (ADR 0013).
+/// Where render space is this frame (ADR 0045, docs/specs/frames/spec.md). Everything in RenderWorld is relative to
+/// `origin`, in the axes of `frame`: the primary camera's reference frame and its position there, rounded to a 64 m
+/// grid (so static content keeps its matrices while the camera moves inside a cell, and a flat scene near the origin
+/// renders exactly as it did in world space). The one absolute position here, for extractors that rebase their own
+/// content (RenderSpaceMap); nothing on the GPU sees it.
+struct RenderSpace {
+    std::uint64_t frame = 0;  ///< the ReferenceFrame entity; 0 is the root world
+    math::dvec3 origin{0.0};  ///< meters, in that frame
+};
+
+/// The render origin for a camera at `position` in its frame: the nearest point of the 64 m grid.
+[[nodiscard]] math::dvec3 render_origin(const math::dvec3& position);
+
+/// Puts poses from any frame into render space: their frame's pose in the render frame (composed in double through
+/// the lowest common ancestor, once per frame and map), minus the origin, cast to float32. Build one per extraction.
+class RenderSpaceMap {
+public:
+    RenderSpaceMap(const World& world, const RenderSpace& space);
+    /// A point given in `frame`, in render space; nullopt if `frame` is not a live reference frame (or 0).
+    [[nodiscard]] std::optional<math::vec3> point(std::uint64_t frame, const math::dvec3& p);
+    /// A direction given in `frame`, in render space's axes.
+    [[nodiscard]] std::optional<math::vec3> direction(std::uint64_t frame, const math::vec3& d);
+    /// render space from local, for an entity's FrameTransform.
+    [[nodiscard]] std::optional<math::mat4> matrix(const FrameTransform& pose);
+    /// The rotation of `frame`'s axes in render space's (identity for the render frame itself).
+    [[nodiscard]] std::optional<math::dmat3> rotation(std::uint64_t frame);
+
+private:
+    const FramePose* pose_of(std::uint64_t frame);
+    World world_;
+    RenderSpace space_;
+    std::unordered_map<std::uint64_t, std::optional<FramePose>> poses_;
+};
+
+/// One camera's view of the frame, extracted from a Camera and its FrameTransform (docs/specs/render-views/spec.md).
+/// Column-major matrices, reverse-Z, infinite far plane (ADR 0013), in render space (RenderSpace).
 struct RenderView {
     math::mat4 view{1.0f};        ///< view from world
     math::mat4 projection{1.0f};  ///< clip from view
     math::mat4 view_projection{1.0f};
     math::mat4 inverse_view_projection{1.0f};
-    math::vec3 position{0.0f};  ///< world space
+    math::vec3 position{0.0f};  ///< render space (relative to RenderWorld::space.origin)
+    /// The body context (ADR 0045): the camera's height along `up` from its frame's origin (its y in a flat frame,
+    /// its distance from the center in a radial one) and that up, in render space. Use these, not position.y.
+    double height_in_frame = 0.0;
+    math::vec3 up{0.0f, 1.0f, 0.0f};
     float near_plane = 0.1f;
     std::uint32_t width = 0;  ///< the target it was built for, pixels
     std::uint32_t height = 0;
@@ -120,6 +160,7 @@ public:
     std::uint32_t target_width = 0;  ///< pixels: the primary window's drawable, or its Window size headless
     std::uint32_t target_height = 0;
     std::uint32_t window_count = 0;
+    RenderSpace space;              ///< where render space is; every position below is relative to it
     std::vector<RenderView> views;  ///< active cameras, in entity-id order; the first is the primary view
     std::vector<MeshDraw> meshes;   ///< in entity-id order
     std::vector<RenderLight> lights;

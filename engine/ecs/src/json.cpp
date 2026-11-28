@@ -23,7 +23,8 @@ std::string_view kind_name(ValueKind kind) {
         case ValueKind::integer: return "an integer";
         case ValueKind::number: return "a number";
         case ValueKind::string: return "a string";
-        case ValueKind::vec3: return "an array of 3 numbers";
+        case ValueKind::vec3:
+        case ValueKind::dvec3: return "an array of 3 numbers";
         case ValueKind::enumeration: return "one of the enum constants";
         case ValueKind::structure: return "an object";
         case ValueKind::entity: return "an entity path string or null";
@@ -74,6 +75,13 @@ Result<> assign(const World& world, ecs::entity_t type, void* ptr, const nlohman
                 return mismatch(context, path, kind, j);
             }
             *static_cast<math::vec3*>(ptr) = math::vec3(j[0].get<float>(), j[1].get<float>(), j[2].get<float>());
+            return {};
+        }
+        case ValueKind::dvec3: {
+            if (!j.is_array() || j.size() != 3 || !j[0].is_number() || !j[1].is_number() || !j[2].is_number()) {
+                return mismatch(context, path, kind, j);
+            }
+            *static_cast<math::dvec3*>(ptr) = math::dvec3(j[0].get<double>(), j[1].get<double>(), j[2].get<double>());
             return {};
         }
         case ValueKind::enumeration: {
@@ -180,6 +188,11 @@ nlohmann::json to_json(const World& world, ecs::entity_t type, const void* ptr) 
             const auto& v = *static_cast<const math::vec3*>(ptr);
             return nlohmann::json::array({v.x, v.y, v.z});
         }
+        case ValueKind::dvec3: {
+            // nlohmann writes doubles with the shortest digits that read back to the same bits (ADR 0046).
+            const auto& v = *static_cast<const math::dvec3*>(ptr);
+            return nlohmann::json::array({v.x, v.y, v.z});
+        }
         case ValueKind::enumeration: return read_enum(world, type, ptr).value_or("");
         case ValueKind::entity: {
             const auto id = *static_cast<const ecs::entity_t*>(ptr);
@@ -218,6 +231,7 @@ nlohmann::json json_schema(const World& world, ecs::entity_t type, const void* d
         case ValueKind::number: schema["type"] = "number"; break;
         case ValueKind::string: schema["type"] = "string"; break;
         case ValueKind::vec3:
+        case ValueKind::dvec3:
             schema = {{"type", "array"}, {"items", {{"type", "number"}}}, {"minItems", 3}, {"maxItems", 3}};
             break;
         case ValueKind::enumeration: schema["enum"] = enum_constants(world, type); break;

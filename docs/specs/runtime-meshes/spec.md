@@ -25,7 +25,7 @@ after them need it on screen. Until now the renderer drew only meshes cooked fro
 - The renderer MUST build meshlets with the cooker's function (`build_meshlets`, meshoptimizer), so runtime and
   cooked meshes share one GPU layout; triangles of one slot MUST end up in the same meshlets even when submitted
   interleaved.
-- An entity with `RuntimeMeshInstance { mesh }` and a `GlobalTransform` MUST draw in the real-time renderer and in
+- An entity with `RuntimeMeshInstance { mesh }` and a `FrameTransform` MUST draw in the real-time renderer and in
   photo mode, with the mesh's materials. Photo mode MUST build the BLAS only when it draws the mesh.
 - A mesh MUST be uploaded once per change, not per frame; an update or remove MUST retire the old GPU buffers through
   the frame model ([ADR 0030](../adr/0030-frame-and-sync-model.md)), never destroy them under a frame in flight.

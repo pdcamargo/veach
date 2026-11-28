@@ -7,5 +7,5 @@ local veach = require("@veach")
 veach.spawn("triangle"):set(veach.components.TriangleDemo, { mode = "raster" })
 
 local camera = veach.spawn("camera")
-camera:set(veach.components.Transform, { translation = vector.create(0, 0, 2.5), rotation = veach.quat.identity(), scale = vector.one })
+camera:set(veach.components.Transform, { translation = veach.position(0, 0, 2.5), rotation = veach.quat.identity(), scale = vector.one })
 camera:set(veach.components.Camera, { fov_y = math.rad(60), near_plane = 0.1, active = true })

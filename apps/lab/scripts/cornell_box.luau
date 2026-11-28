@@ -9,7 +9,7 @@ veach.spawn("cornell box"):set(veach.components.SceneInstance, { path = "assets/
 
 local camera = veach.spawn("camera")
 camera:set(veach.components.Transform, {
-	translation = vector.create(0, 1, 3.9),
+	translation = veach.position(0, 1, 3.9),
 	rotation = veach.quat.identity(),
 	scale = vector.one,
 })

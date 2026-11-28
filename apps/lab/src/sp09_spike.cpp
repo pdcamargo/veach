@@ -474,7 +474,7 @@ public:
                               static_cast<float>(std::cos(pitch) * forward_[1] - std::sin(pitch) * up[1]),
                               static_cast<float>(std::cos(pitch) * forward_[2] - std::sin(pitch) * up[2]));
         const math::vec3 up_hint(static_cast<float>(up[0]), static_cast<float>(up[1]), static_cast<float>(up[2]));
-        camera.set<veach::Transform>({.translation = math::vec3(0.0f), .rotation = look_rotation(look, up_hint)});
+        camera.set<veach::Transform>({.translation = math::dvec3(0.0), .rotation = look_rotation(look, up_hint)});
 
         state = {.x = position_[0],
                  .y = position_[1],

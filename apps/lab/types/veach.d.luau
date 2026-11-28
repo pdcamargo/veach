@@ -51,6 +51,28 @@ export type QuatApi = {
 	read look_rotation: (forward: vector, up: vector?) -> quat,
 }
 
+--- A point relative to a reference frame, in double precision (ADR 0046). Position + vector and Position - vector
+--- give a Position; Position - Position gives the vector between them. Positions don't add or scale.
+type PositionFields = { read x: number, read y: number, read z: number }
+type PositionOps = {
+	__add: (Position, vector) -> Position,
+	__sub: ((Position, Position) -> vector) & ((Position, vector) -> Position),
+	__eq: (Position, Position) -> boolean,
+}
+export type Position = typeof(setmetatable({} :: PositionFields, {} :: PositionOps))
+
+--- Reference frames (docs/specs/frames/spec.md). A frame is an entity with ReferenceFrame; nil is the root world.
+export type FramesApi = {
+	--- The frame an entity lives in (its nearest ReferenceFrame ancestor; a frame's parent frame), nil for the root.
+	read of: (entity: Entity) -> Entity?,
+	--- A position given in frame `from`, in frame `to`, through their lowest common ancestor in double.
+	read convert: (position: Position, from: Entity?, to: Entity?) -> Position,
+	--- Where `to` is relative to `from`, in the frame `from` lives in.
+	read offset: (from: Entity, to: Entity) -> vector,
+	--- "Up" at a position: +Y in the root world and axis_y frames, away from the origin in radial frames.
+	read up: (frame: Entity?, position: Position) -> vector,
+}
+
 export type SpawnOptions = { name: string?, parent: Entity? }
 
 --- Input actions, bound in veach.project.json: keys under "input" ({ "jump": ["space"] }), analog actions under
@@ -104,6 +126,17 @@ export type DirectionalLight = {
 	illuminance: number,
 	angle: number,
 }
+export type dquat = {
+	x: number,
+	y: number,
+	z: number,
+	w: number,
+}
+export type FrameSpin = {
+	tilt: dquat,
+	rate: number,
+	phase: number,
+}
 export type Orrery = {
 	system: string,
 	scale: number,
@@ -116,6 +149,16 @@ export type PointLight = {
 	color: vector,
 	intensity: number,
 	radius: number,
+}
+export type FrameKind = "inertial" | "rotating"
+export type FrameUp = "axis_y" | "radial"
+export type ReferenceFrame = {
+	kind: FrameKind,
+	up: FrameUp,
+	position: Position,
+	orientation: dquat,
+	linear_velocity: Position,
+	angular_velocity: Position,
 }
 export type RelativeMouse = {
 	enabled: boolean,
@@ -145,16 +188,6 @@ export type Sky = {
 	ozone: number,
 	mie_g: number,
 	aerial_perspective: boolean,
-}
-export type Sp03Ladder = {
-	distance: number,
-	large: boolean,
-	photo: boolean,
-}
-export type Sp03LargePosition = {
-	x: number,
-	y: number,
-	z: number,
 }
 export type Sp09Descent = {
 	body: number,
@@ -214,7 +247,7 @@ export type quat = {
 	w: number,
 }
 export type Transform = {
-	translation: vector,
+	translation: Position,
 	rotation: quat,
 	scale: vector,
 }
@@ -237,7 +270,8 @@ export type Window = {
 
 export type Veach = {
 	--- Defines a script component. Each field's type comes from its default (boolean, number = f64,
-	--- string, vector = vec3) or from an explicit type: veach.f32(100), veach.entity(), veach.optional(...).
+	--- string, vector = vec3, Position = dvec3) or from an explicit type: veach.f32(100), veach.entity(),
+	--- veach.optional(...).
 	read component: <T>(name: string, defaults: T) -> Component<T>,
 	--- Explicit field types, for what a default value cannot express. Each one type-checks as the
 	--- value it stores, so `{ hp = veach.f32(100) }` is `{ hp: number }`.
@@ -257,6 +291,9 @@ export type Veach = {
 	--- current invocation succeeds.
 	read spawn: ((name: string?) -> Entity) & ((options: SpawnOptions) -> Entity),
 	read quat: QuatApi,
+	--- A Position from three doubles, or from a vector.
+	read position: ((x: number, y: number, z: number) -> Position) & ((v: vector) -> Position),
+	read frames: FramesApi,
 	read input: InputApi,
 	read log: LogApi,
 	read time: TimeApi,
@@ -264,15 +301,15 @@ export type Veach = {
 		read Camera: Component<Camera>,
 		read CelestialBody: Component<CelestialBody>,
 		read DirectionalLight: Component<DirectionalLight>,
+		read FrameSpin: Component<FrameSpin>,
 		read Orrery: Component<Orrery>,
 		read PhotoMode: Component<PhotoMode>,
 		read PointLight: Component<PointLight>,
+		read ReferenceFrame: Component<ReferenceFrame>,
 		read RelativeMouse: Component<RelativeMouse>,
 		read RuntimeMeshDemo: Component<RuntimeMeshDemo>,
 		read SceneInstance: Component<SceneInstance>,
 		read Sky: Component<Sky>,
-		read Sp03Ladder: Component<Sp03Ladder>,
-		read Sp03LargePosition: Component<Sp03LargePosition>,
 		read Sp09Descent: Component<Sp09Descent>,
 		read Sp09State: Component<Sp09State>,
 		read Spinner: Component<Spinner>,

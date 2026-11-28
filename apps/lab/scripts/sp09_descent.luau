@@ -11,7 +11,7 @@ local veach = require("@veach")
 local c = veach.components
 
 local camera = veach.spawn("camera")
-camera:set(c.Transform, { translation = vector.zero, rotation = veach.quat.identity(), scale = vector.one })
+camera:set(c.Transform, { translation = veach.position(0, 0, 0), rotation = veach.quat.identity(), scale = vector.one })
 camera:set(c.Camera, { fov_y = math.rad(60), near_plane = 0.5, active = true, ev100 = 15 })
 camera:set(c.Sp09Descent, {})
 

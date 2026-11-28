@@ -25,6 +25,7 @@ enum class ValueKind : std::uint8_t {
     number,       ///< f32, f64
     string,       ///< std::string
     vec3,         ///< veach::math::vec3 (Luau `vector`)
+    dvec3,        ///< veach::math::dvec3: positions (Luau `Position`, JSON [x, y, z] doubles; ADR 0046)
     enumeration,  ///< reflected enum, represented by its constant name
     structure,    ///< reflected struct, represented as an object/table
     entity,       ///< entity reference (Flecs `Entity` primitive); Luau `Entity?`, JSON path string or null

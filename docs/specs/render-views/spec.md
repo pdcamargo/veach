@@ -18,15 +18,17 @@ same way as everything else. Backlog: VCH-011.
 
 ## Requirements
 
-- `veach::Transform` (ecs, reflected, Scriptable): `translation` (vec3, meters), `rotation` (quat, glTF order
-  `x, y, z, w`, identity by default), `scale` (vec3, 1 by default), relative to the parent. Cameras read the
-  world pose, `GlobalTransform` ([transforms](../transforms/spec.md), VCH-007).
+- `veach::Transform` (ecs, reflected, Scriptable): `translation` (dvec3, meters; a Luau `Position`), `rotation`
+  (quat, glTF order `x, y, z, w`, identity by default), `scale` (vec3, 1 by default), relative to the parent. Cameras
+  read their pose in their reference frame, `FrameTransform` ([transforms](../transforms/spec.md), VCH-007;
+  [frames](../frames/spec.md), VCH-111).
 - `veach::Camera` (render, reflected, Scriptable): `fov_y` (radians, default 60°), `near_plane` (meters, default
   0.1; not `near`, a macro in Windows headers), `active` (default true). Infinite far plane, reverse-Z, through `math::perspective_reverse_z`. The camera looks
   down its local −Z with +Y up ([conventions](../../guides/conventions.md)). Scale does not affect the view.
 - MUST extract every active camera into `RenderWorld::views`, ordered by entity id, with `view`, `projection`,
-  `view_projection`, `inverse_view_projection`, `position`, `near_plane` and the target size. A camera without a
-  GlobalTransform sits at the origin.
+  `view_projection`, `inverse_view_projection`, `position`, `near_plane` and the target size, in render space
+  (relative to the render origin near the primary camera; [frames](../frames/spec.md)). A camera without a
+  FrameTransform sits at the origin.
 - `FrameContext::view` MUST point at the first view, or be null when there is none. Features fall back to their
   view-less behavior, so every existing golden stays unchanged.
 - Raster and ray-traced rendering MUST agree through the same view, on Metal and DX12.

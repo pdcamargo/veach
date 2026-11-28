@@ -2,6 +2,7 @@ veach_add_engine_library(runtime
     SOURCES
         src/config.cpp
         src/engine.cpp
+        src/frames_tool.cpp
         src/mcp_server.cpp
         src/mcp_tools.cpp
         src/replay.cpp

@@ -7,14 +7,15 @@ We match glTF so imported assets never need conversion.
 | | |
 |---|---|
 | Handedness | right-handed |
-| Up | **+Y** (`veach::math::world_up`) |
+| Up | **+Y** (`veach::math::world_up`) in flat frames; in general the query `veach::up(world, frame, position)` (radial in a body frame) |
 | Forward | cameras and objects look down **−Z** (`veach::math::world_forward`); +X is right (`world_right`) |
-| Transforms | `veach::Transform`: translation, rotation (quaternion, glTF `x, y, z, w`), scale, relative to the parent (`ChildOf`); `GlobalTransform` = parent's · T · R · S, written only by TransformPropagation |
+| Transforms | `veach::Transform`: translation (**double**, `dvec3`), rotation (float32 quaternion, glTF `x, y, z, w`), scale (float32), relative to the parent (`ChildOf`); `FrameTransform` = parent's · T · R · S **in the entity's reference frame**, written only by TransformPropagation. There is no world pose ([frames](../specs/frames/spec.md)) |
+| Positions | doubles relative to a **reference frame** (an entity with `ReferenceFrame`; nil/0 is the root world). Compare entities in different frames with `veach::frame_pose` / `veach.frames.convert`, never by subtracting their translations. float32 only for offsets, directions, velocities of ordinary entities and on the GPU, where everything is relative to the render origin near the camera. double → float conversions are explicit (`GLM_FORCE_EXPLICIT_CTOR`) |
 | Units | meters, seconds, **radians** |
 | Matrices | glm, column-major, column vectors: `v' = M * v` |
 | Depth | **reverse-Z**: near → 1, far/infinity → 0, clip depth in [0, 1]. Use `veach::math::perspective_reverse_z(fov_y, aspect, near)`, never `glm::perspective` |
 | Simulation | fixed **60 Hz** step (`veach::fixed_delta_seconds`); Simulation, PostSimulation and TransformPropagation run once per step |
-| Math | `veach::math` is glm plus these helpers (`<veach/core/math.hpp>`); Luau `vector` ↔ `veach::math::vec3` |
+| Math | `veach::math` is glm plus these helpers (`<veach/core/math.hpp>`); Luau `vector` ↔ `veach::math::vec3`, Luau `Position` ↔ `veach::math::dvec3` |
 
 ## Naming
 

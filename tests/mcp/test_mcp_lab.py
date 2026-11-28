@@ -339,7 +339,7 @@ def replay(lab: str) -> None:
         client.call_json("step_frames", count=3)
         client.call_json("eval", source="local veach = require('@veach')\n"
                                         "veach.spawn('from eval'):set(veach.components.Transform, "
-                                        "{ translation = vector.create(4, 5, 6), rotation = veach.quat.identity(), "
+                                        "{ translation = veach.position(4, 5, 6), rotation = veach.quat.identity(), "
                                         "scale = vector.one })")
         client.call_json("send_input", key="w", down=True)
         client.call_json("step_frames", count=10)

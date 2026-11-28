@@ -131,8 +131,9 @@ void register_sp13_spike(veach::World& world) {
     const auto place = [&](const char* name, veach::AssetId mesh, math::dvec3 b, math::vec3 size, float lift) {
         const math::quat q = l.upright(b);
         world.entity(name)
-            .set<veach::Transform>(
-                {.translation = l.point(b) + q * math::vec3(0.0f, lift, 0.0f), .rotation = q, .scale = size})
+            .set<veach::Transform>({.translation = math::dvec3(l.point(b) + q * math::vec3(0.0f, lift, 0.0f)),
+                                    .rotation = q,
+                                    .scale = size})
             .set(veach::RuntimeMeshInstance{mesh});
     };
     place("sp13_pad", *pad, sim.planet().site, {14.0f, 0.1f, 14.0f}, 0.0f);
@@ -147,8 +148,8 @@ void register_sp13_spike(veach::World& world) {
     const math::vec3 eye = at == "landed" ? math::vec3(-28.0f, 6.0f, 34.0f) : math::vec3(-30.0f, 12.0f, 55.0f);
     const math::vec3 target = at == "landed" ? math::vec3(14.0f, 1.5f, 0.0f) : math::vec3(12.0f, 30.0f, 0.0f);
     world.entity("sp13_camera")
-        .set<veach::Transform>(
-            {.translation = eye, .rotation = math::quatLookAtRH(math::normalize(target - eye), math::vec3(0, 1, 0))})
+        .set<veach::Transform>({.translation = math::dvec3(eye),
+                                .rotation = math::quatLookAtRH(math::normalize(target - eye), math::vec3(0, 1, 0))})
         .set<veach::Camera>({.fov_y = 0.9f, .near_plane = 0.1f, .ev100 = 14.5f});
     world.entity("sp13_sky").set<veach::Sky>({.time_of_day = 16.0f, .latitude = 30.0f, .day_of_year = 172.0f});
     world.system<veach::Window>("Sp13Size").kind<veach::phase::Startup>().each([](veach::Window& window) {

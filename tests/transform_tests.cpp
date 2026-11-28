@@ -20,19 +20,22 @@ bool near(math::vec3 a, math::vec3 b) {
     return math::distance(a, b) < 1e-4f;
 }
 
+bool near(math::dvec3 a, math::dvec3 b) {
+    return math::distance(a, b) < 1e-4;
+}
+
 }  // namespace
 
-TEST_CASE("[transform.AC1] a Transform brings a GlobalTransform that matches it at the root") {
+TEST_CASE("[transform.AC1] a Transform brings a FrameTransform that matches it at the root") {
     World world = make_world();
-    const Transform local{{1.0f, 2.0f, 3.0f}, math::angleAxis(0.5f, math::world_up), {2.0f, 2.0f, 2.0f}};
+    const Transform local{{1.0, 2.0, 3.0}, math::angleAxis(0.5f, math::world_up), {2.0f, 2.0f, 2.0f}};
     const Entity e = world.entity().set(local);
-    REQUIRE(e.has<GlobalTransform>());
+    REQUIRE(e.has<FrameTransform>());
     propagate_transforms(world);
-    const math::mat4 global = e.get<GlobalTransform>().matrix;
-    const math::mat4 expected = local.matrix();
-    for (int c = 0; c < 4; ++c) {
-        CHECK(math::distance(global[c], expected[c]) < 1e-5f);
-    }
+    const FrameTransform& pose = e.get<FrameTransform>();
+    CHECK(pose.translation == local.translation);
+    CHECK(pose.basis == local.basis());
+    CHECK(pose.frame == 0);  // the root world
 }
 
 TEST_CASE("[transform.AC2] children compose with their parents, any depth, in one pass") {
@@ -41,16 +44,16 @@ TEST_CASE("[transform.AC2] children compose with their parents, any depth, in on
     const Entity parent = world.entity("parent");
     const Entity child = world.entity("child").child_of(parent);
     const Entity grandchild = world.entity("grandchild").child_of(child);
-    grandchild.set(Transform{{0.0f, 0.0f, -1.0f}, math::quat(1, 0, 0, 0), {3.0f, 3.0f, 3.0f}});
-    child.set(Transform{{0.0f, 0.0f, -2.0f}});
-    parent.set(Transform{{10.0f, 0.0f, 0.0f}, math::angleAxis(math::radians(90.0f), math::world_up)});
+    grandchild.set(Transform{{0.0, 0.0, -1.0}, math::quat(1, 0, 0, 0), {3.0f, 3.0f, 3.0f}});
+    child.set(Transform{{0.0, 0.0, -2.0}});
+    parent.set(Transform{{10.0, 0.0, 0.0}, math::angleAxis(math::radians(90.0f), math::world_up)});
     propagate_transforms(world);
 
     // The parent faces -X: its -Z steps go towards -X.
-    CHECK(near(child.get<GlobalTransform>().translation(), {8.0f, 0.0f, 0.0f}));
-    CHECK(near(grandchild.get<GlobalTransform>().translation(), {7.0f, 0.0f, 0.0f}));
-    CHECK(math::length(math::vec3(grandchild.get<GlobalTransform>().matrix[0])) == doctest::Approx(3.0f));
-    CHECK(near(grandchild.get<GlobalTransform>().rotation() * math::world_forward, {-1.0f, 0.0f, 0.0f}));
+    CHECK(near(child.get<FrameTransform>().translation, math::dvec3(8.0, 0.0, 0.0)));
+    CHECK(near(grandchild.get<FrameTransform>().translation, math::dvec3(7.0, 0.0, 0.0)));
+    CHECK(math::length(grandchild.get<FrameTransform>().basis[0]) == doctest::Approx(3.0f));
+    CHECK(near(grandchild.get<FrameTransform>().rotation() * math::world_forward, math::vec3(-1.0f, 0.0f, 0.0f)));
 }
 
 TEST_CASE("[transform.AC3] a rig moved in a per-frame phase carries its children the same frame") {
@@ -59,9 +62,9 @@ TEST_CASE("[transform.AC3] a rig moved in a per-frame phase carries its children
 local veach = require("@veach")
 local Transform = veach.components.Transform
 local rig = veach.spawn("rig")
-rig:set(Transform, { translation = vector.create(0, 1, 0), rotation = veach.quat.identity(), scale = vector.one })
+rig:set(Transform, { translation = veach.position(0, 1, 0), rotation = veach.quat.identity(), scale = vector.one })
 local eye = veach.spawn({ name = "eye", parent = rig })
-eye:set(Transform, { translation = vector.create(0, 0, 2), rotation = veach.quat.identity(), scale = vector.one })
+eye:set(Transform, { translation = veach.position(0, 0, 2), rotation = veach.quat.identity(), scale = vector.one })
 veach.system("MoveRig", "Input", veach.query(Transform), function(e, t)
 	if e == rig then
 		e:set(Transform, { translation = t.translation + vector.create(1, 0, 0), rotation = t.rotation, scale = t.scale })
@@ -81,9 +84,9 @@ end)
     const Entity eye = engine.world().lookup("rig::eye");
     REQUIRE(eye.is_valid());
     // Frame 1: the rig moved once in Input (x = 1); its child follows before extraction.
-    CHECK(near(eye.get<GlobalTransform>().translation(), {1.0f, 1.0f, 2.0f}));
+    CHECK(near(eye.get<FrameTransform>().translation, math::dvec3(1.0, 1.0, 2.0)));
     static_cast<void>(engine.frame());
-    CHECK(near(eye.get<GlobalTransform>().translation(), {2.0f, 1.0f, 2.0f}));
+    CHECK(near(eye.get<FrameTransform>().translation, math::dvec3(2.0, 1.0, 2.0)));
     engine.shutdown();
     CHECK(logs.contains("parent is rig: true, rig has 1 child, first is eye: true"));
     CHECK_MESSAGE(logs.errors().empty(), logs.errors());
@@ -134,12 +137,12 @@ TEST_CASE("[transform.AC5] a camera on a rig views from the rig's world pose") {
     world.component<Camera>();
     auto device = std::move(*rhi::create_device({}));
     render::Renderer renderer(*device);
-    const Entity rig = world.entity("rig").set(Transform{{0.0f, 2.0f, 5.0f}});
-    world.entity("camera").child_of(rig).set(Transform{{1.0f, 0.0f, 0.0f}}).set(Camera{});
+    const Entity rig = world.entity("rig").set(Transform{{0.0, 2.0, 5.0}});
+    world.entity("camera").child_of(rig).set(Transform{{1.0, 0.0, 0.0}}).set(Camera{});
     propagate_transforms(world);
     renderer.extract(world);
     REQUIRE(renderer.render_world().views.size() == 1);
-    CHECK(near(renderer.render_world().views.front().position, {1.0f, 2.0f, 5.0f}));
+    CHECK(near(renderer.render_world().views.front().position, math::vec3(1.0f, 2.0f, 5.0f)));
 }
 
 TEST_CASE("propagate_transforms leaves no query behind") {

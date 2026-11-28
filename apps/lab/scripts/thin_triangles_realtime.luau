@@ -13,7 +13,7 @@ veach.spawn("thin triangles"):set(c.SceneInstance, { path = "assets/thin_triangl
 local eye = vector.create(0, 1, 2.6)
 local camera = veach.spawn("camera")
 camera:set(c.Transform, {
-	translation = eye,
+	translation = veach.position(eye),
 	rotation = veach.quat.look_rotation(vector.create(0, 0.05, 0) - eye),
 	scale = vector.one,
 })
@@ -24,7 +24,7 @@ camera:set(c.Sky, { mode = "constant", color = vector.create(600, 0, 600) })
 -- Behind the fins: their camera-facing side faces away from it, their (upward) normals toward it.
 local sun = veach.spawn("sun")
 sun:set(c.Transform, {
-	translation = vector.zero,
+	translation = veach.position(0, 0, 0),
 	rotation = veach.quat.look_rotation(vector.create(0.3, -0.6, 0.75)),
 	scale = vector.one,
 })

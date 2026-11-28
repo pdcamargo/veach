@@ -64,7 +64,8 @@ constexpr float big = std::numeric_limits<float>::max();
 
 }  // namespace
 
-TEST_CASE("[terrain_materials.AC1] 2D arrays and float tables survive KTX2; layers of different shapes do not stack") {
+TEST_CASE(
+    "[terrain_materials.AC1] 2D arrays and float tables survive KTX2, and layers of different shapes do not stack") {
     const std::array<TextureAsset, 3> layers{small_texture(TextureFormat::bc7_srgb, 1),
                                              small_texture(TextureFormat::bc7_srgb, 2),
                                              small_texture(TextureFormat::bc7_srgb, 3)};
@@ -232,7 +233,7 @@ TEST_CASE("[terrain_materials.AC3] slot weights follow the rules, sum to 1, and 
     CHECK(totals[0] > 20.0f);  // grass in the temperate lowlands
     CHECK(totals[4] > 5.0f);   // snow toward the poles and on the heights
     CHECK(totals[5] > 20.0f);  // soil in the digs
-    CHECK(hash_weights(home_w) == 0x207ff914eab968eaULL);
+    CHECK(hash_weights(home_w) == 0xb9f509284a5542faULL);
 }
 
 TEST_CASE(

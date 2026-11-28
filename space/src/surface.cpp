@@ -155,13 +155,13 @@ std::vector<SlotPlan> plan(Biome biome, double relief, const Palette& p) {
                  {{.slope = below(0.10f, 0.22f),
                    .depth = on_surface(),
                    .field0 = above(-1.0f, 4.0f),
-                   .field1 = above(0.30f, 0.42f)}},
+                   .field1 = above(0.20f, 0.30f)}},
                  p.vegetation},
                 {"beach_sand",
                  {{.slope = below(0.12f, 0.25f),
                    .depth = on_surface(),
                    .field0 = above(1.0f, 5.0f),
-                   .field1 = below(0.30f, 0.42f)},
+                   .field1 = below(0.20f, 0.30f)},
                   {.altitude = below(rel(0.01), rel(0.035)),
                    .slope = below(0.12f, 0.22f),
                    .depth = on_surface(),
@@ -177,7 +177,7 @@ std::vector<SlotPlan> plan(Biome biome, double relief, const Palette& p) {
                 {"snow",
                  {{.slope = below(0.22f, 0.36f),
                    .depth = on_surface(),
-                   .field0 = below(-2.0f, 1.0f),
+                   .field0 = below(-3.0f, 0.0f),
                    .strength = 3.0f}},
                  p.snow},
                 {"soil", {subsurface}, p.soil},
@@ -394,7 +394,7 @@ Result<TerrainSurfaceDesc> surface_desc(const StarSystem& system, const Realized
             const double height = std::clamp((r - radius) / relief, -0.3, 1.5);
             const double moisture = values[i];
             const double warmth = values[positions.size() + i];
-            const double t = mean_c + 12.0 - 34.0 * sin_lat * sin_lat - 30.0 * height + 6.0 * warmth;
+            const double t = mean_c + 12.0 - 30.0 * sin_lat * sin_lat - 20.0 * height + 6.0 * warmth;
             out[i] = {static_cast<float>(t),
                       static_cast<float>(std::clamp(0.5 + 0.45 * moisture - 0.15 * height, 0.0, 1.0))};
         }

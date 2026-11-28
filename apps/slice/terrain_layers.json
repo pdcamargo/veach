@@ -6,7 +6,7 @@
   "layers": [
     { "name": "grass", "scan": "Grass_Wild_pjwbe0_2K_surface_ms", "tile_m": 2.0 },
     { "name": "beach_sand", "scan": "beach_sand_uinladeo_2k" },
-    { "name": "cliff", "scan": "granite_rock_face_vissbgb_2k", "tile_m": 4.0 },
+    { "name": "cliff", "scan": "granite_rock_face_vissbgb_2k", "tile_m": 8.0 },
     { "name": "rocky_ground", "scan": "icelandic_rocky_ground_uczmfghew_2k" },
     { "name": "snow", "scan": "fresh_snow_ugkieimdy_2k" },
     { "name": "soil", "scan": "soil_pjut20_2k" },

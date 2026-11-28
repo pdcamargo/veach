@@ -19,9 +19,10 @@ inline constexpr std::uint64_t second_dig_tick = 600;
 /// The committed edit log. At tick 90: a pit under the ball, a second sphere deepening it off-center, a mound beside
 /// it and a dent in the mound (add and subtract don't commute: the log is ordered), and a cavity deep in rock the
 /// bounds had proven solid. At second_dig_tick: a sump under the ball, asleep at the pit's bottom by then. Seq 1..6.
-std::vector<BrushOp> dig_log();
+std::vector<BrushOp> dig_log(const Site& site = default_site);
 
 struct ScenarioConfig {
+    Site site = default_site;   ///< where the ball drops and the log digs (the seams sweep moves it)
     std::uint32_t workers = 1;  ///< veach::JobSystem threads for sampling, edits, meshing and cooking
     int half = 2;               ///< the region: (2 half + 1)³ LOD0 chunks around the dig site's chunk
     int steps = 1200;           ///< 20 s: the ball has fallen into the sump and sleeps

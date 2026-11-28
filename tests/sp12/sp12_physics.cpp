@@ -22,6 +22,8 @@
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/StateRecorderImpl.h>
 
+#include "sp12/sp12_jolt.hpp"
+
 #include <bit>
 #include <chrono>
 #include <cmath>
@@ -31,10 +33,6 @@
 #include <string>
 
 namespace veach::sp12 {
-
-struct CookedShape {
-    JPH::RefConst<JPH::Shape> shape;
-};
 
 namespace {
 

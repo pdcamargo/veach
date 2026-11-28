@@ -223,6 +223,9 @@ function(veach_scene_goldens rhi)
     # photo.AC1: photo mode's reference images.
     veach_golden_test("golden: cornell box (photo mode${suffix})" cornell_box cornell_box ${rhi} FRAMES 4)
     veach_golden_test("golden: flight helmet (photo mode${suffix})" flight_helmet flight_helmet ${rhi} FRAMES 4)
+    # Runtime meshes (docs/specs/runtime-meshes/spec.md): a generated heightfield that changes on frame 2.
+    veach_golden_test("golden: runtime mesh (realtime${suffix})" runtime_mesh_realtime runtime_mesh_realtime ${rhi})
+    veach_golden_test("golden: runtime mesh (photo mode${suffix})" runtime_mesh runtime_mesh ${rhi} FRAMES 4)
 endfunction()
 if(APPLE)
     veach_golden_test("golden: background" hello background metal)
@@ -232,8 +235,6 @@ if(APPLE)
     veach_golden_test("golden: triangle (camera, raytraced)" triangle_camera_raytraced triangle_camera metal)
     veach_scene_goldens(metal)
     # rtmesh.AC4: a mesh made at run time (and updated on frame 2), in real time and in photo mode.
-    veach_golden_test("golden: runtime mesh (realtime)" runtime_mesh_realtime runtime_mesh_realtime metal)
-    veach_golden_test("golden: runtime mesh (photo mode)" runtime_mesh runtime_mesh metal FRAMES 4)
     # sky.AC4, rt.AC3: Bistro under the physical sky at noon and at sunset (Metal only: Bistro is too heavy for WARP).
     foreach(_time noon sunset)
         veach_golden_test("golden: bistro at ${_time} (realtime)" bistro_${_time} bistro_${_time} metal)

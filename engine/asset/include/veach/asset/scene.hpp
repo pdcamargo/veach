@@ -92,6 +92,13 @@ struct MaterialAsset {
     std::optional<AssetId> metallic_roughness_texture;  ///< bc7_unorm, G = roughness, B = metallic
     std::optional<AssetId> normal_texture;              ///< bc7_unorm, tangent space
     std::optional<AssetId> emissive_texture;            ///< bc7_srgb
+    /// What a material kind of its own reads (MaterialRecord::custom0). A kind may also give the texture slots its
+    /// own meaning (TerrainMaterial keeps a data table in normal_texture).
+    math::vec4 custom{0.0f};
+    /// 2D arrays for kinds that sample them (MaterialRecord::array_texture0 and 1; TerrainMaterial: its layers).
+    std::array<std::optional<AssetId>, 2> array_textures;
+    /// 1: the scene's sampler. 2 to 16: its textures are filtered anisotropically (terrain: rhi::terrain_anisotropy).
+    std::uint32_t max_anisotropy = 1;
 };
 
 enum class LightKind : std::uint8_t { directional, point, spot };

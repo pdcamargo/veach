@@ -130,8 +130,10 @@ def main() -> int:
     for shader in sorted(ROOT.glob("**/shaders/*.slang")):
         if hidden_or_build(shader):
             continue
+        # realtime_shade.slang is compiled through the entry points veach_shade_bins() generates for it
+        # (realtime_shade_bins.slang, cmake/VeachShaders.cmake), so its layout is checked under that name.
         if "ConstantBuffer<" in shader.read_text(encoding="utf-8") and \
-                not re.search(r"layout::" + re.escape(shader.stem) + r"\b", cpp_sources):
+                not re.search(r"layout::" + re.escape(shader.stem) + r"(_bins)?\b", cpp_sources):
             errors.append(f"{shader.relative_to(ROOT).as_posix()}: its parameter block has no C++ layout check; add "
                           f"static_assert(veach::rhi::parameters_match<T>(<namespace>::layout::{shader.stem}, {{...}}))")
 

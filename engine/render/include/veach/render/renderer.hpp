@@ -32,9 +32,11 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <typeindex>
 #include <unordered_map>
 #include <utility>
@@ -195,6 +197,22 @@ private:
 
 using Extractor = std::function<void(const World& world, RenderWorld& out)>;
 
+/// Named resources of this frame's graph that features share (ADR 0060's frame blackboard). The real-time renderer
+/// (ADR 0093) publishes "visibility" (rg32_uint: instance, meshlet << 7 | triangle), "depth" (depth32_float,
+/// reverse-Z), "motion" (rg16_float: previous minus current position, in UV) and "hdr_color" (rgba16_float: exposed
+/// radiance before the display transform). Features recorded after it read and write them like any graph resource.
+class FrameBlackboard {
+public:
+    void set(std::string name, GraphResource resource) { entries_[std::move(name)] = resource; }
+    [[nodiscard]] std::optional<GraphResource> get(std::string_view name) const {
+        const auto it = entries_.find(name);
+        return it == entries_.end() ? std::nullopt : std::optional<GraphResource>(it->second);
+    }
+
+private:
+    std::map<std::string, GraphResource, std::less<>> entries_;
+};
+
 /// What a feature gets each frame.
 struct FrameContext {
     rhi::Device& device;
@@ -208,6 +226,8 @@ struct FrameContext {
     ReadbackQueue* readbacks = nullptr;
     /// Upload memory for this frame's texture updates (render::upload_texture, VCH-076); never null in a frame.
     UploadRing* uploads = nullptr;
+    /// This frame's shared resources (FrameBlackboard); never null in a frame.
+    FrameBlackboard* blackboard = nullptr;
 };
 
 /// The frame's target size: the primary window's, or 1280x720 when nothing says otherwise.

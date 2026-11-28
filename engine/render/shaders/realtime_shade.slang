@@ -1,9 +1,13 @@
-// The real-time renderer for now (docs/adr/0040-interim-realtime-path-visibility-buffer.md): one compute pass that
-// rebuilds each pixel's surface from the visibility buffer and lights it with the same materials and BRDF as photo
-// mode. Every punctual light, unshadowed; the sky's irradiance as ambient light on the diffuse lobe; emission; the sky
-// behind geometry and aerial perspective in front of it. No ray tracing: it runs on any GPU the engine targets
-// (ADR 0003). Compiled into each app's shader library with its materials (veach_add_scene_shaders). Its parameter
-// layout matches render::ShadeParams (realtime_renderer.cpp).
+// The real-time renderer's shading (docs/adr/0093-gpu-driven-core.md): rebuilds each pixel's surface from the
+// visibility buffer and lights it with the same materials and BRDF as photo mode. Every punctual light, unshadowed; the
+// sky's irradiance as ambient light on the diffuse lobe; emission; the sky behind geometry and aerial perspective in
+// front of it. No ray tracing: it runs on any GPU the engine targets (ADR 0003).
+//
+// Binned by material kind: the classification pass (classify.slang) lists the 8x8 tiles that show each bin (bin 0 is
+// the sky, bin k + 1 material kind k), and each bin is one indirect dispatch of its own entry point, a group per tile,
+// which shades only that bin's pixels. The entry points are generated per app with its materials
+// (veach_add_scene_shaders writes realtime_shade_bins.slang, which calls shade_bin with a constant bin), so each one's
+// evaluateSurface switch folds to one material. Layout matches render::ShadeParams (realtime_renderer.cpp).
 
 import veach.atmosphere;
 import veach.backdrop;  // backdrop_on
@@ -15,6 +19,9 @@ import veach.materials_generated;  // evaluateSurface(kind, c)
 import veach.scene;
 
 static const uint no_geometry = 0xFFFFFFFFu;  ///< the visibility buffer's clear value
+static const uint shade_tile_size = 8;        ///< classify.slang's tiles
+static const uint bin_header = 32;            ///< classify.slang: bin_tiles starts with a count per bin
+static const uint groups_per_row = 32768;     ///< classify_args: a bin's groups come in rows
 
 struct ShadeParams {
     float4x4 inverse_view_projection;
@@ -25,12 +32,15 @@ struct ShadeParams {
     DescriptorHandle<StructuredBuffer<MaterialRecord>> materials;
     DescriptorHandle<StructuredBuffer<LightRecord>> lights;
     DescriptorHandle<StructuredBuffer<SkyFrame>> sky;  ///< ADR 0038
+    /// Spike SP-14 (VCH-090): with shade_auto_exposure, the pre-exposure is state[0].y (exposure.slang).
+    DescriptorHandle<StructuredBuffer<float4>> exposure_state;
+    DescriptorHandle<StructuredBuffer<uint>> bin_tiles;  ///< a count per bin, then per bin tile_capacity tiles (classify.slang)
     uint2 size;
     uint light_count;
     uint flags;  ///< shade_auto_exposure, shade_no_fp16_clamp
-    /// Spike SP-14 (VCH-090): with shade_auto_exposure, the pre-exposure is state[0].y (exposure.slang).
-    DescriptorHandle<StructuredBuffer<float4>> exposure_state;
-    uint2 pad;
+    uint tile_capacity;
+    uint pad0;
+    uint2 pad1;
 };
 [[vk::push_constant]] ConstantBuffer<ShadeParams> params;
 
@@ -79,33 +89,16 @@ float2 inside_triangle(float2 b) {
     return w.yz;
 }
 
-[shader("compute")]
-[numthreads(8, 8, 1)]
-void shade(uint3 id: SV_DispatchThreadID) {
-    if (any(id.xy >= params.size)) {
-        return;
-    }
-    veach_scene.instances = params.instances;
-    veach_scene.materials = params.materials;
-    veach_scene.lights = params.lights;
-    veach_scene.light_count = params.light_count;
-    veach_scene.emissive_count = 0;
-    veach_scene.emissive_total_weight = 0.0;
-    veach_scene.flags = 0;
-    const SkyFrame sky = params.sky[0];
-    const float exposure =
-        (params.flags & shade_auto_exposure) != 0 ? params.exposure_state[0].y : params.camera_position.w;
-    const float3 origin = params.camera_position.xyz;
-    const float2 pixel = float2(id.xy) + 0.5;
-    const float3 direction = camera_ray(pixel);
+/// A pixel with no geometry: the sky, with the sun's disk.
+float4 sky_pixel(SkyFrame sky, float3 direction, float exposure) {
+    // Alpha 2 marks the pixels the space backdrop pass (shaders/backdrop.slang) draws into: it adds the backdrop
+    // and sets alpha to the share auto-exposure meters.
+    return storable(sky_radiance_any(sky, direction, true) * exposure, backdrop_on(sky) ? 2.0 : 1.0);
+}
 
-    const uint2 visible_id = params.visibility.Load(int3(id.xy, 0));
-    if (visible_id.x == no_geometry) {  // the sky, with the sun's disk
-        // Alpha 2 marks the pixels the space backdrop pass (shaders/backdrop.slang) draws into: it adds the backdrop
-        // and sets alpha to the share auto-exposure meters.
-        params.radiance[id.xy] = storable(sky_radiance_any(sky, direction, true) * exposure, backdrop_on(sky) ? 2.0 : 1.0);
-        return;
-    }
+/// A pixel showing `visible_id`'s triangle, whose material is of `kind` (a constant in each bin's entry point).
+float4 surface_pixel(SkyFrame sky, uint kind, uint2 visible_id, float2 pixel, float3 origin, float3 direction,
+                     float exposure) {
     const InstanceRecord inst = params.instances[visible_id.x];
     const TriangleRef tri = meshlet_triangle(inst, visible_id.y >> 7, visible_id.y & 127u);
     const float3x3 corners = triangle_positions(inst, tri);
@@ -123,12 +116,12 @@ void shade(uint3 id: SV_DispatchThreadID) {
     hit.surface.uv_dy = uv0 * (1.0 - by.x - by.y) + uv1 * by.x + uv2 * by.y - hit.surface.uv;
 
     MaterialContext ctx = { hit.surface, hit.material };
-    const SurfaceSample s = evaluateSurface(hit.material.kind, ctx);
+    const SurfaceSample s = evaluateSurface(kind, ctx);
     const bool double_sided = (hit.material.flags & material_double_sided) != 0;
-    // Which way the surface faces, to keep lights behind it out. A double-sided material is a thin sheet: its triangle.
-    // A single-sided one bounds a solid: its interpolated normal. A thin triangle standing in a smooth surface (a
-    // Transvoxel transition cell in a chunk's face plane) faces away from a light the surface faces; by the triangle
-    // it kept only the sky's ambient light, which under SP-08's magenta sky looked like pinholes (VCH-108).
+    // Which way the surface faces, to keep lights behind it out (ADR 0078). A double-sided material is a thin sheet:
+    // its triangle. A single-sided one bounds a solid: its interpolated normal. A thin triangle standing in a smooth
+    // surface (a Transvoxel transition cell in a chunk's face plane) faces away from a light the surface faces; by the
+    // triangle it kept only the sky's ambient light, which under SP-08's magenta sky looked like pinholes (VCH-108).
     const float3 facing = double_sided ? hit.surface.geometric_normal : hit.surface.normal;
     float3 light = hit.front || double_sided ? s.emission : float3(0.0, 0.0, 0.0);
     // A normal map can turn the shading normal away from the camera at grazing angles: bend it back until the
@@ -155,5 +148,44 @@ void shade(uint3 id: SV_DispatchThreadID) {
         light += sky_ambient_radiance(sky) * b.diffuse;
     }
     const float4 air = aerial_perspective(sky, pixel / float2(params.size), length(hit.surface.position - origin));
-    params.radiance[id.xy] = storable((light * air.a + air.rgb) * exposure);
+    return storable((light * air.a + air.rgb) * exposure);
+}
+
+/// One pixel of a tile of bin `bin` (0: the sky; k + 1: material kind k), if it shows that bin.
+void shade_bin(uint bin, uint3 group, uint3 thread) {
+    const uint t = group.y * groups_per_row + group.x;
+    if (t >= params.bin_tiles[bin]) {
+        return;
+    }
+    const uint tile = params.bin_tiles[bin_header + bin * params.tile_capacity + t];
+    const uint2 id = uint2(tile & 0xFFFFu, tile >> 16) * shade_tile_size + thread.xy;
+    if (any(id >= params.size)) {
+        return;
+    }
+    const uint2 visible_id = params.visibility.Load(int3(id, 0));
+    if (visible_id.x == no_geometry) {
+        if (bin != 0) {
+            return;
+        }
+    } else if (bin == 0 ||
+               params.materials[params.instances[visible_id.x].material_base +
+                                nonuniform(params.instances[visible_id.x].meshlets)[(visible_id.y >> 7) * 8 + 4]]
+                       .kind != bin - 1) {
+        return;
+    }
+    veach_scene.instances = params.instances;
+    veach_scene.materials = params.materials;
+    veach_scene.lights = params.lights;
+    veach_scene.light_count = params.light_count;
+    veach_scene.emissive_count = 0;
+    veach_scene.emissive_total_weight = 0.0;
+    veach_scene.flags = 0;
+    const SkyFrame sky = params.sky[0];
+    const float exposure =
+        (params.flags & shade_auto_exposure) != 0 ? params.exposure_state[0].y : params.camera_position.w;
+    const float2 pixel = float2(id) + 0.5;
+    const float3 direction = camera_ray(pixel);
+    params.radiance[id] = bin == 0 ? sky_pixel(sky, direction, exposure)
+                                   : surface_pixel(sky, bin - 1, visible_id, pixel, params.camera_position.xyz,
+                                                   direction, exposure);
 }

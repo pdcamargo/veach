@@ -7,6 +7,7 @@
 #include <veach/core/suggest.hpp>
 
 #include "atmosphere.hpp"
+#include "gpu_scene.hpp"
 #include "realtime_renderer.hpp"
 #include "scene_records.hpp"
 #include "veach_render_shaders.hpp"
@@ -17,9 +18,11 @@
 #include <cstring>
 #include <format>
 #include <limits>
+#include <map>
 #include <set>
 #include <span>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace veach::render {
 
@@ -101,10 +104,14 @@ struct SceneRenderer::Impl {
         rhi::BufferHandle vertices;
         rhi::BufferHandle indices;
         rhi::BufferHandle slots;
-        rhi::BufferHandle meshlets;  ///< ADR 0040: Meshlet records, 8 uints each
+        rhi::BufferHandle meshlets;  ///< ADR 0011: Meshlet records, 8 uints each
         rhi::BufferHandle meshlet_vertices;
         rhi::BufferHandle meshlet_triangles;
+        rhi::BufferHandle meshlet_bounds;  ///< MeshletBounds, 3 float4s each
         std::uint32_t meshlet_count = 0;
+        math::vec4 sphere{0.0f};  ///< object space, around the bounding box
+        /// Per material slot, its meshlets by size bucket (draw_list_of): the draw lists' capacities.
+        std::vector<std::array<std::uint32_t, 3>> slot_buckets;
         rhi::AccelHandle blas;
         bool built = false;
     };
@@ -119,8 +126,9 @@ struct SceneRenderer::Impl {
     rhi::Device* device = nullptr;
     rhi::PipelineHandle pipeline;
     rhi::PipelineHandle display_pipeline;
-    RealtimeRenderer realtime;      ///< ADR 0040
-    AtmosphereRenderer atmosphere;  ///< ADR 0038
+    RealtimeRenderer realtime;            ///< ADR 0093
+    std::unique_ptr<GpuScene> gpu_scene;  ///< the instances both renderers read
+    AtmosphereRenderer atmosphere;        ///< ADR 0038
     bool warned_no_sky = false;
     rhi::SamplerHandle sampler;
     std::unordered_map<AssetId, GpuMesh> meshes;
@@ -204,6 +212,7 @@ struct SceneRenderer::Impl {
         destroy_if(m.meshlets);
         destroy_if(m.meshlet_vertices);
         destroy_if(m.meshlet_triangles);
+        destroy_if(m.meshlet_bounds);
         destroy_if(m.blas);
     }
     /// Reports what the counters in `r` added since the last check. The frame it holds must have completed.
@@ -338,9 +347,16 @@ struct SceneRenderer::Impl {
                                    .debug_name = is_runtime ? "runtime meshlet triangles" : "meshlet triangles",
                                    .stride = 4},
                                   bytes_of(source->meshlet_triangles));
-        if (!vertices || !indices || !slots || !meshlets || !meshlet_vertices || !meshlet_triangles) {
+        auto meshlet_bounds =
+            device->create_buffer({.size = or_one(source->meshlet_bounds.size() * sizeof(MeshletBounds)),
+                                   .debug_name = is_runtime ? "runtime meshlet bounds" : "meshlet bounds",
+                                   .stride = sizeof(math::vec4)},
+                                  bytes_of(source->meshlet_bounds));
+        if (!vertices || !indices || !slots || !meshlets || !meshlet_vertices || !meshlet_triangles ||
+            !meshlet_bounds) {
             report("mesh buffers", Error{ErrorCode::rhi_gpu_error, "scene renderer: cannot create mesh buffers", {}});
-            for (auto* created : {&vertices, &indices, &slots, &meshlets, &meshlet_vertices, &meshlet_triangles}) {
+            for (auto* created :
+                 {&vertices, &indices, &slots, &meshlets, &meshlet_vertices, &meshlet_triangles, &meshlet_bounds}) {
                 if (*created) {
                     device->destroy(**created);
                 }
@@ -355,7 +371,20 @@ struct SceneRenderer::Impl {
         gpu.meshlets = *meshlets;
         gpu.meshlet_vertices = *meshlet_vertices;
         gpu.meshlet_triangles = *meshlet_triangles;
-        gpu.meshlet_count = static_cast<std::uint32_t>(source->meshlets.size());
+        gpu.meshlet_bounds = *meshlet_bounds;
+        // A mesh cooked before meshlet bounds were (or with fewer of them) draws nothing rather than read past them.
+        gpu.meshlet_count = source->meshlet_bounds.size() == source->meshlets.size()
+                                ? static_cast<std::uint32_t>(source->meshlets.size())
+                                : 0;
+        const math::vec3 center = 0.5f * (source->bounds_min + source->bounds_max);
+        gpu.sphere = math::vec4(center, 0.5f * math::length(source->bounds_max - source->bounds_min));
+        gpu.slot_buckets.assign(source->slot_count, {});
+        for (std::uint32_t m = 0; m < gpu.meshlet_count; ++m) {
+            const Meshlet& meshlet = source->meshlets[m];
+            if (meshlet.slot < gpu.slot_buckets.size()) {
+                ++gpu.slot_buckets[meshlet.slot].at(draw_list_of(false, meshlet.triangle_count));
+            }
+        }
         tlas_meshes.clear();  // a photo-mode TLAS must be recreated with the new mesh's BLAS
         return &gpu;
     }
@@ -499,6 +528,14 @@ std::uint64_t SceneRenderer::samples() const {
     return impl_->samples;
 }
 
+const CullStats& SceneRenderer::cull_stats() const {
+    return impl_->realtime.stats();
+}
+
+std::uint64_t SceneRenderer::instance_bytes_uploaded() const {
+    return impl_->gpu_scene ? impl_->gpu_scene->uploaded_bytes() : 0;
+}
+
 Result<> SceneRenderer::prepare(rhi::Device& device) {
     Impl& s = *impl_;
     s.device = &device;
@@ -510,9 +547,10 @@ Result<> SceneRenderer::prepare(rhi::Device& device) {
     if (auto atmosphere = s.atmosphere.prepare(device); !atmosphere) {
         return atmosphere;
     }
-    if (auto realtime = s.realtime.prepare(device, s.shaders); !realtime) {
+    if (auto realtime = s.realtime.prepare(device, s.shaders, static_cast<std::uint32_t>(s.kinds.size())); !realtime) {
         return realtime;
     }
+    s.gpu_scene = std::make_unique<GpuScene>(device);
     auto sampler = device.create_sampler({rhi::Filter::linear, rhi::AddressMode::repeat});
     if (!sampler) {
         return std::unexpected(sampler.error());
@@ -576,17 +614,23 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
     const PhotoMode settings = view->photo_mode.value_or(PhotoMode{});
     s.release_frame_buffers();  // last frame's: their submission is made, so destroy() waits for the GPU
 
-    // The scene on the GPU: meshes, materials (with textures), instances.
+    // The scene on the GPU: meshes, materials (with textures), instances. Draws
+    // with the same materials share one run of material records.
     std::vector<MaterialRecord> materials;
+    std::map<std::vector<AssetId>, std::uint32_t> material_runs;  ///< a draw's materials -> their first record
     std::vector<InstanceRecord> instances;
+    std::vector<std::uint64_t> entities;
     std::vector<AssetId> used_meshes;
+    std::unordered_set<AssetId> used;
     std::vector<const MeshDraw*> draws;
+    std::uint32_t task_count = 0;
+    std::array<std::uint32_t, draw_list_count> list_capacity{};
     for (const MeshDraw& draw : frame.world.meshes) {
         Impl::GpuMesh* mesh = s.mesh(draw.mesh);
         if (mesh == nullptr) {
             continue;
         }
-        if (std::ranges::find(used_meshes, draw.mesh) == used_meshes.end()) {
+        if (used.insert(draw.mesh).second) {
             used_meshes.push_back(draw.mesh);
         }
         InstanceRecord inst;
@@ -596,24 +640,51 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
         inst.meshlets = s.device->descriptor(mesh->meshlets);
         inst.meshlet_vertices = s.device->descriptor(mesh->meshlet_vertices);
         inst.meshlet_triangles = s.device->descriptor(mesh->meshlet_triangles);
+        inst.meshlet_bounds = s.device->descriptor(mesh->meshlet_bounds);
         inst.meshlet_count = mesh->meshlet_count;
-        inst.material_base = static_cast<std::uint32_t>(materials.size());
-        for (std::uint32_t slot = 0; slot < mesh->source->slot_count; ++slot) {
-            materials.push_back(slot < draw.materials.size() ? s.record_of(draw.materials[slot])
-                                                             : s.record_of(AssetId{}));
+        inst.sphere = mesh->sphere;
+        const std::uint32_t slot_count = mesh->source->slot_count;
+        std::vector<AssetId> key(slot_count);
+        for (std::uint32_t slot = 0; slot < slot_count; ++slot) {
+            key[slot] = slot < draw.materials.size() ? draw.materials[slot] : AssetId{};
         }
-        for (std::size_t m = inst.material_base; m < materials.size(); ++m) {
-            inst.flags |= (materials[m].flags & (alpha_mask | alpha_blend)) != 0 ? instance_has_alpha : 0u;
+        const auto [run, added] =
+            material_runs.try_emplace(std::move(key), static_cast<std::uint32_t>(materials.size()));
+        if (added) {
+            for (const AssetId& id : run->first) {
+                materials.push_back(s.record_of(id));
+            }
+        }
+        inst.material_base = run->second;
+        // The draw lists this instance's meshlets land in, if they all survive
+        // culling.
+        for (std::uint32_t slot = 0; slot < slot_count; ++slot) {
+            const bool masked = (materials[inst.material_base + slot].flags & (alpha_mask | alpha_blend)) != 0;
+            inst.flags |= masked ? instance_has_alpha : 0u;
+            for (std::uint32_t bucket = 0; bucket < 3; ++bucket) {
+                list_capacity.at((masked ? 3 : 0) + bucket) += mesh->slot_buckets[slot].at(bucket);
+            }
+        }
+        task_count += inst.meshlet_count > 1 ? (inst.meshlet_count + 63) / 64 : 0;
+        // Normal cones hold under a rotation, a translation and a uniform scale that
+        // does not mirror.
+        const math::mat3 linear(draw.world);
+        const math::vec3 scale(math::length(linear[0]), math::length(linear[1]), math::length(linear[2]));
+        const float largest = std::max({scale.x, scale.y, scale.z});
+        if (math::determinant(linear) > 0.0f && largest - std::min({scale.x, scale.y, scale.z}) <= 1e-3f * largest) {
+            inst.flags |= instance_cone_culling;
         }
         inst.object_to_world = rows_of(draw.world);
-        inst.normal_to_world = rows_of(math::mat4(math::transpose(math::inverse(math::mat3(draw.world)))));
+        inst.normal_to_world = rows_of(math::mat4(math::transpose(math::inverse(linear))));
         instances.push_back(inst);
+        entities.push_back(draw.entity);
         draws.push_back(&draw);
     }
     if (instances.empty() && !backdrop) {
         return;
     }
-    photo = photo && !instances.empty();  // the path tracer needs geometry for its acceleration structure
+    photo = photo && !instances.empty();  // the path tracer needs geometry for its
+                                          // acceleration structure
     const std::uint32_t scene_flags =
         std::ranges::any_of(instances, [](const InstanceRecord& i) { return (i.flags & instance_has_alpha) != 0; })
             ? scene_has_alpha
@@ -632,18 +703,21 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
         lights.push_back(r);
     }
 
-    const rhi::BufferHandle instance_buffer = s.upload(instances, sizeof(InstanceRecord), "scene instances");
+    // The GPU scene: last frame's records stay on the GPU; only changed ones are
+    // uploaded (gpu_scene.hpp).
+    const GraphResource instance_data =
+        s.gpu_scene->update(graph, *frame.uploads, instances, entities, frame.world.space);
     const rhi::BufferHandle material_buffer = s.upload(materials, sizeof(MaterialRecord), "scene materials");
     const rhi::BufferHandle light_buffer = s.upload(lights, sizeof(LightRecord), "scene lights");
-    if (!instance_buffer.is_valid() || !material_buffer.is_valid() || !light_buffer.is_valid()) {
+    if (!instance_data.is_valid() || !material_buffer.is_valid() || !light_buffer.is_valid()) {
         return;
     }
 
     std::vector<GraphResource> buffers;
     for (const AssetId id : used_meshes) {
         const Impl::GpuMesh& mesh = s.meshes.at(id);
-        for (const rhi::BufferHandle b :
-             {mesh.vertices, mesh.indices, mesh.slots, mesh.meshlets, mesh.meshlet_vertices, mesh.meshlet_triangles}) {
+        for (const rhi::BufferHandle b : {mesh.vertices, mesh.indices, mesh.slots, mesh.meshlets, mesh.meshlet_vertices,
+                                          mesh.meshlet_triangles, mesh.meshlet_bounds}) {
             buffers.push_back(graph.import(b, "mesh data", rhi::ResourceState::shader_read));
         }
     }
@@ -653,29 +727,34 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
             textures.push_back(graph.import(texture.texture, "scene texture", rhi::ResourceState::shader_read));
         }
     }
-    std::vector<GraphResource> frame_data;
-    for (const rhi::BufferHandle b : {instance_buffer, material_buffer, light_buffer}) {
-        frame_data.push_back(graph.import(b, "scene frame data", rhi::ResourceState::shader_read));
-    }
-    const auto read_geometry = [&](PassBuilder& b) {
+    const GraphResource material_data =
+        graph.import(material_buffer, "scene materials", rhi::ResourceState::shader_read);
+    const GraphResource light_data = graph.import(light_buffer, "scene lights", rhi::ResourceState::shader_read);
+    const auto read_meshes = [buffers, instance_data, material_data](PassBuilder& b) {
         for (const GraphResource& r : buffers) {
             b.read(r);
         }
+        b.read(instance_data);
+        b.read(material_data);
+    };
+    const auto read_geometry = [read_meshes, textures, light_data](PassBuilder& b) {
+        read_meshes(b);
         for (const GraphResource& r : textures) {
             b.read(r);
         }
-        for (const GraphResource& r : frame_data) {
-            b.read(r);
-        }
+        b.read(light_data);
     };
-    // The sky (ADR 0038): its LUTs for this view. A lit scene without one is dark wherever lights do not reach.
+    // The sky (ADR 0038): its LUTs for this view. A lit scene without one is dark
+    // wherever lights do not reach.
     const ResolvedSky& resolved_sky = frame.world.sky;
     if (!s.warned_no_sky && !frame.world.lights.empty() &&
         (resolved_sky.mode == SkyMode::none ||
          (resolved_sky.mode == SkyMode::constant && resolved_sky.settings.color == math::vec3(0.0f)))) {
         log::warn("render",
-                  "the scene has lights but no sky (Sky.mode = none): whatever they do not reach directly "
-                  "renders black. Leave Sky out for the physical sky, or set a constant one.");
+                  "the scene has lights but no sky (Sky.mode = none): "
+                  "whatever they do not reach directly "
+                  "renders black. Leave Sky out for the physical sky, or "
+                  "set a constant one.");
         s.warned_no_sky = true;
     }
     const SkyResources sky = s.atmosphere.record(graph, resolved_sky, *view);
@@ -684,14 +763,13 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
     }
 
     if (!photo) {
-        // ---- the real-time renderer (ADR 0040).
-        std::vector<std::uint32_t> meshlet_counts;
-        for (const InstanceRecord& inst : instances) {
-            meshlet_counts.push_back(inst.meshlet_count);
-        }
-        const RealtimeScene realtime{.read_geometry = read_geometry,
-                                     .meshlet_counts = meshlet_counts,
-                                     .instances = instance_buffer,
+        // ---- the real-time renderer (ADR 0093).
+        const RealtimeScene realtime{.read_meshes = read_meshes,
+                                     .read_geometry = read_geometry,
+                                     .instances = instance_data,
+                                     .instance_count = static_cast<std::uint32_t>(instances.size()),
+                                     .task_count = task_count,
+                                     .list_capacity = list_capacity,
                                      .materials = material_buffer,
                                      .lights = light_buffer,
                                      .light_count = static_cast<std::uint32_t>(lights.size()),
@@ -769,7 +847,8 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
     if (!emissive_buffer.is_valid()) {
         return;
     }
-    frame_data.push_back(graph.import(emissive_buffer, "scene frame data", rhi::ResourceState::shader_read));
+    const GraphResource emissive_data =
+        graph.import(emissive_buffer, "scene emitters", rhi::ResourceState::shader_read);
 
     // Restart the accumulation when anything it depends on changed.
     const auto [width, height] = std::pair{frame.width, frame.height};
@@ -893,15 +972,16 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
                 b.read(r, rhi::ResourceState::accel_read);
             }
             read_geometry(b);
+            b.read(emissive_data);
             b.write(accumulation, rhi::ResourceState::shader_write);
             b.write(diagnostics, rhi::ResourceState::shader_write);
         },
-        [params, pipeline = s.pipeline, tlas, accumulation, instance_buffer, material_buffer, light_buffer,
+        [params, pipeline = s.pipeline, tlas, accumulation, instance_data, material_buffer, light_buffer,
          emissive_buffer, diagnostics](PassContext& ctx) mutable {
             params.diagnostics = ctx.device.descriptor(ctx.buffer(diagnostics), rhi::View::storage);
             params.accumulation = ctx.device.descriptor(ctx.texture(accumulation), rhi::View::storage);
             params.scene = ctx.device.descriptor(ctx.accel(tlas));
-            params.instances = ctx.device.descriptor(instance_buffer);
+            params.instances = ctx.device.descriptor(ctx.buffer(instance_data));
             params.materials = ctx.device.descriptor(material_buffer);
             params.lights = ctx.device.descriptor(light_buffer);
             params.emissive = ctx.device.descriptor(emissive_buffer);

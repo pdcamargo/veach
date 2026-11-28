@@ -514,10 +514,11 @@ void Renderer::render() {
         "clear", [&](PassBuilder& b) { b.color_target(color, rhi::LoadOp::clear, background_color); },
         [](PassContext&) {});
 
-    const FrameContext frame{device_,     render_world_,
-                             color,       width,
-                             height,      render_world_.views.empty() ? nullptr : &render_world_.views.front(),
-                             &readbacks_, &uploads_};
+    FrameBlackboard blackboard;
+    const FrameContext frame{
+        device_,     render_world_, color,
+        width,       height,        render_world_.views.empty() ? nullptr : &render_world_.views.front(),
+        &readbacks_, &uploads_,     &blackboard};
     for (std::size_t i = 0; i < features_.size(); ++i) {
         if (prepared_[i]) {
             features_[i]->record(graph, frame);

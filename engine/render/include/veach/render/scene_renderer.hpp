@@ -3,20 +3,22 @@
 // The scene renderer: the scene on the GPU (meshes, meshlets, materials, lights) drawn by the camera's choice of
 // renderer. A PhotoMode component on the camera selects photo mode, the reference path tracer
 // (docs/adr/0041-photo-mode.md), which accumulates while nothing changes and is the only user of ray tracing:
-// BLASes and the TLAS exist only for it. Otherwise the real-time renderer draws the view
-// (docs/adr/0040-interim-realtime-path-visibility-buffer.md). Both write linear radiance that the display pass turns
-// into scene_color (ADR 0037). The shaders come from the app's library (veach_add_scene_shaders), compiled with its
-// materials.
+// BLASes and the TLAS exist only for it. Otherwise the real-time renderer draws the view, GPU-driven
+// (docs/adr/0093-gpu-driven-core.md). Both read the same GPU scene and write linear radiance that the display pass
+// turns into scene_color (ADR 0037). The shaders come from the app's library (veach_add_scene_shaders), compiled with
+// its materials.
 //
 //   renderer.add_feature(std::make_unique<veach::render::SceneRenderer>(
 //       veach::render::SceneShaders{lab_shaders::path_tracer(), lab_shaders::realtime_visibility(),
-//                                   lab_shaders::realtime_shade()},
+//                                   lab_shaders::realtime_shade_bins()},
 //       lab_shaders::material_kinds, assets));
 
 #include <veach/core/math.hpp>
 #include <veach/render/renderer.hpp>
 #include <veach/rhi/types.hpp>
 
+#include <array>
+#include <cstdint>
 #include <memory>
 #include <span>
 #include <string_view>
@@ -57,11 +59,25 @@ static_assert(offsetof(MaterialRecord, base_color_texture) == 64);
 static_assert(offsetof(MaterialRecord, custom0) == 96);
 
 /// The scene shaders, compiled with an app's materials (veach_add_scene_shaders): photo mode's path tracer and the
-/// real-time renderer's visibility and shading passes (ADR 0040, ADR 0041).
+/// real-time renderer's visibility pass and shading, an entry point per material kind (ADR 0041, ADR 0093).
 struct SceneShaders {
     const rhi::ShaderLibrary& path_tracer;
     const rhi::ShaderLibrary& visibility;
-    const rhi::ShaderLibrary& shade;
+    const rhi::ShaderLibrary& shade;  ///< realtime_shade_bins
+};
+
+/// What the real-time renderer's culling kept and dropped in one frame (ADR 0093). Read back from the GPU, so it
+/// describes the frame `frame`, frames_in_flight frames before the one being recorded; zeros before the first.
+struct CullStats {
+    std::uint64_t frame = 0;
+    std::uint32_t instances = 0;                    ///< in the GPU scene
+    std::uint32_t instances_visible = 0;            ///< passed phase 1 (frustum and last frame's pyramid)
+    std::uint32_t instances_rechecked = 0;          ///< phase 1 found them occluded: tested again in phase 2
+    std::uint32_t instances_disoccluded = 0;        ///< of those, visible against this frame's pyramid
+    std::uint32_t meshlets_culled = 0;              ///< outside the frustum, or facing away (normal cone)
+    std::uint32_t meshlets_rechecked = 0;           ///< phase 1 found them occluded
+    std::uint32_t meshlets_occluded = 0;            ///< hidden in phase 2: not drawn
+    std::array<std::uint32_t, 2> meshlets_drawn{};  ///< by phase 1 and by phase 2
 };
 
 class SceneRenderer final : public RenderFeature {
@@ -81,6 +97,10 @@ public:
     void reset();
     /// Photo mode's samples per pixel accumulated so far, including the frame being recorded.
     [[nodiscard]] std::uint64_t samples() const;
+    /// The real-time renderer's culling, frames_in_flight frames ago.
+    [[nodiscard]] const CullStats& cull_stats() const;
+    /// Bytes of instance records the last frame uploaded to the GPU scene (0 when nothing changed).
+    [[nodiscard]] std::uint64_t instance_bytes_uploaded() const;
 
 private:
     struct Impl;

@@ -2354,7 +2354,7 @@ void Dx12CommandList::barrier(std::span<const Barrier> barriers) {
             if (b.mip_count == 0 || texture == nullptr) {
                 t.Subresources.IndexOrFirstMipLevel = 0xffffffff;  // all subresources
             } else {
-                // Some mips, every array slice (the render graph tracks a state per mip, ADR 0092).
+                // Some mips, every array slice (the render graph tracks a state per mip, ADR 0093).
                 t.Subresources.IndexOrFirstMipLevel = b.first_mip;
                 t.Subresources.NumMipLevels = b.mip_count;
                 t.Subresources.FirstArraySlice = 0;

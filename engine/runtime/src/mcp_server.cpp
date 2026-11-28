@@ -285,7 +285,8 @@ json McpServer::tools() const {
                         {{"type", "object"}, {"properties", json::object()}}));
     list.push_back(tool("gpu_timings",
                         "GPU backend, device, frames in flight, and the last completed frame's GPU time, total and "
-                        "per render-graph pass (waits for the GPU first).",
+                        "per render-graph pass (waits for the GPU first), and what the real-time renderer's culling "
+                        "kept and dropped.",
                         {{"type", "object"}, {"properties", json::object()}}));
     list.push_back(
         tool("eval",
@@ -653,6 +654,19 @@ json McpServer::call_tool(std::string_view name, const json& arguments) {
                     {"frame", timings.frame},
                     {"passes", passes},
                     {"photo_mode_samples", photo_mode_samples()}};
+        // The real-time renderer's culling (ADR 0093), as read back frames_in_flight frames ago.
+        if (auto* scene = engine_.services().get<render::Renderer>().feature<render::SceneRenderer>()) {
+            const render::CullStats& c = scene->cull_stats();
+            out["culling"] = {{"frame", c.frame},
+                              {"instances", c.instances},
+                              {"instances_visible", c.instances_visible},
+                              {"instances_rechecked", c.instances_rechecked},
+                              {"instances_disoccluded", c.instances_disoccluded},
+                              {"meshlets_culled", c.meshlets_culled},
+                              {"meshlets_rechecked", c.meshlets_rechecked},
+                              {"meshlets_occluded", c.meshlets_occluded},
+                              {"meshlets_drawn", {c.meshlets_drawn[0], c.meshlets_drawn[1]}}};
+        }
         if (!timings.unavailable.empty()) {
             out["passes_unavailable"] = timings.unavailable;
         }

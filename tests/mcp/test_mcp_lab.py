@@ -181,6 +181,78 @@ def fly(lab: str) -> None:
     check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
 
 
+def axes(lab: str) -> None:
+    """Analog axes over MCP (input.AC15, input.AC16): mouse look and a gamepad on the lab's fly camera, and a
+    recording of them that replays headless."""
+
+    def yaw_of(pose: dict) -> float:
+        r = pose["rotation"]
+        return 2 * math.atan2(r["y"], r["w"])
+
+    with tempfile.TemporaryDirectory() as tmp:
+        recording = os.path.join(tmp, "axes.vreplay")
+        client = McpClient([lab, "--mcp", "--headless", "--script", "scripts/triangle_fly.luau", "--record", recording])
+        client.initialize()
+
+        def pose() -> dict:
+            return client.call_json("get_component", entity="camera", component="Transform")
+
+        start = pose()
+        client.call_json("send_input", axis="mouse_x", value=100)
+        client.call_json("step_frames", count=1)
+        check(pose() == start, "[input.AC15] mouse motion without the right button held does not turn the camera")
+
+        client.call_json("send_input", key="mouse_right", down=True)
+        client.call_json("step_frames", count=1)
+        captured = client.call_json("get_component", entity="primary_window", component="RelativeMouse")
+        check(captured == {"enabled": True}, f"[input.AC15] holding the right button captures the mouse ({captured})")
+        sent = client.call_json("send_input", axis="mouse_x", value=100)
+        check(sent["value"] == 100 and sent["relative"], f"[input.AC15] send_input moves an axis ({sent})")
+        client.call_json("step_frames", count=1)
+        turned = yaw_of(pose())
+        check(abs(turned - (-0.25)) < 1e-6,
+              f"[input.AC15] 100 points of mouse motion turn the camera 0.25 rad right (yaw {turned})")
+        client.call_json("step_frames", count=5)
+        check(abs(yaw_of(pose()) - turned) < 1e-9, "[input.AC15] mouse motion counts once, not every frame")
+        client.call_json("send_input", key="mouse_right", down=False)
+        client.call_json("step_frames", count=1)
+        freed = client.call("get_component", entity="primary_window", component="RelativeMouse")
+        check(freed.get("isError"), "[input.AC15] releasing the right button frees the mouse")
+
+        client.call_json("send_input", gamepad=True)
+        client.call_json("send_input", axis="gamepad_left_y", value=0.575)  # dead zone 0.15: reads 0.5
+        before = pose()["translation"]
+        client.call_json("step_frames", count=30)
+        client.call_json("send_input", axis="gamepad_left_y", value=0)
+        client.call_json("step_frames", count=1)
+        after = pose()["translation"]
+        step = [after[i] - before[i] for i in range(3)]
+        expected = [0.5 * math.sin(0.25), 0.0, -0.5 * math.cos(0.25)]  # half speed along the turned forward
+        check(all(abs(step[i] - expected[i]) < 1e-3 for i in range(3)),
+              f"[input.AC15] a stick past its dead zone flies at the rescaled speed ({step} vs {expected})")
+        pads = client.call_json("eval", source='return require("@veach").input.gamepads()')
+        check(pads["returns"] == ["1"], f"[input.AC15] scripts see the connected gamepad ({pads})")
+
+        bad = client.call("send_input", axis="mouse_xx", value=1)
+        text = bad["content"][0]["text"]
+        check(bad.get("isError") and "[input.unknown_axis]" in text and "Did you mean 'mouse_x'?" in text,
+              "[input.AC15] send_input rejects an unknown axis with a suggestion")
+        recorded = pose()
+        check(client.close() == 0, "[input.AC15] the run exits 0")
+
+        with open(recording, encoding="utf-8") as f:
+            frames = [json.loads(line) for line in f.read().splitlines()[1:]]
+        moved = [e for frame in frames for e in frame["events"] if "axis" in e]
+        check(len(moved) == 4 and all(isinstance(e["value"], int) for e in moved) and moved[2]["value"] == 37683,
+              f"[input.AC16] axis events are recorded as fixed-point integers ({moved})")
+        client = McpClient([lab, "--mcp", "--headless", "--replay", recording])
+        client.initialize()
+        client.call_json("step_frames", count=len(frames))
+        replayed = client.call_json("get_component", entity="camera", component="Transform")
+        check(replayed == recorded, f"[input.AC16] the replay ends where the recording did ({replayed} vs {recorded})")
+        check(client.close() == 0, "[input.AC16] every frame's state matches (no replay.diverged)")
+
+
 def replay(lab: str) -> None:
     """Record and replay (docs/specs/record-replay/spec.md)."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -509,8 +581,8 @@ def main() -> int:
     parser.add_argument("--golden")
     parser.add_argument("--out")
     parser.add_argument("--rhi", default="metal")
-    parser.add_argument("mode", choices=["protocol", "golden", "fly", "reload", "photo_mode", "gpu_timings", "replay",
-                                         "replay_windowed", "sky"])
+    parser.add_argument("mode", choices=["protocol", "golden", "fly", "axes", "reload", "photo_mode", "gpu_timings",
+                                         "replay", "replay_windowed", "sky"])
     args = parser.parse_args()
     if args.mode == "protocol":
         protocol(args.lab)
@@ -520,6 +592,8 @@ def main() -> int:
         replay_windowed(args.lab)
     elif args.mode == "fly":
         fly(args.lab)
+    elif args.mode == "axes":
+        axes(args.lab)
     elif args.mode == "reload":
         reload(args.lab)
     elif args.mode == "gpu_timings":

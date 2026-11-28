@@ -116,6 +116,11 @@ if(Python3_FOUND)
         COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
                 --lab $<TARGET_FILE:veach-lab> fly
         WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
+    # input.AC15-AC16: mouse look and a gamepad on the fly camera, through send_input, recorded and replayed.
+    add_test(NAME "mcp: analog axes through send_input, recorded and replayed (null RHI)"
+        COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
+                --lab $<TARGET_FILE:veach-lab> axes
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
     if(APPLE)
         add_test(NAME "mcp: golden through MCP (GPU)"
             COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"

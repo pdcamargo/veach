@@ -22,12 +22,24 @@ namespace veach {
 enum class PlatformBackend : std::uint8_t { headless, sdl };
 
 struct PlatformEvent {
-    enum class Type : std::uint8_t { quit_requested, window_close_requested, window_resized, key_down, key_up };
+    // New types go at the end: recordings store the type as its number.
+    enum class Type : std::uint8_t {
+        quit_requested,
+        window_close_requested,
+        window_resized,
+        key_down,
+        key_up,
+        axis_moved,  ///< `axis` moved by (relative) or to (absolute) `value`
+        gamepad_added,
+        gamepad_removed,
+    };
     Type type = Type::quit_requested;
     std::uint32_t window = 0;
     Key key = Key::unknown;
     std::uint32_t width = 0;
     std::uint32_t height = 0;
+    Axis axis = Axis::none;
+    std::int32_t value = 0;  ///< Fixed point, axis_one = 1.0 (quantize_axis).
 };
 
 class Platform {
@@ -44,6 +56,8 @@ public:
     /// need to be applied; `previous` is what was applied last time.
     virtual void update_window(std::uint32_t id, const Window& desc, const Window& previous) = 0;
     [[nodiscard]] virtual NativeWindowHandle native_handle(std::uint32_t id) const = 0;
+    /// Relative mouse mode for a window (RelativeMouse). Headless: nothing to do.
+    virtual void set_relative_mouse(std::uint32_t /*id*/, bool /*enabled*/) {}
 
     /// Appends all pending OS events to `out`.
     virtual void poll_events(std::vector<PlatformEvent>& out) = 0;

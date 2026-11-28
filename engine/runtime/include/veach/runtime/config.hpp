@@ -32,6 +32,13 @@ struct ActionBinding {
     Key secondary = Key::unknown;
 };
 
+/// One analog action from "axes" in veach.project.json:
+/// `"look_x": { "source": "mouse_x", "sensitivity": 0.003 }` (docs/specs/input/spec.md).
+struct AxisActionBinding {
+    std::string action;
+    AxisBinding binding;
+};
+
 struct ProjectConfig {
     std::string name = "untitled";
     std::string script;  ///< Startup script, relative to the project directory. Empty: none.
@@ -51,6 +58,9 @@ struct ProjectConfig {
     /// "input": action -> one or two keys. Not a reflected member (reflection has no maps yet): parsed and
     /// schema-described by hand, see input_schema().
     std::vector<ActionBinding> input;
+    /// "axes": analog action -> AxisBinding. Each entry is read by reflection (AxisBinding); the map around them
+    /// is parsed and schema-described by hand, see axes_schema().
+    std::vector<AxisActionBinding> axes;
     /// "dev_scripts": scripts run after the startup script, in order, in every run: development tools that work
     /// on any scene, such as a fly camera. Not a reflected member (reflection has no arrays yet): parsed and
     /// schema-described by hand, see dev_scripts_schema().
@@ -80,6 +90,8 @@ struct EngineConfig {
 void register_config_types(World& world);
 /// The JSON Schema of the "input" object, for the generated veach.project.schema.json.
 [[nodiscard]] nlohmann::json input_schema(const World& world);
+/// The JSON Schema of the "axes" object.
+[[nodiscard]] nlohmann::json axes_schema(const World& world);
 /// The JSON Schema of the "dev_scripts" array.
 [[nodiscard]] nlohmann::json dev_scripts_schema();
 

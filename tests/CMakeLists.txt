@@ -412,3 +412,9 @@ target_include_directories(veach-bench-sp07 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}
 target_compile_definitions(veach-bench-sp07 PRIVATE VEACH_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 set_target_properties(veach-bench-sp07 PROPERTIES FOLDER "tests")
 veach_apply_warnings(veach-bench-sp07)
+# engine/procgen (procgen.AC11): the CPU interpreter's samples/s on cube faces and lattice chunks, 1 and N threads.
+add_executable(veach-bench-procgen bench/procgen_bench.cpp)
+target_link_libraries(veach-bench-procgen PRIVATE veach::procgen)
+target_compile_definitions(veach-bench-procgen PRIVATE VEACH_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+set_target_properties(veach-bench-procgen PROPERTIES FOLDER "tests")
+veach_apply_warnings(veach-bench-procgen)

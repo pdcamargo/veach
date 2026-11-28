@@ -26,9 +26,26 @@ struct ShadeParams {
     DescriptorHandle<StructuredBuffer<SkyFrame>> sky;  ///< ADR 0038
     uint2 size;
     uint light_count;
-    uint pad;
+    uint flags;  ///< shade_auto_exposure, shade_no_fp16_clamp
+    /// Spike SP-14 (VCH-090): with shade_auto_exposure, the pre-exposure is state[0].y (exposure.slang).
+    DescriptorHandle<StructuredBuffer<float4>> exposure_state;
+    uint2 pad;
 };
 [[vk::push_constant]] ConstantBuffer<ShadeParams> params;
+
+static const uint shade_auto_exposure = 1u;
+static const uint shade_no_fp16_clamp = 2u;
+static const float fp16_max = 65504.0;
+
+/// The exposed radiance as rgba16_float stores it, clamped to the fp16 maximum: the sun's disk (about 1.9e9 nits above
+/// the air) exceeds it at any exposure below about EV100 14.5. Apple GPUs saturate such writes anyway; IEEE rounding
+/// gives infinity. NaN is kept, for the exposure pass's check to count it (spike SP-14).
+float4 storable(float3 c) {
+    if ((params.flags & shade_no_fp16_clamp) == 0) {
+        c = float3(c.x > fp16_max ? fp16_max : c.x, c.y > fp16_max ? fp16_max : c.y, c.z > fp16_max ? fp16_max : c.z);
+    }
+    return float4(c, 1.0);
+}
 
 float3 camera_ray(float2 pixel) {
     const float2 ndc = float2(pixel.x / float(params.size.x) * 2.0 - 1.0, 1.0 - pixel.y / float(params.size.y) * 2.0);
@@ -64,14 +81,15 @@ void shade(uint3 id: SV_DispatchThreadID) {
     veach_scene.emissive_total_weight = 0.0;
     veach_scene.flags = 0;
     const SkyFrame sky = params.sky[0];
-    const float exposure = params.camera_position.w;
+    const float exposure =
+        (params.flags & shade_auto_exposure) != 0 ? params.exposure_state[0].y : params.camera_position.w;
     const float3 origin = params.camera_position.xyz;
     const float2 pixel = float2(id.xy) + 0.5;
     const float3 direction = camera_ray(pixel);
 
     const uint2 visible_id = params.visibility.Load(int3(id.xy, 0));
     if (visible_id.x == no_geometry) {  // the sky, with the sun's disk
-        params.radiance[id.xy] = float4(sky_radiance_any(sky, direction, true) * exposure, 1.0);
+        params.radiance[id.xy] = storable(sky_radiance_any(sky, direction, true) * exposure);
         return;
     }
     const InstanceRecord inst = params.instances[visible_id.x];
@@ -118,5 +136,5 @@ void shade(uint3 id: SV_DispatchThreadID) {
         light += sky_ambient_radiance(sky) * b.diffuse;
     }
     const float4 air = aerial_perspective(sky, pixel / float2(params.size), length(hit.surface.position - origin));
-    params.radiance[id.xy] = float4((light * air.a + air.rgb) * exposure, 1.0);
+    params.radiance[id.xy] = storable((light * air.a + air.rgb) * exposure);
 }

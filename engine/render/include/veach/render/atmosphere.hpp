@@ -53,7 +53,18 @@ struct PlanetSky {
     std::uint32_t march =
         0;  ///< 0: the sky-view LUT inside the atmosphere, a per-pixel march outside; 1: always; 2: never
     std::uint32_t march_steps = 32;
+    /// Spike SP-14 (VCH-090): the sky's ambient light on surfaces is scaled by this (a cave's stand-in for occlusion).
+    float ambient = 1.0f;
     bool operator==(const PlanetSky&) const = default;
+};
+
+/// Spike SP-14 (VCH-090), throwaway: a procedural starfield drawn as energy-conserving points (ADR 0063), in planet
+/// mode (attenuated by the air) or with no sky (deep space). Stands in for the galaxy query's near stars.
+struct Starfield {
+    float brightness = 1.0f;          ///< 1 is physical (E = 2.5e-6 lux * 10^(-0.4 m)); more is a grading boost
+    float limiting_magnitude = 8.0f;  ///< the faintest star drawn
+    std::uint32_t cells = 256;        ///< cube-map cells per face side, at most one star each
+    bool operator==(const Starfield&) const = default;
 };
 
 }  // namespace veach::render

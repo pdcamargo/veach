@@ -37,6 +37,31 @@
 
 namespace veach::render {
 
+/// Spike SP-14 (VCH-090), throwaway (docs/research/spikes/sp-14-exposure-depth.md): histogram auto-exposure that stays
+/// on the GPU, with pre-exposure (ADR 0063). A module's extractor sets RenderView::auto_exposure; without it the
+/// camera's ev100 is used as before. EV values are EV100: luminance L (nits) meters to log2(L * 100 / 12.5).
+struct AutoExposureSettings {
+    float min_ev100 = -4.0f;  ///< the adapted exposure's range
+    float max_ev100 = 18.0f;
+    float histogram_min_ev = -8.0f;  ///< the histogram's range (128 bins); darker pixels are not metered
+    float histogram_max_ev = 24.0f;
+    float low_percent = 0.5f;  ///< the metered band of the sorted metered pixels: the darkest half is ignored
+    float high_percent = 0.9f;
+    float speed_to_bright = 3.0f;      ///< exponential adaptation toward a brighter scene (1/s)
+    float speed_to_dark = 1.5f;        ///< and toward a darker one (1/s)
+    float max_rate_to_bright = 15.0f;  ///< the most it moves per second (stops)
+    float max_rate_to_dark = 6.0f;
+    /// Stops added to the metered EV (positive = darker image). -1 shows the metered band near AgX's mid grey.
+    float compensation = -1.0f;
+    float highlight_percent = 0.99f;  ///< this percentile of the metered pixels is kept unclipped...
+    float highlight_white = 16.0f;    ///< ...at or below this exposed luminance (AgX's white is 16.3)...
+    float highlight_max_pull = 4.0f;  ///< ...darkening the metered exposure by at most this (stops)
+    float delta_time = 1.0f / 60.0f;
+    bool reset = false;      ///< snap to the metered exposure this frame
+    bool clamp_fp16 = true;  ///< clamp pre-exposed radiance to the fp16 maximum (off only to show the overflow)
+    bool report = false;     ///< log each frame's exposure and counters (a few frames late)
+};
+
 /// One camera's view of the frame, extracted from a Camera and its Transform (docs/specs/render-views/spec.md).
 /// Column-major matrices, reverse-Z, infinite far plane (ADR 0013).
 struct RenderView {
@@ -51,6 +76,8 @@ struct RenderView {
     float exposure = 1.0f / 1.2f;         ///< 1 / (1.2 * 2^ev100)
     std::optional<PhotoMode> photo_mode;  ///< the camera's PhotoMode component, if it has one (ADR 0041)
     std::uint64_t camera = 0;             ///< the camera entity
+    /// Spike SP-14 (VCH-090), throwaway: auto-exposure in the real-time renderer; `exposure` is then its first value.
+    std::optional<AutoExposureSettings> auto_exposure;
 };
 
 /// A mesh to draw this frame: an imported or runtime mesh (MeshStore), the material of each of its slots, and where
@@ -82,6 +109,8 @@ struct ResolvedSky {
     /// Spike SP-10 (VCH-086), throwaway: a planet's sky, set by a module's extractor; replaces the Sky's atmosphere
     /// in the real-time renderer when `mode` is physical.
     std::optional<PlanetSky> planet;
+    /// Spike SP-14 (VCH-090), throwaway: a starfield, in planet mode or with mode none.
+    std::optional<Starfield> stars;
 };
 
 /// Renderer-owned snapshot of what to draw this frame. Rebuilt by extraction every frame.

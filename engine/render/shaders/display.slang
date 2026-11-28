@@ -8,9 +8,11 @@ struct Params {
     DescriptorHandle<RWTexture2D<float4>> output;  ///< scene_color, rgba8 (sRGB-encoded values)
     uint2 size;
     float exposure;  ///< 1 / (1.2 * 2^ev100)
-    uint tonemap;    ///< 1 = AgX; 0 = clamp (debug views that are already display values)
+    uint tonemap;    ///< bit 0: AgX, else clamp (debug views that are already display values); bit 1: auto-exposure
     uint2 input_size;  ///< radiance's size; a smaller one (a debug view at render resolution) is scaled, nearest
-    uint2 pad;
+    /// Spike SP-14 (VCH-090): with tonemap bit 1, the exposure is state[0].y / state[0].z (exposure.slang): the
+    /// adapted exposure over the pre-exposure the radiance was written with.
+    DescriptorHandle<StructuredBuffer<float4>> exposure_state;
 };
 [[vk::push_constant]] ConstantBuffer<Params> params;
 
@@ -58,8 +60,13 @@ void display(uint3 id : SV_DispatchThreadID) {
     }
     const uint2 source = min(id.xy * params.input_size / params.size, params.input_size - 1);
     const float3 radiance = params.radiance.Load(int3(source, 0)).rgb;
-    float3 c = radiance * params.exposure;
-    if (params.tonemap == 1) {
+    float exposure = params.exposure;
+    if ((params.tonemap & 2u) != 0) {
+        const float4 state = params.exposure_state[0];
+        exposure = state.y / state.z;
+    }
+    float3 c = radiance * exposure;
+    if ((params.tonemap & 1u) != 0) {
         c = agx(c);
     }
     params.output[id.xy] = float4(linear_to_srgb(c.r), linear_to_srgb(c.g), linear_to_srgb(c.b), 1.0);

@@ -308,6 +308,16 @@ Photo mode leaves them out of the image, so one bad sample cannot blacken a pixe
 logged with the frame: a NaN means a bug in a material, a light or the path tracer (a division by a zero pdf,
 the normal of a degenerate triangle, a NaN light intensity). The run exits with code 1.
 
+## render.nonfinite_pixels
+
+**The real-time renderer wrote NaN or infinite radiance.**
+
+With auto-exposure on (spike SP-14, [findings](../research/spikes/sp-14-exposure-depth.md)), the exposure pass checks
+every pixel of the pre-exposed HDR target and logs the count with the frame. Infinity means a radiance above the fp16
+maximum (65,504) reached the target unclamped, such as the sun's disk at a dark exposure; NaN means a bug in a material,
+a light or the sky (a division by zero, a degenerate normal). The run exits with code 1. Reproduce headless with the
+same frame count and look at the frame named.
+
 ## render.mesh_invalid
 
 **A runtime mesh submitted to the MeshStore is malformed.**

@@ -83,14 +83,14 @@ struct alignas(16) DisplayParams {
     rhi::DescriptorHandle output;
     std::array<std::uint32_t, 2> size{};
     float exposure = 1.0f;
-    std::uint32_t tonemap = 1;
+    std::uint32_t tonemap = 1;  ///< bit 0: AgX; bit 1: auto-exposure (spike SP-14)
     std::array<std::uint32_t, 2> input_size{};
-    std::array<std::uint32_t, 2> pad{};
+    rhi::DescriptorHandle exposure_state;  ///< spike SP-14 (VCH-090): read with tonemap bit 1
 };
 static_assert(rhi::parameters_match<DisplayParams>(
     veach_render_shaders::layout::display,
     {VEACH_PARAM(DisplayParams, radiance), VEACH_PARAM(DisplayParams, output), VEACH_PARAM(DisplayParams, size),
      VEACH_PARAM(DisplayParams, exposure), VEACH_PARAM(DisplayParams, tonemap), VEACH_PARAM(DisplayParams, input_size),
-     VEACH_PARAM(DisplayParams, pad)}));
+     VEACH_PARAM(DisplayParams, exposure_state)}));
 
 }  // namespace veach::render

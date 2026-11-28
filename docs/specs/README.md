@@ -40,6 +40,7 @@ acceptance criteria (`[area.ACn] ...`) → status Implemented.
 | [RHI textures and raster state: texture kinds, updates, blending, depth bias, samplers](rhi-textures/spec.md) | rhi, render | Implemented |
 | [Sun shadows in the real-time renderer](sun-shadows/spec.md) | render | Implemented |
 | [Temporal anti-aliasing](temporal-aa/spec.md) | render | Implemented |
+| [Bloom](bloom/spec.md) | render | Implemented |
 
 Specs of the raytracing-first era (the real-time renderer v0, temporal direct lighting, soft shadows, real-time GI)
 were removed at the reset ([ADR 0001](../adr/0001-reset.md)); they live in the `pathtracer-era` tag.

@@ -345,6 +345,9 @@ Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device), readba
             if (const SkyVisibility* sky = world.entity(id).try_get<SkyVisibility>()) {
                 view.sky_visibility = *sky;
             }
+            if (const AmbientOcclusion* ao = world.entity(id).try_get<AmbientOcclusion>()) {
+                view.ambient_occlusion = *ao;
+            }
             if (const SunShadows* shadows = world.entity(id).try_get<SunShadows>()) {
                 view.shadows = *shadows;
             }
@@ -783,6 +786,11 @@ RenderModule::RenderModule(World& world) {
     world.component<SkyVisibility>()
         .member(&SkyVisibility::visibility, "visibility")
         .member(&SkyVisibility::reach, "reach")
+        .add<Scriptable>();
+    world.component<AmbientOcclusion>()
+        .member(&AmbientOcclusion::enabled, "enabled")
+        .member(&AmbientOcclusion::radius, "radius")
+        .member(&AmbientOcclusion::intensity, "intensity")
         .add<Scriptable>();
     world.component<SunShadows>()
         .member(&SunShadows::suns, "suns")

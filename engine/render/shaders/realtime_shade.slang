@@ -1,7 +1,8 @@
 // The real-time renderer's shading (docs/adr/0093-gpu-driven-core.md): rebuilds each pixel's surface from the
 // visibility buffer and lights it with the same materials and BRDF as photo mode. Every punctual light, the brightest
-// directional ones shadowed by their shadow maps (veach/shadows.slang); the sky's irradiance as ambient light on the
-// diffuse lobe; emission; the sky behind geometry and aerial perspective in front of it. No ray tracing: it runs on any GPU the engine targets (ADR 0003).
+// directional ones shadowed by their shadow maps (veach/shadows.slang); the sky's ambient light, diffuse and
+// specular, under ambient occlusion (veach/ambient.slang, ADR 0096); emission; the sky behind geometry and aerial
+// perspective in front of it. No ray tracing: it runs on any GPU the engine targets (ADR 0003).
 //
 // Binned by material kind: the classification pass (classify.slang) lists the 8x8 tiles that show each bin (bin 0 is
 // the sky, bin k + 1 material kind k), and each bin is one indirect dispatch of its own entry point, a group per tile,
@@ -9,6 +10,7 @@
 // (veach_add_scene_shaders writes realtime_shade_bins.slang, which calls shade_bin with a constant bin), so each one's
 // evaluateSurface switch folds to one material. Layout matches render::ShadeParams (realtime_renderer.cpp).
 
+import veach.ambient;
 import veach.atmosphere;
 import veach.backdrop;  // backdrop_on
 import veach.bindless;
@@ -43,11 +45,15 @@ struct ShadeParams {
     uint tile_capacity;
     uint pad0;
     DescriptorHandle<StructuredBuffer<ShadowFrame>> shadows;  ///< the sun shadow maps (shadows.cpp)
+    /// With shade_ambient_occlusion: the visible fraction per pixel (ambient_occlusion.slang).
+    DescriptorHandle<Texture2D<float>> ambient_occlusion;
 };
 [[vk::push_constant]] ConstantBuffer<ShadeParams> params;
 
 static const uint shade_auto_exposure = 1u;
 static const uint shade_no_fp16_clamp = 2u;
+static const uint shade_ambient_occlusion = 4u;
+static const uint shade_show_occlusion = 8u;  ///< VEACH_SHOW_AO=1: the image is the occlusion, in grey
 static const float fp16_max = 65504.0;
 
 /// The exposed radiance as rgba16_float stores it, clamped to the fp16 maximum: the sun's disk (about 1.9e9 nits above
@@ -156,7 +162,22 @@ float4 surface_pixel(SkyFrame sky, uint kind, uint2 visible_id, float2 pixel, fl
             float pdf;
             light += irradiance * shadow * brdf_eval(b, v, frame.to_local(l), pdf);
         }
-        light += sky_ambient_radiance(sky, distance) * b.diffuse;
+        // The ambient light: one call, everything it needs about the surface (ADR 0096).
+        AmbientSurface ambient;
+        ambient.position = hit.surface.position;
+        ambient.normal = normal;
+        ambient.view = hit.surface.view;
+        ambient.diffuse = b.diffuse;
+        ambient.f0 = b.f0;
+        ambient.roughness = s.roughness;
+        ambient.occlusion = (params.flags & shade_ambient_occlusion) != 0
+                                ? params.ambient_occlusion.Load(int3(int2(pixel), 0))
+                                : 1.0;
+        ambient.distance = distance;
+        light += ambient_light(sky, origin, ambient);
+        if ((params.flags & shade_show_occlusion) != 0) {
+            return storable(float3(ambient.occlusion, ambient.occlusion, ambient.occlusion));
+        }
     }
     const float4 air = aerial_perspective(sky, direction, pixel / float2(params.size), distance);
     return storable((light * air.a + air.rgb) * exposure);

@@ -123,6 +123,15 @@ struct SkyVisibility {
     float reach = 0.0f;       ///< meters from the camera; 0: no enclosure
 };
 
+/// On a camera entity: the real-time renderer's screen-space ambient occlusion (ADR 0096), which darkens the sky's
+/// ambient light in creases, under overhangs and against walls (never direct light). On by default: a camera without
+/// it uses these values. `radius` is meters in the world and never follows scale. Visual only. Scriptable.
+struct AmbientOcclusion {
+    bool enabled = true;
+    float radius = 1.5f;     ///< meters: how far an occluder darkens a surface
+    float intensity = 1.0f;  ///< scales the darkening (the power on the visible fraction); 0 turns it off
+};
+
 /// On a camera entity: the sun shadows of the real-time renderer (docs/specs/sun-shadows/spec.md, ADR 0095). The
 /// brightest directional lights (`suns` of them, at most two) cast cascaded shadow maps from the camera out to
 /// `distance` meters, fading out over its last fifth; beyond it, and for every other light, geometry casts no shadow.

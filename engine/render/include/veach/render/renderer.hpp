@@ -125,6 +125,8 @@ struct RenderView {
     std::optional<AutoExposureSettings> auto_exposure;
     /// The camera's SkyVisibility (or the open sky): aerial perspective and the sky's ambient light near the camera.
     SkyVisibility sky_visibility;
+    /// The camera's AmbientOcclusion (or its defaults: on).
+    AmbientOcclusion ambient_occlusion;
     /// The camera's SunShadows (or the defaults): the real-time renderer's shadow maps (shadows.cpp).
     SunShadows shadows;
     /// Temporal anti-aliasing (ADR 0061): on unless the camera's AntiAliasing turns it off, it has a PhotoMode, or

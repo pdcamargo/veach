@@ -130,10 +130,11 @@ struct SkyVisibility {
 /// place, and dims the ground's bounce where the surroundings are in shadow. On by default: a camera without it uses
 /// these values. Distances are meters in the world and never follow scale. Visual only. Scriptable.
 struct AmbientOcclusion {
-    bool enabled = true;         ///< false turns both off
-    float radius = 1.5f;         ///< meters: how far an occluder darkens a surface in screen space
-    float intensity = 1.0f;      ///< scales the screen-space darkening (the power on the visible fraction); 0 turns it off
-    float sky_distance = 200.0f;  ///< meters from the camera where the large-scale occlusion has faded out; 0 turns it off
+    bool enabled = true;     ///< false turns both off
+    float radius = 1.5f;     ///< meters: how far an occluder darkens a surface in screen space
+    float intensity = 1.0f;  ///< scales the screen-space darkening (the power on the visible fraction); 0 turns it off
+    float sky_distance =
+        200.0f;  ///< meters from the camera where the large-scale occlusion has faded out; 0 turns it off
 };
 
 /// On a camera entity: the real-time renderer's bloom (docs/specs/bloom/spec.md), the glare of a lens or an eye: a

@@ -209,8 +209,12 @@ auto terrain = device.create_sampler({.address = rhi::AddressMode::repeat,
   (`rhi::mip_bytes`). `upload_texture` regions with zero extents reach the edge of the mip; regions uploaded to one
   texture in one frame must not overlap. The ring's memory is reused when its frame slot comes round, so stage only
   in the frame that copies.
-- **Barriers.** The graph tracks whole textures: a pass writing one layer and a pass reading another are still ordered,
-  and one pass cannot read one mip while writing another (no mip-chain builds yet).
+- **Barriers.** The graph keeps a state per mip. `graph.mips(texture, first, count)` is a resource of its own over
+  those mips: a pass can read mip n - 1 while it writes mip n (a HiZ pyramid, a mip chain), and passes touching
+  different mips are not ordered against each other. Shaders reach them through
+  `descriptor(ctx.texture(view), view, ctx.range(view))`. A pass may not touch a mip twice (through the texture and a
+  view of it). A texture whose mips end the graph in different states moves to its final state, or mip 0's. Layers
+  are still tracked together: a pass writing one layer and a pass reading another are ordered.
 - **Blend modes.** `alpha` is straight alpha, `premultiplied` expects `rgb * a` from the shader, `additive` adds color
   and keeps the destination's alpha. Integer targets cannot blend.
 

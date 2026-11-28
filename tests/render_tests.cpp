@@ -39,6 +39,9 @@ public:
     void refit_tlas(rhi::AccelHandle, std::span<const rhi::TlasInstance>) override { log("refit_tlas"); }
     void copy_texture_to_buffer(rhi::TextureHandle, rhi::BufferHandle) override { log("copy"); }
     void copy_buffer(rhi::BufferHandle, rhi::BufferHandle, std::uint64_t) override { log("copy"); }
+    void copy_buffer_regions(rhi::BufferHandle, rhi::BufferHandle, std::span<const rhi::BufferCopy> r) override {
+        log(std::format("copy_buffer_regions {}", r.size()));
+    }
     void copy_buffer_to_texture(rhi::BufferHandle, std::uint64_t offset, std::uint32_t pitch, rhi::TextureHandle,
                                 const rhi::TextureRegion& r) override {
         log(std::format("copy_buffer_to_texture offset {} pitch {} mip {} layers {}+{} at {},{},{} size {}x{}x{}",
@@ -47,7 +50,9 @@ public:
     void use(rhi::ResourceRef, ResourceState s) override { log(std::format("use {}", rhi::to_string(s))); }
     void barrier(std::span<const rhi::Barrier> barriers) override {
         for (const rhi::Barrier& b : barriers) {
-            log(std::format("barrier {}->{}", rhi::to_string(b.before), rhi::to_string(b.after)));
+            log(b.mip_count == 0 ? std::format("barrier {}->{}", rhi::to_string(b.before), rhi::to_string(b.after))
+                                 : std::format("barrier {}->{} mips {}+{}", rhi::to_string(b.before),
+                                               rhi::to_string(b.after), b.first_mip, b.mip_count));
         }
     }
     void push_debug_group(std::string_view name) override { log("pass " + std::string(name)); }
@@ -243,6 +248,104 @@ TEST_CASE("[rhi.AC3] indirect arguments and indices are graph accesses with thei
     });
 }
 
+TEST_CASE(
+    "[gpudriven.AC1] mips are graph resources of their own: a pass reads "
+    "one mip while it writes the next") {
+    GraphFixture f;
+    render::RenderGraph graph(*f.device, &f.pool);
+    const auto out = graph.import(f.texture("out"), "out", ResourceState::undefined);
+    const auto pyramid = graph.create_texture(
+        {32, 32, rhi::Format::r32_float, rhi::TextureUsage::storage | rhi::TextureUsage::sampled, "pyramid", 4});
+    std::vector<render::GraphResource> mips;
+    for (std::uint32_t m = 0; m < 4; ++m) {
+        mips.push_back(graph.mips(pyramid, m));
+    }
+    graph.add_compute_pass("level 0", [&](render::PassBuilder& b) { b.write(mips[0]); }, noop());
+    for (std::uint32_t m = 1; m < 4; ++m) {
+        graph.add_compute_pass(
+            std::format("level {}", m),
+            [&](render::PassBuilder& b) {
+                b.read(mips[m - 1]);
+                b.write(mips[m]);
+            },
+            [m, view = mips[m]](render::PassContext& ctx) { CHECK(ctx.range(view).base_mip == m); });
+    }
+    graph.add_compute_pass(
+        "use",
+        [&](render::PassBuilder& b) {
+            b.read(pyramid);
+            b.write(out);
+        },
+        [pyramid](render::PassContext& ctx) { CHECK(ctx.range(pyramid).mip_count == rhi::remaining); });
+    REQUIRE(graph.compile().has_value());
+    CHECK(graph.execution_order() == std::vector<std::string>{"level 0", "level 1", "level 2", "level 3", "use"});
+
+    RecordingCommandList cmd;
+    graph.execute(cmd);
+    std::vector<std::string> barriers;
+    std::ranges::copy_if(cmd.calls, std::back_inserter(barriers),
+                         [](const std::string& c) { return c.starts_with("barrier"); });
+    CHECK(barriers == std::vector<std::string>{
+                          "barrier undefined->shader_write mips 0+1",
+                          "barrier shader_write->shader_read mips 0+1",
+                          "barrier undefined->shader_write mips 1+1",
+                          "barrier shader_write->shader_read mips 1+1",
+                          "barrier undefined->shader_write mips 2+1",
+                          "barrier shader_write->shader_read mips 2+1",
+                          "barrier undefined->shader_write mips 3+1",
+                          "barrier shader_write->shader_read mips 3+1",  // "use" reads every
+                                                                         // mip; 0-2 already are
+                          "barrier undefined->shader_write",             // out
+                      });
+    CHECK(graph.final_state(pyramid) == ResourceState::shader_read);
+    CHECK(graph.final_state(mips[2]) == ResourceState::shader_read);
+}
+
+TEST_CASE(
+    "[gpudriven.AC1] a pass may not touch a mip twice, and mips left "
+    "apart end in one state") {
+    GraphFixture f;
+    const rhi::TextureHandle handle = *f.device->create_texture(
+        {16, 16, rhi::Format::r32_float, rhi::TextureUsage::storage | rhi::TextureUsage::sampled, "chain", 3});
+    {
+        render::RenderGraph graph(*f.device, &f.pool);
+        const auto chain = graph.import(handle, "chain", ResourceState::shader_read);
+        const auto first = graph.mips(chain, 0, 2);
+        graph.add_compute_pass(
+            "overlap",
+            [&](render::PassBuilder& b) {
+                b.read(first);
+                b.write(graph.mips(chain, 1));
+            },
+            noop());
+        const auto compiled = graph.compile();
+        REQUIRE_FALSE(compiled.has_value());
+        CHECK(compiled.error().code == ErrorCode::render_graph_invalid);
+    }
+    {
+        render::RenderGraph graph(*f.device, &f.pool);
+        const auto chain = graph.import(handle, "chain", ResourceState::shader_read);
+        CHECK_FALSE(graph.mips(chain, 2, 2).is_valid());  // past the last mip
+        CHECK_FALSE(graph.compile().has_value());
+    }
+    {
+        // Writing only mip 1 of an imported texture leaves it apart from the
+        // others: the graph moves it back to mip 0's state at the end, so the next
+        // frame imports one state.
+        render::RenderGraph graph(*f.device, &f.pool);
+        const auto chain = graph.import(handle, "chain", ResourceState::shader_read);
+        graph.add_compute_pass("write mip 1", [&](render::PassBuilder& b) { b.write(graph.mips(chain, 1)); }, noop());
+        REQUIRE(graph.compile().has_value());
+        RecordingCommandList cmd;
+        graph.execute(cmd);
+        std::vector<std::string> barriers;
+        std::ranges::copy_if(cmd.calls, std::back_inserter(barriers),
+                             [](const std::string& c) { return c.starts_with("barrier"); });
+        CHECK(barriers == std::vector<std::string>{"barrier shader_read->shader_write mips 1+1",
+                                                   "barrier shader_write->shader_read mips 1+1"});
+        CHECK(graph.final_state(chain) == ResourceState::shader_read);
+    }
+}
 TEST_CASE("[frames.AC5] a pooled transient's first barrier in the next frame syncs with its last use") {
     GraphFixture f;
     const rhi::TextureDesc desc{64, 64, rhi::Format::rgba8_unorm,

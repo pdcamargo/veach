@@ -208,6 +208,7 @@ public:
     void refit_tlas(AccelHandle tlas, std::span<const TlasInstance> instances) override;
     void copy_texture_to_buffer(TextureHandle src, BufferHandle dst) override;
     void copy_buffer(BufferHandle src, BufferHandle dst, std::uint64_t size) override;
+    void copy_buffer_regions(BufferHandle src, BufferHandle dst, std::span<const BufferCopy> regions) override;
     void copy_buffer_to_texture(BufferHandle src, std::uint64_t offset, std::uint32_t row_pitch, TextureHandle dst,
                                 const TextureRegion& region) override;
     void use(ResourceRef resource, ResourceState state) override;
@@ -246,7 +247,7 @@ private:
     MTLSize threads_per_group_{1, 1, 1};
     std::uint32_t timing_slot_ = 0;  ///< frame slot of the open timing region
     bool timing_ = false;
-    std::map<ResourceRef, ResourceState> states_;  ///< debug validation of barriers
+    std::map<std::pair<ResourceRef, std::uint32_t>, ResourceState> states_;  ///< per mip: debug validation of barriers
 };
 
 /// Shared with command-buffer completion handlers, which can run after the device is gone.
@@ -1461,6 +1462,25 @@ void MetalCommandList::copy_buffer(BufferHandle src, BufferHandle dst, std::uint
     [blit endEncoding];
 }
 
+void MetalCommandList::copy_buffer_regions(BufferHandle src, BufferHandle dst, std::span<const BufferCopy> regions) {
+    MetalBuffer* from = device_.buffer(src);
+    MetalBuffer* to = device_.buffer(dst);
+    check_buffer_copies(from ? &from->desc : nullptr, to ? &to->desc : nullptr, regions);
+    if (regions.empty()) {
+        return;
+    }
+    end_encoder();
+    id<MTLBlitCommandEncoder> blit = blit_encoder();
+    for (const BufferCopy& r : regions) {
+        [blit copyFromBuffer:from->buffer
+                 sourceOffset:r.src_offset
+                     toBuffer:to->buffer
+            destinationOffset:r.dst_offset
+                         size:r.size];
+    }
+    [blit endEncoding];
+}
+
 void MetalCommandList::copy_buffer_to_texture(BufferHandle src, std::uint64_t offset, std::uint32_t row_pitch,
                                               TextureHandle dst, const TextureRegion& requested) {
     end_encoder();
@@ -1569,14 +1589,26 @@ void MetalCommandList::barrier(std::span<const Barrier> barriers) {
     // debug builds we still check that the graph's transitions are consistent,
     // so the barrier list a DX12 backend would execute is known to be right.
     for (const Barrier& b : barriers) {
-        if (device_.validation()) {
-            if (const auto it = states_.find(b.resource);
-                it != states_.end() && b.before != ResourceState::undefined && it->second != b.before) {
-                log::error("rhi", "barrier mismatch: resource {}:{} is in {} but the barrier says {}", b.resource.index,
-                           b.resource.generation, to_string(it->second), to_string(b.before));
-            }
+        // Per mip: the render graph moves the mips of a texture separately (a HiZ pyramid's build).
+        std::uint32_t first = 0;
+        std::uint32_t count = 1;
+        if (b.resource.kind == ResourceKind::texture) {
+            const MetalTexture* t = device_.texture(TextureHandle{b.resource.index, b.resource.generation});
+            check_barrier_mips(t ? &t->desc : nullptr, b);
+            first = b.mip_count == 0 ? 0 : b.first_mip;
+            count = b.mip_count != 0 ? b.mip_count : (t ? std::max(1u, t->desc.mip_levels) : 1u);
         }
-        states_[b.resource] = b.after;
+        for (std::uint32_t mip = first; mip < first + count; ++mip) {
+            if (device_.validation()) {
+                if (const auto it = states_.find({b.resource, mip});
+                    it != states_.end() && b.before != ResourceState::undefined && it->second != b.before) {
+                    log::error("rhi", "barrier mismatch: resource {}:{} mip {} is in {} but the barrier says {}",
+                               b.resource.index, b.resource.generation, mip, to_string(it->second),
+                               to_string(b.before));
+                }
+            }
+            states_[{b.resource, mip}] = b.after;
+        }
     }
 }
 

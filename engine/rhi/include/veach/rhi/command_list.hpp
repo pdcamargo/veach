@@ -57,6 +57,9 @@ public:
     virtual void copy_texture_to_buffer(TextureHandle src, BufferHandle dst) = 0;
     /// Copies the first `size` bytes of `src` to the start of `dst` (copy_src and copy_dst states).
     virtual void copy_buffer(BufferHandle src, BufferHandle dst, std::uint64_t size) = 0;
+    /// Copies each region of `src` to its place in `dst` (copy_src and copy_dst states), in one blit: the GPU scene's
+    /// changed instance records, staged in an upload ring. Regions must fit both buffers and not overlap in `dst`.
+    virtual void copy_buffer_regions(BufferHandle src, BufferHandle dst, std::span<const BufferCopy> regions) = 0;
     /// Copies texels from `src` into `region` of `dst` (copy_src and copy_dst states; VCH-076). The data starts at
     /// `offset` (a multiple of texture_copy_offset_alignment), rows are `row_pitch` bytes apart (a multiple of
     /// texture_copy_row_alignment, at least row_bytes of the region), depth slices are row_pitch x row_count(height)

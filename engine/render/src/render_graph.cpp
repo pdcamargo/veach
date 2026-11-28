@@ -64,7 +64,7 @@ void PassBuilder::side_effect() {
 }
 
 rhi::TextureHandle PassContext::texture(GraphResource resource) const {
-    const auto& r = graph_.resources_.at(resource.id).ref;
+    const auto& r = graph_.resources_.at(graph_.root_of(resource.id)).ref;
     VEACH_ASSERT(r.kind == rhi::ResourceKind::texture, "graph resource {} is not a texture", resource.id);
     return {r.index, r.generation};
 }
@@ -73,6 +73,14 @@ rhi::BufferHandle PassContext::buffer(GraphResource resource) const {
     const auto& r = graph_.resources_.at(resource.id).ref;
     VEACH_ASSERT(r.kind == rhi::ResourceKind::buffer, "graph resource {} is not a buffer", resource.id);
     return {r.index, r.generation};
+}
+
+rhi::TextureRange PassContext::range(GraphResource resource) const {
+    const auto& r = graph_.resources_.at(resource.id);
+    if (r.root == UINT32_MAX) {
+        return {};
+    }
+    return {.base_mip = r.first_mip, .mip_count = r.mip_count};
 }
 
 rhi::AccelHandle PassContext::accel(GraphResource resource) const {
@@ -156,11 +164,56 @@ GraphResource RenderGraph::create_texture(const rhi::TextureDesc& desc) {
     return {static_cast<std::uint32_t>(resources_.size() - 1)};
 }
 
+GraphResource RenderGraph::mips(GraphResource texture, std::uint32_t first_mip, std::uint32_t mip_count) {
+    if (!texture.is_valid() || texture.id >= resources_.size()) {
+        errors_.push_back("mips() of an invalid resource");
+        return {};
+    }
+    const std::uint32_t root = root_of(texture.id);
+    const Resource& base = resources_[root];
+    if (!base.transient && base.ref.kind != rhi::ResourceKind::texture) {
+        errors_.push_back(std::format("mips() of '{}', which is not a texture", base.name));
+        return {};
+    }
+    const std::uint32_t levels = mip_levels(root);
+    if (mip_count == 0 || first_mip + mip_count > levels) {
+        errors_.push_back(
+            std::format("mips {}..{} of '{}', which has {}", first_mip, first_mip + mip_count, base.name, levels));
+        return {};
+    }
+    Resource view = base;
+    view.name = std::format("{} mip {}{}", base.name, first_mip,
+                            mip_count == 1 ? std::string() : std::format("+{}", mip_count));
+    view.transient.reset();
+    view.root = root;
+    view.first_mip = first_mip;
+    view.mip_count = mip_count;
+    resources_.push_back(std::move(view));
+    return {static_cast<std::uint32_t>(resources_.size() - 1)};
+}
+
+std::uint32_t RenderGraph::root_of(std::uint32_t resource) const {
+    const std::uint32_t root = resources_.at(resource).root;
+    return root == UINT32_MAX ? resource : root;
+}
+
+std::uint32_t RenderGraph::mip_levels(std::uint32_t root) const {
+    const Resource& r = resources_.at(root);
+    if (r.transient) {
+        return std::max(1u, r.transient->mip_levels);
+    }
+    if (r.ref.kind != rhi::ResourceKind::texture) {
+        return 1;
+    }
+    const rhi::TextureDesc* desc = device_.texture_desc({r.ref.index, r.ref.generation});
+    return desc != nullptr ? std::max(1u, desc->mip_levels) : 1;
+}
+
 const rhi::TextureDesc* RenderGraph::texture_desc(GraphResource resource) const {
     if (!resource.is_valid() || resource.id >= resources_.size()) {
         return nullptr;
     }
-    const Resource& r = resources_[resource.id];
+    const Resource& r = resources_[root_of(resource.id)];
     if (r.transient) {
         return &*r.transient;
     }
@@ -213,22 +266,52 @@ Result<> RenderGraph::compile() {
     }
     const auto pass_count = static_cast<std::uint32_t>(passes_.size());
 
+    // Subresources: one slot per mip of every whole resource (buffers and
+    // acceleration structures have one); an access covers the slots of the mips
+    // it names. `base[r]` is resource r's first slot.
+    std::vector<std::uint32_t> base(resources_.size(), 0);
+    std::vector<std::uint32_t> levels(resources_.size(), 1);
+    std::uint32_t slot_count = 0;
+    for (std::uint32_t r = 0; r < resources_.size(); ++r) {
+        if (resources_[r].root == UINT32_MAX) {
+            levels[r] = mip_levels(r);
+            base[r] = slot_count;
+            slot_count += levels[r];
+        }
+    }
+    struct Span {
+        std::uint32_t root;
+        std::uint32_t first;  ///< mip
+        std::uint32_t count;
+    };
+    const auto span_of = [&](GraphResource g) {
+        const Resource& r = resources_[g.id];
+        const std::uint32_t root = root_of(g.id);
+        return r.root == UINT32_MAX ? Span{root, 0, levels[root]} : Span{root, r.first_mip, r.mip_count};
+    };
+
     // Validate accesses.
     for (const Pass& pass : passes_) {
-        std::set<std::uint32_t> seen;
+        std::set<std::uint32_t> seen;  // slots
         for (const Access& a : pass.accesses) {
             if (!a.resource.is_valid() || a.resource.id >= resources_.size()) {
                 return invalid(pass, "uses an invalid resource");
             }
-            if (!seen.insert(a.resource.id).second) {
-                return invalid(pass, std::format("accesses '{}' twice; declare one state per resource per pass",
-                                                 resources_[a.resource.id].name));
+            const Span span = span_of(a.resource);
+            for (std::uint32_t m = span.first; m < span.first + span.count; ++m) {
+                if (!seen.insert(base[span.root] + m).second) {
+                    return invalid(pass, std::format("accesses '{}' twice; declare one "
+                                                     "state per resource (or mip) "
+                                                     "per pass",
+                                                     resources_[a.resource.id].name));
+                }
             }
             if ((a.state == rhi::ResourceState::color_target || a.state == rhi::ResourceState::depth_write) &&
                 pass.kind != PassKind::graphics) {
                 return invalid(pass, std::format("{} access outside a graphics pass", rhi::to_string(a.state)));
             }
-            // VCH-071: indirect arguments feed a draw or a dispatch, indices a draw; both are buffers.
+            // VCH-071: indirect arguments feed a draw or a dispatch, indices a draw;
+            // both are buffers.
             if (a.state == rhi::ResourceState::indirect_argument || a.state == rhi::ResourceState::index_read) {
                 const Resource& r = resources_[a.resource.id];
                 if (r.transient || r.ref.kind != rhi::ResourceKind::buffer) {
@@ -246,11 +329,12 @@ Result<> RenderGraph::compile() {
     }
 
     // Dependencies. Declaration order defines data flow ("version" of each
-    // resource); edges cover read-after-write, write-after-write and write-after-read.
+    // subresource); edges cover read-after-write, write-after-write and
+    // write-after-read.
     std::vector<std::set<std::uint32_t>> successors(pass_count);
     std::vector<std::uint32_t> in_degree(pass_count, 0);
-    std::vector<std::optional<std::uint32_t>> last_writer(resources_.size());
-    std::vector<std::vector<std::uint32_t>> readers(resources_.size());
+    std::vector<std::optional<std::uint32_t>> last_writer(slot_count);
+    std::vector<std::vector<std::uint32_t>> readers(slot_count);
     const auto edge = [&](std::uint32_t from, std::uint32_t to) {
         if (from != to && successors[from].insert(to).second) {
             ++in_degree[to];
@@ -258,29 +342,33 @@ Result<> RenderGraph::compile() {
     };
     for (std::uint32_t p = 0; p < pass_count; ++p) {
         for (const Access& a : passes_[p].accesses) {
-            const std::uint32_t r = a.resource.id;
-            if (rhi::is_write(a.state)) {
-                if (last_writer[r]) {
-                    edge(*last_writer[r], p);
+            const Span span = span_of(a.resource);
+            for (std::uint32_t m = span.first; m < span.first + span.count; ++m) {
+                const std::uint32_t slot = base[span.root] + m;
+                if (rhi::is_write(a.state)) {
+                    if (last_writer[slot]) {
+                        edge(*last_writer[slot], p);
+                    }
+                    for (const std::uint32_t reader : readers[slot]) {
+                        edge(reader, p);
+                    }
+                    last_writer[slot] = p;
+                    readers[slot].clear();
+                } else {
+                    if (last_writer[slot]) {
+                        edge(*last_writer[slot], p);
+                    } else if (!resources_[span.root].imported) {
+                        return invalid(passes_[p], std::format("reads transient '{}' before any pass writes it",
+                                                               resources_[a.resource.id].name));
+                    }
+                    readers[slot].push_back(p);
                 }
-                for (const std::uint32_t reader : readers[r]) {
-                    edge(reader, p);
-                }
-                last_writer[r] = p;
-                readers[r].clear();
-            } else {
-                if (last_writer[r]) {
-                    edge(*last_writer[r], p);
-                } else if (!resources_[r].imported) {
-                    return invalid(passes_[p],
-                                   std::format("reads transient '{}' before any pass writes it", resources_[r].name));
-                }
-                readers[r].push_back(p);
             }
         }
     }
 
-    // Culling: keep passes with side effects or writes to imported resources, and everything they depend on.
+    // Culling: keep passes with side effects or writes to imported resources, and
+    // everything they depend on.
     std::vector<bool> needed(pass_count, false);
     std::vector<std::vector<std::uint32_t>> predecessors(pass_count);
     for (std::uint32_t p = 0; p < pass_count; ++p) {
@@ -292,7 +380,7 @@ Result<> RenderGraph::compile() {
     for (std::uint32_t p = 0; p < pass_count; ++p) {
         bool output = passes_[p].side_effect;
         for (const Access& a : passes_[p].accesses) {
-            output = output || (rhi::is_write(a.state) && resources_[a.resource.id].imported);
+            output = output || (rhi::is_write(a.state) && resources_[root_of(a.resource.id)].imported);
         }
         if (output) {
             needed[p] = true;
@@ -343,7 +431,7 @@ Result<> RenderGraph::compile() {
     }
     VEACH_ASSERT(order_.size() + culled_.size() == pass_count, "render graph has a cycle");
 
-    // Transients.
+    // Transients (views take their texture's).
     for (Resource& r : resources_) {
         if (r.transient) {
             if (!pool_) {
@@ -355,29 +443,61 @@ Result<> RenderGraph::compile() {
                 return std::unexpected(texture.error());
             }
             r.ref = *texture;
-            // A pooled texture may have been used by an earlier frame still in flight: its first barrier
-            // this frame starts from that real state (synchronization) but discards the contents.
+            // A pooled texture may have been used by an earlier frame still in
+            // flight: its first barrier this frame starts from that real state
+            // (synchronization) but discards the contents.
             r.initial = pool_->state(*texture);
         }
     }
-
-    // Barriers.
-    std::vector<rhi::ResourceState> state(resources_.size());
-    std::vector<bool> touched(resources_.size(), false);
-    for (std::size_t r = 0; r < resources_.size(); ++r) {
-        state[r] = resources_[r].initial;
+    for (Resource& r : resources_) {
+        if (r.root != UINT32_MAX) {
+            r.ref = resources_[r.root].ref;
+        }
     }
+
+    // Barriers, one per run of mips in the same state.
+    std::vector<rhi::ResourceState> state(slot_count);
+    std::vector<bool> touched(slot_count, false);
+    for (std::uint32_t r = 0; r < resources_.size(); ++r) {
+        if (resources_[r].root == UINT32_MAX) {
+            std::fill_n(state.begin() + base[r], levels[r], resources_[r].initial);
+        }
+    }
+    const auto barrier = [&](std::uint32_t root, std::uint32_t first, std::uint32_t count, rhi::ResourceState before,
+                             rhi::ResourceState after, bool discard) {
+        rhi::Barrier b{resources_[root].ref, before, after, discard};
+        if (count != levels[root]) {
+            b.first_mip = first;
+            b.mip_count = count;
+        }
+        return b;
+    };
     for (const std::uint32_t p : order_) {
         Pass& pass = passes_[p];
         pass.barriers.clear();
         for (const Access& a : pass.accesses) {
-            rhi::ResourceState& current = state[a.resource.id];
-            const bool first_transient_use = resources_[a.resource.id].transient && !touched[a.resource.id];
-            touched[a.resource.id] = true;
-            const bool uav = a.state == rhi::ResourceState::shader_write && current == rhi::ResourceState::shader_write;
-            if (current != a.state || uav || first_transient_use) {
-                pass.barriers.push_back({resources_[a.resource.id].ref, current, a.state, first_transient_use});
-                current = a.state;
+            const Span span = span_of(a.resource);
+            const std::uint32_t first_slot = base[span.root];
+            const bool transient = resources_[span.root].transient.has_value();
+            std::uint32_t m = span.first;
+            while (m < span.first + span.count) {
+                const rhi::ResourceState current = state[first_slot + m];
+                const bool first_use = transient && !touched[first_slot + m];
+                std::uint32_t end = m + 1;
+                while (end < span.first + span.count && state[first_slot + end] == current &&
+                       (transient && !touched[first_slot + end]) == first_use) {
+                    ++end;
+                }
+                const bool uav =
+                    a.state == rhi::ResourceState::shader_write && current == rhi::ResourceState::shader_write;
+                if (current != a.state || uav || first_use) {
+                    pass.barriers.push_back(barrier(span.root, m, end - m, current, a.state, first_use));
+                }
+                for (std::uint32_t k = m; k < end; ++k) {
+                    state[first_slot + k] = a.state;
+                    touched[first_slot + k] = true;
+                }
+                m = end;
             }
         }
         for (std::uint32_t c = 0; c < pass.color_count; ++c) {
@@ -396,18 +516,36 @@ Result<> RenderGraph::compile() {
             }
         }
     }
+    // The end: every mip of a texture in its final state, or in mip 0's when they
+    // differ and none is given.
     final_barriers_.clear();
-    for (std::size_t r = 0; r < resources_.size(); ++r) {
-        if (resources_[r].final_state && *resources_[r].final_state != state[r]) {
-            final_barriers_.push_back({resources_[r].ref, state[r], *resources_[r].final_state});
-            state[r] = *resources_[r].final_state;
+    for (std::uint32_t r = 0; r < resources_.size(); ++r) {
+        if (resources_[r].root != UINT32_MAX) {
+            continue;
         }
-        resources_[r].end_state = state[r];
+        const rhi::ResourceState target = resources_[r].final_state.value_or(state[base[r]]);
+        std::uint32_t m = 0;
+        while (m < levels[r]) {
+            const rhi::ResourceState current = state[base[r] + m];
+            std::uint32_t end = m + 1;
+            while (end < levels[r] && state[base[r] + end] == current) {
+                ++end;
+            }
+            if (current != target) {
+                final_barriers_.push_back(barrier(r, m, end - m, current, target, false));
+            }
+            m = end;
+        }
+        resources_[r].end_state = target;
+    }
+    for (Resource& r : resources_) {
+        if (r.root != UINT32_MAX) {
+            r.end_state = resources_[r.root].end_state;
+        }
     }
     compiled_ = true;
     return {};
 }
-
 void RenderGraph::execute(rhi::CommandList& cmd) {
     VEACH_ZONE("RenderGraph::execute");
     VEACH_ASSERT(compiled_, "execute() before a successful compile()");
@@ -470,8 +608,9 @@ std::string RenderGraph::describe() const {
         constexpr std::array<const char*, 3> kinds{"graphics", "compute", "transfer"};
         out += std::format("  {}. {} [{}]\n", n++, pass.name, kinds.at(static_cast<std::size_t>(pass.kind)));
         for (const rhi::Barrier& b : pass.barriers) {
-            out += std::format("       barrier {}: {} -> {}{}\n", name_of(b.resource), rhi::to_string(b.before),
-                               rhi::to_string(b.after), b.discard ? " (discard)" : "");
+            out += std::format("       barrier {}{}: {} -> {}{}\n", name_of(b.resource),
+                               b.mip_count == 0 ? std::string() : std::format(" mips {}+{}", b.first_mip, b.mip_count),
+                               rhi::to_string(b.before), rhi::to_string(b.after), b.discard ? " (discard)" : "");
         }
         for (const Access& a : pass.accesses) {
             out += std::format("       {} {} ({})\n", rhi::is_write(a.state) ? "writes" : "reads",
@@ -482,8 +621,9 @@ std::string RenderGraph::describe() const {
         out += std::format("  culled: {}\n", passes_[p].name);
     }
     for (const rhi::Barrier& b : final_barriers_) {
-        out += std::format("  final barrier {}: {} -> {}\n", name_of(b.resource), rhi::to_string(b.before),
-                           rhi::to_string(b.after));
+        out += std::format("  final barrier {}{}: {} -> {}\n", name_of(b.resource),
+                           b.mip_count == 0 ? std::string() : std::format(" mips {}+{}", b.first_mip, b.mip_count),
+                           rhi::to_string(b.before), rhi::to_string(b.after));
     }
     return out;
 }

@@ -192,7 +192,7 @@ TEST_CASE("[sp05][procgen.AC9] stage hashes don't depend on thread count or gene
     }
 }
 
-TEST_CASE("[sp05] records are equal at s = 1, 0.1 and 0.01; only realized geometry scales") {
+TEST_CASE("[sp05] records are equal at s = 1, 0.1 and 0.01, only realized geometry scales") {
     // The stage API has no scale input (StageContext has none); s reaches realize() only.
     const sg::ScaleFactors scales[] = {{1.0, 1.0}, {0.1, 0.1}, {0.01, 0.01}};
     std::vector<StageHashes> at[3];

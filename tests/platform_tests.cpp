@@ -70,7 +70,7 @@ TEST_CASE("[platform.AC1] the Window component drives the OS window") {
     CHECK(f.platform.destroyed == std::vector<std::uint32_t>{7});
 }
 
-TEST_CASE("[platform.AC2] closing the primary window quits; OS resizes flow back into Window") {
+TEST_CASE("[platform.AC2] closing the primary window quits, OS resizes flow back into Window") {
     PlatformFixture f;
     const Entity window = f.world.entity().set<Window>({.title = "Main"}).add<PrimaryWindow>();
     sync_windows(f.world);

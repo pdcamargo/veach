@@ -184,7 +184,7 @@ TEST_CASE("[jobs.AC3] jobs run nested parallel_for and task groups, and waits re
     pending.reset();
 }
 
-TEST_CASE("[jobs.AC4] jobs come from --jobs and veach.project.json; one thread runs everything on the main thread") {
+TEST_CASE("[jobs.AC4] jobs come from --jobs and veach.project.json, one thread runs everything on the main thread") {
     test::TempProject project("jobs-config");
     project.write("veach.project.json", R"({"name": "jobs", "jobs": 3})");
     const std::string dir = project.path().string();

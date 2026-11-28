@@ -41,7 +41,7 @@ end)
 
 }  // namespace
 
-TEST_CASE("[reload.AC1] assets reload behind the same handle; a broken version keeps the old data") {
+TEST_CASE("[reload.AC1] assets reload behind the same handle, a broken version keeps the old data") {
     test::TempProject project("reload-asset");
     project.write("a.luau", "return 1\n");
     World world;

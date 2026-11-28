@@ -184,7 +184,7 @@ TEST_CASE("[seams.AC2] SP-12's dig and collide works at every site: watertight, 
 }
 
 TEST_CASE(
-    "[seams.AC3] [seams.AC4] a character walks across octant planes, an 8-chunk corner and over both poles; chunk "
+    "[seams.AC3] [seams.AC4] a character walks across octant planes, an 8-chunk corner and over both poles, chunk "
     "collider borders") {
     SUBCASE(
         "[seams.AC3] a character walks across octant planes, an 8-chunk corner and over both poles on the "

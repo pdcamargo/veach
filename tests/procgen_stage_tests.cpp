@@ -122,7 +122,7 @@ TEST_CASE("[procgen.AC7] the registry keeps versions side by side and refuses wh
 }
 
 TEST_CASE(
-    "[procgen.AC8] the runtime memoizes by stage, address and inputs; overrides feed downstream; failures "
+    "[procgen.AC8] the runtime memoizes by stage, address and inputs, overrides feed downstream, failures "
     "keep nothing") {
     Pipeline p;
     pg::StageRuntime runtime(p.registry, {.universe_seed = 42, .manifest_fingerprint = 7});

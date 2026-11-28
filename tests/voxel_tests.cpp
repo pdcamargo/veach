@@ -90,7 +90,7 @@ TEST_CASE("[sp08] the octree is restricted, has three levels and symmetric neigh
     CHECK(seams > 0);
 }
 
-TEST_CASE("[sp08] marching cubes + Transvoxel is watertight across LOD seams; plain marching cubes is not") {
+TEST_CASE("[sp08] marching cubes + Transvoxel is watertight across LOD seams, plain marching cubes is not") {
     const auto tv = mesh_region(transvoxel, 1);
     const SeamReport r = check_seams(tv, region_lo, region_hi);
     std::size_t transition = 0;
@@ -113,7 +113,7 @@ TEST_CASE("[sp08] marching cubes + Transvoxel is watertight across LOD seams; pl
     CHECK(cracked.open_edges == cracked.open_at_level_change);
 }
 
-TEST_CASE("[sp08] surface nets closes same-level seams; only chunks touching another level are open") {
+TEST_CASE("[sp08] surface nets closes same-level seams, only chunks touching another level are open") {
     const auto sn = mesh_region([] { return make_surface_nets_mesher({.skirts = false}); }, 1);
     const SeamReport r = check_seams(sn, region_lo, region_hi);
     CHECK(r.open_edges > 0);

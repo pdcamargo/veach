@@ -21,6 +21,8 @@
 10. Jolt is private to engine/physics (ADR 0058, 0065): no file outside engine/physics/src includes a Jolt header, so
    no public header or other area depends on a Jolt type.
 11. engine/voxel never includes or links Jolt: it hands collider meshes to engine/physics as data (ADR 0065).
+12. No test case name holds a semicolon: CTest's doctest discovery splits names into lists there, and the test it
+   registers matches no test case, so it passes without running.
 """
 
 from __future__ import annotations
@@ -51,6 +53,7 @@ HEADLESS_AREAS = ("engine/procgen/", "engine/voxel/", "engine/physics/")
 JOLT_INCLUDE = re.compile(r"#\s*include\s*[<\"]Jolt/")
 GPU_DEPENDENCY = re.compile(r"veach::(?:rhi|render)\b|\bveach_(?:rhi|render)\b|[<\"]veach/(?:rhi|render)/")
 JOLT_DEPENDENCY = re.compile(r"[<\"]Jolt/|\bJolt\b(?=\s*\)|\s+PRIVATE|\s+PUBLIC)")
+TEST_NAME = re.compile(r'TEST_CASE\(\s*((?:"[^"]*"\s*)+)\)')
 SELF = pathlib.Path(__file__).resolve()
 
 
@@ -110,6 +113,17 @@ def main() -> int:
             if rel.startswith("apps/") and "flecs::" in line:
                 errors.append(f"{rel}:{lineno}: `flecs::` in apps/ — use the veach:: aliases (veach::World, "
                               "veach::Entity, ...) or veach::ecs:: for raw Flecs")
+
+    for path in code_files():
+        rel = path.relative_to(ROOT).as_posix()
+        if not rel.startswith("tests/") or path.suffix != ".cpp":
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for m in TEST_NAME.finditer(text):
+            if ";" in "".join(re.findall(r'"([^"]*)"', m.group(1))):
+                lineno = text.count("\n", 0, m.start()) + 1
+                errors.append(f"{rel}:{lineno}: a test case name with a semicolon never runs under CTest (doctest "
+                              "discovery splits the name there); use a comma")
 
     cpp_sources = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in code_files()
                              if p.suffix in {".cpp", ".mm", ".hpp"})

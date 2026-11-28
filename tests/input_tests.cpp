@@ -290,7 +290,7 @@ TEST_CASE("[input.AC9] analog values are quantized to 1/65536, deterministically
     CHECK(v == doctest::Approx(0.0075).epsilon(1e-3));
 }
 
-TEST_CASE("[input.AC10] mouse motion counts once, in the frame's first fixed step; sticks hold") {
+TEST_CASE("[input.AC10] mouse motion counts once, in the frame's first fixed step, sticks hold") {
     AxisRun run(report_axes);
     run.axis(Axis::mouse_x, 10.0);
     run.axis(Axis::mouse_x, 6.0);
@@ -323,7 +323,7 @@ TEST_CASE("[input.AC10] mouse motion counts once, in the frame's first fixed ste
     CHECK(world.get<Input>().axis(Axis::mouse_y) == 0);
 }
 
-TEST_CASE("[input.AC11] gamepads connect and disconnect; their buttons bind like keys") {
+TEST_CASE("[input.AC11] gamepads connect and disconnect, their buttons bind like keys") {
     AxisRun run(report_axes);
     run.inject({.type = PlatformEvent::Type::gamepad_added});
     run.key(Key::gamepad_south, true);

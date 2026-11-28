@@ -101,7 +101,7 @@ body.set_viewers(viewers);                     // body-local meters
 vx::StreamStats stats = body.update(jobs);     // once per frame
 for (const vx::ChunkRef& c : body.ready()) {}  // upload; body.evicted(): release; body.drawn(): draw
 auto edit = body.apply(op, jobs);              // a BrushOp: Result<EditResult>
-body.set_collider_sink(&physics_terrain);      // engine/physics implements vx::ColliderSink
+body.set_collider_sink(&colliders);            // veach::TerrainColliders (runtime) hands them to physics
 body.update_colliders(probes, tick, jobs);     // ColliderUpdate{install_tick = tick + 2, install, remove}
 ```
 
@@ -153,7 +153,8 @@ camera.add<veach::TerrainViewer>();
 - Brush kinds beyond add and subtract (flatten, smooth, raise, lower, paint) and orientation, strength, falloff.
 - A per-subtree "never a hole" policy for sustained overload (SP-09 suggests it); cached samples for remeshes
   (ADR 0079 rule 4's second lever); GPU far-field producers.
-- Cooking and installing colliders: `engine/physics` (VCH-113) implements `ColliderSink`.
+- Cooking and installing colliders: `engine/physics` (VCH-113); `veach::TerrainColliders` in runtime is the
+  `ColliderSink` that bridges the two.
 - Water levels (ADR 0054), debug draw of chunk bounds, MCP tools for terrain.
 
 ## Open questions

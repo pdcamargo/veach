@@ -130,7 +130,8 @@ before `tick + collider_delay_ticks` (2), in key order, plus the chunks no probe
 lattice positions (welded), its own triangles first (`own_triangles`), then the neighbors' triangles that touch its
 box: adjacency only, they must never produce contacts (ADR 0083). A scene whose origin is a LOD0 grid point converts
 positions exactly. Swapping a chunk's shape must wake the bodies over it (ADR 0077 rule 5). The install itself is
-`engine/physics`'s (VCH-113).
+`engine/physics`'s (VCH-113): `veach::TerrainColliders` in `engine/runtime` is the `ColliderSink` that hands the
+updates to a physics scene ([physics guide](physics.md#terrain-colliders)).
 
 ## In a world: TerrainModule
 

@@ -4,7 +4,8 @@ Date: 2026-11-28
 
 ## Status
 
-Accepted. Amends [0058](0058-physics-jolt.md), [0075](0075-amendments-from-sp-11.md) (decision 3) and
+Accepted. Amends [0058](0058-physics-jolt.md), [0065](0065-engine-areas-for-the-toolbox.md) (the voxel ← physics edge),
+[0075](0075-amendments-from-sp-11.md) (decision 3) and
 [0083](0083-terrain-colliders-with-an-adjacency-ring.md). Found while building `engine/physics` (VCH-113,
 [spec](../specs/physics/spec.md), [guide](../guides/physics.md)).
 
@@ -48,6 +49,11 @@ old Jolt code for whole landings at both scales. Building it settled details the
    with the world). Bodies are direct children of their frame entity, whose `PhysicsScene` makes the scene; the step
    runs in PostSimulation after the frame pose sources registered before it, and writes poses for the end of the
    step (0085 decision 5).
+
+9. **The voxel-to-physics bridge lives in runtime** (`TerrainColliders`, a `voxel::ColliderSink`): VCH-114 built voxel
+   without a physics dependency and its own collider-mesh format (own triangles first, then the ring), so 0065's
+   `voxel ← physics` edge is not needed. Physics keeps a voxel-free `ColliderMesh` (per-triangle adjacency flags) that
+   any terrain source can fill.
 
 ## Consequences
 

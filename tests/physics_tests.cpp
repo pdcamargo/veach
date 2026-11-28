@@ -9,9 +9,12 @@
 #include <veach/physics/module.hpp>
 #include <veach/physics/physics.hpp>
 #include <veach/runtime/mcp_tools.hpp>
+#include <veach/runtime/terrain_colliders.hpp>
+#include <veach/voxel/terrain.hpp>
 
 #include "seams/seams.hpp"
 #include "sp12/sp12_terrain.hpp"
+#include "support/terrain_fields.hpp"
 
 #include <veach/core/dmath.hpp>
 #include <veach/veach.hpp>
@@ -491,7 +494,7 @@ TEST_CASE("[physics.AC8] a character walks on a plane whose up is not +Y") {
 
 // ---- The ECS binding and the MCP tools ------------------------------------------------------------------------
 
-TEST_CASE("[physics.AC9] [physics.AC10] rigid bodies on entities step in PostSimulation; MCP tools inspect them") {
+TEST_CASE("[physics.AC9] [physics.AC10] rigid bodies on entities step in PostSimulation, MCP tools inspect them") {
     test::TempProject project("physics-module");
     project.write("veach.project.json", R"({"name": "physics"})");
     test::LogCapture logs;
@@ -736,4 +739,70 @@ TEST_CASE("[physics.AC5] rigid bodies cross chunk borders on adjacency-ring coll
         INFO(std::format("chains: chunks {} ring {} merged {}", hex(chunks.chain), hex(ring.chain), hex(merged.chain)));
         CHECK(ring.chain == (boxes ? ring_boxes_expected : ring_balls_expected));
     }
+}
+
+// ---- The voxel bridge (VCH-114's terrain bodies, through runtime's TerrainColliders) --------------------------
+
+TEST_CASE("[physics.AC3] a terrain body's collider updates install through TerrainColliders, and a ball lands") {
+    const auto hills = test::flat_hills();
+    voxel::TerrainSettings settings;
+    settings.octree = {.root_level = 4, .root_min = {-2, -1, -2}, .root_max = {1, 0, 1}};
+    settings.asynchronous = false;
+    voxel::TerrainBody body(hills, settings);
+    JobSystem jobs(4);
+    PhysicsWorld world({.jobs = &jobs});
+    const SceneId scene = *world.create_scene({.name = "hills", .lattice_origin = LatticePoint{0, 0, 0}});
+    world.set_gravity([](const GravityQuery&) { return math::dvec3(0.0, -9.81, 0.0); });
+    TerrainColliders colliders(world, scene);
+    body.set_collider_sink(&colliders);
+
+    // The ground under (8, y, 8) m, and a ball 3 m above it.
+    double lo = -20.0, hi = 20.0;
+    for (int i = 0; i < 60; ++i) {
+        const double mid = 0.5 * (lo + hi);
+        (hills->distance(8.0, mid, 8.0) < 0.0 ? lo : hi) = mid;
+    }
+    const BodyId ball = *world.add_body(scene, {.shape = Shape::sphere(0.4f), .position = {8.0, lo + 3.0, 8.0}});
+    const voxel::ColliderProbe probe{.position_m = {8.0, lo + 3.0, 8.0}};
+    const voxel::ColliderStats stats =
+        body.update_colliders(std::span(&probe, 1), static_cast<std::uint64_t>(world.tick()), jobs);
+    REQUIRE(stats.installed > 0);
+    world.step();
+    world.step();
+    CHECK(world.colliders(scene).empty());
+    world.step();  // tick 2: installed, in key order, matching what the body says it installed
+    const std::vector<ColliderInfo> installed = world.colliders(scene);
+    CHECK(installed.size() == body.installed_colliders().size());
+    CHECK(std::ranges::is_sorted(installed, {}, &ColliderInfo::key));
+    for (int i = 0; i < 180; ++i) {
+        world.step();
+    }
+    // On the hills (rolling down them), never through: its bottom on the ground under it.
+    const math::dvec3 at = world.state(ball).position;
+    double g_lo = -20.0, g_hi = 20.0;
+    for (int i = 0; i < 60; ++i) {
+        const double mid = 0.5 * (g_lo + g_hi);
+        (hills->distance(at.x, mid, at.z) < 0.0 ? g_lo : g_hi) = mid;
+    }
+    CHECK(at.y - g_lo == doctest::Approx(0.4).epsilon(0.1));
+
+    // A ring triangle never collides: a voxel mesh's triangles past own_triangles become adjacency.
+    voxel::ColliderMesh m;
+    m.positions = {{0, 0, 0}, {1, 0, 0}, {0, 0, 1}};
+    m.indices = {0, 2, 1, 0, 1, 2};
+    m.own_triangles = 1;
+    CHECK(physics_collider(m).adjacency == std::vector<std::uint8_t>{0, 1});
+
+    // Another clock is reported, and the colliders still land at physics tick + 2.
+    test::LogCapture logs;
+    const voxel::ColliderProbe far{.position_m = {400.0, 3.0, -400.0}};
+    const voxel::ColliderStats moved = body.update_colliders(std::span(&far, 1), 5, jobs);
+    CHECK(logs.has_code("physics.collider_tick"));
+    for (int i = 0; i < 3; ++i) {
+        world.step();
+    }
+    // The far probe's chunks replace the first ones (the region moved), with none of the old keys left.
+    const std::vector<ColliderInfo> now = world.colliders(scene);
+    CHECK(now.size() == moved.installed);
+    CHECK(std::ranges::none_of(now, [&](const ColliderInfo& c) { return c.key == installed.front().key; }));
 }

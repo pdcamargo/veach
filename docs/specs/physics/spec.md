@@ -1,7 +1,7 @@
 # Physics: Jolt behind veach::physics, one scene per frame
 
 **Status:** Implemented
-**Area:** physics, runtime
+**Area:** physics, runtime (the voxel bridge)
 **Owner:** dev lead
 
 ## Summary
@@ -91,6 +91,10 @@ transfers and characters it can drive. Backlog: VCH-113.
 - An install MUST replace an existing chunk's shape in place (its body and id stay) and wake the bodies over the chunk
   (ADR 0077 decision 5). Terrain scenes sit on a lattice point with the frame's axes (decision 6); a request to a scene
   without a lattice origin fails with `physics.not_on_lattice`.
+- `veach::TerrainColliders` (runtime, which links both areas) MUST be the `voxel::ColliderSink` that turns a terrain
+  body's `ColliderUpdate` into one `request_colliders` batch: its meshes with the ring (triangles past
+  `own_triangles`) marked adjacency, its removals as empty meshes; an update made for another tick than the physics
+  tick + 2 is logged as `physics.collider_tick`.
 - `with_adjacency_ring` MUST build a chunk's collider from its own triangles plus every neighbor triangle with a vertex
   on its box, welded by lattice position in first-use order, the neighbors' marked adjacency
   ([ADR 0083](../../adr/0083-terrain-colliders-with-an-adjacency-ring.md)). Contacts with adjacency triangles MUST be
@@ -156,7 +160,10 @@ world.entity("crate").child_of(planet).set(veach::Transform{...}).set(veach::Rig
 - **physics.AC3** — Colliders requested at tick t are absent after the steps of t and t + 1 and installed by the step
   of t + 2, in chunk-key order (their install slots increase with the key), a later request for a chunk wins, a swap
   keeps the body and wakes a sleeping ball that then falls to the new surface, an empty mesh removes the collider, a
-  malformed one is `physics.shape_invalid`, a scene off the lattice `physics.not_on_lattice`. SP-12's dig-and-collide
+  malformed one is `physics.shape_invalid`, a scene off the lattice `physics.not_on_lattice`. A voxel terrain body's
+  updates go through `TerrainColliders`: they land at t + 2 in key order, the same chunks the body says it installed,
+  a ball rolls on them, its ring triangles are adjacency, a moved probe swaps the region, another clock is
+  `physics.collider_tick`. SP-12's dig-and-collide
   run reproduces its committed sample, mesh, collider (`0x8927396d27667325`), install (`0x8097f58466b787c5`) and ball
   (`0x25dd581926b6d60f` chained) hashes through the engine on 1 and 4 workers and in reverse order (`[sp12.AC2-4]`).
 - **physics.AC4** — Re-anchors, re-centering and transfers convert in double and keep ids; a frame change into a
@@ -188,8 +195,8 @@ world.entity("crate").child_of(planet).set(veach::Transform{...}).set(veach::Rig
 
 ## Out of scope
 
-- Shipping the voxel bridge that decides which chunks' rings a remesh dirties, and the swept collider region around
-  each dynamic body (VCH-114).
+- Choosing which chunks need colliders (the probes' swept region) and which rings a remesh dirties: the terrain
+  body's (VCH-114, done); feeding it the dynamic bodies' positions as probes each tick: the slice app's (VCH-115).
 - Frame-aware policy: when to hand off, re-anchor or re-center, handoff bands, the travel governor, the gravity
   registry (VCH-115, the toolbox). Physics supplies the mechanisms.
 - Continuous collision detection for fast bodies entering a surface scene ([ADR 0080](../../adr/0080-amendments-from-sp-13.md)).

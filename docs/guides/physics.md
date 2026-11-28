@@ -87,9 +87,22 @@ world.set_input(walker, {.up = up,                       // −ĝ, filtered as t
 The step keeps the velocity along up (or the ground's velocity when standing on it), adds g·dt from the hook and
 `move`, and moves the character with sliding, stairs (`step_up`) and floor sticking (`step_down`).
 
-## Terrain colliders (for the voxel bridge, VCH-114)
+## Terrain colliders
 
-The voxel area hands LOD0 meshes over as `ColliderMesh`es; physics never includes voxel (voxel depends on physics):
+A voxel `TerrainBody` (VCH-114, [guide](voxel-terrain.md)) hands its LOD0 colliders to a scene through
+`veach::TerrainColliders`, a `voxel::ColliderSink` in `engine/runtime` (the one area that links both; neither knows
+the other):
+
+```cpp
+const auto pad = *physics.create_scene({.name = "pad", .lattice_origin = voxel::chunk_origin(center)});
+veach::TerrainColliders colliders(physics, pad);   // <veach/runtime/terrain_colliders.hpp>
+body.set_collider_sink(&colliders);
+body.update_colliders(probes, physics.tick(), jobs);   // the physics tick: installed before step tick + 2
+```
+
+It turns each voxel `ColliderMesh` (welded lattice positions, its own triangles first, then the ring) into a physics
+`ColliderMesh` with the ring marked adjacency, and removals into empty meshes. Anything else that makes terrain uses
+the physics API directly:
 
 ```cpp
 veach::physics::ColliderMesh m;
@@ -99,7 +112,7 @@ m.extent = voxel::chunk_units(k.level);
 m.vertices = mesh.fixed;                                    // fixed point: lattice units × 2^16, the canonical integers
 m.indices = mesh.indices;                                   // counter-clockwise seen from outside the solid
 // With its neighbors' border triangles as adjacency (ADR 0083): the 27 chunks around it, z, y, x from −1 to +1.
-m = veach::physics::with_adjacency_ring(m.key, m.origin, m.extent, neighborhood);
+m = veach::physics::with_adjacency_ring(m.key, m.origin, m.extent, neighborhood);  // or mark `adjacency` yourself
 world.request_colliders(pad, {std::move(m)});              // installed before the step of tick + 2
 ```
 

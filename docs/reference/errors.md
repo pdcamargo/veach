@@ -285,6 +285,14 @@ holds other bodies to change its parent frame. Only an empty scene changes frame
 one craft through a handoff altitude); move the other bodies first, or transfer into a scene already in that frame.
 The ECS binding logs it too when a `RigidBody` is not a direct child of a frame with a `PhysicsScene`.
 
+## physics.collider_tick
+
+**Terrain colliders were made for another tick than the physics world is at.**
+
+`TerrainColliders` (the bridge from a voxel `TerrainBody` to a physics scene) received an update whose install tick
+is not the physics world's `tick() + 2`: `TerrainBody::update_colliders` was called with another clock. The colliders
+still install before step `tick() + 2`; pass `physics.tick()` so that both areas agree on when they land (ADR 0077,
+K = 2).
 ## voxel.density_invalid
 
 **A terrain density source cannot be built: a missing program output or a setting out of range.**

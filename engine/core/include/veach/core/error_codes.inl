@@ -71,6 +71,8 @@ VEACH_ERROR(physics_not_on_lattice, "physics.not_on_lattice",
             "Terrain colliders were sent to a physics scene whose origin is not a lattice point")
 VEACH_ERROR(physics_invalid_transfer, "physics.invalid_transfer",
             "A body cannot move to that physics scene: unknown scene, or a frame change with other bodies there")
+VEACH_ERROR(physics_collider_tick, "physics.collider_tick",
+            "Terrain colliders were made for another tick than the physics world is at")
 VEACH_ERROR(voxel_density_invalid, "voxel.density_invalid",
             "A terrain density source cannot be built: a missing program output or a setting out of range")
 VEACH_ERROR(

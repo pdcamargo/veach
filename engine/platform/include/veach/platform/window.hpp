@@ -26,11 +26,19 @@ struct Window {
 /// window it creates from the project config.
 struct PrimaryWindow {};
 
+/// On a window entity: while `enabled`, the OS hides the cursor, keeps it in the window and reports mouse motion
+/// as relative deltas (SDL relative mouse mode), for mouse look. Remove it, or set enabled = false, to free the
+/// cursor. Headless runs ignore it.
+struct RelativeMouse {
+    bool enabled = true;
+};
+
 /// Platform bookkeeping, owned by the platform module. `applied` is what the OS
 /// window currently reflects; diffing it against Window drives updates.
 struct WindowPlatformState {
     std::uint32_t id = 0;
     Window applied;
+    bool relative_mouse = false;  ///< Whether the OS window is in relative mouse mode.
 };
 
 }  // namespace veach

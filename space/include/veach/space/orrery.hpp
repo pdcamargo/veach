@@ -8,7 +8,7 @@
 // Each fixed step the entity's UniverseClock advances by its rate (0 pauses), then every body's state at the new
 // tick is written to a child entity's CelestialBody and every SunObserver is answered. Over MCP: set_component
 // UniverseClock { tick = ..., rate = 0 } on "orrery", step_frames 1, then query_entities CelestialBody or
-// get_component SunObserver.
+// get_component SunObserver. Or in one call: orrery_state (veach/space/mcp_tools.hpp).
 
 #include <veach/space/clock.hpp>
 

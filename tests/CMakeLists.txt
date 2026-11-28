@@ -18,7 +18,9 @@ add_executable(veach-tests
     scene_tests.cpp
     script_tests.cpp
     sky_tests.cpp
+    sp10_atmosphere_tests.cpp  # spike SP-10 (VCH-086)
     space_gen_tests.cpp
+    mcp_tools_tests.cpp
     space_tests.cpp
     transform_tests.cpp
     voxel_tests.cpp)
@@ -117,6 +119,11 @@ if(Python3_FOUND)
     add_test(NAME "mcp: fly camera through send_input (null RHI)"
         COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
                 --lab $<TARGET_FILE:veach-lab> fly
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
+    # input.AC15-AC16: mouse look and a gamepad on the fly camera, through send_input, recorded and replayed.
+    add_test(NAME "mcp: analog axes through send_input, recorded and replayed (null RHI)"
+        COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
+                --lab $<TARGET_FILE:veach-lab> axes
         WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
     if(APPLE)
         add_test(NAME "mcp: golden through MCP (GPU)"

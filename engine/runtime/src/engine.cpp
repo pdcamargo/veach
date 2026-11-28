@@ -1,5 +1,6 @@
 #include <veach/runtime/engine.hpp>
 #include <veach/runtime/mcp_server.hpp>
+#include <veach/runtime/mcp_tools.hpp>
 
 #include <veach/asset/asset_server.hpp>
 #include <veach/asset/scene.hpp>
@@ -189,6 +190,8 @@ Result<> Engine::init() {
         [&]() -> Result<std::string> {
             world_ = std::make_unique<World>();
             attach_services(*world_, &services_);
+            mcp_tools_ = std::make_unique<McpTools>();
+            services_.provide<McpTools>(*mcp_tools_);  // before any module, so every module can add MCP tools
             world_->import<CoreModule>();
             phases_.register_phases(*world_);
             world_->import<PlatformModule>();
@@ -204,11 +207,18 @@ Result<> Engine::init() {
             for (const ActionBinding& binding : project.input) {
                 bind_action(*world_, binding.action, binding.primary, binding.secondary);
             }
+            for (const AxisActionBinding& binding : project.axes) {
+                bind_axis(*world_, binding.action, binding.binding);
+            }
             sync_windows(*world_);
             return std::format("flecs {}.{}.{}, seed {}", FLECS_VERSION_MAJOR, FLECS_VERSION_MINOR, FLECS_VERSION_PATCH,
                                project.seed);
         },
-        [this] { world_.reset(); });
+        [this] {
+            services_.revoke<McpTools>();
+            mcp_tools_.reset();  // handlers may hold module state that lives with the world
+            world_.reset();
+        });
     if (!step) {
         return step;
     }
@@ -474,6 +484,9 @@ bool Engine::frame() {
         run_phase(PhaseId::simulation, fixed_delta_seconds);
         run_phase(PhaseId::post_simulation, fixed_delta_seconds);
         run_phase(PhaseId::transform_propagation, fixed_delta_seconds);
+        if (i == 0) {
+            consume_relative_axes(*world_);  // mouse motion counts once, in the frame's first step
+        }
         ++fixed_steps_;
         Time& time = world_->get_mut<Time>();
         time.fixed_step = fixed_steps_;

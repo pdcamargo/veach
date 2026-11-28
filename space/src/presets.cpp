@@ -4,6 +4,7 @@
 
 #include <veach/space/clock.hpp>
 
+#include <array>
 #include <cmath>
 
 namespace veach::space {
@@ -255,6 +256,31 @@ System reference_system() {
               gm_ab),
         "space:kepler_elliptic");
     return sys;
+}
+
+std::span<const std::string_view> preset_names() {
+    static constexpr std::array<std::string_view, 3> names{"sol", "earthlike", "reference"};
+    return names;
+}
+
+std::optional<System> preset(std::string_view name, double scale) {
+    const ScaleFactors s{.body = scale, .orbit = scale};
+    if (name == "sol") {
+        return sol(s);
+    }
+    if (name == "earthlike") {
+        return earthlike(s);
+    }
+    if (name == "reference") {
+        return reference_system();
+    }
+    return std::nullopt;
+}
+
+std::int32_t primary_star(const System& system) {
+    const std::int32_t sun = system.find("sun");
+    const std::int32_t star_a = system.find("star_a");
+    return sun >= 0 ? sun : (star_a >= 0 ? star_a : 0);
 }
 
 }  // namespace veach::space

@@ -53,14 +53,18 @@ export type QuatApi = {
 
 export type SpawnOptions = { name: string?, parent: Entity? }
 
---- Input actions, bound in veach.project.json ("input": { "jump": ["space"] }). An unknown name is an error.
+--- Input actions, bound in veach.project.json: keys under "input" ({ "jump": ["space"] }), analog actions under
+--- "axes" ({ "look_x": { "source": "mouse_x", "sensitivity": 0.003 } }). An unknown name is an error.
 --- pressed/released hold for the whole frame: read them in a per-frame phase ("Input") to act once.
 export type InputApi = {
 	read down: (action: string) -> boolean,
 	read pressed: (action: string) -> boolean,
 	read released: (action: string) -> boolean,
-	--- -1, 0 or 1: `axis("move_back", "move_forward")`.
-	read axis: (negative: string, positive: string) -> number,
+	--- `axis("look_x")`: an analog action's value (mouse motion since the last fixed step, a stick, a trigger).
+	--- `axis("move_back", "move_forward")`: -1, 0 or 1 from two key actions.
+	read axis: ((action: string) -> number) & ((negative: string, positive: string) -> number),
+	--- How many gamepads are connected.
+	read gamepads: () -> number,
 }
 
 export type TimeApi = {
@@ -95,6 +99,9 @@ export type PointLight = {
 	color: vector,
 	intensity: number,
 	radius: number,
+}
+export type RelativeMouse = {
+	enabled: boolean,
 }
 export type SceneInstance = {
 	path: string,
@@ -173,6 +180,7 @@ export type Veach = {
 		read DirectionalLight: Component<DirectionalLight>,
 		read PhotoMode: Component<PhotoMode>,
 		read PointLight: Component<PointLight>,
+		read RelativeMouse: Component<RelativeMouse>,
 		read SceneInstance: Component<SceneInstance>,
 		read Sky: Component<Sky>,
 		read SpotLight: Component<SpotLight>,

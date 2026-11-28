@@ -31,11 +31,16 @@ std::unexpected<Error> invalid(const std::filesystem::path& path, std::string_vi
 }
 
 nlohmann::json event_json(const PlatformEvent& e) {
-    return {{"type", static_cast<int>(e.type)},
-            {"window", e.window},
-            {"key", static_cast<int>(e.key)},
-            {"width", e.width},
-            {"height", e.height}};
+    nlohmann::json out = {{"type", static_cast<int>(e.type)},
+                          {"window", e.window},
+                          {"key", static_cast<int>(e.key)},
+                          {"width", e.width},
+                          {"height", e.height}};
+    if (e.type == PlatformEvent::Type::axis_moved) {
+        out["axis"] = static_cast<int>(e.axis);
+        out["value"] = e.value;  // fixed point (axis_one = 1.0): an integer, so it replays bit for bit
+    }
+    return out;
 }
 
 }  // namespace
@@ -156,6 +161,8 @@ Result<ReplayLog> read_replay(const std::filesystem::path& path) {
                 event.key = static_cast<Key>(e.at("key").get<int>());
                 event.width = e.at("width").get<std::uint32_t>();
                 event.height = e.at("height").get<std::uint32_t>();
+                event.axis = static_cast<Axis>(e.value("axis", 0));
+                event.value = e.value("value", std::int32_t{0});
                 frame.events.push_back(event);
             }
             if (line.contains("edits")) {

@@ -209,6 +209,58 @@ Result<> parse_input(const World& world, const nlohmann::json& input, const std:
     return {};
 }
 
+/// "axes": { "<action>": { "source": "<axis>", "negative": "<key>", "positive": "<key>", "dead_zone": 0.1,
+/// "sensitivity": 1, "invert": false } }. Key and axis names get their own codes and suggestions; the rest is
+/// reflection (AxisBinding).
+Result<> parse_axes(const World& world, const nlohmann::json& axes, const std::string& context,
+                    std::vector<AxisActionBinding>& out) {
+    if (!axes.is_object()) {
+        return make_error(ErrorCode::data_type_mismatch, std::format("{}: 'axes' must be an object", context),
+                          R"(Map each analog action to its inputs: "axes": { "look_x": { "source": "mouse_x" } }.)");
+    }
+    out.clear();
+    for (const auto& [action, entry] : axes.items()) {
+        if (!entry.is_object()) {
+            return make_error(ErrorCode::data_type_mismatch,
+                              std::format("{}: axes.{} must be an object", context, action),
+                              std::format(R"(For example "{}": {{ "source": "gamepad_left_x", "negative": "a", )"
+                                          R"("positive": "d", "dead_zone": 0.15 }}.)",
+                                          action));
+        }
+        for (const auto& [field, type, code] :
+             {std::tuple{"source", world.id<Axis>(), ErrorCode::input_unknown_axis},
+              std::tuple{"negative", world.id<Key>(), ErrorCode::input_unknown_key},
+              std::tuple{"positive", world.id<Key>(), ErrorCode::input_unknown_key}}) {
+            if (!entry.contains(field) || !entry[field].is_string()) {
+                continue;  // absent, or a type mismatch from_json reports below
+            }
+            const std::string name = entry[field].get<std::string>();
+            const char* none = code == ErrorCode::input_unknown_axis ? "none" : "unknown";
+            std::uint64_t scratch = 0;  // wider than any enum
+            if (name == none || !write_enum(world, type, &scratch, name)) {
+                std::vector<std::string> names = enum_constants(world, type);
+                std::erase(names, none);
+                return make_error(code,
+                                  std::format("{}: axes.{}.{}: unknown {} '{}'", context, action, field,
+                                              code == ErrorCode::input_unknown_axis ? "axis" : "key", name),
+                                  did_you_mean(name, names));
+            }
+        }
+        AxisActionBinding binding{.action = action};
+        if (auto read = from_json(world, binding.binding, entry, std::format("{}: axes.{}", context, action)); !read) {
+            return read;
+        }
+        if (binding.binding.dead_zone < 0.0f || binding.binding.dead_zone >= 1.0f) {
+            return make_error(
+                ErrorCode::data_type_mismatch,
+                std::format("{}: axes.{}.dead_zone is {}, outside [0, 1)", context, action, binding.binding.dead_zone),
+                "A dead zone is the fraction of the axis that reads 0, such as 0.15 for a stick.");
+        }
+        out.push_back(std::move(binding));
+    }
+    return {};
+}
+
 /// "dev_scripts": ["scripts/dev/x.luau", ...].
 Result<> parse_dev_scripts(const nlohmann::json& scripts, const std::string& context, std::vector<std::string>& out) {
     if (!scripts.is_array()) {
@@ -249,6 +301,33 @@ nlohmann::json input_schema(const World& world) {
         {"type", "object"},
         {"description", "Input actions: each action name maps to one or two keys (docs/specs/input/spec.md)."},
         {"additionalProperties", {{"type", "array"}, {"minItems", 1}, {"maxItems", 2}, {"items", {{"enum", keys}}}}},
+        {"default", nlohmann::json::object()},
+    };
+}
+
+nlohmann::json axes_schema(const World& world) {
+    const AxisBinding defaults;
+    nlohmann::json entry = json_schema(world, world.id<AxisBinding>(), &defaults);
+    for (const char* field : {"negative", "positive"}) {
+        nlohmann::json kept = nlohmann::json::array();
+        for (const nlohmann::json& name : entry["properties"][field]["enum"]) {
+            if (name != "unknown") {
+                kept.push_back(name);
+            }
+        }
+        entry["properties"][field]["enum"] = std::move(kept);
+        entry["properties"][field].erase("default");  // unbound: leave the field out
+    }
+    entry["properties"]["dead_zone"]["minimum"] = 0;
+    entry["properties"]["dead_zone"]["exclusiveMaximum"] = 1;
+    entry["additionalProperties"] = false;
+    return {
+        {"type", "object"},
+        {"description",
+         "Analog input actions: each name maps to an analog source (mouse motion or wheel, a gamepad stick or "
+         "trigger) and/or two keys as a digital fallback. Value = (sensitivity * dead-zoned source + positive - "
+         "negative), negated if invert (docs/specs/input/spec.md)."},
+        {"additionalProperties", std::move(entry)},
         {"default", nlohmann::json::object()},
     };
 }
@@ -296,6 +375,12 @@ Result<> load_project_file(const std::filesystem::path& file, ProjectConfig& con
             return parsed;
         }
         json.erase("input");
+    }
+    if (json.is_object() && json.contains("axes")) {
+        if (auto parsed = parse_axes(world, json["axes"], context, config.axes); !parsed) {
+            return parsed;
+        }
+        json.erase("axes");
     }
     if (json.is_object() && json.contains("dev_scripts")) {
         if (auto parsed = parse_dev_scripts(json["dev_scripts"], context, config.dev_scripts); !parsed) {

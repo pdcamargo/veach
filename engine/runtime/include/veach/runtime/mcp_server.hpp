@@ -9,7 +9,9 @@
 // Tools: query_entities, get_component, set_component, spawn_entity,
 // step_frames, screenshot, render_graph_plan, gpu_timings, eval. Their input
 // schemas are generated from reflection (component names, component value
-// schemas). Errors carry Veach error codes and did-you-mean hints.
+// schemas). Errors carry Veach error codes and did-you-mean hints. Modules add
+// their own tools through the McpTools service (veach/runtime/mcp_tools.hpp);
+// tools/list lists them after the built-in ones.
 
 #include <nlohmann/json_fwd.hpp>
 

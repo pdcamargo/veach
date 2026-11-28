@@ -24,11 +24,14 @@ VEACH_ERROR(ecs_unknown_component, "ecs.unknown_component", "A component name do
 VEACH_ERROR(ecs_unknown_entity, "ecs.unknown_entity", "An entity id or path does not name a live entity")
 VEACH_ERROR(mcp_unknown_tool, "mcp.unknown_tool", "An MCP client called a tool that does not exist")
 VEACH_ERROR(mcp_invalid_arguments, "mcp.invalid_arguments", "An MCP tool call has missing or ill-typed arguments")
+VEACH_ERROR(mcp_duplicate_tool, "mcp.duplicate_tool", "A module registered an MCP tool name that is already taken")
+VEACH_ERROR(mcp_invalid_tool, "mcp.invalid_tool", "A module registered an MCP tool with a bad name, schema or handler")
 VEACH_ERROR(ecs_unknown_phase, "ecs.unknown_phase", "A system was attached to a phase that does not exist")
 
 VEACH_ERROR(platform_init_failed, "platform.init_failed", "The platform backend failed to initialize")
 VEACH_ERROR(platform_window_failed, "platform.window_failed", "The OS window could not be created")
 VEACH_ERROR(input_unknown_action, "input.unknown_action", "A script or tool named an input action that is not bound")
+VEACH_ERROR(input_unknown_axis, "input.unknown_axis", "An analog axis name in a project or tool is not a veach::Axis")
 VEACH_ERROR(input_unknown_key, "input.unknown_key",
             "An input binding or injected event names a key that does not exist")
 

@@ -1,6 +1,6 @@
 # Extending Veach
 
-How to add a component, system, module, Luau binding, engine subsystem, asset loader,
+How to add a component, system, module, Luau binding, engine subsystem, asset loader, MCP tool,
 error code, extractor or material, and how to run work in parallel. App and game code uses `veach::` names only and includes
 `<veach/veach.hpp>`; engine code may use Flecs directly. Background:
 [ARCHITECTURE.md](../ARCHITECTURE.md), [ADR 0019](../adr/0019-veach-modules-and-services.md) (modules and services).
@@ -174,3 +174,40 @@ const double total = jobs.parallel_reduce("total mass", bodies.size(), 1024, 0.0
 2. Pick a grain that gives each chunk at least ~10 µs of work and several chunks per thread.
 3. Label every call: the label names the Tracy zone (`jobs` / `job`) on whichever worker runs it.
 4. Test with `--jobs 1` and the default: canonical results must match bit for bit (see `tests/jobs_tests.cpp`).
+
+## (k) An MCP tool
+
+A module adds its own tools to `--mcp` through the `veach::McpTools` service, provided from the `ecs` init step on
+([spec](../specs/mcp-server/spec.md), VCH-100). See `space/src/mcp_tools.cpp` (`orrery_state`, `generate_system`).
+
+```cpp
+#include <veach/runtime/mcp_tools.hpp>
+
+auto added = veach::services(world).get<veach::McpTools>().add({
+    .name = "health_of",                                  // unique; snake_case, prefixed with the module's area
+    .description = "The Health of every entity that has one.",
+    .input_schema = {{"type", "object"}, {"properties", {{"limit", {{"type", "integer"}, {"minimum", 1}}}}}},
+    .handler = [](veach::World& w, const nlohmann::json& args) -> veach::Result<veach::McpToolOutput> {
+        if (args.contains("limit") && !args["limit"].is_number_unsigned()) {
+            return veach::make_error(veach::ErrorCode::mcp_invalid_arguments, "'limit' must be a positive integer");
+        }
+        nlohmann::json out = nlohmann::json::array();
+        w.each([&](veach::Entity e, const Health& h) { out.push_back({{"entity", e.id()}, {"value", h.value}}); });
+        return nlohmann::json{{"health", out}};           // sent as indented JSON text, like the built-in tools
+    },
+});
+if (!added) {
+    veach::log::error("game", added.error());             // mcp.duplicate_tool / mcp.invalid_tool, with a hint
+}
+```
+
+1. Register in the module's constructor. A world made without an Engine (unit tests) may have no `McpTools`:
+   use `veach::find_services(world)` and `find<veach::McpTools>()` if the module must work there too.
+2. The handler runs on the main thread between frames, like the built-in tools; it may read the world and call
+   engine services. Return `veach::McpContent{blocks}` instead of JSON for images or several content blocks.
+3. Errors are `Error{code, message, hint}`: they reach the client as `isError` results with the `[code]`. Use
+   `mcp.invalid_arguments` with a `did_you_mean` hint for bad names.
+4. 64-bit integers are decimal strings in arguments and results ([ADR 0046](../adr/0046-64-bit-values-across-luau-json-mcp.md)).
+5. Module tools are not in `--record` recordings: keep them read-only, or write through components an agent can see.
+6. Test the handler with `McpTools::call` (see `tests/mcp_tools_tests.cpp`), and the app over stdio in
+   `tests/mcp/test_mcp_lab.py`.

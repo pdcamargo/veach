@@ -130,7 +130,39 @@ def protocol(lab: str) -> None:
     check(timings["backend"] == "null" and timings["frames_in_flight"] == 2, "[mcp.AC8] gpu_timings reports the backend")
     check(timings["passes"] == [] and timings["passes_unavailable"],
           "[rt.AC5] without a GPU, gpu_timings says why there are no per-pass times")
+    module_tools(client, tools, info)
     check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
+
+
+def module_tools(client: McpClient, tools: dict, info: dict) -> None:
+    """The space toolbox's tools, registered by a module the lab imports (VCH-100)."""
+    names = list(tools)
+    check(names[-2:] == ["orrery_state", "generate_system"] and "orrery_state" in info["instructions"],
+          "[mcp.AC12] module tools are listed after the built-in ones and named in the instructions")
+    check(tools["generate_system"]["inputSchema"]["required"] == ["seed", "address"],
+          "[mcp.AC12] a module tool's input schema is the one it registered")
+
+    au = 149597870700.0
+    sol = client.call_json("orrery_state", system="sol", tick="378683424000", body="earth",
+                           latitude=48.8566, longitude=2.3522)
+    earth = sol["bodies"][0]
+    check(sol["tick"] == "378683424000" and abs(earth["distance_to_star"] / au - 0.98332) < 1e-5,
+          "[mcp.AC13] orrery_state: the Earth is 0.98332 AU from the Sun at J2000.0, in one call")
+    check(abs(sol["sun"]["elevation"] - 18.09) < 0.01 and abs(sol["sun"]["local_solar_time"] - 12.10) < 0.01,
+          "[mcp.AC13] orrery_state: the sun stands 18.09 degrees over Paris at 12:06 local solar time")
+    planet = client.call_json("orrery_state", system="earthlike")["bodies"][1]
+    check(planet["orbit"]["phase"] == 0.0 and abs(planet["spin"]["local_solar_time_at_prime_meridian"] - 12.0) < 1e-9,
+          "[mcp.AC13] orrery_state: the Earth-like planet's orbit phase and local solar time at tick 0")
+    typo = client.call("orrery_state", system="sol", body="eart")
+    check(typo.get("isError") and "Did you mean 'earth'?" in typo["content"][0]["text"],
+          "[mcp.AC13] a module tool's errors carry the code and a did-you-mean hint")
+
+    system = client.call_json("generate_system", seed="42", address="S:3f2a91c07e5b0000")
+    check(system["stages"]["space:system"]["hash"] == "2733265849347982535" and
+          system["stages"]["space:body.physics"]["hash"] == "9754287468050259825",
+          "[mcp.AC14] generate_system: SP-05's stage hashes for seed 42, S:3f2a91c07e5b0000 (64-bit as strings)")
+    check(system["planet_count"] == 4 and system["bodies"][0]["address"] == "S:3f2a91c07e5b0000/B:1" and
+          system["violations"] == [], "[mcp.AC14] generate_system: the records, valid")
 
 
 def fly(lab: str) -> None:
@@ -179,6 +211,78 @@ def fly(lab: str) -> None:
     check(all(abs(step[i] - expected[i]) < 1e-3 for i in range(3)),
           f"[input.AC6] holding w for 30 frames flies 1 m along the camera's own forward ({s} -> {m})")
     check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
+
+
+def axes(lab: str) -> None:
+    """Analog axes over MCP (input.AC15, input.AC16): mouse look and a gamepad on the lab's fly camera, and a
+    recording of them that replays headless."""
+
+    def yaw_of(pose: dict) -> float:
+        r = pose["rotation"]
+        return 2 * math.atan2(r["y"], r["w"])
+
+    with tempfile.TemporaryDirectory() as tmp:
+        recording = os.path.join(tmp, "axes.vreplay")
+        client = McpClient([lab, "--mcp", "--headless", "--script", "scripts/triangle_fly.luau", "--record", recording])
+        client.initialize()
+
+        def pose() -> dict:
+            return client.call_json("get_component", entity="camera", component="Transform")
+
+        start = pose()
+        client.call_json("send_input", axis="mouse_x", value=100)
+        client.call_json("step_frames", count=1)
+        check(pose() == start, "[input.AC15] mouse motion without the right button held does not turn the camera")
+
+        client.call_json("send_input", key="mouse_right", down=True)
+        client.call_json("step_frames", count=1)
+        captured = client.call_json("get_component", entity="primary_window", component="RelativeMouse")
+        check(captured == {"enabled": True}, f"[input.AC15] holding the right button captures the mouse ({captured})")
+        sent = client.call_json("send_input", axis="mouse_x", value=100)
+        check(sent["value"] == 100 and sent["relative"], f"[input.AC15] send_input moves an axis ({sent})")
+        client.call_json("step_frames", count=1)
+        turned = yaw_of(pose())
+        check(abs(turned - (-0.25)) < 1e-6,
+              f"[input.AC15] 100 points of mouse motion turn the camera 0.25 rad right (yaw {turned})")
+        client.call_json("step_frames", count=5)
+        check(abs(yaw_of(pose()) - turned) < 1e-9, "[input.AC15] mouse motion counts once, not every frame")
+        client.call_json("send_input", key="mouse_right", down=False)
+        client.call_json("step_frames", count=1)
+        freed = client.call("get_component", entity="primary_window", component="RelativeMouse")
+        check(freed.get("isError"), "[input.AC15] releasing the right button frees the mouse")
+
+        client.call_json("send_input", gamepad=True)
+        client.call_json("send_input", axis="gamepad_left_y", value=0.575)  # dead zone 0.15: reads 0.5
+        before = pose()["translation"]
+        client.call_json("step_frames", count=30)
+        client.call_json("send_input", axis="gamepad_left_y", value=0)
+        client.call_json("step_frames", count=1)
+        after = pose()["translation"]
+        step = [after[i] - before[i] for i in range(3)]
+        expected = [0.5 * math.sin(0.25), 0.0, -0.5 * math.cos(0.25)]  # half speed along the turned forward
+        check(all(abs(step[i] - expected[i]) < 1e-3 for i in range(3)),
+              f"[input.AC15] a stick past its dead zone flies at the rescaled speed ({step} vs {expected})")
+        pads = client.call_json("eval", source='return require("@veach").input.gamepads()')
+        check(pads["returns"] == ["1"], f"[input.AC15] scripts see the connected gamepad ({pads})")
+
+        bad = client.call("send_input", axis="mouse_xx", value=1)
+        text = bad["content"][0]["text"]
+        check(bad.get("isError") and "[input.unknown_axis]" in text and "Did you mean 'mouse_x'?" in text,
+              "[input.AC15] send_input rejects an unknown axis with a suggestion")
+        recorded = pose()
+        check(client.close() == 0, "[input.AC15] the run exits 0")
+
+        with open(recording, encoding="utf-8") as f:
+            frames = [json.loads(line) for line in f.read().splitlines()[1:]]
+        moved = [e for frame in frames for e in frame["events"] if "axis" in e]
+        check(len(moved) == 4 and all(isinstance(e["value"], int) for e in moved) and moved[2]["value"] == 37683,
+              f"[input.AC16] axis events are recorded as fixed-point integers ({moved})")
+        client = McpClient([lab, "--mcp", "--headless", "--replay", recording])
+        client.initialize()
+        client.call_json("step_frames", count=len(frames))
+        replayed = client.call_json("get_component", entity="camera", component="Transform")
+        check(replayed == recorded, f"[input.AC16] the replay ends where the recording did ({replayed} vs {recorded})")
+        check(client.close() == 0, "[input.AC16] every frame's state matches (no replay.diverged)")
 
 
 def replay(lab: str) -> None:
@@ -509,8 +613,8 @@ def main() -> int:
     parser.add_argument("--golden")
     parser.add_argument("--out")
     parser.add_argument("--rhi", default="metal")
-    parser.add_argument("mode", choices=["protocol", "golden", "fly", "reload", "photo_mode", "gpu_timings", "replay",
-                                         "replay_windowed", "sky"])
+    parser.add_argument("mode", choices=["protocol", "golden", "fly", "axes", "reload", "photo_mode", "gpu_timings",
+                                         "replay", "replay_windowed", "sky"])
     args = parser.parse_args()
     if args.mode == "protocol":
         protocol(args.lab)
@@ -520,6 +624,8 @@ def main() -> int:
         replay_windowed(args.lab)
     elif args.mode == "fly":
         fly(args.lab)
+    elif args.mode == "axes":
+        axes(args.lab)
     elif args.mode == "reload":
         reload(args.lab)
     elif args.mode == "gpu_timings":

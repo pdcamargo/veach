@@ -101,8 +101,18 @@ closest bound action. Add the action to the project file, or fix the name. See
 **An input binding or injected event names a key that does not exist.**
 
 Key names are the constants of `veach::Key`: `a`–`z`, `digit0`–`digit9`, `space`, `enter`, `escape`, `tab`,
-`backspace`, the arrows `left`/`right`/`up`/`down`, `left_shift`, `right_ctrl`…, `f1`–`f12`, and the mouse
-buttons `mouse_left`, `mouse_right`, `mouse_middle`. The hint suggests the closest one.
+`backspace`, the arrows `left`/`right`/`up`/`down`, `left_shift`, `right_ctrl`…, `f1`–`f12`, the mouse
+buttons `mouse_left`, `mouse_right`, `mouse_middle`, and the gamepad buttons `gamepad_south`, `gamepad_east`,
+`gamepad_west`, `gamepad_north`, `gamepad_left_shoulder`, `gamepad_dpad_up`…. The hint suggests the closest one.
+
+## input.unknown_axis
+
+**An analog axis name in a project or tool is not a `veach::Axis`.**
+
+The `source` of an entry under `"axes"` in `veach.project.json`, or the `axis` of MCP `send_input`, must be one
+of `mouse_x`, `mouse_y`, `mouse_wheel_x`, `mouse_wheel_y`, `gamepad_left_x`, `gamepad_left_y`,
+`gamepad_right_x`, `gamepad_right_y`, `gamepad_left_trigger`, `gamepad_right_trigger`. The hint suggests the
+closest one. See [input](../specs/input/spec.md).
 
 ## asset.not_found
 
@@ -340,3 +350,17 @@ The hint suggests the closest tool name; `tools/list` returns every tool with it
 **An MCP tool call has missing or ill-typed arguments.**
 
 The message names the argument. Each tool's `inputSchema` (from `tools/list`) describes the expected arguments.
+
+## mcp.duplicate_tool
+
+**A module registered an MCP tool name that is already taken.**
+
+`McpTools::add` refuses a name that a built-in tool (`eval`, `step_frames`...) or another module already uses. Rename
+the tool, prefixed with the module's area (`physics_raycast`), or register it from one module only.
+
+## mcp.invalid_tool
+
+**A module registered an MCP tool with a bad name, schema or handler.**
+
+Names are 1-64 characters of `A-Z a-z 0-9 _ - .` (Veach uses snake_case), the input schema is a JSON Schema with
+`"type": "object"`, and the handler is set. Guide: [extending](../guides/extending.md#k-an-mcp-tool).

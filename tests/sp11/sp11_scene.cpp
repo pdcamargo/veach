@@ -70,10 +70,6 @@ struct JoltRuntime {
     JoltRuntime& operator=(const JoltRuntime&) = delete;
 };
 
-void ensure_jolt() {
-    static const JoltRuntime runtime;
-}
-
 std::uint64_t mix(std::uint64_t x) {
     x ^= x >> 33;
     x *= 0xff51afd7ed558ccdULL;
@@ -158,6 +154,10 @@ std::uint64_t hash_bytes(const std::string& bytes) {
 }
 
 }  // namespace
+
+void ensure_jolt() {
+    static const JoltRuntime runtime;
+}
 
 SceneResult run_scene(const SceneConfig& config) {
     ensure_jolt();

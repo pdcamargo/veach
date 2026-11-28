@@ -37,6 +37,7 @@ veach_apply_warnings(veach-tests)
 veach_deploy_d3d12(veach-tests)
 add_subdirectory(sp06)  # Spike SP-06 (VCH-082): its tests join veach-tests; its bench is veach-bench-sp06
 add_subdirectory(sp11)  # Spike SP-11 (VCH-087): Jolt determinism; its tests join veach-tests; its bench is veach-bench-sp11
+add_subdirectory(sp12)  # Spike SP-12 (VCH-088): dig and collide; its tests join veach-tests; its bench is veach-bench-sp12
 
 include("${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake")
 doctest_discover_tests(veach-tests TEST_PREFIX "unit: ")

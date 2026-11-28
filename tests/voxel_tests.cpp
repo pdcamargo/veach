@@ -142,3 +142,125 @@ TEST_CASE("[sp08] mesh hashes match the committed ones on 1 and 4 threads") {
     CHECK(meshes_hash(tv1) == 0xbbc4053e4553b91dULL);
     CHECK(meshes_hash(sn1) == 0xec92ede1b61f4da6ULL);
 }
+
+// Spike SP-09 (VCH-085), throwaway: the companded distance encoding (docs/research/spikes/sp-09-descent.md). Coarse
+// chunks have cells of up to 262 km; ADR 0053's linear codes saturate at 32 m, so their crossings fall at mid-edge and
+// their gradients vanish. Companded codes are the same within 16 m and logarithmic beyond.
+
+namespace {
+
+/// A 20 km ball, sampled with either encoding: at levels 8 to 10 its cells are 128 to 512 m.
+struct EncodedBall final : DensityField {
+    static constexpr double radius = 20'000.0;
+    DistanceEncoding encoding = DistanceEncoding::linear;
+    Sample sample(std::int64_t x, std::int64_t y, std::int64_t z) const override {
+        const double px = static_cast<double>(x) * lod0_cell_meters, py = static_cast<double>(y) * lod0_cell_meters,
+                     pz = static_cast<double>(z) * lod0_cell_meters;
+        return {encode_distance(std::sqrt(px * px + py * py + pz * pz) - radius, encoding), 1};
+    }
+    static bool may_have_surface(const ChunkKey& k) {
+        const auto o = chunk_origin(k);
+        const double e = static_cast<double>(chunk_units(k.level)) * lod0_cell_meters;
+        double near2 = 0.0, far2 = 0.0;
+        for (std::size_t a = 0; a < 3; ++a) {
+            const double lo = static_cast<double>(o[a]) * lod0_cell_meters, hi = lo + e;
+            const double n = lo > 0.0 ? lo : (hi < 0.0 ? -hi : 0.0);
+            const double f = std::max(std::abs(lo), std::abs(hi));
+            near2 += n * n;
+            far2 += f * f;
+        }
+        return near2 <= radius * radius && far2 >= radius * radius;
+    }
+};
+
+struct CoarseMeshes {
+    std::vector<MeshedChunk> chunks;
+    double mean_radial = 0.0;  ///< mean of normal . radial direction over vertices (1 for a sphere)
+    std::array<int, 12> levels{};
+};
+
+/// The whole ball, three levels around 128-512 m cells, meshed with `encoding`.
+CoarseMeshes mesh_coarse(DistanceEncoding encoding) {
+    LodSettings s;
+    s.focus = {0.0, 1.5 * EncodedBall::radius / lod0_cell_meters, 0.0};  // 10 km above the top
+    s.lambda = 1.0;
+    s.root_level = 11;  // 32 km roots
+    s.root_min = {-1, -1, -1};
+    s.root_max = {0, 0, 0};
+    const auto leaves = select_chunks(s);
+    EncodedBall field;
+    field.encoding = encoding;
+    auto mesher = make_transvoxel_mesher({.encoding = encoding});
+    CoarseMeshes out;
+    double radial = 0.0;
+    std::size_t vertices = 0;
+    ChunkSamples samples;
+    for (const ChunkLeaf& leaf : leaves) {
+        MeshedChunk m;
+        m.leaf = leaf;
+        m.mesh.key = leaf.key;
+        if (EncodedBall::may_have_surface(leaf.key)) {
+            sample_chunk(field, leaf.key, mesher->face_samples_needed(leaf.neighbors), samples);
+            mesher->mesh(samples, leaf.neighbors, m.mesh);
+        }
+        if (!m.mesh.indices.empty()) {
+            ++out.levels[std::min<std::size_t>(leaf.key.level, out.levels.size() - 1)];
+        }
+        for (std::size_t v = 0; v < m.mesh.fixed.size(); ++v) {
+            std::array<double, 3> p{};
+            for (std::size_t a = 0; a < 3; ++a) {
+                p[a] = static_cast<double>(m.mesh.fixed[v][a]);
+            }
+            const double l = std::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
+            radial += (p[0] * m.mesh.normal[v][0] + p[1] * m.mesh.normal[v][1] + p[2] * m.mesh.normal[v][2]) / l;
+            ++vertices;
+        }
+        out.chunks.push_back(std::move(m));
+    }
+    out.mean_radial = radial / static_cast<double>(std::max<std::size_t>(vertices, 1));
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("[sp09] companded distances: linear within 16 m, monotonic, about 0.1 % steps beyond") {
+    for (const DistanceEncoding e : {DistanceEncoding::linear, DistanceEncoding::companded}) {
+        for (const double d : {0.0, 0.0004, -0.0004, 1.0, -3.25, 15.999, -16.0}) {
+            CHECK(encode_distance(d, e) == encode_distance(d, DistanceEncoding::linear));
+            CHECK(std::abs(decode_distance(encode_distance(d, e), e) - d) <= 0.5 / 1024.0);
+        }
+    }
+    CHECK(encode_distance(1.0e6, DistanceEncoding::linear) == 32767);
+    CHECK(encode_distance(-1.0e9, DistanceEncoding::companded) == -32767);
+    std::int16_t previous = encode_distance(16.0, DistanceEncoding::companded);
+    std::uint64_t h = 0;
+    for (double d = 16.0; d < 1.0e7; d *= 1.01) {
+        const std::int16_t c = encode_distance(d, DistanceEncoding::companded);
+        CHECK(c >= previous);
+        CHECK(encode_distance(-d, DistanceEncoding::companded) == -c);
+        const double back = decode_distance(c, DistanceEncoding::companded);
+        CHECK(std::abs(back - d) <= 0.0006 * d + 0.001);
+        h = veach::hash(h, static_cast<std::uint64_t>(static_cast<std::uint16_t>(c)));
+        previous = c;
+    }
+    // Canonical (dmath): committed from macOS arm64; Windows x64 CI must agree.
+    CHECK(h == 0x4bddb71cd6a843c4ULL);
+}
+
+TEST_CASE("[sp09] coarse chunks: companded samples stay watertight and their normals follow the surface") {
+    const CoarseMeshes companded = mesh_coarse(DistanceEncoding::companded);
+    const CoarseMeshes linear = mesh_coarse(DistanceEncoding::linear);
+    CHECK(companded.levels[8] + companded.levels[9] + companded.levels[10] > 0);
+    const std::array<std::int64_t, 3> lo{-65536, -65536, -65536}, hi{65536, 65536, 65536};
+    const SeamReport r = check_seams(companded.chunks, lo, hi);
+    CHECK(r.triangles > 1000);
+    CHECK(r.open_edges == 0);
+    CHECK(r.boundary_edges == 0);  // the whole body: closed
+    CHECK(r.nonmanifold_edges == 0);
+    MESSAGE("mean normal . radial: companded ", companded.mean_radial, ", linear ", linear.mean_radial,
+            "; meshed chunks L7 ", companded.levels[7], " L8 ", companded.levels[8], " L9 ", companded.levels[9],
+            " L10 ", companded.levels[10]);
+    CHECK(companded.mean_radial > 0.999);
+    CHECK(companded.mean_radial > linear.mean_radial + 0.01);
+    CHECK(meshes_hash(companded.chunks) == 0xdef38782f7377bf9ULL);  // committed from macOS arm64
+}

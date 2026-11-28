@@ -1,12 +1,62 @@
 // veach: canonical
 // Spike SP-08 (VCH-084), throwaway: chunk sampling and mesh hashes (docs/research/spikes/sp-08-mesher.md).
 
+#include <veach/core/dmath.hpp>
 #include <veach/core/hash.hpp>
 #include <veach/voxel/voxel.hpp>
 
+#include <algorithm>
 #include <cmath>
 
 namespace veach::voxel {
+
+namespace {
+
+/// Companded codes: |code| <= 16384 is |d| x 1024; above, 16384 + K ln(1 + (|d| - 16) / D) with D = K / 1024, K set so
+/// that 10,000 km is 32767.
+struct Compander {
+    double k = 0.0;
+    double d = 0.0;
+    Compander() {
+        double lo = 100.0, hi = 5000.0;
+        for (int i = 0; i < 80; ++i) {
+            const double mid = 0.5 * (lo + hi);
+            (mid * dmath::log(1.0 + 1.0e7 / (mid / 1024.0)) < 16383.0 ? lo : hi) = mid;
+        }
+        k = lo;
+        d = k / 1024.0;
+    }
+};
+
+const Compander& compander() {
+    static const Compander c;
+    return c;
+}
+
+}  // namespace
+
+std::int16_t encode_distance(double meters, DistanceEncoding encoding) {
+    const double a = std::abs(meters);
+    double code = 0.0;
+    if (encoding == DistanceEncoding::linear || a <= 16.0) {
+        code = std::floor(a * 1024.0 + 0.5);
+    } else {
+        const Compander& c = compander();
+        code = 16384.0 + std::floor(c.k * dmath::log(1.0 + (a - 16.0) / c.d) + 0.5);
+    }
+    code = std::min(code, 32767.0);
+    return static_cast<std::int16_t>(meters < 0.0 ? -code : code);
+}
+
+double decode_distance(std::int16_t code, DistanceEncoding encoding) {
+    const double c = std::abs(static_cast<double>(code));
+    double a = c / 1024.0;
+    if (encoding == DistanceEncoding::companded && c > 16384.0) {
+        const Compander& k = compander();
+        a = 16.0 + k.d * (dmath::exp((c - 16384.0) / k.k) - 1.0);
+    }
+    return code < 0 ? -a : a;
+}
 
 void sample_chunk(const DensityField& field, const ChunkKey& key, std::uint8_t face_mask, ChunkSamples& out) {
     constexpr int n = ChunkSamples::grid_n;

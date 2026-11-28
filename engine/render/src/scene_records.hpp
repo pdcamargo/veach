@@ -49,8 +49,11 @@ struct InstanceRecord {
     std::uint32_t meshlet_count = 0;
     std::uint32_t id = 0;  ///< surface_id(entity): the same every frame (temporal AA's disocclusion test, ADR 0061)
     std::array<std::uint32_t, 2> pad{};
+    math::vec3 material_origin{0.0f};  ///< MeshDraw::material_origin (terrain materials, ADR 0098)
+    std::uint32_t pad3 = 0;
 };
-static_assert(sizeof(InstanceRecord) == 240);
+static_assert(sizeof(InstanceRecord) == 256);
+static_assert(offsetof(InstanceRecord, material_origin) == 240);
 static_assert(offsetof(InstanceRecord, object_to_world) == 32);
 static_assert(offsetof(InstanceRecord, previous_object_to_world) == 128);
 static_assert(offsetof(InstanceRecord, meshlets) == 176);

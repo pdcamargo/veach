@@ -203,7 +203,7 @@ math::vec2 screen_uv(const math::mat4& view_projection, math::vec3 p) {
 
 TEST_CASE("[gpudriven.AC2] the GPU scene uploads the records that changed, and nothing for a still scene") {
     Scene f(std::move(*rhi::create_device({})));
-    constexpr std::uint64_t record = 240;
+    constexpr std::uint64_t record = 256;  // InstanceRecord (scene_records.hpp)
     f.frame();
     CHECK(f.scene->instance_bytes_uploaded() == 4 * record);  // every record, the first time
     f.frame();

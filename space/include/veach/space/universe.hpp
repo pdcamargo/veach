@@ -48,6 +48,9 @@ struct Universe {
     double habitability_bias = 0.5;
     std::string home;             ///< the body to draw terrain on ("b1"); empty: StarSystem::home()
     std::int64_t start_tick = 0;  ///< the universe clock at the start
+    /// How the ground is colored (veach/space/surface.hpp): "" automatic (scanned colors on habitable planets,
+    /// palettes elsewhere), "scanned", or "palette" (the opt-in procedural albedo everywhere).
+    std::string surface_colors;
 };
 
 /// On each body frame entity: which body and which of its two frames. Scriptable.

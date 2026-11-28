@@ -38,6 +38,7 @@ acceptance criteria (`[area.ACn] ...`) → status Implemented.
 | [The first slice: the realization layer and the slice app](first-slice/spec.md) | space, apps | Implemented |
 | [GPU-driven RHI: indirect work and non-blocking readback](gpu-driven-rhi/spec.md) | rhi, render | Implemented |
 | [RHI textures and raster state: texture kinds, updates, blending, depth bias, samplers](rhi-textures/spec.md) | rhi, render | Implemented |
+| [Terrain materials: scanned PBR layers, placed by the generator, with opt-in procedural color](terrain-materials/spec.md) | render, runtime, space | Implemented |
 | [Sun shadows in the real-time renderer](sun-shadows/spec.md) | render | Implemented |
 | [Temporal anti-aliasing](temporal-aa/spec.md) | render | Implemented |
 | [Bloom](bloom/spec.md) | render | Implemented |

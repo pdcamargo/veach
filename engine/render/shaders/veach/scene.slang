@@ -8,7 +8,7 @@ import veach.material;
 import veach.materials_generated;  // evaluateSurface(kind, c), evaluateAlpha(kind, c)
 import veach.random;
 
-/// Mirrors render::InstanceRecord: 240 bytes per instance, in the GPU scene's persistent buffer (ADR 0093).
+/// Mirrors render::InstanceRecord: 256 bytes per instance, in the GPU scene's persistent buffer (ADR 0093).
 struct InstanceRecord {
     DescriptorHandle<StructuredBuffer<float>> vertices;  ///< 12 floats per vertex: position, normal, tangent, uv
     DescriptorHandle<StructuredBuffer<uint>> indices;
@@ -30,6 +30,11 @@ struct InstanceRecord {
     uint id;  ///< 24 bits from the drawing entity, the same every frame: what temporal AA tells surfaces apart by
     uint pad1;
     uint pad2;
+    // MeshDraw::material_origin (three floats, not a float3: Metal would align a float3 to 16 bytes).
+    float material_origin_x;
+    float material_origin_y;
+    float material_origin_z;
+    uint pad3;
 };
 
 static const uint instance_has_alpha = 1;     ///< some slot is alpha-masked or blended
@@ -184,6 +189,16 @@ TriangleHit surface_of(InstanceRecord inst, TriangleRef tri, float2 bary, float3
     hit.surface.uv = c0.uv * w.x + c1.uv * w.y + c2.uv * w.z;
     hit.surface.uv_dx = float2(0.0, 0.0);
     hit.surface.uv_dy = float2(0.0, 0.0);
+    hit.surface.object_position = c0.position * w.x + c1.position * w.y + c2.position * w.z;
+    float3 object_normal = c0.normal * w.x + c1.normal * w.y + c2.normal * w.z;
+    const float object_normal_length = length(object_normal);
+    object_normal = object_normal_length > 1e-20 ? object_normal / object_normal_length : float3(0.0, 1.0, 0.0);
+    hit.surface.object_tangent = t;
+    hit.surface.object_dx = float3(0.0, 0.0, 0.0);
+    hit.surface.object_dy = float3(0.0, 0.0, 0.0);
+    hit.surface.material_origin = float3(inst.material_origin_x, inst.material_origin_y, inst.material_origin_z);
+    hit.surface.object_to_world = float3x3(inst.object_to_world[0].xyz, inst.object_to_world[1].xyz,
+                                           inst.object_to_world[2].xyz);
     hit.material = veach_scene.materials[inst.material_base + tri.slot];
     // Every surface is two-sided for the path tracer; `front` remembers which side was hit (emission is one-sided).
     hit.front = dot(geometric, hit.surface.view) >= 0.0;
@@ -195,10 +210,12 @@ TriangleHit surface_of(InstanceRecord inst, TriangleRef tri, float2 bary, float3
         // is seen from behind while its vertex normals face the camera; turning those shaded it dark (VCH-108).
         if ((hit.material.flags & material_double_sided) != 0 || dot(normal, hit.surface.view) < 0.0) {
             normal = -normal;
+            object_normal = -object_normal;
         }
     }
     hit.surface.geometric_normal = geometric;
     hit.surface.normal = normal;
+    hit.surface.object_normal = object_normal;
     return hit;
 }
 

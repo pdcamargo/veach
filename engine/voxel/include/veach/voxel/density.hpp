@@ -25,6 +25,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace veach::voxel {
@@ -46,6 +47,11 @@ public:
     [[nodiscard]] virtual BoxClass classify_shallow(const LatticeBox& box) const { return classify(box); }
     /// How the source encodes distances (the mesher decodes with the same).
     [[nodiscard]] virtual DistanceEncoding encoding() const = 0;
+    /// The generated (unedited) signed distance at a body-local point in meters, if the source can tell: terrain
+    /// materials show what a dig uncovers by how deep below the generated surface a wall is.
+    [[nodiscard]] virtual std::optional<double> generated_distance(double /*x*/, double /*y*/, double /*z*/) const {
+        return std::nullopt;
+    }
 };
 
 /// A DensityField (one sample at a time, C++) as a source. With no classifier every box may hold a surface.
@@ -105,6 +111,9 @@ public:
 
     /// The signed distance at a body-local point in meters, unquantized (tools, flight, tests). Canonical.
     [[nodiscard]] double distance(double x, double y, double z) const;
+    [[nodiscard]] std::optional<double> generated_distance(double x, double y, double z) const override {
+        return distance(x, y, z);
+    }
     /// The largest |p| (sphere) or p.y (plane) the surface can reach, from the bounds, meters.
     [[nodiscard]] double max_extent() const;
     [[nodiscard]] const ProgramDensitySettings& settings() const { return settings_; }

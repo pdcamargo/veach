@@ -31,11 +31,17 @@ namespace veach {
 /// Terrain streams around this entity (a camera, a player). Scriptable.
 struct TerrainViewer {};
 
+class TerrainSurface;
+
 /// How a body's chunks are drawn.
 struct TerrainLook {
     /// MeshStore materials by voxel material id (a triangle takes its vertices' highest id); ids past the end use the
-    /// last one, and none draws the default material.
+    /// last one, and none draws the default material. With a `surface`: its TerrainMaterial alone
+    /// (TerrainSurface::material).
     std::vector<AssetId> materials;
+    /// Terrain materials (terrain_surface.hpp): every vertex gets the surface's six slot weights (in its tangent and
+    /// uv) on the chunk's job, and every triangle draws with materials[0].
+    std::shared_ptr<const TerrainSurface> surface;
 };
 
 /// The terrain bodies of a world, each in its reference frame. A service of TerrainModule.

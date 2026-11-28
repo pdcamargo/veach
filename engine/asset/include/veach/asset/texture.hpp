@@ -2,7 +2,8 @@
 
 // Textures as the runtime uses them (ADR 0011): a full mip chain in one GPU
 // format, stored as KTX2. Cooking turns a decoded RGBA8 image into BC7 with
-// box-filtered mips (in linear light for sRGB data).
+// box-filtered mips (in linear light for sRGB data). A texture may be a 2D array (terrain material layers,
+// docs/specs/terrain-materials/spec.md): each level holds every layer, in KTX2's order.
 
 #include <veach/asset/loader.hpp>
 #include <veach/core/error.hpp>
@@ -17,14 +18,20 @@
 
 namespace veach {
 
-/// The GPU formats a TextureAsset can hold. The renderer maps them to rhi::Format.
-enum class TextureFormat : std::uint8_t { rgba8_unorm, rgba8_srgb, bc7_unorm, bc7_srgb };
+class JobSystem;
+
+/// The GPU formats a TextureAsset can hold. The renderer maps them to rhi::Format. rgba32_float holds data tables
+/// (a material's parameters, loaded and never filtered), not images.
+enum class TextureFormat : std::uint8_t { rgba8_unorm, rgba8_srgb, bc7_unorm, bc7_srgb, rgba32_float };
 
 struct TextureAsset {
     TextureFormat format = TextureFormat::rgba8_unorm;
     std::uint32_t width = 0;
     std::uint32_t height = 0;
-    std::vector<std::vector<std::byte>> mips;  ///< level 0 first; rows (or 4x4 block rows) tightly packed
+    /// Level 0 first; each level is its layers one after another, rows (or 4x4 block rows) tightly packed.
+    std::vector<std::vector<std::byte>> mips;
+    std::uint32_t layers = 1;  ///< layers of a 2D array; 1 otherwise
+    bool array = false;        ///< a 2D array, even of one layer (a shader's type never depends on a count, ADR 0090)
 };
 
 /// A decoded image, 8 bits per channel, RGBA, rows top to bottom.
@@ -34,8 +41,12 @@ struct ImageRgba8 {
     std::vector<std::uint8_t> pixels;
 };
 
-/// Bytes of one mip level of `format`.
+/// Bytes of one mip level of `format`, one layer.
 [[nodiscard]] std::size_t texture_level_size(TextureFormat format, std::uint32_t width, std::uint32_t height);
+
+/// Stacks 2D textures of one format, size and mip count into a 2D array, layer i from textures[i]. Fails with
+/// asset.load_failed, naming the first that differs.
+[[nodiscard]] Result<TextureAsset> stack_layers(std::span<const TextureAsset> textures, std::string_view context);
 
 /// KTX2, no supercompression, with a valid data format descriptor (https://registry.khronos.org/KTX/specs/2.0/).
 [[nodiscard]] std::string write_ktx2(const TextureAsset& texture);
@@ -50,6 +61,16 @@ struct TextureCookSettings {
 /// Downsizes, rounds BC7 sizes up to multiples of 4, builds the mip chain and encodes. Deterministic: the same input
 /// gives the same bytes.
 [[nodiscard]] TextureAsset cook_texture(const ImageRgba8& image, const TextureCookSettings& settings);
+
+/// BC7 blocks of one image, rows of blocks top to bottom; partial blocks repeat their edge pixels. `perceptual`
+/// weights the channels for sRGB color. With `jobs`, rows of blocks are encoded in parallel, to the same bytes.
+[[nodiscard]] std::vector<std::byte> encode_bc7(const ImageRgba8& image, bool perceptual, JobSystem* jobs = nullptr);
+
+/// Halves an image with a 2x2 box filter (clamped at odd edges), in linear light for the color channels when `srgb`.
+[[nodiscard]] ImageRgba8 halve_image(const ImageRgba8& image, bool srgb);
+
+/// Bilinear resampling to `width` x `height` (texel centers aligned), in linear light for sRGB color.
+[[nodiscard]] ImageRgba8 resample_image(const ImageRgba8& image, std::uint32_t width, std::uint32_t height, bool srgb);
 
 /// Decodes PNG or JPEG (stb_image).
 [[nodiscard]] Result<ImageRgba8> decode_image(std::span<const std::byte> bytes, std::string_view context);

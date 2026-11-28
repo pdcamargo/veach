@@ -154,6 +154,10 @@ struct MeshDraw {
     std::vector<AssetId> materials;
     math::mat4 world{1.0f};
     std::uint64_t entity = 0;  ///< the entity it was extracted from: identifies the draw across frames
+    /// Where the mesh's object origin is in a space shared by many draws, wrapped to a period the material knows
+    /// (SurfaceInput::material_origin): procedural materials continue across meshes there. Terrain chunks give their
+    /// origin in the body frame modulo 65,536 m (docs/specs/terrain-materials/spec.md).
+    math::vec3 material_origin{0.0f};
 };
 
 /// A punctual light this frame (ADR 0036). `radiance` is color x intensity (lux or candela).

@@ -287,6 +287,12 @@ export type TerrainDescentState = {
 	backlog: number,
 	lambda: number,
 }
+export type TerrainMaterialsDemo = {
+	palette: boolean,
+	dig: boolean,
+	dig_x: number,
+	dig_z: number,
+}
 export type quat = {
 	x: number,
 	y: number,
@@ -372,6 +378,7 @@ export type Veach = {
 		read SunShadows: Component<SunShadows>,
 		read TerrainDescent: Component<TerrainDescent>,
 		read TerrainDescentState: Component<TerrainDescentState>,
+		read TerrainMaterialsDemo: Component<TerrainMaterialsDemo>,
 		read Transform: Component<Transform>,
 		read TriangleDemo: Component<TriangleDemo>,
 		read UniverseClock: Component<UniverseClock>,

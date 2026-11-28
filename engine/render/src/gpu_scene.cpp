@@ -29,43 +29,6 @@ GraphResource GpuScene::update(RenderGraph& graph, UploadRing& ring, std::vector
     const auto count = static_cast<std::uint32_t>(records.size());
     uploaded_bytes_ = 0;
 
-    // Motion: last frame's transform of the same entity, moved from last frame's render origin to this one's (a
-    // whole number of 64 m cells, exact in float). A change of render frame starts over without motion.
-    const bool same_space = has_space_ && space_.frame == space.frame;
-    const math::vec3 shift = same_space ? math::vec3(space_.origin - space.origin) : math::vec3(0.0f);
-    index_built_ = false;
-    for (std::uint32_t i = 0; i < count; ++i) {
-        InstanceRecord& r = records[i];
-        r.previous_object_to_world = r.object_to_world;
-        const std::uint64_t entity = entities[i];
-        if (!same_space || entity == 0) {
-            continue;
-        }
-        const InstanceRecord* before = nullptr;
-        if (i < entities_.size() && entities_[i] == entity) {
-            before = &records_[i];
-        } else {
-            if (!index_built_) {
-                index_.clear();
-                for (std::uint32_t k = 0; k < entities_.size(); ++k) {
-                    index_.emplace(entities_[k], k);
-                }
-                index_built_ = true;
-            }
-            if (const auto it = index_.find(entity); it != index_.end()) {
-                before = &records_[it->second];
-            }
-        }
-        if (before != nullptr) {
-            r.previous_object_to_world = before->object_to_world;
-            for (std::size_t row = 0; row < 3; ++row) {
-                r.previous_object_to_world.at(row).w += shift[static_cast<math::length_t>(row)];
-            }
-        }
-    }
-    space_ = space;
-    has_space_ = true;
-
     // The buffer grows to twice what it needs; everything is uploaded into a new one.
     bool everything = !written_;
     if (count > capacity_ || !buffer_.is_valid()) {
@@ -91,7 +54,13 @@ GraphResource GpuScene::update(RenderGraph& graph, UploadRing& ring, std::vector
         everything = true;
     }
 
-    // Runs of records that differ from what the buffer holds.
+    // One pass over the records (a field of foliage has hundreds of thousands): each gets its entity's transform of
+    // last frame, moved from last frame's render origin to this one's (a whole number of 64 m cells, exact in float;
+    // a change of render frame starts over without motion), then is compared with what the buffer holds. Changed
+    // records closer than coalesce_gap make one run.
+    const bool same_space = has_space_ && space_.frame == space.frame;
+    const math::vec3 shift = same_space ? math::vec3(space_.origin - space.origin) : math::vec3(0.0f);
+    index_built_ = false;
     struct Run {
         std::uint32_t first;
         std::uint32_t count;
@@ -99,9 +68,33 @@ GraphResource GpuScene::update(RenderGraph& graph, UploadRing& ring, std::vector
     std::vector<Run> runs;
     std::uint32_t changed = 0;
     for (std::uint32_t i = 0; i < count; ++i) {
-        const bool differs =
-            everything || i >= records_.size() || std::memcmp(&records[i], &records_[i], record_size) != 0;
-        if (!differs) {
+        InstanceRecord& r = records[i];
+        r.previous_object_to_world = r.object_to_world;
+        const std::uint64_t entity = entities[i];
+        if (same_space && entity != 0) {
+            const InstanceRecord* before = nullptr;
+            if (i < entities_.size() && entities_[i] == entity) {
+                before = &records_[i];
+            } else {
+                if (!index_built_) {
+                    index_.clear();
+                    for (std::uint32_t k = 0; k < entities_.size(); ++k) {
+                        index_.emplace(entities_[k], k);
+                    }
+                    index_built_ = true;
+                }
+                if (const auto it = index_.find(entity); it != index_.end()) {
+                    before = &records_[it->second];
+                }
+            }
+            if (before != nullptr) {
+                r.previous_object_to_world = before->object_to_world;
+                for (std::size_t row = 0; row < 3; ++row) {
+                    r.previous_object_to_world.at(row).w += shift[static_cast<math::length_t>(row)];
+                }
+            }
+        }
+        if (!everything && i < records_.size() && std::memcmp(&r, &records_[i], record_size) == 0) {
             continue;
         }
         if (!runs.empty() && i - (runs.back().first + runs.back().count) <= coalesce_gap) {
@@ -112,7 +105,13 @@ GraphResource GpuScene::update(RenderGraph& graph, UploadRing& ring, std::vector
             ++changed;
         }
     }
-    records_ = records;
+    space_ = space;
+    has_space_ = true;
+    // The mirror of the buffer: only the changed runs are copied (lookups above needed last frame's records).
+    records_.resize(count);
+    for (const Run& run : runs) {
+        std::memcpy(&records_[run.first], &records[run.first], std::size_t{run.count} * record_size);
+    }
     entities_.assign(entities.begin(), entities.end());
 
     const GraphResource resource = graph.import(

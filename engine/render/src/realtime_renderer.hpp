@@ -18,11 +18,13 @@
 
 namespace veach::render {
 
-/// Draw lists by material class and meshlet size: opaque meshlets of up to 32, 64 and 124 triangles, then the same
-/// for alpha-tested ones. Each list's draws run as many vertices as its largest meshlet needs.
-inline constexpr std::uint32_t draw_list_count = 6;
+/// Draw lists by material class and meshlet size: opaque meshlets of up to 16, 32, 64 and 124 triangles, then the same
+/// for alpha-tested ones. Each list's draws run as many vertices as its largest meshlet needs (gpu_cull.slang).
+inline constexpr std::uint32_t draw_bucket_count = 4;
+inline constexpr std::uint32_t draw_list_count = 2 * draw_bucket_count;
 [[nodiscard]] constexpr std::uint32_t draw_list_of(bool masked, std::uint32_t triangles) {
-    return (masked ? 3u : 0u) + (triangles <= 32 ? 0u : (triangles <= 64 ? 1u : 2u));
+    const std::uint32_t bucket = triangles <= 16 ? 0u : (triangles <= 32 ? 1u : (triangles <= 64 ? 2u : 3u));
+    return (masked ? draw_bucket_count : 0u) + bucket;
 }
 
 /// The scene as the scene renderer put it on the GPU this frame.

@@ -331,6 +331,18 @@ private:
     std::uint64_t readback_size_ = 0;
 
     std::string last_graph_;
+
+    /// VEACH_GPU_TIMINGS=samples[,warmup]: after `warmup` frames (default 120), log the median GPU ms of every pass
+    /// over `samples` frames as one `gpu_timings {json}` line (docs/guides/profiling.md).
+    struct TimingReport {
+        std::uint32_t samples = 0;
+        std::uint32_t warmup = 120;
+        std::uint64_t last_frame = 0;
+        std::map<std::string, std::vector<double>> passes;
+        std::vector<double> totals;
+    };
+    std::optional<TimingReport> timing_report_;
+    void collect_timings();
 };
 
 /// Registers the Extract and Render phase systems. Requires a Renderer service.

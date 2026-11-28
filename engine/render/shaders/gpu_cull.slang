@@ -21,7 +21,7 @@ struct CullView {
     uint flags;  ///< cull_previous_hiz
     uint instance_count;
     uint phase_stride;      ///< entries from a phase-1 draw list to the same phase-2 list
-    uint4 list_offsets[2];  ///< first entry of each of the 6 draw lists (phase 1)
+    uint4 list_offsets[2];  ///< first entry of each of the 8 draw lists (phase 1)
     uint task_capacity;     ///< meshlet tasks per phase
     uint pad0;
     uint pad1;
@@ -50,8 +50,8 @@ struct CullParams {
 
 static const uint cull_previous_hiz = 1u;  ///< CullView::flags: last frame's pyramid is valid for phase 1
 static const uint meshlet_task_size = 64;  ///< meshlets per task (a thread group of cull_meshlets)
-static const uint bucket_count = 3;        ///< draw lists by triangle count: <= 32, <= 64, <= 124
-static const uint list_count = 6;          ///< opaque buckets, then alpha-tested buckets
+static const uint bucket_count = 4;        ///< draw lists by triangle count: <= 16, <= 32, <= 64, <= 124
+static const uint list_count = 8;          ///< opaque buckets, then alpha-tested buckets (render::draw_list_of)
 static const uint groups_per_row = 32768;  ///< indirect dispatches wider than this use rows (D3D12 caps a row at 65535)
 
 // counters[]
@@ -70,7 +70,7 @@ static const uint dispatch_recheck_meshlets = 2;
 static const uint dispatch_tasks_2 = 3;
 
 uint bucket_of(uint triangles) {
-    return triangles <= 32 ? 0 : (triangles <= 64 ? 1 : 2);
+    return triangles <= 16 ? 0 : (triangles <= 32 ? 1 : (triangles <= 64 ? 2 : 3));
 }
 
 struct Sphere {
@@ -205,7 +205,7 @@ void dispatch_args_for(uint record, uint groups) {
 void cull_reset(uint3 id: SV_DispatchThreadID) {
     params.counters[id.x] = 0;
     if (id.x < 2 * list_count) {
-        const uint triangles[bucket_count] = { 32, 64, 124 };
+        const uint triangles[bucket_count] = { 16, 32, 64, 124 };
         params.draw_args[id.x * 4 + 0] = triangles[(id.x % list_count) % bucket_count] * 3;
         params.draw_args[id.x * 4 + 1] = 0;
         params.draw_args[id.x * 4 + 2] = 0;

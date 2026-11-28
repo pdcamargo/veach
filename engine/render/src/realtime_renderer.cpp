@@ -841,12 +841,15 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
                 p.instances = ctx.device.descriptor(ctx.buffer(instances_resource));
                 p.materials = ctx.device.descriptor(materials_buffer);
                 p.visible = ctx.device.descriptor(ctx.buffer(visible));
+                rhi::PipelineHandle bound;
                 for (std::uint32_t l = 0; l < draw_list_count; ++l) {
                     if (list_capacity.at(l) == 0) {
                         continue;
                     }
-                    if (l == 0 || l == draw_list_count / 2) {
-                        ctx.cmd.set_pipeline(l == 0 ? opaque : masked);
+                    const rhi::PipelineHandle pipeline = l < draw_bucket_count ? opaque : masked;
+                    if (pipeline != bound) {
+                        ctx.cmd.set_pipeline(pipeline);
+                        bound = pipeline;
                     }
                     p.list_offset = list_offsets.at(l) + phase * meshlets;
                     ctx.cmd.set_parameters(p);

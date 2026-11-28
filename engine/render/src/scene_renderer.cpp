@@ -111,7 +111,9 @@ struct SceneRenderer::Impl {
         std::uint32_t meshlet_count = 0;
         math::vec4 sphere{0.0f};  ///< object space, around the bounding box
         /// Per material slot, its meshlets by size bucket (draw_list_of): the draw lists' capacities.
-        std::vector<std::array<std::uint32_t, 3>> slot_buckets;
+        std::vector<std::array<std::uint32_t, draw_bucket_count>> slot_buckets;
+        /// Its buffers' descriptors and bounds, ready to copy into each instance's record.
+        InstanceRecord base;
         rhi::AccelHandle blas;
         bool built = false;
     };
@@ -385,6 +387,16 @@ struct SceneRenderer::Impl {
                 ++gpu.slot_buckets[meshlet.slot].at(draw_list_of(false, meshlet.triangle_count));
             }
         }
+        gpu.base = {};
+        gpu.base.vertices = device->descriptor(gpu.vertices);
+        gpu.base.indices = device->descriptor(gpu.indices);
+        gpu.base.slots = device->descriptor(gpu.slots);
+        gpu.base.meshlets = device->descriptor(gpu.meshlets);
+        gpu.base.meshlet_vertices = device->descriptor(gpu.meshlet_vertices);
+        gpu.base.meshlet_triangles = device->descriptor(gpu.meshlet_triangles);
+        gpu.base.meshlet_bounds = device->descriptor(gpu.meshlet_bounds);
+        gpu.base.meshlet_count = gpu.meshlet_count;
+        gpu.base.sphere = gpu.sphere;
         tlas_meshes.clear();  // a photo-mode TLAS must be recreated with the new mesh's BLAS
         return &gpu;
     }
@@ -623,6 +635,9 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
     std::vector<AssetId> used_meshes;
     std::unordered_set<AssetId> used;
     std::vector<const MeshDraw*> draws;
+    const std::vector<AssetId>* last_materials = nullptr;
+    std::uint32_t last_slots = 0;
+    std::uint32_t last_base = 0;
     std::uint32_t task_count = 0;
     std::array<std::uint32_t, draw_list_count> list_capacity{};
     for (const MeshDraw& draw : frame.world.meshes) {
@@ -633,36 +648,35 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
         if (used.insert(draw.mesh).second) {
             used_meshes.push_back(draw.mesh);
         }
-        InstanceRecord inst;
-        inst.vertices = s.device->descriptor(mesh->vertices);
-        inst.indices = s.device->descriptor(mesh->indices);
-        inst.slots = s.device->descriptor(mesh->slots);
-        inst.meshlets = s.device->descriptor(mesh->meshlets);
-        inst.meshlet_vertices = s.device->descriptor(mesh->meshlet_vertices);
-        inst.meshlet_triangles = s.device->descriptor(mesh->meshlet_triangles);
-        inst.meshlet_bounds = s.device->descriptor(mesh->meshlet_bounds);
-        inst.meshlet_count = mesh->meshlet_count;
-        inst.sphere = mesh->sphere;
+        InstanceRecord inst = mesh->base;
         const std::uint32_t slot_count = mesh->source->slot_count;
-        std::vector<AssetId> key(slot_count);
-        for (std::uint32_t slot = 0; slot < slot_count; ++slot) {
-            key[slot] = slot < draw.materials.size() ? draw.materials[slot] : AssetId{};
-        }
-        const auto [run, added] =
-            material_runs.try_emplace(std::move(key), static_cast<std::uint32_t>(materials.size()));
-        if (added) {
-            for (const AssetId& id : run->first) {
-                materials.push_back(s.record_of(id));
+        // Consecutive draws of one model share its materials: a one-entry cache before the map.
+        if (last_materials != nullptr && last_slots == slot_count && *last_materials == draw.materials) {
+            inst.material_base = last_base;
+        } else {
+            std::vector<AssetId> key(slot_count);
+            for (std::uint32_t slot = 0; slot < slot_count; ++slot) {
+                key[slot] = slot < draw.materials.size() ? draw.materials[slot] : AssetId{};
             }
+            const auto [run, added] =
+                material_runs.try_emplace(std::move(key), static_cast<std::uint32_t>(materials.size()));
+            if (added) {
+                for (const AssetId& id : run->first) {
+                    materials.push_back(s.record_of(id));
+                }
+            }
+            inst.material_base = run->second;
+            last_materials = &draw.materials;
+            last_slots = slot_count;
+            last_base = run->second;
         }
-        inst.material_base = run->second;
         // The draw lists this instance's meshlets land in, if they all survive
         // culling.
         for (std::uint32_t slot = 0; slot < slot_count; ++slot) {
             const bool masked = (materials[inst.material_base + slot].flags & (alpha_mask | alpha_blend)) != 0;
             inst.flags |= masked ? instance_has_alpha : 0u;
-            for (std::uint32_t bucket = 0; bucket < 3; ++bucket) {
-                list_capacity.at((masked ? 3 : 0) + bucket) += mesh->slot_buckets[slot].at(bucket);
+            for (std::uint32_t bucket = 0; bucket < draw_bucket_count; ++bucket) {
+                list_capacity.at(draw_list_of(masked, 0) + bucket) += mesh->slot_buckets[slot].at(bucket);
             }
         }
         task_count += inst.meshlet_count > 1 ? (inst.meshlet_count + 63) / 64 : 0;

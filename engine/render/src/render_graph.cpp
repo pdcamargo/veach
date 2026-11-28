@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <format>
 #include <set>
+#include <utility>
+#include <vector>
 
 namespace veach::render {
 
@@ -290,16 +292,18 @@ Result<> RenderGraph::compile() {
         return r.root == UINT32_MAX ? Span{root, 0, levels[root]} : Span{root, r.first_mip, r.mip_count};
     };
 
-    // Validate accesses.
-    for (const Pass& pass : passes_) {
-        std::set<std::uint32_t> seen;  // slots
+    // Validate accesses. `seen` stamps each slot with the pass (+ 1) that last touched it: a scene pass declares
+    // thousands of mesh buffers, so this stays linear.
+    std::vector<std::uint32_t> seen(slot_count, 0);
+    for (std::uint32_t p = 0; p < pass_count; ++p) {
+        const Pass& pass = passes_[p];
         for (const Access& a : pass.accesses) {
             if (!a.resource.is_valid() || a.resource.id >= resources_.size()) {
                 return invalid(pass, "uses an invalid resource");
             }
             const Span span = span_of(a.resource);
             for (std::uint32_t m = span.first; m < span.first + span.count; ++m) {
-                if (!seen.insert(base[span.root] + m).second) {
+                if (std::exchange(seen[base[span.root] + m], p + 1) == p + 1) {
                     return invalid(pass, std::format("accesses '{}' twice; declare one "
                                                      "state per resource (or mip) "
                                                      "per pass",
@@ -612,9 +616,18 @@ std::string RenderGraph::describe() const {
                                b.mip_count == 0 ? std::string() : std::format(" mips {}+{}", b.first_mip, b.mip_count),
                                rhi::to_string(b.before), rhi::to_string(b.after), b.discard ? " (discard)" : "");
         }
-        for (const Access& a : pass.accesses) {
-            out += std::format("       {} {} ({})\n", rhi::is_write(a.state) ? "writes" : "reads",
-                               resources_[a.resource.id].name, rhi::to_string(a.state));
+        // Runs of accesses to resources of one name in one state collapse into one line (a pass reading every mesh).
+        for (std::size_t i = 0; i < pass.accesses.size();) {
+            const Access& a = pass.accesses[i];
+            const std::string& name = resources_[a.resource.id].name;
+            std::size_t run = 1;
+            while (i + run < pass.accesses.size() && pass.accesses[i + run].state == a.state &&
+                   resources_[pass.accesses[i + run].resource.id].name == name) {
+                ++run;
+            }
+            out += std::format("       {} {}{} ({})\n", rhi::is_write(a.state) ? "writes" : "reads", name,
+                               run > 1 ? std::format(" x{}", run) : std::string(), rhi::to_string(a.state));
+            i += run;
         }
     }
     for (const std::uint32_t p : culled_) {

@@ -1,6 +1,7 @@
 #include <veach/render/renderer.hpp>
 
 #include <veach/asset/asset_server.hpp>
+#include <veach/core/env.hpp>
 #include <veach/core/log.hpp>
 #include <veach/core/profile.hpp>
 #include <veach/ecs/components.hpp>
@@ -16,6 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <format>
 #include <functional>
 #include <optional>
@@ -231,6 +233,17 @@ std::pair<std::uint32_t, std::uint32_t> target_size(const RenderWorld& world) {
 }
 
 Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device), readbacks_(device), uploads_(device) {
+    if (const std::optional<std::string> spec = env("VEACH_GPU_TIMINGS")) {
+        TimingReport report;
+        char* end = nullptr;
+        report.samples = static_cast<std::uint32_t>(std::strtoul(spec->c_str(), &end, 10));
+        if (end != nullptr && *end == ',') {
+            report.warmup = static_cast<std::uint32_t>(std::strtoul(end + 1, nullptr, 10));
+        }
+        if (report.samples > 0) {
+            timing_report_ = std::move(report);
+        }
+    }
     add_extractor("frame", [](const World& world, RenderWorld& out) {
         if (const Time* time = world.try_get<Time>()) {
             out.frame = time->frame;
@@ -604,12 +617,51 @@ void Renderer::render() {
     const rhi::SubmissionId submission = device_.submit(std::move(cmd), present);
     readbacks_.submitted(submission);
     device_.end_frame();
+    collect_timings();
     scene_color_state_ = graph.final_state(color);
 
     if (capture) {
         device_.wait(submission);
         finish_capture(width, height);
     }
+}
+
+void Renderer::collect_timings() {
+    if (!timing_report_ || timing_report_->samples == 0) {
+        return;
+    }
+    TimingReport& r = *timing_report_;
+    const rhi::FrameTimings t = device_.last_frame_timings();
+    if (t.frame == 0 || t.frame == r.last_frame || t.frame <= r.warmup) {
+        return;
+    }
+    r.last_frame = t.frame;
+    std::map<std::string, double> frame;
+    double total = 0.0;
+    for (const rhi::PassTiming& p : t.passes) {
+        frame[p.name] += p.gpu_ms;
+        total += p.gpu_ms;
+    }
+    for (const auto& [name, ms] : frame) {
+        r.passes[name].push_back(ms);
+    }
+    r.totals.push_back(total);
+    if (r.totals.size() < r.samples) {
+        return;
+    }
+    const auto median = [](std::vector<double> v) {
+        std::ranges::sort(v);
+        return v.size() % 2 == 1 ? v[v.size() / 2] : 0.5 * (v[v.size() / 2 - 1] + v[v.size() / 2]);
+    };
+    std::string passes;
+    for (const auto& [name, values] : r.passes) {
+        std::vector<double> padded = values;
+        padded.resize(r.samples, 0.0);  // a pass missing from some frames counts 0 there
+        passes += std::format("{}\"{}\": {:.4f}", passes.empty() ? "" : ", ", name, median(padded));
+    }
+    log::info("render", "gpu_timings {{\"frames\": {}, \"total_ms\": {:.4f}, \"passes\": {{{}}}}}", r.samples,
+              median(r.totals), passes);
+    r.samples = 0;  // once
 }
 
 void Renderer::finish_capture(std::uint32_t width, std::uint32_t height) {

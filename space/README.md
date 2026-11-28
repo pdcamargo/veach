@@ -7,7 +7,8 @@ Games use it, and extend it through C++ modules and Luau hooks.
 **What is here today is spike code** ([docs/research/spikes/](../docs/research/spikes/)), throwaway prototypes that
 validated the architecture ([docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md#toolbox-architecture-decided-in-the-research-phase),
 [docs/research/00-synthesis.md](../docs/research/00-synthesis.md), ADRs 0043-0069): the universe clock and bodies on
-rails (SP-04, `src/`, `include/`) and the system generation stages (SP-05, `gen/`). The real toolbox replaces them as
+rails (SP-04, `src/`, `include/`) and the system generation stages (SP-05, `gen/`). `SpaceMcpModule`
+(`mcp_tools.hpp`) exposes both to agents as MCP tools, `orrery_state` and `generate_system` (VCH-100). The real toolbox replaces them as
 the spikes toward the first slice (VCH-082 to VCH-091) land.
 
 ## Rules ([ADR 0042](../docs/adr/0042-space-toolbox-layering.md))

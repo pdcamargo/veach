@@ -7,6 +7,7 @@ veach_add_app(veach-lab
         src/sp04_spike.cpp
         src/sp09_spike.cpp
         src/sp09_terrain.cpp
+        src/sp10_spike.cpp
         src/triangle_feature.cpp
     DEPS veach::space veach::voxel)  # the space toolbox (ADR 0042); first used by spike SP-04
 

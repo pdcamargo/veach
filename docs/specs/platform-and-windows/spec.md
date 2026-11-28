@@ -23,7 +23,10 @@ to run everything with no display. SDL must stay replaceable and must not leak i
 - MUST write OS-initiated resizes back into `Window` without echoing them to the OS.
 - MUST quit the engine when the primary window is closed or the OS asks to quit. Other windows close by
   despawning their entity.
-- MUST translate key events into the `Input` singleton (down, pressed, released) and `InputAction` entities.
+- MUST translate key events into the `Input` singleton (down, pressed, released) and `InputAction` entities, and
+  mouse motion, wheel and gamepad events (axes, buttons, connect and disconnect) into `Input` and `InputAxis`
+  entities ([input](../input/spec.md)). A `RelativeMouse` component on a window turns SDL relative mouse mode
+  on for it.
 - MUST provide a `NativeWindowHandle` (a CAMetalLayer on macOS, an HWND/HINSTANCE on Windows) for the RHI, and log
   at debug level that it was valid when the surface is created.
 - MUST NOT initialize SDL at all in headless mode.

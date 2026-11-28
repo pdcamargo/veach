@@ -18,7 +18,9 @@ add_executable(veach-tests
     scene_tests.cpp
     script_tests.cpp
     sky_tests.cpp
+    sp10_atmosphere_tests.cpp  # spike SP-10 (VCH-086)
     space_gen_tests.cpp
+    mcp_tools_tests.cpp
     space_tests.cpp
     transform_tests.cpp
     voxel_tests.cpp)
@@ -36,6 +38,8 @@ set_target_properties(veach-tests PROPERTIES FOLDER "tests")
 veach_apply_warnings(veach-tests)
 veach_deploy_d3d12(veach-tests)
 add_subdirectory(sp06)  # Spike SP-06 (VCH-082): its tests join veach-tests; its bench is veach-bench-sp06
+add_subdirectory(sp11)  # Spike SP-11 (VCH-087): Jolt determinism; its tests join veach-tests; its bench is veach-bench-sp11
+add_subdirectory(sp12)  # Spike SP-12 (VCH-088): dig and collide; its tests join veach-tests; its bench is veach-bench-sp12
 
 include("${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake")
 doctest_discover_tests(veach-tests TEST_PREFIX "unit: ")
@@ -115,6 +119,11 @@ if(Python3_FOUND)
     add_test(NAME "mcp: fly camera through send_input (null RHI)"
         COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
                 --lab $<TARGET_FILE:veach-lab> fly
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
+    # input.AC15-AC16: mouse look and a gamepad on the fly camera, through send_input, recorded and replayed.
+    add_test(NAME "mcp: analog axes through send_input, recorded and replayed (null RHI)"
+        COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
+                --lab $<TARGET_FILE:veach-lab> axes
         WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
     if(APPLE)
         add_test(NAME "mcp: golden through MCP (GPU)"

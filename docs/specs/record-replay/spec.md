@@ -7,9 +7,9 @@
 ## Summary
 
 `--record run.vreplay` writes what a run needs to be repeated exactly: the seed, the startup script, and for
-every frame the number of fixed steps it ran, the platform events it applied (keys, mouse buttons, window
-resizes, including events injected over MCP's `send_input`), and a hash of the simulation state after its
-steps. `--replay run.vreplay` runs the same script with the same seed, applies the recorded events instead of
+every frame the number of fixed steps it ran, the platform events it applied (keys, mouse and gamepad buttons,
+analog axes, gamepad connections, window resizes, including events injected over MCP's `send_input`), and a
+hash of the simulation state after its steps. `--replay run.vreplay` runs the same script with the same seed, applies the recorded events instead of
 the keyboard's, runs the recorded number of steps per frame, and checks the hash every frame: the first frame
 whose state differs is an error (`replay.diverged`) naming the frame and the component that differs.
 
@@ -25,7 +25,9 @@ and the per-frame hash proves it was repeated. Roadmap: VISION item 3 (agents in
 
 - `--record PATH` writes a JSON Lines file: a header (`format`, engine version, project name, script, seed,
   fixed step), then one line per frame: `{frame, steps, events, state}`. Events are the applied
-  `PlatformEvent`s (type, window, key, width, height); quit and close requests end the recording. The primary
+  `PlatformEvent`s (type, window, key, width, height, and for analog input `axis` and `value`: mouse motion,
+  wheel, sticks and triggers as 1/65536 fixed-point integers, so they replay bit for bit); quit and close
+  requests end the recording. A recording made before analog input existed reads as before. The primary
   window is recorded as window 0, because the platform's window ids differ between runs and between SDL and
   headless.
 - `--replay PATH` takes the seed and the script from the header (a different `--script` or `--seed` is an

@@ -134,7 +134,8 @@ longitude }`.
   above came this way.
 - **What doesn't work:** `eval` can't read a specific entity (Luau has no lookup outside systems) and can't call the C++
   query. So an agent asks "where is the Moon at tick t" with three tool calls and a paused clock. Module-registered MCP
-  tools (VCH-100) or a `@veach` binding for the queries would make that one call.
+  tools (VCH-100) or a `@veach` binding for the queries would make that one call. *Update:* VCH-100 added
+  `orrery_state { system?, tick?, body?, latitude?, longitude? }`, which answers it in one call.
 
 ## 3. Cross-platform orbit hash
 
@@ -280,8 +281,8 @@ the GPU anyway. Cheap reductions, all still canonical:
 - **Supersede the two formulas.** A new ADR amending 0047 (the phase computation and its bound) and 0048 (the Kepler
   starter and iteration count, `binary_pair` as a mass fraction). Accepted ADRs are not edited.
 - **Windows CI** must reproduce the three hashes when this lands; that is the remaining half of success criterion 3.
-- **MCP and Luau access to the queries:** module-registered MCP tools (VCH-100) and a `@veach` binding for
-  `sun_local`/positions at a tick, so agents don't need the paused-clock pattern.
+- **MCP and Luau access to the queries:** module-registered MCP tools (VCH-100, done: `orrery_state`) and a `@veach`
+  binding for `sun_local`/positions at a tick, so agents don't need the paused-clock pattern.
 - **The cost reductions above**, once a profile of a real system shows celestial evaluation (not before).
 - **Hyperbolic orbits** (`space:kepler_hyperbolic`) were left out; the solver shape is the same with sinh/cosh, which
   dmath has.

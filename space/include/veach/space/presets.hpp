@@ -8,6 +8,9 @@
 #include <veach/space/orbit.hpp>
 
 #include <cstdint>
+#include <optional>
+#include <span>
+#include <string_view>
 
 namespace veach::space {
 
@@ -43,5 +46,12 @@ inline constexpr std::int64_t sol_j2000_tick = 73'048 * ticks_per_day + ticks_pe
 
 /// 2π √(a³ / GM), seconds.
 [[nodiscard]] double orbital_period(double a, double gm);
+
+/// The presets by name, as an `Orrery` names them: "sol", "earthlike", "reference".
+[[nodiscard]] std::span<const std::string_view> preset_names();
+/// A preset at scale s_p = s_o = `scale` (the reference system ignores it); nullopt for an unknown name.
+[[nodiscard]] std::optional<System> preset(std::string_view name, double scale = 1.0);
+/// The node the sun is measured from: "sun", else "star_a", else the root.
+[[nodiscard]] std::int32_t primary_star(const System& system);
 
 }  // namespace veach::space

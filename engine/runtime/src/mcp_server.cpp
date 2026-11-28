@@ -13,6 +13,7 @@
 #include <veach/render/scene_renderer.hpp>
 #include <veach/rhi/rhi.hpp>
 #include <veach/runtime/engine.hpp>
+#include <veach/runtime/mcp_tools.hpp>
 #include <veach/script/script_runtime.hpp>
 
 #include <nlohmann/json.hpp>
@@ -238,14 +239,23 @@ json McpServer::tools() const {
          {"properties", {{"count", {{"type", "integer"}, {"minimum", 1}, {"maximum", 100000}, {"default", 1}}}}}}));
     std::vector<std::string> keys = enum_constants(world, world.id<Key>());
     std::erase(keys, "unknown");
+    std::vector<std::string> axes = enum_constants(world, world.id<Axis>());
+    std::erase(axes, "none");
     list.push_back(
         tool("send_input",
-             "Press or release a key or mouse button as if the OS had sent it. It is delivered with the "
-             "next frame (step_frames), where it drives the input actions bound in veach.project.json "
-             "(entities under veach::actions).",
+             "Send input as if the OS had: press or release a key, mouse or gamepad button ('key' and 'down'), move an "
+             "analog axis ('axis' and 'value': mouse_x/mouse_y/mouse_wheel_* add a motion in window points or wheel "
+             "notches, +Y up; gamepad sticks (-1..1) and triggers (0..1) go to the value and stay there), or connect "
+             "or disconnect a gamepad ('gamepad': true/false). Values are rounded to 1/65536. Delivered with the next "
+             "frame (step_frames), where it drives the input actions and axes bound in veach.project.json (entities "
+             "under veach::actions).",
              {{"type", "object"},
-              {"properties", {{"key", {{"type", "string"}, {"enum", keys}}}, {"down", {{"type", "boolean"}}}}},
-              {"required", {"key", "down"}}}));
+              {"properties",
+               {{"key", {{"type", "string"}, {"enum", keys}}},
+                {"down", {{"type", "boolean"}}},
+                {"axis", {{"type", "string"}, {"enum", axes}}},
+                {"value", {{"type", "number"}}},
+                {"gamepad", {{"type", "boolean"}}}}}}));
     list.push_back(tool("reload",
                         "Hot reload: reload 'path' (a loaded asset, e.g. \"scripts/main.luau\"), or every asset whose "
                         "file changed. A script that already ran runs again as if fresh: its systems are replaced "
@@ -283,6 +293,10 @@ json McpServer::tools() const {
              "(require(\"@veach\"); writes apply only if it returns without error). Returns its "
              "return values and the log lines it produced.",
              {{"type", "object"}, {"properties", {{"source", {{"type", "string"}}}}}, {"required", {"source"}}}));
+    // Then the tools modules registered (VCH-100), in registration order.
+    for (json& t : engine_.services().get<McpTools>().list()) {
+        list.push_back(std::move(t));
+    }
     return list;
 }
 
@@ -426,6 +440,36 @@ json McpServer::call_tool(std::string_view name, const json& arguments) {
             {{"frame", time.frame}, {"fixed_step", time.fixed_step}, {"elapsed", time.elapsed}, {"running", running}});
     }
 
+    if (name == "send_input" && arguments.contains("axis")) {
+        const std::string axis_name = require_string(arguments, "axis");
+        if (!arguments.contains("value") || !arguments["value"].is_number()) {
+            fail(ErrorCode::mcp_invalid_arguments, "'value' must be a number",
+                 "A mouse motion in window points (mouse_x: 12), or a stick position in -1..1.");
+        }
+        Axis axis = Axis::none;
+        if (axis_name == "none" || !write_enum(world, world.id<Axis>(), &axis, axis_name)) {
+            std::vector<std::string> axes = enum_constants(world, world.id<Axis>());
+            std::erase(axes, "none");
+            fail(ErrorCode::input_unknown_axis, std::format("unknown axis '{}'", axis_name),
+                 did_you_mean(axis_name, axes));
+        }
+        const std::int32_t value = quantize_axis(arguments["value"].get<double>());
+        engine_.services().get<Platform>().inject(
+            {.type = PlatformEvent::Type::axis_moved, .axis = axis, .value = value});
+        return json_result({{"axis", axis_name},
+                            {"value", axis_to_double(value)},
+                            {"relative", is_relative(axis)},
+                            {"delivered", "with the next frame"}});
+    }
+    if (name == "send_input" && arguments.contains("gamepad")) {
+        if (!arguments["gamepad"].is_boolean()) {
+            fail(ErrorCode::mcp_invalid_arguments, "'gamepad' must be a boolean", "true connects, false disconnects.");
+        }
+        const bool connected = arguments["gamepad"].get<bool>();
+        engine_.services().get<Platform>().inject(
+            {.type = connected ? PlatformEvent::Type::gamepad_added : PlatformEvent::Type::gamepad_removed});
+        return json_result({{"gamepad", connected}, {"delivered", "with the next frame"}});
+    }
     if (name == "send_input") {
         const std::string key_name = require_string(arguments, "key");
         if (!arguments.contains("down") || !arguments["down"].is_boolean()) {
@@ -637,11 +681,15 @@ json McpServer::call_tool(std::string_view name, const json& arguments) {
         return json_result(out);
     }
 
-    std::vector<std::string> names;
-    for (const json& t : tools()) {
-        names.push_back(t.at("name").get<std::string>());
+    // A module's tool, or mcp.unknown_tool with a did-you-mean over every tool. On this thread, between frames.
+    auto output = engine_.services().get<McpTools>().call(name, world, arguments);
+    if (!output) {
+        throw ToolError{output.error()};
     }
-    fail(ErrorCode::mcp_unknown_tool, std::format("unknown tool '{}'", name), did_you_mean(name, names));
+    if (auto* blocks = std::get_if<McpContent>(&*output)) {
+        return {{"content", std::move(blocks->blocks)}};
+    }
+    return json_result(std::get<json>(*output));
 }
 
 json McpServer::handle(const json& message) {
@@ -655,7 +703,10 @@ json McpServer::handle(const json& message) {
     };
 
     const std::string method = message.value("method", "");
-    const json params = message.value("params", json::object());
+    json params = message.value("params", json::object());
+    if (!params.is_object()) {
+        params = json::object();  // "params": null is common from clients
+    }
     if (!is_request) {
         return nullptr;  // notifications (initialized, cancelled, ...) need no answer
     }
@@ -665,14 +716,22 @@ json McpServer::handle(const json& message) {
         if (std::ranges::find(protocol_versions, requested) != protocol_versions.end()) {
             version = requested;
         }
+        std::string instructions =
+            "Veach engine. Inspect and change the live ECS world (query_entities, get/set_component, "
+            "spawn_entity), advance it (step_frames), look at it (screenshot, render_graph_plan, "
+            "gpu_timings, photo_mode) and run Luau in it (eval). Errors carry [codes] documented in "
+            "docs/reference/errors.md.";
+        std::string module_tools;
+        for (const McpTool& t : engine_.services().get<McpTools>().tools()) {
+            module_tools += (module_tools.empty() ? "" : ", ") + t.name;
+        }
+        if (!module_tools.empty()) {
+            instructions += std::format(" Tools added by this app's modules: {}.", module_tools);
+        }
         return respond({{"protocolVersion", version},
                         {"capabilities", {{"tools", {{"listChanged", false}}}}},
                         {"serverInfo", {{"name", "veach"}, {"version", "0.1.0"}}},
-                        {"instructions",
-                         "Veach engine. Inspect and change the live ECS world (query_entities, get/set_component, "
-                         "spawn_entity), advance it (step_frames), look at it (screenshot, render_graph_plan, "
-                         "gpu_timings, photo_mode) and run Luau in it (eval). Errors carry [codes] documented in "
-                         "docs/reference/errors.md."}});
+                        {"instructions", instructions}});
     }
     if (method == "ping") {
         return respond(json::object());

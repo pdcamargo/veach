@@ -19,6 +19,11 @@ struct PlatformModule {
 /// the primary window exists before the RHI is created.
 void sync_windows(World& world);
 
+/// Relative axes (mouse motion and wheel) hold the motion since the last fixed step. The engine calls this after
+/// a frame's first fixed step, so later steps and phases read 0 and a frame without steps keeps the motion for
+/// the next one: motion is never lost or counted twice, whatever the frame rate.
+void consume_relative_axes(World& world);
+
 /// The native handle of a window entity (Kind::none if it has no OS window).
 [[nodiscard]] NativeWindowHandle native_window_handle(const World& world, Entity window);
 

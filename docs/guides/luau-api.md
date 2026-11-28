@@ -113,21 +113,51 @@ Entities compare with `==`, print as `Entity(<id> '<name>')` and `typeof(e) == "
 
 ### `veach.input`
 
-Actions, never keys. Bind them in `veach.project.json` (one or two keys or mouse buttons each; names are
-`veach::Key` constants, and the schema lists them):
+Actions, never keys. Bind them in `veach.project.json`: key actions under `"input"` (one or two keys, mouse
+buttons or gamepad buttons each; names are `veach::Key` constants, and the schema lists them), analog actions
+under `"axes"` (a `source` among `mouse_x`, `mouse_y`, `mouse_wheel_x`, `mouse_wheel_y`, `gamepad_left_x`,
+`gamepad_left_y`, `gamepad_right_x`, `gamepad_right_y`, `gamepad_left_trigger`, `gamepad_right_trigger`, and/or
+two keys as a digital fallback):
 
 ```json
-"input": { "jump": ["space"], "move_forward": ["w", "up"], "fire": ["mouse_left"] }
+"input": { "jump": ["space", "gamepad_south"], "fire": ["mouse_left"], "mouse_look": ["mouse_right"] },
+"axes": {
+  "move_x": { "source": "gamepad_left_x", "negative": "a", "positive": "d", "dead_zone": 0.15 },
+  "look_x": { "source": "mouse_x", "sensitivity": 0.0025 },
+  "look_y": { "source": "mouse_y", "sensitivity": 0.0025, "invert": false },
+  "throttle": { "source": "gamepad_right_trigger", "positive": "w" }
+}
 ```
 
 | Function | Result |
 |---|---|
 | `down(action) -> boolean` | Held this frame. |
 | `pressed(action) -> boolean` / `released(action)` | Went down / up this frame (true for the whole frame: read them in `"Input"` to act once). |
-| `axis(negative, positive) -> number` | −1, 0 or 1 from two held actions. |
+| `axis(action) -> number` | An analog action: `sensitivity` × the dead-zoned source, plus 1 while `positive` is held and −1 while `negative` is, negated if `invert`. On a 1/65536 grid. |
+| `axis(negative, positive) -> number` | −1, 0 or 1 from two held key actions. |
+| `gamepads() -> number` | How many gamepads are connected. |
+
+Sticks read −1..1 and triggers 0..1, and hold their position; +Y is up (stick pushed away, mouse moved up).
+Mouse motion (window points) and the wheel (notches) are **relative**: an axis on them holds the motion since
+the last fixed step, so read them in `"Simulation"` (the frame's first step sees all of it, later steps 0) or
+in `"Input"` (once per frame). For mouse look, set `sensitivity` to radians per point and add the value to the
+camera's yaw and pitch; do not multiply by `veach.time.delta()`.
+
+To capture the cursor for mouse look, put `RelativeMouse` on the window and take it off to free it:
+
+```lua
+veach.system("MouseLook", "Input", veach.query(c.Window), function(e, _w)
+	if veach.input.pressed("mouse_look") then
+		e:set(c.RelativeMouse, { enabled = true })
+	elseif veach.input.released("mouse_look") then
+		e:remove(c.RelativeMouse)
+	end
+end)
+```
 
 An unknown action raises `input.unknown_action` with a suggestion. The lab's `scripts/dev/fly_camera.luau` is a
-complete example. Agents press keys with the MCP tool `send_input`. Spec: [input](../specs/input/spec.md).
+complete example (keys, mouse look and a gamepad). Agents press keys, move axes and connect gamepads with the
+MCP tool `send_input`. Spec: [input](../specs/input/spec.md).
 
 ### `veach.quat`
 
@@ -163,6 +193,7 @@ There is no wall-clock time in the API, on purpose (determinism).
 C++ components tagged `veach::Scriptable` (all fields Luau-representable). The engine exposes:
 
 - `Window` (`title`, `width`, `height`, `mode: "windowed" | "fullscreen"`, `vsync`)
+- `RelativeMouse` (`enabled`), on a window: captures the cursor and reports mouse motion as deltas (mouse look)
 - `Transform` (`translation: vector`, `rotation: { x, y, z, w }` quaternion, `scale: vector`)
 - `Camera` (`fov_y` radians, `near_plane` meters, `active`, `ev100` exposure, or 0 to derive it from `aperture`
   f-number, `shutter` seconds and `iso`); see [render-views](../specs/render-views/spec.md) and

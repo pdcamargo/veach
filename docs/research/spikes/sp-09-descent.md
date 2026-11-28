@@ -198,7 +198,8 @@ batched float interpreter does 4.5 ns per octave, so a field graph would sample 
   and positions from the lattice.
 - **0053, the sample encoding: amend.** The ±32 m linear band cannot carry coarse levels; use the companded code (or
   an equivalent per-sample scale that is still a function of position only). It is in every save, so this is the
-  time to decide.
+  time to decide. SP-12's brushes (VCH-088) combine LOD0 codes in integer arithmetic; companded codes are the same
+  within ±16 m, so they need `encode_distance` only where an edit writes distances beyond that.
 - **0053, the rate contract and B: amend the constants.** N ≈ 60/s in the high band (not 96·v/h ≈ 19/s), and near
   the ground ≈ 2.5·v at 100 m AGL and ≈ 5·v at 10 m AGL (not 1.5·v). B ≈ 300 chunks/s on a base M1 is not reached
   with this generator (≈ 200/s projected). The "reopen if" clause triggers only if a faster generator (SP-06's

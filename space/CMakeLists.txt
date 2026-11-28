@@ -4,7 +4,9 @@
 # (ADR 0047, 0048, 0049) here, SP-05's generation stages in gen/. Canonical files carry a `// veach: canonical` header
 # (ADR 0043).
 add_library(veach_space STATIC
+    src/atmosphere.cpp  # spike SP-10 (VCH-086)
     src/clock.cpp
+    src/mcp_tools.cpp
     src/orbit.cpp
     src/orrery.cpp
     src/presets.cpp

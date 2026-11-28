@@ -16,6 +16,7 @@
 #include <veach/core/error.hpp>
 #include <veach/core/math.hpp>
 #include <veach/ecs/flecs.hpp>
+#include <veach/render/atmosphere.hpp>
 #include <veach/render/camera.hpp>
 #include <veach/render/mesh_store.hpp>
 #include <veach/render/png.hpp>
@@ -78,6 +79,9 @@ struct ResolvedSky {
     Sky settings;
     math::vec3 sun_direction{0.0f, 1.0f, 0.0f};  ///< toward the sun
     float sun_illuminance_top = 128000.0f;       ///< lux at the top of the atmosphere
+    /// Spike SP-10 (VCH-086), throwaway: a planet's sky, set by a module's extractor; replaces the Sky's atmosphere
+    /// in the real-time renderer when `mode` is physical.
+    std::optional<PlanetSky> planet;
 };
 
 /// Renderer-owned snapshot of what to draw this frame. Rebuilt by extraction every frame.

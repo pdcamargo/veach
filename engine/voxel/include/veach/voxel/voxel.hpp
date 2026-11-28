@@ -74,9 +74,11 @@ struct ChunkSamples {
     std::uint8_t face_mask = 0;
     bool has_surface = false;  ///< any sign change in `grid` or a sampled face
 
-    const Sample& at(int x, int y, int z) const {
-        return grid[static_cast<std::size_t>((x + 1) + grid_n * ((y + 1) + grid_n * (z + 1)))];
+    static constexpr std::size_t grid_index(int x, int y, int z) {
+        return static_cast<std::size_t>((x + 1) + grid_n * ((y + 1) + grid_n * (z + 1)));
     }
+    const Sample& at(int x, int y, int z) const { return grid[grid_index(x, y, z)]; }
+    Sample& at(int x, int y, int z) { return grid[grid_index(x, y, z)]; }
     /// Face sample at in-plane (u, v) in -1..65 and layer -1, 0 or 1 (steps along the axis; 0 is the plane).
     const Sample& face_at(int face, int u, int v, int layer) const {
         return faces[static_cast<std::size_t>(face)]

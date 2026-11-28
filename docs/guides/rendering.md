@@ -293,11 +293,18 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   camera renders in real time. MCP `photo_mode { samples }` renders a reference image of the current state.
   Example: `scripts/cornell_box.luau`.
 - **The sky** ([ADR 0038](../adr/0038-physical-sky.md)): a `Sky` component on any entity, physical by default. Its
-  lookup tables (transmittance, multiple scattering, sky view, aerial perspective, sky irradiance) are built by the
+  lookup tables (transmittance, multiple scattering, sky view, sky irradiance) and aerial-perspective volume are built by the
   scene renderer's passes and read by both renderers: the real-time background, ambient light and haze, and photo
   mode's escaped rays. Without a `Sky` entity the sky follows the scene's brightest directional light; with one, it
   drives the sun from `time_of_day`. Closed test scenes set `Sky { mode = "none" }` (a warning says so when the scene
   has lights). Example: `scripts/bistro_sunset.luau`.
+- **A planet's atmosphere** ([spec](../specs/planet-atmosphere/spec.md), [ADR 0092](../adr/0092-aerial-perspective-follows-the-air.md)):
+  a module fills `ResolvedSky::planet` (`render::PlanetSky`: the medium, the center, up to four suns and four
+  occluder spheres that eclipse them per sample). Aerial perspective is a 3D volume (one cell per 16 × 16 pixels, 32
+  slices) whose slices span each ray's own path through the air, so it serves orbit and the ground alike; a shading
+  path applies it with `aerial_perspective(sky, direction, uv, distance)` and occludes the sky's ambient light with
+  `sky_ambient_radiance(sky, distance)`. A camera's `SkyVisibility { visibility, reach }` keeps haze and sky light
+  out of caves and interiors; `physics::sky_visibility` measures it from static colliders.
 - **Meshes made at run time** ([spec](../specs/runtime-meshes/spec.md), [ADR 0072](../adr/0072-runtime-meshes.md)):
   terrain chunks and other generated geometry go through the `render::MeshStore` service, not the cook step.
   `add(MeshData{vertices, indices, triangle_slots, materials})` validates the data (`render.mesh_invalid`), builds

@@ -28,6 +28,7 @@
 #include <climits>
 #include <cstring>
 #include <format>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -154,6 +155,10 @@ DXGI_FORMAT to_dxgi(Format format) {
         case Format::bc7_srgb: return DXGI_FORMAT_BC7_UNORM_SRGB;
         case Format::r32_uint: return DXGI_FORMAT_R32_UINT;
         case Format::rg32_uint: return DXGI_FORMAT_R32G32_UINT;
+        case Format::r8_unorm: return DXGI_FORMAT_R8_UNORM;
+        case Format::rg8_unorm: return DXGI_FORMAT_R8G8_UNORM;
+        case Format::r16_float: return DXGI_FORMAT_R16_FLOAT;
+        case Format::rg16_float: return DXGI_FORMAT_R16G16_FLOAT;
         case Format::undefined: return DXGI_FORMAT_UNKNOWN;
     }
     return DXGI_FORMAT_UNKNOWN;
@@ -163,6 +168,151 @@ DXGI_FORMAT to_dxgi(Format format) {
 /// (R32_FLOAT); copies of them name the typeless format, as GetCopyableFootprints does.
 DXGI_FORMAT resource_format(Format format) {
     return format == Format::depth32_float ? DXGI_FORMAT_R32_TYPELESS : to_dxgi(format);
+}
+
+// ---- texture views (ADR 0090) ----------------------------------------------------------------
+
+/// A read view of `range` of a texture, seen as `type` (view_type()).
+D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc(const TextureDesc& desc, TextureType type, const TextureRange& r) {
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+    srv.Format = desc.format == Format::depth32_float ? DXGI_FORMAT_R32_FLOAT : to_dxgi(desc.format);
+    srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    switch (type) {
+        case TextureType::d2:
+            srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+            srv.Texture2D.MostDetailedMip = r.base_mip;
+            srv.Texture2D.MipLevels = r.mip_count;
+            break;
+        case TextureType::d2_array:
+            srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+            srv.Texture2DArray.MostDetailedMip = r.base_mip;
+            srv.Texture2DArray.MipLevels = r.mip_count;
+            srv.Texture2DArray.FirstArraySlice = r.base_layer;
+            srv.Texture2DArray.ArraySize = r.layer_count;
+            break;
+        case TextureType::d3:
+            srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE3D;
+            srv.Texture3D.MostDetailedMip = r.base_mip;
+            srv.Texture3D.MipLevels = r.mip_count;
+            break;
+        case TextureType::cube:
+            srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+            srv.TextureCube.MostDetailedMip = r.base_mip;
+            srv.TextureCube.MipLevels = r.mip_count;
+            break;
+        case TextureType::cube_array:
+            srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBEARRAY;
+            srv.TextureCubeArray.MostDetailedMip = r.base_mip;
+            srv.TextureCubeArray.MipLevels = r.mip_count;
+            srv.TextureCubeArray.First2DArrayFace = r.base_layer;
+            srv.TextureCubeArray.NumCubes = r.layer_count / 6;
+            break;
+    }
+    return srv;
+}
+
+/// A storage view of mip `r.base_mip`: RWTexture2D, RWTexture3D (all of its depth) or RWTexture2DArray.
+D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc(const TextureDesc& desc, TextureType type, const TextureRange& r) {
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
+    uav.Format = to_dxgi(desc.format);
+    switch (type) {
+        case TextureType::d2:
+            uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+            uav.Texture2D.MipSlice = r.base_mip;
+            break;
+        case TextureType::d3:
+            uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE3D;
+            uav.Texture3D.MipSlice = r.base_mip;
+            uav.Texture3D.WSize = UINT_MAX;  // every slice of the mip
+            break;
+        case TextureType::d2_array:
+        case TextureType::cube:
+        case TextureType::cube_array:
+            uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
+            uav.Texture2DArray.MipSlice = r.base_mip;
+            uav.Texture2DArray.FirstArraySlice = r.base_layer;
+            uav.Texture2DArray.ArraySize = r.layer_count;
+            break;
+    }
+    return uav;
+}
+
+D3D12_RENDER_TARGET_VIEW_DESC rtv_desc(const TextureDesc& desc, TargetSlice slice) {
+    D3D12_RENDER_TARGET_VIEW_DESC rtv{};
+    rtv.Format = to_dxgi(desc.format);
+    switch (desc.type) {
+        case TextureType::d2:
+            rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+            rtv.Texture2D.MipSlice = slice.mip;
+            break;
+        case TextureType::d3:
+            rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE3D;
+            rtv.Texture3D.MipSlice = slice.mip;
+            rtv.Texture3D.FirstWSlice = slice.layer;
+            rtv.Texture3D.WSize = 1;
+            break;
+        case TextureType::d2_array:
+        case TextureType::cube:
+        case TextureType::cube_array:
+            rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
+            rtv.Texture2DArray.MipSlice = slice.mip;
+            rtv.Texture2DArray.FirstArraySlice = slice.layer;
+            rtv.Texture2DArray.ArraySize = 1;
+            break;
+    }
+    return rtv;
+}
+
+D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc(const TextureDesc& desc, TargetSlice slice) {
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsv{};
+    dsv.Format = to_dxgi(desc.format);
+    if (desc.type == TextureType::d2) {
+        dsv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+        dsv.Texture2D.MipSlice = slice.mip;
+    } else {  // arrays and cubes; validate_texture_desc rejects 3D depth
+        dsv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DARRAY;
+        dsv.Texture2DArray.MipSlice = slice.mip;
+        dsv.Texture2DArray.FirstArraySlice = slice.layer;
+        dsv.Texture2DArray.ArraySize = 1;
+    }
+    return dsv;
+}
+
+/// D3D12's subresource index (D3D12CalcSubresource, one plane).
+UINT subresource(const TextureDesc& desc, std::uint32_t mip, std::uint32_t layer) {
+    return mip + layer * std::max(1u, desc.mip_levels);
+}
+
+/// ADR 0090's blend presets.
+D3D12_RENDER_TARGET_BLEND_DESC blend_desc(BlendMode mode) {
+    D3D12_RENDER_TARGET_BLEND_DESC blend{};
+    blend.BlendEnable = mode == BlendMode::opaque ? FALSE : TRUE;
+    blend.SrcBlend = D3D12_BLEND_ONE;
+    blend.DestBlend = D3D12_BLEND_ZERO;
+    blend.BlendOp = D3D12_BLEND_OP_ADD;
+    blend.SrcBlendAlpha = D3D12_BLEND_ONE;
+    blend.DestBlendAlpha = D3D12_BLEND_ZERO;
+    blend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    blend.LogicOp = D3D12_LOGIC_OP_NOOP;
+    blend.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+    switch (mode) {
+        case BlendMode::opaque: break;
+        case BlendMode::alpha:
+            blend.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+            blend.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+            blend.DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
+            break;
+        case BlendMode::premultiplied:
+            blend.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+            blend.DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
+            break;
+        case BlendMode::additive:
+            blend.DestBlend = D3D12_BLEND_ONE;
+            blend.SrcBlendAlpha = D3D12_BLEND_ZERO;
+            blend.DestBlendAlpha = D3D12_BLEND_ONE;
+            break;
+    }
+    return blend;
 }
 
 D3D12_COMPARISON_FUNC to_d3d12(CompareOp op) {
@@ -451,8 +601,12 @@ struct Dx12Texture {
     TextureDesc desc;
     std::uint32_t srv = 0;
     std::uint32_t uav = 0;
-    std::uint32_t rtv = 0;  ///< in the CPU-only RTV heap
-    std::uint32_t dsv = 0;  ///< in the CPU-only DSV heap
+    std::uint32_t rtv = 0;  ///< in the CPU-only RTV heap: mip 0, layer 0
+    std::uint32_t dsv = 0;  ///< in the CPU-only DSV heap: mip 0, layer 0
+    /// Descriptors of parts of the texture (ADR 0090), made on first use and freed with it.
+    std::map<std::pair<View, TextureRange>, std::uint32_t> views;
+    /// RTVs (color targets) or DSVs (depth targets) of other mips and layers, by (mip, layer).
+    std::map<std::pair<std::uint32_t, std::uint32_t>, std::uint32_t> targets;
 };
 
 struct Dx12Sampler {
@@ -555,6 +709,8 @@ public:
     }
     void copy_texture_to_buffer(TextureHandle src, BufferHandle dst) override;
     void copy_buffer(BufferHandle src, BufferHandle dst, std::uint64_t size) override;
+    void copy_buffer_to_texture(BufferHandle src, std::uint64_t offset, std::uint32_t row_pitch, TextureHandle dst,
+                                const TextureRegion& region) override;
     void use(ResourceRef, ResourceState) override {}  // committed resources are always resident
     void barrier(std::span<const Barrier> barriers) override;
     void push_debug_group(std::string_view name) override {
@@ -662,7 +818,12 @@ public:
 
     [[nodiscard]] DescriptorHandle null_descriptor(DescriptorKind kind) override {
         return kind == DescriptorKind::sampler ? sampler_heap_.handle(null_sampler_slot)
-                                               : view_heap_.handle(1u + static_cast<std::uint32_t>(kind));
+                                               : view_heap_.handle(null_view_slot(kind));
+    }
+    /// View-heap slots 1..4 hold the first four kinds' null descriptors, 5..10 the texture kinds of ADR 0090.
+    static std::uint32_t null_view_slot(DescriptorKind kind) {
+        const auto k = static_cast<std::uint32_t>(kind);
+        return k < static_cast<std::uint32_t>(DescriptorKind::sampler) ? k + 1 : k;
     }
 
     [[nodiscard]] Backend backend() const override { return Backend::dx12; }
@@ -737,12 +898,15 @@ public:
             return make_error(ErrorCode::rhi_not_implemented,
                               std::format("'{}': {} is not a texture format", desc.debug_name, to_string(desc.format)));
         }
-        const bool depth = desc.format == Format::depth32_float;
+        if (auto sized = validate_mip_data(desc, mips); !sized) {
+            return std::unexpected(sized.error());
+        }
         D3D12_RESOURCE_DESC1 d{};
-        d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        d.Dimension =
+            desc.type == TextureType::d3 ? D3D12_RESOURCE_DIMENSION_TEXTURE3D : D3D12_RESOURCE_DIMENSION_TEXTURE2D;
         d.Width = desc.width;
         d.Height = desc.height;
-        d.DepthOrArraySize = 1;
+        d.DepthOrArraySize = static_cast<UINT16>(desc.type == TextureType::d3 ? desc.depth : layer_count(desc));
         d.MipLevels = static_cast<UINT16>(levels);
         d.Format = resource_format(desc.format);
         d.SampleDesc.Count = 1;
@@ -784,30 +948,22 @@ public:
             free_descriptors(texture);
             return heap_full("CBV/SRV/UAV", view_heap_.capacity());
         }
+        const TextureRange whole{0, levels, 0, layer_count(desc)};
         if (sampled) {
-            D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
-            srv.Format = depth ? DXGI_FORMAT_R32_FLOAT : format;
-            srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-            srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-            srv.Texture2D.MipLevels = levels;
+            const D3D12_SHADER_RESOURCE_VIEW_DESC srv = srv_desc(desc, desc.type, whole);
             device_->CreateShaderResourceView(texture.resource.Get(), &srv, view_heap_.cpu(texture.srv));
         }
         if (storage) {
-            D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
-            uav.Format = format;
-            uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+            const D3D12_UNORDERED_ACCESS_VIEW_DESC uav =
+                uav_desc(desc, view_type(desc, View::storage, whole), {0, 1, 0, layer_count(desc)});
             device_->CreateUnorderedAccessView(texture.resource.Get(), nullptr, &uav, view_heap_.cpu(texture.uav));
         }
         if (target) {
-            D3D12_RENDER_TARGET_VIEW_DESC rtv{};
-            rtv.Format = format;
-            rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+            const D3D12_RENDER_TARGET_VIEW_DESC rtv = rtv_desc(desc, {});
             device_->CreateRenderTargetView(texture.resource.Get(), &rtv, rtv_heap_.cpu(texture.rtv));
         }
         if (depth_target) {
-            D3D12_DEPTH_STENCIL_VIEW_DESC dsv{};
-            dsv.Format = format;
-            dsv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+            const D3D12_DEPTH_STENCIL_VIEW_DESC dsv = dsv_desc(desc, {});
             device_->CreateDepthStencilView(texture.resource.Get(), &dsv, dsv_heap_.cpu(texture.dsv));
         }
         if (!mips.empty()) {
@@ -820,19 +976,29 @@ public:
     }
 
     [[nodiscard]] Result<SamplerHandle> create_sampler(const SamplerDesc& desc) override {
+        if (auto valid = validate_sampler_desc(desc); !valid) {
+            return std::unexpected(valid.error());
+        }
         const std::uint32_t index = sampler_heap_.allocate(SlotKind::sampler);
         if (index == 0) {
             return heap_full("sampler", sampler_heap_.capacity());
         }
         D3D12_SAMPLER_DESC d{};
-        d.Filter = desc.filter == Filter::linear ? D3D12_FILTER_MIN_MAG_MIP_LINEAR : D3D12_FILTER_MIN_MAG_MIP_POINT;
+        const bool compare = desc.compare.has_value();
+        if (desc.max_anisotropy > 1) {
+            d.Filter = compare ? D3D12_FILTER_COMPARISON_ANISOTROPIC : D3D12_FILTER_ANISOTROPIC;
+        } else if (desc.filter == Filter::linear) {
+            d.Filter = compare ? D3D12_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR : D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        } else {
+            d.Filter = compare ? D3D12_FILTER_COMPARISON_MIN_MAG_MIP_POINT : D3D12_FILTER_MIN_MAG_MIP_POINT;
+        }
         const D3D12_TEXTURE_ADDRESS_MODE address =
             desc.address == AddressMode::repeat ? D3D12_TEXTURE_ADDRESS_MODE_WRAP : D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
         d.AddressU = address;
         d.AddressV = address;
         d.AddressW = address;
-        d.MaxAnisotropy = 1;
-        d.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+        d.MaxAnisotropy = desc.max_anisotropy;
+        d.ComparisonFunc = compare ? to_d3d12(*desc.compare) : D3D12_COMPARISON_FUNC_NEVER;
         d.MaxLOD = D3D12_FLOAT32_MAX;
         device_->CreateSampler(&d, sampler_heap_.cpu(index));
         return samplers_.insert({index});
@@ -863,22 +1029,18 @@ public:
         d.PS = {fs->data(), fs->size()};
         for (std::size_t i = 0; i < desc.color_formats.size() && desc.color_formats.at(i) != Format::undefined; ++i) {
             d.RTVFormats[i] = to_dxgi(desc.color_formats.at(i));
-            D3D12_RENDER_TARGET_BLEND_DESC& blend = d.BlendState.RenderTarget[i];
-            blend.SrcBlend = D3D12_BLEND_ONE;
-            blend.DestBlend = D3D12_BLEND_ZERO;
-            blend.BlendOp = D3D12_BLEND_OP_ADD;
-            blend.SrcBlendAlpha = D3D12_BLEND_ONE;
-            blend.DestBlendAlpha = D3D12_BLEND_ZERO;
-            blend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
-            blend.LogicOp = D3D12_LOGIC_OP_NOOP;
-            blend.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+            d.BlendState.RenderTarget[i] = blend_desc(desc.blend.at(i));
             ++d.NumRenderTargets;
         }
+        d.BlendState.IndependentBlendEnable = TRUE;
         d.SampleMask = UINT_MAX;
         d.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
         d.RasterizerState.CullMode = to_d3d12(desc.cull);
         d.RasterizerState.FrontCounterClockwise = TRUE;  // glTF
         d.RasterizerState.DepthClipEnable = TRUE;
+        d.RasterizerState.DepthBias = desc.depth_bias.constant;
+        d.RasterizerState.SlopeScaledDepthBias = desc.depth_bias.slope;
+        d.RasterizerState.DepthBiasClamp = desc.depth_bias.clamp;
         if (desc.depth_format != Format::undefined) {
             d.DSVFormat = to_dxgi(desc.depth_format);
         }
@@ -1015,6 +1177,47 @@ public:
     [[nodiscard]] DescriptorHandle descriptor(TextureHandle h, View view) override {
         const Dx12Texture* t = textures_.get(h);
         return view_heap_.handle(t ? (view == View::storage ? t->uav : t->srv) : 0u);
+    }
+    [[nodiscard]] DescriptorHandle descriptor(TextureHandle h, View view, const TextureRange& requested) override {
+        Dx12Texture* t = textures_.get(h);
+        if (t == nullptr) {
+            return {};
+        }
+        auto range = resolve_range(t->desc, view, requested);
+        if (!range) {
+            log::error("rhi", range.error());
+            return {};
+        }
+        const bool storage = view == View::storage;
+        const std::uint32_t whole_mips = storage ? 1 : std::max(1u, t->desc.mip_levels);
+        if (*range == TextureRange{0, whole_mips, 0, layer_count(t->desc)}) {
+            return descriptor(h, view);
+        }
+        const auto key = std::make_pair(view, *range);
+        auto it = t->views.find(key);
+        if (it == t->views.end()) {
+            const bool allowed = has(t->desc.usage, storage ? TextureUsage::storage : TextureUsage::sampled);
+            const std::uint32_t slot =
+                allowed ? view_heap_.allocate(storage ? SlotKind::storage_texture : SlotKind::texture) : 0;
+            if (slot == 0) {
+                log::error("rhi", allowed ? heap_full("CBV/SRV/UAV", view_heap_.capacity()).error()
+                                          : Error{ErrorCode::rhi_invalid_texture,
+                                                  std::format("'{}' has no {} usage for a view", t->desc.debug_name,
+                                                              storage ? "storage" : "sampled"),
+                                                  "Create the texture with that TextureUsage."});
+                return {};
+            }
+            const TextureType type = view_type(t->desc, view, *range);
+            if (storage) {
+                const D3D12_UNORDERED_ACCESS_VIEW_DESC uav = uav_desc(t->desc, type, *range);
+                device_->CreateUnorderedAccessView(t->resource.Get(), nullptr, &uav, view_heap_.cpu(slot));
+            } else {
+                const D3D12_SHADER_RESOURCE_VIEW_DESC srv = srv_desc(t->desc, type, *range);
+                device_->CreateShaderResourceView(t->resource.Get(), &srv, view_heap_.cpu(slot));
+            }
+            it = t->views.emplace(key, slot).first;
+        }
+        return view_heap_.handle(it->second);
     }
     [[nodiscard]] DescriptorHandle descriptor(SamplerHandle h) override {
         const Dx12Sampler* s = samplers_.get(h);
@@ -1248,6 +1451,31 @@ public:
     [[nodiscard]] std::uint32_t frame_slot() const { return tracker_.current_frame().slot; }
     [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE rtv(std::uint32_t index) const { return rtv_heap_.cpu(index); }
     [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE dsv(std::uint32_t index) const { return dsv_heap_.cpu(index); }
+    /// The RTV or DSV that draws into `slice` of `t`, made on first use (0: the heap is full).
+    D3D12_CPU_DESCRIPTOR_HANDLE target_view(Dx12Texture& t, TargetSlice slice, bool depth) {
+        if (slice.mip == 0 && slice.layer == 0) {
+            return depth ? dsv(t.dsv) : rtv(t.rtv);
+        }
+        DescriptorHeap& heap = depth ? dsv_heap_ : rtv_heap_;
+        const auto key = std::make_pair(slice.mip, slice.layer);
+        auto it = t.targets.find(key);
+        if (it == t.targets.end()) {
+            const std::uint32_t index = heap.allocate(SlotKind::none);
+            if (index == 0) {
+                log::error("rhi", heap_full(depth ? "DSV" : "RTV", heap.capacity()).error());
+                return heap.cpu(depth ? t.dsv : t.rtv);
+            }
+            if (depth) {
+                const D3D12_DEPTH_STENCIL_VIEW_DESC d = dsv_desc(t.desc, slice);
+                device_->CreateDepthStencilView(t.resource.Get(), &d, heap.cpu(index));
+            } else {
+                const D3D12_RENDER_TARGET_VIEW_DESC d = rtv_desc(t.desc, slice);
+                device_->CreateRenderTargetView(t.resource.Get(), &d, heap.cpu(index));
+            }
+            it = t.targets.emplace(key, index).first;
+        }
+        return heap.cpu(it->second);
+    }
     ID3D12Resource* resource(ResourceRef r) {
         switch (r.kind) {
             case ResourceKind::buffer:
@@ -1400,7 +1628,9 @@ private:
     /// leaves the texture in SHADER_RESOURCE (the RHI's shader_read). The staging buffer is retired with it.
     Result<> upload_texture(ID3D12Resource* texture, const D3D12_RESOURCE_DESC1& resource_desc, const TextureDesc& desc,
                             std::span<const std::span<const std::byte>> mips) {
-        const auto count = static_cast<UINT>(mips.size());
+        const auto levels = static_cast<UINT>(mips.size());
+        const UINT layers = layer_count(desc);
+        const UINT count = levels * layers;  // subresource i: mip i % levels of layer i / levels
         std::vector<D3D12_PLACED_SUBRESOURCE_FOOTPRINT> footprints(count);
         std::vector<UINT> rows(count);
         std::vector<UINT64> row_sizes(count);
@@ -1417,12 +1647,17 @@ private:
         if (const HRESULT hr = (*staging)->Map(0, &nothing_read, &mapped); FAILED(hr)) {
             return gpu_error("mapping a texture upload buffer", hr);
         }
-        for (UINT level = 0; level < count; ++level) {
+        for (UINT i = 0; i < count; ++i) {
+            const UINT level = i % levels;
+            const UINT layer = i / levels;
             const std::uint64_t packed = row_bytes(desc.format, mip_size(desc.width, level));
-            for (UINT row = 0; row < rows[level]; ++row) {
-                std::memcpy(static_cast<std::byte*>(mapped) + footprints[level].Offset +
-                                std::uint64_t{row} * footprints[level].Footprint.RowPitch,
-                            mips[level].data() + row * packed, packed);
+            const UINT slices = footprints[i].Footprint.Depth;
+            // KTX2 order in `mips[level]`: layer, then depth slice, then rows.
+            const std::byte* source = mips[level].data() + std::uint64_t{layer} * packed * rows[i] * slices;
+            for (UINT row = 0; row < rows[i] * slices; ++row) {
+                std::memcpy(static_cast<std::byte*>(mapped) + footprints[i].Offset +
+                                std::uint64_t{row} * footprints[i].Footprint.RowPitch,
+                            source + row * packed, packed);
             }
         }
         std::unique_ptr<Recorder> recorder = take_recorder();
@@ -1451,15 +1686,15 @@ private:
         };
         transition(D3D12_BARRIER_SYNC_NONE, D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_LAYOUT_UNDEFINED,
                    D3D12_BARRIER_SYNC_COPY, D3D12_BARRIER_ACCESS_COPY_DEST, D3D12_BARRIER_LAYOUT_COPY_DEST);
-        for (UINT level = 0; level < count; ++level) {
+        for (UINT i = 0; i < count; ++i) {
             D3D12_TEXTURE_COPY_LOCATION to{};
             to.pResource = texture;
             to.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-            to.SubresourceIndex = level;
+            to.SubresourceIndex = i;
             D3D12_TEXTURE_COPY_LOCATION from{};
             from.pResource = staging->Get();
             from.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-            from.PlacedFootprint = footprints[level];
+            from.PlacedFootprint = footprints[i];
             // Block-compressed footprints are whole blocks, and so are the mips of a texture whose size is a
             // multiple of 4 (validate_texture_desc): a 2x2 mip copies as 4x4.
             list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
@@ -1484,6 +1719,12 @@ private:
         view_heap_.release(t.uav);
         rtv_heap_.release(t.rtv);
         dsv_heap_.release(t.dsv);
+        for (const auto& [key, slot] : t.views) {
+            view_heap_.release(slot);
+        }
+        for (const auto& [key, slot] : t.targets) {
+            (has(t.desc.usage, TextureUsage::depth_target) ? dsv_heap_ : rtv_heap_).release(slot);
+        }
     }
     void free_descriptors(const Dx12Sampler& s) { sampler_heap_.release(s.index); }
     void free_descriptors(const Dx12Pipeline& /*pipeline*/) const {}
@@ -1543,7 +1784,7 @@ private:
     /// Null views read as zero (D3D12 defines reads of a null descriptor of the shader's type). Slots 1..4 of the
     /// view heap, in DescriptorKind order, and slot 1 of the sampler heap (a real sampler: there are no null ones).
     void create_null_descriptors() {
-        view_heap_.reserve(4);
+        view_heap_.reserve(10);
         D3D12_SHADER_RESOURCE_VIEW_DESC texture{};
         texture.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
         texture.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
@@ -1571,6 +1812,33 @@ private:
         storage_buffer.Buffer.NumElements = 1;
         storage_buffer.Buffer.StructureByteStride = 4;
         device_->CreateUnorderedAccessView(nullptr, nullptr, &storage_buffer, view_heap_.cpu(4));
+        // ADR 0090: one null descriptor per texture type, so an absent volume or cube map reads zero.
+        const TextureDesc one{1, 1, Format::rgba8_unorm, TextureUsage::sampled, "null"};
+        const TextureRange all{0, 1, 0, 1};
+        const auto null_srv = [&](DescriptorKind kind, TextureType type, std::uint32_t layers) {
+            TextureRange range = all;
+            range.layer_count = layers;
+            const std::uint32_t slot = null_view_slot(kind);
+            view_heap_.mark(slot, SlotKind::texture);
+            const D3D12_SHADER_RESOURCE_VIEW_DESC srv = srv_desc(one, type, range);
+            device_->CreateShaderResourceView(nullptr, &srv, view_heap_.cpu(slot));
+        };
+        null_srv(DescriptorKind::texture_2d_array, TextureType::d2_array, 1);
+        null_srv(DescriptorKind::texture_3d, TextureType::d3, 1);
+        null_srv(DescriptorKind::texture_cube, TextureType::cube, 6);
+        null_srv(DescriptorKind::texture_cube_array, TextureType::cube_array, 6);
+        TextureDesc storage_one = one;
+        storage_one.format = Format::rgba32_float;
+        for (const auto& [kind, type] : {std::pair{DescriptorKind::storage_texture_2d_array, TextureType::d2_array},
+                                         std::pair{DescriptorKind::storage_texture_3d, TextureType::d3}}) {
+            const std::uint32_t slot = null_view_slot(kind);
+            view_heap_.mark(slot, SlotKind::storage_texture);
+            D3D12_UNORDERED_ACCESS_VIEW_DESC uav = uav_desc(storage_one, type, all);
+            if (type == TextureType::d3) {
+                uav.Texture3D.WSize = 1;
+            }
+            device_->CreateUnorderedAccessView(nullptr, nullptr, &uav, view_heap_.cpu(slot));
+        }
         sampler_heap_.reserve(1);
         sampler_heap_.mark(null_sampler_slot, SlotKind::sampler);
         D3D12_SAMPLER_DESC sampler{};
@@ -1914,28 +2182,30 @@ void Dx12CommandList::begin_render_pass(const RenderPassDesc& desc) {
     for (std::uint32_t i = 0; i < desc.color_count; ++i) {
         const ColorAttachment& c = desc.colors.at(i);
         Dx12Texture* t = device_.texture(c.texture);
-        VEACH_ASSERT(t != nullptr && t->rtv != 0, "render pass '{}': color attachment {} is not a render target",
+        VEACH_ASSERT(t != nullptr && t->rtv != 0 && valid_target(t->desc, c.slice),
+                     "render pass '{}': color attachment {} is not a render target (or has no such mip and layer)",
                      desc.debug_name, i);
-        targets.at(i) = device_.rtv(t->rtv);
+        targets.at(i) = device_.target_view(*t, c.slice, false);
         if (c.load == LoadOp::clear) {
             const std::array<float, 4> color =
                 is_integer(t->desc.format) ? integer_clear(c.clear_uint, desc.debug_name) : c.clear_color;
             list->ClearRenderTargetView(targets.at(i), color.data(), 0, nullptr);
         }
-        width = t->desc.width;
-        height = t->desc.height;
+        width = mip_size(t->desc.width, c.slice.mip);
+        height = mip_size(t->desc.height, c.slice.mip);
     }
     std::optional<D3D12_CPU_DESCRIPTOR_HANDLE> depth;
     if (desc.depth.texture.is_valid()) {
         Dx12Texture* t = device_.texture(desc.depth.texture);
-        VEACH_ASSERT(t != nullptr && t->dsv != 0, "render pass '{}': the depth attachment is not a depth target",
+        VEACH_ASSERT(t != nullptr && t->dsv != 0 && valid_target(t->desc, desc.depth.slice),
+                     "render pass '{}': the depth attachment is not a depth target (or has no such mip and layer)",
                      desc.debug_name);
-        depth = device_.dsv(t->dsv);
+        depth = device_.target_view(*t, desc.depth.slice, true);
         if (desc.depth.load == LoadOp::clear) {
             list->ClearDepthStencilView(*depth, D3D12_CLEAR_FLAG_DEPTH, desc.depth.clear_depth, 0, 0, nullptr);
         }
-        width = t->desc.width;
-        height = t->desc.height;
+        width = mip_size(t->desc.width, desc.depth.slice.mip);
+        height = mip_size(t->desc.height, desc.depth.slice.mip);
     }
     list->OMSetRenderTargets(desc.color_count, targets.data(), FALSE, depth ? &*depth : nullptr);
     // Metal sizes the viewport and scissor to the attachments implicitly; D3D12 needs them set.
@@ -2117,6 +2387,36 @@ void Dx12CommandList::copy_buffer(BufferHandle src, BufferHandle dst, std::uint6
     VEACH_ASSERT(from != nullptr && to != nullptr, "copy_buffer: invalid handles");
     VEACH_ASSERT(size <= from->desc.size && size <= to->desc.size, "copy_buffer: {} bytes do not fit", size);
     recorder_->list->CopyBufferRegion(to->resource.Get(), 0, from->resource.Get(), 0, size);
+}
+
+void Dx12CommandList::copy_buffer_to_texture(BufferHandle src, std::uint64_t offset, std::uint32_t row_pitch,
+                                             TextureHandle dst, const TextureRegion& requested) {
+    Dx12Buffer* b = device_.buffer(src);
+    Dx12Texture* t = device_.texture(dst);
+    VEACH_ASSERT(b != nullptr && t != nullptr, "copy_buffer_to_texture: invalid handles");
+    auto region = resolve_region(t->desc, requested);
+    VEACH_ASSERT(region.has_value(), "copy_buffer_to_texture: {}", region ? std::string() : region.error().message);
+    VEACH_ASSERT(valid_copy_layout(t->desc.format, *region, offset, row_pitch, b->desc.size),
+                 "copy_buffer_to_texture into '{}': misaligned, or past the end of the buffer", t->desc.debug_name);
+    const std::uint64_t stride = texture_copy_layer_stride(t->desc.format, *region, row_pitch);
+    // Block-compressed footprints are whole blocks, also where a region ends at a mip edge inside one.
+    const std::uint32_t block = is_block_compressed(t->desc.format) ? 4 : 1;
+    for (std::uint32_t layer = 0; layer < region->layer_count; ++layer) {
+        D3D12_TEXTURE_COPY_LOCATION to{};
+        to.pResource = t->resource.Get();
+        to.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        to.SubresourceIndex = subresource(t->desc, region->mip, region->base_layer + layer);
+        D3D12_TEXTURE_COPY_LOCATION from{};
+        from.pResource = b->resource.Get();
+        from.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        from.PlacedFootprint.Offset = offset + stride * layer;
+        from.PlacedFootprint.Footprint.Format = resource_format(t->desc.format);
+        from.PlacedFootprint.Footprint.Width = (region->width + block - 1) / block * block;
+        from.PlacedFootprint.Footprint.Height = (region->height + block - 1) / block * block;
+        from.PlacedFootprint.Footprint.Depth = region->depth;
+        from.PlacedFootprint.Footprint.RowPitch = row_pitch;
+        recorder_->list->CopyTextureRegion(&to, region->x, region->y, region->z, &from, nullptr);
+    }
 }
 
 void Dx12CommandList::copy_texture_to_buffer(TextureHandle src, BufferHandle dst) {

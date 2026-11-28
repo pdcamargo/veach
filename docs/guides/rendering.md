@@ -173,6 +173,47 @@ frame.readbacks->read(graph, counts, sizeof(std::uint32_t), [this](Result<render
   (`render.readback_dropped`).
 - `Device::is_complete(submission)` answers "has this finished?" without waiting, for code outside the frame loop.
 
+## Texture kinds, updates, blending and samplers
+
+[Spec](../specs/rhi-textures/spec.md), [ADR 0090](../adr/0090-rhi-texture-kinds-updates-and-raster-state.md).
+
+```cpp
+// A froxel volume written in compute and sampled as a Texture3D.
+auto volume = device.create_texture({.width = 160, .height = 90, .format = rhi::Format::rgba16_float,
+                                     .usage = rhi::TextureUsage::storage | rhi::TextureUsage::sampled,
+                                     .debug_name = "froxels", .type = rhi::TextureType::d3, .depth = 32});
+params.out = ctx.device.descriptor(ctx.texture(v), rhi::View::storage);   // RWTexture3D<float4>
+params.volume = ctx.device.descriptor(ctx.texture(v));                    // Texture3D<float4>
+
+// Shadow cascades: a 2D array of depth, one layer per pass, PCF through a comparison sampler.
+b.depth_target(cascades, rhi::LoadOp::clear, 0.0f, {.layer = i});
+desc.depth_bias = {.constant = -2, .slope = -1.5f};   // reverse-Z: negative pushes away from the light
+auto pcf = device.create_sampler({.compare = rhi::CompareOp::greater_equal});  // SamplerComparisonState
+
+// Streaming: stage bytes and copy them into a box of one mip, in a transfer pass the graph orders.
+render::upload_texture(graph, *frame.uploads, layers, {.mip = 0, .base_layer = 2, .layer_count = 1}, bytes);
+
+// Transparency and terrain.
+desc.blend = {rhi::BlendMode::premultiplied};
+auto terrain = device.create_sampler({.address = rhi::AddressMode::repeat,
+                                      .max_anisotropy = rhi::terrain_anisotropy});
+```
+
+- **Types.** `d2`, `d2_array`, `d3`, `cube` (6 layers: +X, -X, +Y, -Y, +Z, -Z) and `cube_array`. Read descriptors
+  have the type's Slang type; storage descriptors are `RWTexture2D`, `RWTexture3D`, or `RWTexture2DArray` for arrays
+  and cube faces. In Slang a depth texture is `Texture2D<float>` and `SampleCmp` works on it on both backends.
+- **Parts.** `descriptor(texture, view, {.base_mip, .mip_count, .base_layer, .layer_count})` views a run of mips and
+  layers; storage views see one mip. Point absent textures at `null_descriptor(DescriptorKind::texture_3d)` and the
+  other kinds, as for any handle (ADR 0027).
+- **Data.** Initial data and uploads are tightly packed per mip in KTX2 order: layers, then depth slices, then rows
+  (`rhi::mip_bytes`). `upload_texture` regions with zero extents reach the edge of the mip; regions uploaded to one
+  texture in one frame must not overlap. The ring's memory is reused when its frame slot comes round, so stage only
+  in the frame that copies.
+- **Barriers.** The graph tracks whole textures: a pass writing one layer and a pass reading another are still ordered,
+  and one pass cannot read one mip while writing another (no mip-chain builds yet).
+- **Blend modes.** `alpha` is straight alpha, `premultiplied` expects `rgb * a` from the shader, `additive` adds color
+  and keeps the destination's alpha. Integer targets cannot blend.
+
 ## GPU timings
 
 The graph times every pass it executes with GPU timestamps (`CommandList::begin_timing`/`end_timing`; Metal
@@ -263,6 +304,15 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   mode's escaped rays. Without a `Sky` entity the sky follows the scene's brightest directional light; with one, it
   drives the sun from `time_of_day`. Closed test scenes set `Sky { mode = "none" }` (a warning says so when the scene
   has lights). Example: `scripts/bistro_sunset.luau`.
+- **The space backdrop** ([ADR 0091](../adr/0091-space-backdrop.md), [spec](../specs/space-backdrop/spec.md)): stars,
+  the galactic band and nebulae beyond every body, behind the sky and through its air. Data in
+  `ResolvedSky::backdrop` (`render::Backdrop`, from a module's extractor or the `SpaceBackdrop` component's `seed`;
+  `generate_backdrop(seed, GalaxyView)` makes one). The band and nebulae are baked once into a 4096 x 2048 lat-long
+  in galactic coordinates (`space backdrop bake`, when they change); the stars are drawn per pixel by the
+  `space backdrop` pass after shading (0.3 ms at 1440p on the M5 Max). It has its own exposure
+  (`SpaceBackdrop.exposure_compensation`, `exposure_follow`) and is left out of auto-exposure's metering: the radiance
+  target's alpha is the share of a pixel that is metered, so a pass that writes the HDR target before metering
+  writes alpha 1. Example: `scripts/space_backdrop.luau` (deep space, no meshes: a scene with a backdrop draws).
 - **Meshes made at run time** ([spec](../specs/runtime-meshes/spec.md), [ADR 0072](../adr/0072-runtime-meshes.md)):
   terrain chunks and other generated geometry go through the `render::MeshStore` service, not the cook step.
   `add(MeshData{vertices, indices, triangle_slots, materials})` validates the data (`render.mesh_invalid`), builds

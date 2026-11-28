@@ -99,6 +99,9 @@ export type TimeApi = {
 }
 
 -- Reflected components and their types (C++ components tagged veach::Scriptable).
+export type BlendDemo = {
+	opacity: number,
+}
 export type Camera = {
 	fov_y: number,
 	near_plane: number,
@@ -215,6 +218,12 @@ export type Sky = {
 	mie_g: number,
 	aerial_perspective: boolean,
 }
+export type SpaceBackdrop = {
+	seed: number,
+	visible: boolean,
+	exposure_compensation: number,
+	exposure_follow: number,
+}
 export type Spinner = {
 	radians_per_second: number,
 	angle: number,
@@ -318,6 +327,7 @@ export type Veach = {
 	read log: LogApi,
 	read time: TimeApi,
 	read components: {
+		read BlendDemo: Component<BlendDemo>,
 		read Camera: Component<Camera>,
 		read CelestialBody: Component<CelestialBody>,
 		read DirectionalLight: Component<DirectionalLight>,
@@ -334,6 +344,7 @@ export type Veach = {
 		read RuntimeMeshDemo: Component<RuntimeMeshDemo>,
 		read SceneInstance: Component<SceneInstance>,
 		read Sky: Component<Sky>,
+		read SpaceBackdrop: Component<SpaceBackdrop>,
 		read Spinner: Component<Spinner>,
 		read SpotLight: Component<SpotLight>,
 		read SunObserver: Component<SunObserver>,

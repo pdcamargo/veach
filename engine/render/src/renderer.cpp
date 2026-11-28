@@ -102,6 +102,22 @@ void resolve_sky(const World& world, RenderWorld& out) {
         }
     });
     ResolvedSky& r = out.sky;
+    // The space backdrop (ADR 0091): the creator's settings, and a backdrop of the component's own when it has a
+    // seed, with the galactic center toward -Z and the north galactic pole +Y.
+    std::optional<std::pair<std::uint64_t, SpaceBackdrop>> backdrop;
+    world.each([&](Entity e, const SpaceBackdrop& b) {
+        if (!backdrop || e.id() < backdrop->first) {
+            backdrop = std::pair{e.id(), b};
+        }
+    });
+    r.backdrop_settings = backdrop ? backdrop->second : SpaceBackdrop{};
+    r.backdrop.reset();
+    if (backdrop && backdrop->second.seed != 0) {
+        GalaxyView view = galaxy_view_from_seed(backdrop->second.seed);
+        view.north = math::dvec3(0.0, 1.0, 0.0);
+        view.center = math::dvec3(0.0, 0.0, -1.0);
+        r.backdrop = generate_backdrop(backdrop->second.seed, view);
+    }
     r.settings = found ? found->second : Sky{};
     r.mode = r.settings.mode;
     r.sun_direction = sun_direction(r.settings);
@@ -214,7 +230,7 @@ std::pair<std::uint32_t, std::uint32_t> target_size(const RenderWorld& world) {
     return {world.target_width != 0 ? world.target_width : 1280, world.target_height != 0 ? world.target_height : 720};
 }
 
-Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device), readbacks_(device) {
+Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device), readbacks_(device), uploads_(device) {
     add_extractor("frame", [](const World& world, RenderWorld& out) {
         if (const Time* time = world.try_get<Time>()) {
             out.frame = time->frame;
@@ -498,10 +514,10 @@ void Renderer::render() {
         "clear", [&](PassBuilder& b) { b.color_target(color, rhi::LoadOp::clear, background_color); },
         [](PassContext&) {});
 
-    const FrameContext frame{device_,    render_world_,
-                             color,      width,
-                             height,     render_world_.views.empty() ? nullptr : &render_world_.views.front(),
-                             &readbacks_};
+    const FrameContext frame{device_,     render_world_,
+                             color,       width,
+                             height,      render_world_.views.empty() ? nullptr : &render_world_.views.front(),
+                             &readbacks_, &uploads_};
     for (std::size_t i = 0; i < features_.size(); ++i) {
         if (prepared_[i]) {
             features_[i]->record(graph, frame);
@@ -657,6 +673,12 @@ RenderModule::RenderModule(World& world) {
         .member(&Sky::ozone, "ozone")
         .member(&Sky::mie_g, "mie_g")
         .member(&Sky::aerial_perspective, "aerial_perspective")
+        .add<Scriptable>();
+    world.component<SpaceBackdrop>()
+        .member(&SpaceBackdrop::seed, "seed")
+        .member(&SpaceBackdrop::visible, "visible")
+        .member(&SpaceBackdrop::exposure_compensation, "exposure_compensation")
+        .member(&SpaceBackdrop::exposure_follow, "exposure_follow")
         .add<Scriptable>();
     world.component<PhotoMode>()
         .member(&PhotoMode::samples_per_frame, "samples_per_frame")

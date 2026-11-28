@@ -379,13 +379,28 @@ Block-compressed textures (BC7) need a width and height that are multiples of 4:
 unaligned top level. The texture cooker resizes images to meet this, so the error means a texture made in code.
 Round its size up to a multiple of 4.
 
+The other cases ([ADR 0090](../adr/0090-rhi-texture-kinds-updates-and-raster-state.md)): a size, layer count or
+depth that does not fit the `TextureType` (a cube is square with 6 layers, a cube array 6 per cube, only `d3` has
+depth, only arrays and cubes have layers), more mips than the full chain, a 3D texture in BC7 or depth, a BC7
+render target, or a storage texture in BC7, sRGB or depth. A view (`descriptor(texture, view, range)`) or a copy
+region (`resolve_region`, `render::upload_texture`) that does not lie inside the texture, or a BC7 region that
+cuts a 4x4 block, is reported with the same code and the numbers it was given.
+
 ## rhi.invalid_pipeline
 
 **A pipeline description is inconsistent.**
 
 A graphics pipeline that tests or writes depth needs `depth_format` (the render pass's depth attachment format,
-`depth32_float`), and `depth_format` must be a depth format. Every backend checks this before creating the
-pipeline, so a pipeline that works on one works on all.
+`depth32_float`), and `depth_format` must be a depth format; so does a depth bias. Blending (`blend[i]` other
+than `opaque`) needs a color target there that is not an integer format. Every backend checks this before creating
+the pipeline, so a pipeline that works on one works on all.
+
+## rhi.invalid_sampler
+
+**A sampler description is out of range or inconsistent.**
+
+`max_anisotropy` is 1 (off) to 16, and anisotropic filtering needs `Filter::linear`. Terrain and material samplers
+use `rhi::terrain_anisotropy` (8). Every backend checks this before creating the sampler.
 
 ## rhi.gpu_error
 

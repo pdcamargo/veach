@@ -4,6 +4,7 @@
 
 #include "../slot_map.hpp"
 
+#include <algorithm>
 #include <vector>
 
 namespace veach::rhi {
@@ -43,6 +44,7 @@ public:
 
     [[nodiscard]] DescriptorHandle descriptor(BufferHandle buffer, View view) override;
     [[nodiscard]] DescriptorHandle descriptor(TextureHandle texture, View view) override;
+    [[nodiscard]] DescriptorHandle descriptor(TextureHandle texture, View view, const TextureRange& range) override;
     [[nodiscard]] DescriptorHandle descriptor(SamplerHandle sampler) override;
     [[nodiscard]] DescriptorHandle descriptor(AccelHandle accel) override;
     [[nodiscard]] DescriptorHandle null_descriptor(DescriptorKind) override { return {}; }
@@ -75,8 +77,11 @@ public:
         MemoryUsage usage;
         buffers_.for_each([&](const Buffer& b) { usage.resources.push_back({b.desc.debug_name, b.desc.size}); });
         textures_.for_each([&](const TextureDesc& t) {
-            usage.resources.push_back(
-                {t.debug_name, std::uint64_t{t.width} * t.height * bytes_per_pixel(t.format) * 4 / 3});
+            std::uint64_t bytes = 0;
+            for (std::uint32_t level = 0; level < std::max(1u, t.mip_levels); ++level) {
+                bytes += mip_bytes(t, level);
+            }
+            usage.resources.push_back({t.debug_name, bytes});
         });
         return usage;
     }

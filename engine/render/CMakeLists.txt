@@ -1,12 +1,14 @@
 veach_add_engine_library(render
     SOURCES
         src/atmosphere.cpp
+        src/backdrop.cpp
         src/mesh_store.cpp
         src/realtime_renderer.cpp
         src/scene_renderer.cpp
         src/png.cpp
         src/readback.cpp
         src/render_graph.cpp
+        src/upload.cpp
         src/renderer.cpp
     PUBLIC_DEPS veach::ecs veach::rhi veach::asset
     PRIVATE_DEPS veach_stb
@@ -26,6 +28,9 @@ veach_add_shader(veach_render shaders/realtime_shade.slang ENTRIES shade:compute
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
 veach_add_shader(veach_render shaders/atmosphere.slang ENTRIES transmittance_lut:compute multiscattering_lut:compute
     sky_view_lut:compute aerial_lut:compute sky_irradiance:compute)
+# The space backdrop's bake and its composite on the real-time image (ADR 0091, backdrop.cpp).
+veach_add_shader(veach_render shaders/backdrop.slang ENTRIES backdrop_bake:compute)
+veach_add_shader(veach_render shaders/backdrop_composite.slang ENTRIES backdrop_composite:compute)
 veach_shader_library(veach_render NAMESPACE veach_render_shaders)
 # png.cpp compiles stb's implementation; its warnings are not ours.
 set_source_files_properties(src/png.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)

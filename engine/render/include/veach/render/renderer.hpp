@@ -19,12 +19,14 @@
 #include <veach/ecs/frames.hpp>
 #include <veach/ecs/transform.hpp>
 #include <veach/render/atmosphere.hpp>
+#include <veach/render/backdrop.hpp>
 #include <veach/render/camera.hpp>
 #include <veach/render/mesh_store.hpp>
 #include <veach/render/png.hpp>
 #include <veach/render/readback.hpp>
 #include <veach/render/render_graph.hpp>
 #include <veach/render/scene.hpp>
+#include <veach/render/upload.hpp>
 #include <veach/rhi/rhi.hpp>
 
 #include <cstdint>
@@ -152,6 +154,10 @@ struct ResolvedSky {
     std::optional<PlanetSky> planet;
     /// Spike SP-14 (VCH-090), throwaway: a starfield, in planet mode or with mode none.
     std::optional<Starfield> stars;
+    /// The space backdrop (ADR 0091): drawn behind the sky when set and `backdrop_settings.visible`. From the
+    /// SpaceBackdrop component's seed, or a module's extractor (which sets its orientation every frame).
+    std::optional<Backdrop> backdrop;
+    SpaceBackdrop backdrop_settings;  ///< the first SpaceBackdrop in entity order, or the defaults
 };
 
 /// Renderer-owned snapshot of what to draw this frame. Rebuilt by extraction every frame.
@@ -200,6 +206,8 @@ struct FrameContext {
     /// GPU-to-CPU readback that never stalls (VCH-073): results arrive readbacks->latency() frames later. Never null
     /// inside Renderer::render().
     ReadbackQueue* readbacks = nullptr;
+    /// Upload memory for this frame's texture updates (render::upload_texture, VCH-076); never null in a frame.
+    UploadRing* uploads = nullptr;
 };
 
 /// The frame's target size: the primary window's, or 1280x720 when nothing says otherwise.
@@ -259,6 +267,8 @@ public:
     [[nodiscard]] MeshStore& meshes() { return meshes_; }
     /// Non-blocking readback of this frame's GPU buffers (also FrameContext::readbacks).
     [[nodiscard]] ReadbackQueue& readbacks() { return readbacks_; }
+    /// The upload ring features get as FrameContext::uploads.
+    [[nodiscard]] UploadRing& uploads() { return uploads_; }
     /// The last compiled graph, as text (RenderGraph::describe()).
     [[nodiscard]] const std::string& last_graph() const { return last_graph_; }
 
@@ -281,6 +291,7 @@ private:
     bool features_prepared_ = false;
     TransientPool pool_;
     ReadbackQueue readbacks_;
+    UploadRing uploads_;  ///< its buffer is made on first use
 
     rhi::TextureHandle scene_color_;
     rhi::ResourceState scene_color_state_ = rhi::ResourceState::undefined;

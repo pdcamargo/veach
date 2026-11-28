@@ -5,6 +5,7 @@
 # (ADR 0043).
 add_library(veach_space STATIC
     src/atmosphere.cpp  # spike SP-10 (VCH-086)
+    src/backdrop.cpp      # VCH-131: the system's space backdrop
     src/clock.cpp
     src/flight.cpp        # VCH-115: governor, handoff bands, assisted flight
     src/mcp_tools.cpp

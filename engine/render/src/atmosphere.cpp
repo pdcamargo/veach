@@ -5,6 +5,7 @@
 
 #include "veach_render_shaders.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <optional>
@@ -44,11 +45,27 @@ struct alignas(16) SkyFrame {
     std::uint32_t aerial_on = 0;
     std::uint32_t pad0 = 0;
     std::uint32_t pad1 = 0;
+    // Spike SP-10 (VCH-086): a planet around any center (PlanetSky). Unread unless `planet` is 1.
+    math::vec4 origin{0.0f};    ///< xyz = the camera relative to the planet's center (km), w = altitude (km)
+    math::vec4 frame_x{0.0f};   ///< the sky-view LUT's azimuth origin, perpendicular to local up
+    math::vec4 ground{0.0f};    ///< xyz = ground albedo
+    math::vec4 occluder{0.0f};  ///< xyz = center relative to the planet's center (km), w = radius (km)
+    math::vec4 occluder_albedo{0.0f};
+    std::array<math::vec4, 4> sun_directions{};  ///< xyz toward the sun, w = angular radius
+    std::array<math::vec4, 4> sun_colors{};      ///< xyz = illuminance at the top / sun.w
+    std::uint32_t planet = 0;
+    std::uint32_t sun_count = 0;
+    std::uint32_t march = 0;
+    std::uint32_t march_steps = 0;
 };
-static_assert(offsetof(SkyFrame, inverse_view_projection) == 112);
-static_assert(offsetof(SkyFrame, transmittance) == 176);
-static_assert(offsetof(SkyFrame, mode) == 224);
-static_assert(sizeof(SkyFrame) == 240);
+static_assert(offsetof(SkyFrame, inverse_view_projection) == 128);
+static_assert(offsetof(SkyFrame, transmittance) == 192);
+static_assert(offsetof(SkyFrame, mode) == 240);
+static_assert(offsetof(SkyFrame, origin) == 256);
+static_assert(offsetof(SkyFrame, sun_directions) == 336);
+static_assert(offsetof(SkyFrame, sun_colors) == 400);
+static_assert(offsetof(SkyFrame, planet) == 464);
+static_assert(sizeof(SkyFrame) == 480);
 
 struct Lut {
     const char* name;
@@ -78,9 +95,10 @@ float ray_sphere(math::vec3 origin, math::vec3 direction, float radius) {
 
 math::vec3 extinction_at(const AtmosphereParams& a, float height) {
     const float rayleigh = std::exp(-height / a.rayleigh.w);
-    const float mie = std::exp(-height / a.mie.z);
+    const float mie = std::exp(-height / a.mie.w);
     const float ozone = std::max(0.0f, 1.0f - std::abs(height - a.ozone.w) / a.planet.w);
-    return math::vec3(a.rayleigh) * rayleigh + math::vec3(a.mie.x + a.mie.y) * mie + math::vec3(a.ozone) * ozone;
+    return math::vec3(a.rayleigh) * rayleigh + (math::vec3(a.mie) + math::vec3(a.mie_absorption)) * mie +
+           math::vec3(a.ozone) * ozone;
 }
 
 }  // namespace
@@ -88,7 +106,8 @@ math::vec3 extinction_at(const AtmosphereParams& a, float height) {
 AtmosphereParams atmosphere_params(const Sky& sky) {
     AtmosphereParams a;
     a.rayleigh = math::vec4(math::vec3(5.802e-3f, 13.558e-3f, 33.1e-3f) * sky.rayleigh, 8.0f);
-    a.mie = math::vec4(3.996e-3f * sky.mie, 4.40e-4f * sky.mie, 1.2f, sky.mie_g);
+    a.mie = math::vec4(math::vec3(3.996e-3f * sky.mie), 1.2f);
+    a.mie_absorption = math::vec4(math::vec3(4.40e-4f * sky.mie), sky.mie_g);
     a.ozone = math::vec4(math::vec3(0.650e-3f, 1.881e-3f, 0.085e-3f) * sky.ozone, 25.0f);
     a.planet = math::vec4(6360.0f, 6460.0f, sky.ground_albedo, 15.0f);
     return a;
@@ -228,6 +247,41 @@ SkyResources AtmosphereRenderer::record(RenderGraph& graph, const ResolvedSky& s
     f.linear_clamp = device.descriptor(s.linear_clamp);
     f.mode = sky.mode == SkyMode::physical ? 2u : sky.mode == SkyMode::constant ? 1u : 0u;
     f.aerial_on = sky.settings.aerial_perspective ? 1u : 0u;
+    if (sky.planet && sky.mode == SkyMode::physical) {
+        // Spike SP-10 (VCH-086): the planet's medium, its own up, every sun scaled to the brightest one.
+        const PlanetSky& p = *sky.planet;
+        f.atmosphere = p.medium;
+        f.planet = 1;
+        f.origin = math::vec4(-p.center, p.altitude);
+        f.camera = math::vec4(p.altitude, 0.0f, 0.0f, 0.0f);
+        const math::vec3 up = math::normalize(-p.center);
+        f.sun_count = std::min<std::uint32_t>(p.sun_count, static_cast<std::uint32_t>(p.suns.size()));
+        float reference = 0.0f;
+        for (std::uint32_t i = 0; i < f.sun_count; ++i) {
+            reference = std::max(reference, std::max(p.suns.at(i).illuminance.x,
+                                                     std::max(p.suns.at(i).illuminance.y, p.suns.at(i).illuminance.z)));
+        }
+        reference = std::max(reference, 1e-6f);
+        for (std::uint32_t i = 0; i < f.sun_count; ++i) {
+            f.sun_directions.at(i) = math::vec4(math::normalize(p.suns.at(i).direction), p.suns.at(i).angular_radius);
+            f.sun_colors.at(i) = math::vec4(p.suns.at(i).illuminance / reference, 0.0f);
+        }
+        const math::vec3 primary = f.sun_count > 0 ? math::vec3(f.sun_directions[0]) : up;
+        f.sun = math::vec4(primary, reference);
+        // The LUT's azimuth origin: the first sun's horizontal direction (so its back seam faces away from it).
+        math::vec3 x = primary - up * math::dot(primary, up);
+        if (math::length(x) < 1e-3f) {
+            x = std::abs(up.x) < 0.9f ? math::cross(up, math::vec3(1.0f, 0.0f, 0.0f))
+                                      : math::cross(up, math::vec3(0.0f, 0.0f, 1.0f));
+        }
+        f.frame_x = math::vec4(math::normalize(x), 0.0f);
+        f.ground = math::vec4(p.ground_albedo, 1.0f);
+        f.occluder =
+            p.occluder.w > 0.0f ? math::vec4(math::vec3(p.occluder) - p.center, p.occluder.w) : math::vec4(0.0f);
+        f.occluder_albedo = math::vec4(p.occluder_albedo, 0.0f);
+        f.march = p.march;
+        f.march_steps = std::max<std::uint32_t>(p.march_steps, 1);
+    }
 
     const std::array<SkyFrame, 1> records{f};
     auto buffer = device.create_buffer({.size = sizeof(SkyFrame),

@@ -110,7 +110,7 @@ void integrate_scattering(SkyFrame s, float3 origin, float3 direction, float max
     const float dt = length_km / float(steps);
     const float cos_theta = dot(direction, s.sun.xyz);
     const float phase_r = rayleigh_phase(cos_theta);
-    const float phase_m = mie_phase(cos_theta, s.atmosphere.mie.w);
+    const float phase_m = mie_phase(cos_theta, s.atmosphere.mie_absorption.w);
     luminance = float3(0.0, 0.0, 0.0);
     transmittance = float3(1.0, 1.0, 1.0);
     for (uint k = 0; k < steps; ++k) {
@@ -135,10 +135,15 @@ void sky_view_lut(uint3 id: SV_DispatchThreadID) {
         return;
     }
     const SkyFrame s = lut_params.sky[0];
-    const float3 direction = sky_view_direction(s, (float2(id.xy) + 0.5) / float2(lut_params.size));
+    const float2 uv = (float2(id.xy) + 0.5) / float2(lut_params.size);
     float3 luminance;
     float3 transmittance;
-    integrate_scattering(s, camera_origin(s), direction, 1e9, 30, luminance, transmittance);
+    if (s.planet != 0) {  // spike SP-10: every sun, the ground, around the planet's own up
+        planet_march(s, s.origin.xyz, max(s.origin.w, 0.0), planet_sky_view_direction(s, uv), 1e9, s.march_steps, true,
+                     luminance, transmittance);
+    } else {
+        integrate_scattering(s, camera_origin(s), sky_view_direction(s, uv), 1e9, 30, luminance, transmittance);
+    }
     lut_params.output[id.xy] = float4(luminance, 1.0);
 }
 
@@ -160,7 +165,11 @@ void aerial_lut(uint3 id: SV_DispatchThreadID) {
     const float depth_km = aerial_depth_km * t * t;
     float3 luminance;
     float3 transmittance;
-    integrate_scattering(s, camera_origin(s), direction, depth_km, 8, luminance, transmittance);
+    if (s.planet != 0) {  // spike SP-10
+        planet_march(s, s.origin.xyz, max(s.origin.w, 0.0), direction, depth_km, 8, false, luminance, transmittance);
+    } else {
+        integrate_scattering(s, camera_origin(s), direction, depth_km, 8, luminance, transmittance);
+    }
     lut_params.output[id.xy] = float4(luminance, dot(transmittance, float3(1.0, 1.0, 1.0)) / 3.0);
 }
 
@@ -179,7 +188,13 @@ void sky_irradiance(uint3 id: SV_DispatchThreadID) {
             const float phi = 2.0 * atmosphere_pi * (float(j) + 0.5) / float(n);
             const float r = sqrt(u);
             const float3 direction = float3(r * cos(phi), sqrt(1.0 - u), r * sin(phi));
-            sum += s.sky_view.SampleLevel(s.linear_clamp, sky_view_uv(s, direction), 0.0).rgb;
+            if (s.planet != 0) {  // spike SP-10: the hemisphere around the planet's up
+                const float3 world =
+                    s.frame_x.xyz * direction.x + planet_up(s) * direction.y + planet_frame_z(s) * direction.z;
+                sum += s.sky_view.SampleLevel(s.linear_clamp, planet_sky_view_uv(s, world), 0.0).rgb;
+            } else {
+                sum += s.sky_view.SampleLevel(s.linear_clamp, sky_view_uv(s, direction), 0.0).rgb;
+            }
             weight += 1.0;
         }
     }

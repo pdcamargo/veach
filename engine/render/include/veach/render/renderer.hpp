@@ -22,6 +22,7 @@
 #include <veach/render/camera.hpp>
 #include <veach/render/mesh_store.hpp>
 #include <veach/render/png.hpp>
+#include <veach/render/readback.hpp>
 #include <veach/render/render_graph.hpp>
 #include <veach/render/scene.hpp>
 #include <veach/rhi/rhi.hpp>
@@ -196,6 +197,9 @@ struct FrameContext {
     std::uint32_t width = 0;
     std::uint32_t height = 0;
     const RenderView* view = nullptr;  ///< the primary view, or null when no camera is active
+    /// GPU-to-CPU readback that never stalls (VCH-073): results arrive readbacks->latency() frames later. Never null
+    /// inside Renderer::render().
+    ReadbackQueue* readbacks = nullptr;
 };
 
 /// The frame's target size: the primary window's, or 1280x720 when nothing says otherwise.
@@ -253,6 +257,8 @@ public:
     [[nodiscard]] rhi::Device& device() { return device_; }
     /// Meshes and materials made at run time (also the engine's MeshStore service).
     [[nodiscard]] MeshStore& meshes() { return meshes_; }
+    /// Non-blocking readback of this frame's GPU buffers (also FrameContext::readbacks).
+    [[nodiscard]] ReadbackQueue& readbacks() { return readbacks_; }
     /// The last compiled graph, as text (RenderGraph::describe()).
     [[nodiscard]] const std::string& last_graph() const { return last_graph_; }
 
@@ -274,6 +280,7 @@ private:
     std::vector<bool> prepared_;  ///< per feature: true = ready, false = disabled
     bool features_prepared_ = false;
     TransientPool pool_;
+    ReadbackQueue readbacks_;
 
     rhi::TextureHandle scene_color_;
     rhi::ResourceState scene_color_state_ = rhi::ResourceState::undefined;

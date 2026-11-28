@@ -886,6 +886,19 @@ public:
 
     void wait_idle() override { wait(tracker().last_submitted()); }
 
+    [[nodiscard]] bool is_complete(SubmissionId id) override {
+        if (tracker().is_complete(id)) {
+            return true;
+        }
+        // The command buffer knows before its completion handler has run; the queue completes in order.
+        if (const auto it = in_flight_.find(id.value);
+            it != in_flight_.end() && it->second.status >= MTLCommandBufferStatusCompleted) {
+            tracker().mark_completed(id);
+            return true;
+        }
+        return false;
+    }
+
     FrameInfo begin_frame() override {
         SubmissionId wait_for;
         const FrameInfo frame = tracker().begin_frame(wait_for);

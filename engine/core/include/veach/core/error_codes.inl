@@ -99,6 +99,8 @@ VEACH_ERROR(render_nonfinite_samples, "render.nonfinite_samples", "The path trac
 VEACH_ERROR(render_nonfinite_pixels, "render.nonfinite_pixels", "The real-time renderer wrote NaN or infinite radiance")
 VEACH_ERROR(render_mesh_invalid, "render.mesh_invalid", "A runtime mesh submitted to the MeshStore is malformed")
 VEACH_ERROR(render_mesh_unknown, "render.mesh_unknown", "A MeshStore call named a mesh or material it does not hold")
+VEACH_ERROR(render_readback_dropped, "render.readback_dropped",
+            "A GPU readback was dropped because its frame was never submitted")
 VEACH_ERROR(rhi_invalid_surface, "rhi.invalid_surface", "The native window handle given to the RHI is invalid")
 VEACH_ERROR(rhi_invalid_descriptor, "rhi.invalid_descriptor",
             "A shader used a descriptor handle that names no live resource of its kind")

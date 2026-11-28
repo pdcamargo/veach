@@ -1139,6 +1139,11 @@ public:
 
     void wait_idle() override { wait(tracker_.last_submitted()); }
 
+    [[nodiscard]] bool is_complete(SubmissionId submission) override {
+        poll();  // reads the fence; never waits
+        return tracker_.is_complete(submission);
+    }
+
     FrameInfo begin_frame() override {
         SubmissionId wait_for;
         const FrameInfo frame = tracker_.begin_frame(wait_for);

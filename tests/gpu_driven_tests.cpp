@@ -1,16 +1,20 @@
-// Indirect work (VCH-071; docs/specs/gpu-driven-rhi/spec.md). The GPU tests run
+// Indirect work and non-blocking readback (VCH-071, VCH-073; docs/specs/gpu-driven-rhi/spec.md). The GPU tests run
 // on Metal in the pre-push gate and on DX12/WARP in hosted CI, so they stay small: 64 items, 64x64 targets.
 
 #include "support/gpu_device.hpp"
 #include "support/test_support.hpp"
 #include "test_shaders.hpp"
 
+#include <veach/render/readback.hpp>
 #include <veach/render/render_graph.hpp>
+#include <veach/render/renderer.hpp>
 
 #include <doctest/doctest.h>
 
 #include <array>
+#include <cstring>
 #include <span>
+#include <thread>
 #include <vector>
 
 using namespace veach;
@@ -347,4 +351,224 @@ TEST_CASE("[rhi.AC3] the null RHI checks indirect calls and runs the same frame"
     const IndirectResult r = run_indirect(*device);
     CHECK(r.survivors == 0);  // nothing ran
     CHECK(r.drawn.size() == std::size_t{target_size} * target_size);
+}
+
+TEST_CASE("[rhi.AC4] is_complete never waits") {
+    SUBCASE("null: submissions complete at once") {
+        auto device = std::move(*rhi::create_device({}));
+        CHECK(device->is_complete({0}));
+        static_cast<void>(device->begin_frame());
+        const rhi::SubmissionId id = device->submit(device->begin_commands("nothing"));
+        device->end_frame();
+        CHECK(device->is_complete(id));
+        CHECK_FALSE(device->is_complete({id.value + 1}));  // not submitted yet
+    }
+    SUBCASE("GPU: a submission is seen complete without wait()") {
+        test::LogCapture logs;
+        {
+            const std::unique_ptr<rhi::Device> device = test::gpu_device();
+            if (!device) {
+                MESSAGE("skipped: no GPU device");
+                return;
+            }
+            CullScene scene(*device);
+            static_cast<void>(device->begin_frame());
+            render::RenderGraph graph(*device);
+            static_cast<void>(scene.add_cull(graph));
+            REQUIRE(graph.compile().has_value());
+            auto cmd = device->begin_commands("cull");
+            graph.execute(*cmd);
+            const rhi::SubmissionId id = device->submit(std::move(cmd));
+            device->end_frame();
+            CHECK_FALSE(device->is_complete({id.value + 1}));
+            // Poll only; the GPU finishes a 64-thread dispatch in well under the bound.
+            bool complete = false;
+            for (int i = 0; i < 100000 && !complete; ++i) {
+                complete = device->is_complete(id);
+                if (!complete) {
+                    std::this_thread::yield();
+                }
+            }
+            CHECK(complete);
+        }
+        CHECK_MESSAGE(logs.errors().empty(), logs.errors());
+    }
+}
+
+namespace {
+
+/// One frame of `device`: begin, deliver due readbacks, record with `record`, submit.
+template <class Record>
+std::uint64_t run_frame(rhi::Device& device, render::ReadbackQueue& queue, Record record) {
+    const std::uint64_t frame = device.begin_frame().index;
+    queue.deliver();
+    render::RenderGraph graph(device);
+    record(graph);
+    REQUIRE(graph.compile().has_value());
+    auto cmd = device.begin_commands("frame");
+    graph.execute(*cmd);
+    queue.submitted(device.submit(std::move(cmd)));
+    device.end_frame();
+    return frame;
+}
+
+struct Delivery {
+    std::uint64_t at = 0;  ///< the frame during which it arrived
+    std::uint64_t frame = 0;
+    std::vector<std::byte> bytes;
+};
+
+}  // namespace
+
+TEST_CASE("[rhi.AC5] a readback arrives exactly frames_in_flight frames later, without stalling") {
+    test::LogCapture logs;
+    {
+        const std::unique_ptr<rhi::Device> gpu = test::gpu_device();
+        auto null_device = std::move(*rhi::create_device({}));
+        for (rhi::Device* device : {gpu.get(), null_device.get()}) {
+            if (device == nullptr) {
+                MESSAGE("skipped on the GPU: no GPU device");
+                continue;
+            }
+            CAPTURE(rhi::to_string(device->backend()));
+            CullScene scene(*device);
+            render::ReadbackQueue queue(*device);
+            REQUIRE(queue.latency() == device->frames_in_flight());
+            std::vector<Delivery> deliveries;
+            std::uint64_t now = 0;
+            const std::uint64_t first = run_frame(*device, queue, [&](render::RenderGraph& graph) {
+                const auto visible = scene.add_cull(graph);
+                queue.read(graph, visible, sizeof(std::uint32_t), [&](Result<render::ReadbackData> data) {
+                    REQUIRE(data.has_value());
+                    deliveries.push_back({now, data->frame, data->bytes});
+                });
+            });
+            for (int i = 0; i < 4; ++i) {
+                now = device->current_frame().index + 1;  // the frame run_frame is about to begin
+                static_cast<void>(run_frame(*device, queue, [](render::RenderGraph&) {}));
+                if (now < first + queue.latency()) {
+                    CHECK_MESSAGE(deliveries.empty(), "delivered early, at frame ", now);
+                }
+            }
+            REQUIRE(deliveries.size() == 1);
+            CHECK(deliveries[0].frame == first);
+            CHECK(deliveries[0].at == first + queue.latency());
+            CHECK(queue.stalls() == 0);
+            CHECK(queue.pending() == 0);
+            REQUIRE(deliveries[0].bytes.size() == sizeof(std::uint32_t));
+            std::uint32_t survivors = 0;
+            std::memcpy(&survivors, deliveries[0].bytes.data(), sizeof(survivors));
+            CHECK(survivors == (device->capabilities().gpu ? threshold : 0));  // the null RHI runs nothing
+        }
+    }
+    CHECK_MESSAGE(logs.errors().empty(), logs.errors());
+}
+
+TEST_CASE("[rhi.AC6] unsubmitted readbacks are dropped, flush delivers at once, staging buffers are reused") {
+    auto device = std::move(*rhi::create_device({}));
+    auto source = device->create_buffer(
+        {.size = 64, .usage = rhi::BufferUsage::storage | rhi::BufferUsage::copy_src, .debug_name = "source"});
+    REQUIRE(source.has_value());
+    render::ReadbackQueue queue(*device);
+    const auto read = [&](render::RenderGraph& graph, std::vector<Result<render::ReadbackData>>& out) {
+        const auto r = graph.import(*source, "source", ResourceState::undefined);
+        queue.read(graph, r, 64, [&](Result<render::ReadbackData> data) { out.push_back(std::move(data)); });
+    };
+
+    SUBCASE("a frame that is not submitted drops its readbacks") {
+        std::vector<Result<render::ReadbackData>> out;
+        static_cast<void>(device->begin_frame());
+        render::RenderGraph graph(*device);
+        read(graph, out);
+        queue.abandon();
+        device->end_frame();
+        REQUIRE(out.size() == 1);
+        REQUIRE_FALSE(out[0].has_value());
+        CHECK(out[0].error().code == ErrorCode::render_readback_dropped);
+        CHECK(queue.pending() == 0);
+    }
+    SUBCASE("flush waits and delivers what is in flight") {
+        std::vector<Result<render::ReadbackData>> out;
+        const std::uint64_t frame = run_frame(*device, queue, [&](render::RenderGraph& graph) { read(graph, out); });
+        CHECK(out.empty());
+        queue.flush();
+        REQUIRE(out.size() == 1);
+        REQUIRE(out[0].has_value());
+        CHECK(out[0]->frame == frame);
+        CHECK(out[0]->bytes.size() == 64);
+    }
+    SUBCASE("a readback every frame needs latency() staging buffers") {
+        std::vector<Result<render::ReadbackData>> out;
+        for (int i = 0; i < 10; ++i) {
+            static_cast<void>(run_frame(*device, queue, [&](render::RenderGraph& graph) { read(graph, out); }));
+        }
+        CHECK(out.size() == 10 - queue.latency());
+        CHECK(queue.staging_buffers() == queue.latency());
+    }
+    device->destroy(*source);
+}
+
+namespace {
+
+/// A module's feature that reads a GPU buffer back every frame, through the frame context only.
+class CounterFeature final : public render::RenderFeature {
+public:
+    explicit CounterFeature(std::vector<std::pair<std::uint64_t, std::uint64_t>>& arrivals) : arrivals_(arrivals) {}
+    ~CounterFeature() override {
+        if (device_ != nullptr) {
+            device_->destroy(buffer_);
+        }
+    }
+    CounterFeature(const CounterFeature&) = delete;
+    CounterFeature& operator=(const CounterFeature&) = delete;
+    CounterFeature(CounterFeature&&) = delete;
+    CounterFeature& operator=(CounterFeature&&) = delete;
+
+    [[nodiscard]] std::string_view name() const override { return "test.counter"; }
+    [[nodiscard]] Result<> prepare(rhi::Device& device) override {
+        device_ = &device;
+        auto buffer = device.create_buffer(
+            {.size = 16, .usage = rhi::BufferUsage::storage | rhi::BufferUsage::copy_src, .debug_name = "counter"});
+        if (!buffer) {
+            return std::unexpected(buffer.error());
+        }
+        buffer_ = *buffer;
+        return {};
+    }
+    void record(render::RenderGraph& graph, const render::FrameContext& frame) override {
+        REQUIRE(frame.readbacks != nullptr);
+        const auto counter = graph.import(buffer_, "counter", ResourceState::undefined);
+        frame.readbacks->read(graph, counter, 16, [this, &device = frame.device](Result<render::ReadbackData> data) {
+            REQUIRE(data.has_value());
+            arrivals_.emplace_back(data->frame, device.current_frame().index);
+        });
+    }
+
+private:
+    std::vector<std::pair<std::uint64_t, std::uint64_t>>& arrivals_;
+    rhi::Device* device_ = nullptr;
+    rhi::BufferHandle buffer_;
+};
+
+}  // namespace
+
+TEST_CASE("[rhi.AC7] features read back through FrameContext and get bytes frames_in_flight frames later") {
+    test::LogCapture logs;
+    std::vector<std::pair<std::uint64_t, std::uint64_t>> arrivals;  // (recorded in, delivered in)
+    {
+        auto device = std::move(*rhi::create_device({}));
+        {
+            render::Renderer renderer(*device);
+            renderer.add_feature(std::make_unique<CounterFeature>(arrivals));
+            for (int i = 0; i < 5; ++i) {
+                renderer.render();
+            }
+            CHECK(renderer.readbacks().pending() == renderer.readbacks().latency());
+        }
+    }
+    REQUIRE(arrivals.size() == 3);  // frames 1 to 3 of 5, with 2 frames in flight
+    for (const auto& [recorded, delivered] : arrivals) {
+        CHECK(delivered == recorded + 2);
+    }
+    CHECK_MESSAGE(logs.errors().empty(), logs.errors());
 }

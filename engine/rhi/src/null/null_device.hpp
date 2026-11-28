@@ -55,6 +55,7 @@ public:
     [[nodiscard]] std::unique_ptr<CommandList> begin_commands(std::string_view debug_name) override;
     SubmissionId submit(std::unique_ptr<CommandList> commands, SurfaceId present) override;
     void wait(SubmissionId) override {}
+    [[nodiscard]] bool is_complete(SubmissionId submission) override { return tracker_.is_complete(submission); }
     void wait_idle() override { tracker_.collect(); }
     FrameInfo begin_frame() override {
         SubmissionId unused;

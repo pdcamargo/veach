@@ -146,6 +146,27 @@ graph.add_graphics_pass("draw",
   not. Put offsets in your own data.
 - Offsets and strides are multiples of 4; every backend, null included, asserts that the records fit.
 
+## Reading GPU results back
+
+`FrameContext::readbacks` copies a buffer to the CPU without waiting. The bytes reach your callback exactly
+`frames_in_flight` frames later (2 by default), on every backend:
+
+```cpp
+frame.readbacks->read(graph, counts, sizeof(std::uint32_t), [this](Result<render::ReadbackData> data) {
+    if (data) {
+        std::memcpy(&visible_, data->bytes.data(), sizeof(visible_));  // data->frame: the frame that copied it
+    }
+});
+```
+
+- The source buffer needs `BufferUsage::copy_src`; the queue adds a transfer pass that reads it in `copy_src`.
+- Callbacks run inside `Renderer::render()`. Copy the bytes into your module's own state and read them from a
+  system later; never write the World from a callback. GPU results are visual or diagnostic only: never feed them
+  into canonical simulation (ADR 0043).
+- On the null RHI the bytes are zeros. A frame whose graph fails to compile drops its readbacks
+  (`render.readback_dropped`).
+- `Device::is_complete(submission)` answers "has this finished?" without waiting, for code outside the frame loop.
+
 ## GPU timings
 
 The graph times every pass it executes with GPU timestamps (`CommandList::begin_timing`/`end_timing`; Metal

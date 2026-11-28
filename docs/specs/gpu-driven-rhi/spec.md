@@ -1,6 +1,6 @@
 # GPU-driven RHI: indirect work and non-blocking readback
 
-**Status:** Approved
+**Status:** Implemented
 **Area:** rhi
 **Owner:** dev lead
 

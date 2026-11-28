@@ -130,7 +130,39 @@ def protocol(lab: str) -> None:
     check(timings["backend"] == "null" and timings["frames_in_flight"] == 2, "[mcp.AC8] gpu_timings reports the backend")
     check(timings["passes"] == [] and timings["passes_unavailable"],
           "[rt.AC5] without a GPU, gpu_timings says why there are no per-pass times")
+    module_tools(client, tools, info)
     check(client.close() == 0, "[mcp.AC10] the server exits 0 when the client disconnects")
+
+
+def module_tools(client: McpClient, tools: dict, info: dict) -> None:
+    """The space toolbox's tools, registered by a module the lab imports (VCH-100)."""
+    names = list(tools)
+    check(names[-2:] == ["orrery_state", "generate_system"] and "orrery_state" in info["instructions"],
+          "[mcp.AC12] module tools are listed after the built-in ones and named in the instructions")
+    check(tools["generate_system"]["inputSchema"]["required"] == ["seed", "address"],
+          "[mcp.AC12] a module tool's input schema is the one it registered")
+
+    au = 149597870700.0
+    sol = client.call_json("orrery_state", system="sol", tick="378683424000", body="earth",
+                           latitude=48.8566, longitude=2.3522)
+    earth = sol["bodies"][0]
+    check(sol["tick"] == "378683424000" and abs(earth["distance_to_star"] / au - 0.98332) < 1e-5,
+          "[mcp.AC13] orrery_state: the Earth is 0.98332 AU from the Sun at J2000.0, in one call")
+    check(abs(sol["sun"]["elevation"] - 18.09) < 0.01 and abs(sol["sun"]["local_solar_time"] - 12.10) < 0.01,
+          "[mcp.AC13] orrery_state: the sun stands 18.09 degrees over Paris at 12:06 local solar time")
+    planet = client.call_json("orrery_state", system="earthlike")["bodies"][1]
+    check(planet["orbit"]["phase"] == 0.0 and abs(planet["spin"]["local_solar_time_at_prime_meridian"] - 12.0) < 1e-9,
+          "[mcp.AC13] orrery_state: the Earth-like planet's orbit phase and local solar time at tick 0")
+    typo = client.call("orrery_state", system="sol", body="eart")
+    check(typo.get("isError") and "Did you mean 'earth'?" in typo["content"][0]["text"],
+          "[mcp.AC13] a module tool's errors carry the code and a did-you-mean hint")
+
+    system = client.call_json("generate_system", seed="42", address="S:3f2a91c07e5b0000")
+    check(system["stages"]["space:system"]["hash"] == "2733265849347982535" and
+          system["stages"]["space:body.physics"]["hash"] == "9754287468050259825",
+          "[mcp.AC14] generate_system: SP-05's stage hashes for seed 42, S:3f2a91c07e5b0000 (64-bit as strings)")
+    check(system["planet_count"] == 4 and system["bodies"][0]["address"] == "S:3f2a91c07e5b0000/B:1" and
+          system["violations"] == [], "[mcp.AC14] generate_system: the records, valid")
 
 
 def fly(lab: str) -> None:

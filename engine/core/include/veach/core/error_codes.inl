@@ -24,6 +24,8 @@ VEACH_ERROR(ecs_unknown_component, "ecs.unknown_component", "A component name do
 VEACH_ERROR(ecs_unknown_entity, "ecs.unknown_entity", "An entity id or path does not name a live entity")
 VEACH_ERROR(mcp_unknown_tool, "mcp.unknown_tool", "An MCP client called a tool that does not exist")
 VEACH_ERROR(mcp_invalid_arguments, "mcp.invalid_arguments", "An MCP tool call has missing or ill-typed arguments")
+VEACH_ERROR(mcp_duplicate_tool, "mcp.duplicate_tool", "A module registered an MCP tool name that is already taken")
+VEACH_ERROR(mcp_invalid_tool, "mcp.invalid_tool", "A module registered an MCP tool with a bad name, schema or handler")
 VEACH_ERROR(ecs_unknown_phase, "ecs.unknown_phase", "A system was attached to a phase that does not exist")
 
 VEACH_ERROR(platform_init_failed, "platform.init_failed", "The platform backend failed to initialize")

@@ -37,6 +37,7 @@ namespace veach {
 
 class AssetServer;
 class JobSystem;
+class McpTools;
 class Platform;
 class ScriptRuntime;
 namespace rhi {
@@ -113,6 +114,7 @@ private:
     std::unique_ptr<JobSystem> jobs_;  ///< Before everything that may run jobs, so it is destroyed after them
     std::unique_ptr<Platform> platform_;
     std::unique_ptr<World> world_;
+    std::unique_ptr<McpTools> mcp_tools_;  ///< Module-registered MCP tools (VCH-100), a service from the ecs step on
     PhaseRunner phases_;
     std::unique_ptr<AssetServer> assets_;
     std::unique_ptr<ScriptRuntime> scripts_;

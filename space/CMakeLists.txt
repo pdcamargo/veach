@@ -6,6 +6,7 @@
 add_library(veach_space STATIC
     src/atmosphere.cpp  # spike SP-10 (VCH-086)
     src/clock.cpp
+    src/mcp_tools.cpp
     src/orbit.cpp
     src/orrery.cpp
     src/presets.cpp

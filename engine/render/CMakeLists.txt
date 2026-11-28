@@ -8,6 +8,7 @@ veach_add_engine_library(render
         src/realtime_renderer.cpp
         src/scene_renderer.cpp
         src/shadows.cpp
+        src/sky_occlusion.cpp
         src/png.cpp
         src/readback.cpp
         src/render_graph.cpp
@@ -43,6 +44,10 @@ veach_add_shader(veach_render shaders/hiz.slang ENTRIES hiz_reduce:compute)
 # GTAO and its blur (ADR 0096, ambient_occlusion.cpp).
 veach_add_shader(veach_render shaders/ambient_occlusion.slang
     ENTRIES ao_view_depth:compute ao_depth_mip:compute ao_trace:compute ao_denoise:compute ao_upsample:compute)
+# Large-scale sky occlusion: the height map's pyramid and the trace (sky_occlusion.cpp).
+veach_add_shader(veach_render shaders/sky_occlusion.slang
+    ENTRIES sky_heights:compute sky_heights_mip:compute sky_trace:compute sky_blur:compute
+    INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
 veach_add_shader(veach_render shaders/classify.slang ENTRIES classify:compute classify_args:compute
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
 # Temporal anti-aliasing (ADR 0061, docs/specs/temporal-aa/spec.md).

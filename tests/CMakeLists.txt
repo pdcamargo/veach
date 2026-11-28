@@ -9,6 +9,7 @@ add_executable(veach-tests
     gpu_driven_renderer_tests.cpp  # VCH-138: the GPU-driven real-time renderer
     taa_tests.cpp  # VCH-144: temporal anti-aliasing
     ambient_light_tests.cpp  # VCH-140: ambient light and occlusion
+    sky_occlusion_tests.cpp  # VCH-141: large-scale sky occlusion
     gpu_texture_tests.cpp
     lifecycle_tests.cpp
     physics_tests.cpp

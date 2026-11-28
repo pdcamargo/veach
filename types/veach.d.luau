@@ -103,6 +103,7 @@ export type AmbientOcclusion = {
 	enabled: boolean,
 	radius: number,
 	intensity: number,
+	sky_distance: number,
 }
 export type AntiAliasing = {
 	temporal: boolean,

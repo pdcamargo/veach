@@ -20,6 +20,7 @@ import veach.material;
 import veach.materials_generated;  // evaluateSurface(kind, c)
 import veach.scene;
 import veach.shadows;
+import veach.sky_occlusion;
 
 static const uint no_geometry = 0xFFFFFFFFu;  ///< the visibility buffer's clear value
 static const uint shade_tile_size = 8;        ///< classify.slang's tiles
@@ -47,6 +48,8 @@ struct ShadeParams {
     DescriptorHandle<StructuredBuffer<ShadowFrame>> shadows;  ///< the sun shadow maps (shadows.cpp)
     /// With shade_ambient_occlusion: the visible fraction per pixel (ambient_occlusion.slang).
     DescriptorHandle<Texture2D<float>> ambient_occlusion;
+    /// With shade_sky_occlusion: the large-scale sky occlusion (veach/sky_occlusion.slang, sky_occlusion.cpp).
+    DescriptorHandle<StructuredBuffer<SkyOcclusionFrame>> sky_occlusion;
 };
 [[vk::push_constant]] ConstantBuffer<ShadeParams> params;
 
@@ -54,6 +57,9 @@ static const uint shade_auto_exposure = 1u;
 static const uint shade_no_fp16_clamp = 2u;
 static const uint shade_ambient_occlusion = 4u;
 static const uint shade_show_occlusion = 8u;  ///< VEACH_SHOW_AO=1: the image is the occlusion, in grey
+static const uint shade_sky_occlusion = 16u;
+/// VEACH_SHOW_SKY_OCCLUSION=1: the image is the ambient light on a white diffuse surface, without screen-space AO.
+static const uint shade_show_sky_occlusion = 32u;
 static const float fp16_max = 65504.0;
 
 /// The exposed radiance as rgba16_float stores it, clamped to the fp16 maximum: the sun's disk (about 1.9e9 nits above
@@ -174,6 +180,15 @@ float4 surface_pixel(SkyFrame sky, uint kind, uint2 visible_id, float2 pixel, fl
                                 ? params.ambient_occlusion.Load(int3(int2(pixel), 0))
                                 : 1.0;
         ambient.distance = distance;
+        ambient.sky = (params.flags & shade_sky_occlusion) != 0
+                          ? sky_occlusion_at(params.sky_occlusion[0], pixel, distance)
+                          : sky_occlusion_open();
+        if ((params.flags & shade_show_sky_occlusion) != 0) {
+            ambient.diffuse = float3(1.0, 1.0, 1.0);
+            ambient.f0 = float3(0.0, 0.0, 0.0);
+            ambient.occlusion = 1.0;
+            return storable(ambient_light(sky, origin, ambient) * exposure);
+        }
         light += ambient_light(sky, origin, ambient);
         if ((params.flags & shade_show_occlusion) != 0) {
             return storable(float3(ambient.occlusion, ambient.occlusion, ambient.occlusion));

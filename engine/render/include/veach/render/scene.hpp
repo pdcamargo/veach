@@ -123,13 +123,17 @@ struct SkyVisibility {
     float reach = 0.0f;       ///< meters from the camera; 0: no enclosure
 };
 
-/// On a camera entity: the real-time renderer's screen-space ambient occlusion (ADR 0096), which darkens the sky's
-/// ambient light in creases, under overhangs and against walls (never direct light). On by default: a camera without
-/// it uses these values. `radius` is meters in the world and never follows scale. Visual only. Scriptable.
+/// On a camera entity: how the real-time renderer occludes the sky's ambient light (never direct light). Screen-space
+/// ambient occlusion (ADR 0096) darkens creases, overhangs and walls within `radius`; the large-scale sky occlusion
+/// (docs/specs/sky-occlusion/spec.md) takes out the sky the scene hides from each surface within `sky_distance` of the
+/// camera (the buildings across a street, a cave's ceiling, a hole's walls), puts the surroundings' bounce in its
+/// place, and dims the ground's bounce where the surroundings are in shadow. On by default: a camera without it uses
+/// these values. Distances are meters in the world and never follow scale. Visual only. Scriptable.
 struct AmbientOcclusion {
-    bool enabled = true;
-    float radius = 1.5f;     ///< meters: how far an occluder darkens a surface
-    float intensity = 1.0f;  ///< scales the darkening (the power on the visible fraction); 0 turns it off
+    bool enabled = true;         ///< false turns both off
+    float radius = 1.5f;         ///< meters: how far an occluder darkens a surface in screen space
+    float intensity = 1.0f;      ///< scales the screen-space darkening (the power on the visible fraction); 0 turns it off
+    float sky_distance = 200.0f;  ///< meters from the camera where the large-scale occlusion has faded out; 0 turns it off
 };
 
 /// On a camera entity: the sun shadows of the real-time renderer (docs/specs/sun-shadows/spec.md, ADR 0095). The

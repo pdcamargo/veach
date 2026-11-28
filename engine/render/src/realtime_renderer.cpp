@@ -10,6 +10,7 @@
 #include "gpu_cull.hpp"
 #include "scene_records.hpp"
 #include "shadows.hpp"
+#include "sky_occlusion.hpp"
 #include "veach_render_shaders.hpp"
 
 #include <algorithm>
@@ -83,6 +84,7 @@ struct alignas(16) ShadeParams {
     std::uint32_t pad0 = 0;
     rhi::DescriptorHandle shadows;            ///< ShadowFrame (shadows.hpp)
     rhi::DescriptorHandle ambient_occlusion;  ///< with shade_ambient_occlusion (ambient_occlusion.hpp)
+    rhi::DescriptorHandle sky_occlusion;      ///< SkyOcclusionFrame, with shade_sky_occlusion (sky_occlusion.hpp)
 };
 static_assert(rhi::parameters_match<ShadeParams>(
     veach_render_shaders::layout::realtime_shade_bins,
@@ -91,11 +93,14 @@ static_assert(rhi::parameters_match<ShadeParams>(
      VEACH_PARAM(ShadeParams, materials), VEACH_PARAM(ShadeParams, lights), VEACH_PARAM(ShadeParams, sky),
      VEACH_PARAM(ShadeParams, exposure_state), VEACH_PARAM(ShadeParams, bin_tiles), VEACH_PARAM(ShadeParams, size),
      VEACH_PARAM(ShadeParams, light_count), VEACH_PARAM(ShadeParams, flags), VEACH_PARAM(ShadeParams, tile_capacity),
-     VEACH_PARAM(ShadeParams, pad0), VEACH_PARAM(ShadeParams, shadows), VEACH_PARAM(ShadeParams, ambient_occlusion)}));
+     VEACH_PARAM(ShadeParams, pad0), VEACH_PARAM(ShadeParams, shadows), VEACH_PARAM(ShadeParams, ambient_occlusion),
+     VEACH_PARAM(ShadeParams, sky_occlusion)}));
 constexpr std::uint32_t shade_auto_exposure = 1u;
 constexpr std::uint32_t shade_no_fp16_clamp = 2u;
 constexpr std::uint32_t shade_ambient_occlusion = 4u;
 constexpr std::uint32_t shade_show_occlusion = 8u;
+constexpr std::uint32_t shade_sky_occlusion = 16u;
+constexpr std::uint32_t shade_show_sky_occlusion = 32u;
 
 /// Mirrors ExposureParams in shaders/exposure.slang (spike SP-14, VCH-090).
 struct alignas(16) ExposureParams {
@@ -268,6 +273,7 @@ struct RealtimeRenderer::Impl {
     Buffer bin_tiles;
     std::vector<rhi::BufferHandle> views;  ///< a CullView per frame slot, in upload memory
     ShadowRenderer shadows;                ///< the sun shadow maps (shadows.hpp)
+    SkyOcclusionRenderer sky_occlusion;    ///< the large-scale sky occlusion (sky_occlusion.hpp)
 
     /// Last frame's HiZ pyramid: phase 1's occluders. Rebuilt every frame from phase 1's depth.
     rhi::TextureHandle hiz;
@@ -639,6 +645,9 @@ Result<> RealtimeRenderer::prepare(rhi::Device& device, const SceneShaders& shad
         return made;
     }
     if (auto made = s.shadows.prepare(device, shaders); !made) {
+        return made;
+    }
+    if (auto made = s.sky_occlusion.prepare(device, shaders); !made) {
         return made;
     }
     if (auto made = compute(veach_render_shaders::taa(), "taa_resolve", {8, 8, 1}, s.taa_pipeline); !made) {
@@ -1029,6 +1038,10 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
         frame.blackboard->set("ambient_occlusion", *occlusion);
     }
 
+    // ---- the large-scale sky occlusion: a height map from above, traced at quarter resolution.
+    const SkyOcclusionRenderer::Output sky_occlusion = s.sky_occlusion.record(
+        graph, frame, view, scene, depth, visibility, inverse_jittered, shadow_maps, width, height);
+
     // ---- shade, a dispatch per bin: lights, the sky's ambient light, emission, the sky and aerial perspective.
     ShadeParams shade{.inverse_view_projection = inverse_jittered,  // the rays of the pixels the visibility pass drew
                       .camera_position = math::vec4(view.position, view.exposure),
@@ -1043,6 +1056,11 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
         // A debugging view: VEACH_SHOW_AO=1 draws the occlusion instead of the lit surfaces.
         shade.flags |= env_is_one("VEACH_SHOW_AO") ? shade_show_occlusion : 0u;
     }
+    if (sky_occlusion.active) {
+        shade.flags |= shade_sky_occlusion;
+    }
+    // A debugging view: VEACH_SHOW_SKY_OCCLUSION=1 draws the ambient light on white surfaces.
+    shade.flags |= env_is_one("VEACH_SHOW_SKY_OCCLUSION") ? shade_show_sky_occlusion : 0u;
     graph.add_compute_pass(
         "shade",
         [&](PassBuilder& b) {
@@ -1060,11 +1078,16 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
             if (occlusion) {
                 b.read(*occlusion);
             }
+            if (sky_occlusion.active) {
+                for (const GraphResource t : sky_occlusion.textures) {
+                    b.read(t);
+                }
+            }
             b.write(radiance, rhi::ResourceState::shader_write);
         },
-        [shade, pipelines = s.shade, shadow_frame = shadow_maps.frame, visibility, radiance, bin_tiles, bin_args,
-         instances = scene.instances, materials = scene.materials, lights = scene.lights, sky = scene.sky,
-         exposure = exposure_state, occlusion](PassContext& ctx) mutable {
+        [shade, pipelines = s.shade, shadow_frame = shadow_maps.frame, sky_frame = sky_occlusion.frame, visibility,
+         radiance, bin_tiles, bin_args, instances = scene.instances, materials = scene.materials, lights = scene.lights,
+         sky = scene.sky, exposure = exposure_state, occlusion](PassContext& ctx) mutable {
             if (exposure) {
                 shade.exposure_state = ctx.device.descriptor(ctx.buffer(*exposure));
             }
@@ -1079,6 +1102,7 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
             shade.sky = ctx.device.descriptor(sky);
             shade.bin_tiles = ctx.device.descriptor(ctx.buffer(bin_tiles));
             shade.shadows = ctx.device.descriptor(shadow_frame);
+            shade.sky_occlusion = ctx.device.descriptor(sky_frame);
             // Bins write disjoint pixels: no barrier between their dispatches.
             for (std::size_t bin = 0; bin < pipelines.size(); ++bin) {
                 ctx.cmd.set_pipeline(pipelines[bin]);

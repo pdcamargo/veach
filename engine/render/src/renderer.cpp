@@ -791,6 +791,7 @@ RenderModule::RenderModule(World& world) {
         .member(&AmbientOcclusion::enabled, "enabled")
         .member(&AmbientOcclusion::radius, "radius")
         .member(&AmbientOcclusion::intensity, "intensity")
+        .member(&AmbientOcclusion::sky_distance, "sky_distance")
         .add<Scriptable>();
     world.component<SunShadows>()
         .member(&SunShadows::suns, "suns")

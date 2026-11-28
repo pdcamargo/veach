@@ -37,6 +37,7 @@ acceptance criteria (`[area.ACn] ...`) → status Implemented.
 | [The first slice: the realization layer and the slice app](first-slice/spec.md) | space, apps | Implemented |
 | [GPU-driven RHI: indirect work and non-blocking readback](gpu-driven-rhi/spec.md) | rhi, render | Implemented |
 | [RHI textures and raster state: texture kinds, updates, blending, depth bias, samplers](rhi-textures/spec.md) | rhi, render | Implemented |
+| [Sun shadows in the real-time renderer](sun-shadows/spec.md) | render | Implemented |
 | [Temporal anti-aliasing](temporal-aa/spec.md) | render | Implemented |
 
 Specs of the raytracing-first era (the real-time renderer v0, temporal direct lighting, soft shadows, real-time GI)

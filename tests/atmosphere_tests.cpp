@@ -103,14 +103,10 @@ static_assert(rhi::parameters_match<SphereProbeParams>(test_shaders::layout::sph
                                                         VEACH_PARAM(SphereProbeParams, results),
                                                         VEACH_PARAM(SphereProbeParams, count)}));
 
-/// Runs sphere_probe over `queries` on the GPU: (t0, t1, hit, blocks) per query.
-std::vector<math::vec4> probe_on_gpu(rhi::Device& device, std::span<const SphereQuery> queries) {
-    std::vector<math::vec4> packed;
-    for (const SphereQuery& q : queries) {
-        packed.emplace_back(q.origin, q.c);
-        packed.emplace_back(q.direction, q.radius);
-    }
-    const std::uint64_t result_bytes = queries.size() * sizeof(math::vec4);
+/// Runs `entry` of sphere_probe.slang over `count` queries packed in `packed` on the GPU: one vec4 per query.
+std::vector<math::vec4> run_probe(rhi::Device& device, const char* entry, std::span<const math::vec4> packed,
+                                  std::size_t count) {
+    const std::uint64_t result_bytes = count * sizeof(math::vec4);
     auto input = device.create_buffer(
         {.size = packed.size() * sizeof(math::vec4), .debug_name = "sphere queries", .stride = sizeof(math::vec4)},
         std::as_bytes(std::span(packed)));
@@ -122,8 +118,7 @@ std::vector<math::vec4> probe_on_gpu(rhi::Device& device, std::span<const Sphere
                                           .usage = rhi::BufferUsage::copy_dst,
                                           .memory = rhi::MemoryType::readback,
                                           .debug_name = "sphere readback"});
-    auto pipeline =
-        device.create_compute_pipeline({&test_shaders::sphere_probe(), "sphere_probe", {64, 1, 1}, "sphere probe"});
+    auto pipeline = device.create_compute_pipeline({&test_shaders::sphere_probe(), entry, {64, 1, 1}, "sphere probe"});
     REQUIRE(input.has_value());
     REQUIRE(results.has_value());
     REQUIRE(readback.has_value());
@@ -131,7 +126,7 @@ std::vector<math::vec4> probe_on_gpu(rhi::Device& device, std::span<const Sphere
     SphereProbeParams params;
     params.queries = device.descriptor(*input);
     params.results = device.descriptor(*results, rhi::View::storage);
-    params.count = static_cast<std::uint32_t>(queries.size());
+    params.count = static_cast<std::uint32_t>(count);
     static_cast<void>(device.begin_frame());
     auto cmd = device.begin_commands("sphere probe");
     const std::array<rhi::Barrier, 1> to_write{
@@ -142,7 +137,7 @@ std::vector<math::vec4> probe_on_gpu(rhi::Device& device, std::span<const Sphere
     cmd->use(*results, rhi::ResourceState::shader_write);
     cmd->set_pipeline(*pipeline);
     cmd->set_parameters(params);
-    cmd->dispatch(1, 1);
+    cmd->dispatch(static_cast<std::uint32_t>((count + 63) / 64), 1);
     cmd->end_compute_pass();
     const std::array<rhi::Barrier, 2> to_copy{
         {{*results, rhi::ResourceState::shader_write, rhi::ResourceState::copy_src},
@@ -154,12 +149,88 @@ std::vector<math::vec4> probe_on_gpu(rhi::Device& device, std::span<const Sphere
     device.wait(submission);
     const auto* mapped = static_cast<const math::vec4*>(device.map(*readback));
     REQUIRE(mapped != nullptr);
-    std::vector<math::vec4> out(mapped, mapped + queries.size());
+    std::vector<math::vec4> out(mapped, mapped + count);
     for (const rhi::BufferHandle b : {*input, *results, *readback}) {
         device.destroy(b);
     }
     device.destroy(*pipeline);
     device.wait_idle();
+    return out;
+}
+
+/// Runs sphere_probe over `queries` on the GPU: (t0, t1, hit, blocks) per query.
+std::vector<math::vec4> probe_on_gpu(rhi::Device& device, std::span<const SphereQuery> queries) {
+    std::vector<math::vec4> packed;
+    for (const SphereQuery& q : queries) {
+        packed.emplace_back(q.origin, q.c);
+        packed.emplace_back(q.direction, q.radius);
+    }
+    return run_probe(device, "sphere_probe", packed, queries.size());
+}
+
+/// A ray in twilight and where it is in the planet's shadow, from a double-precision reference.
+struct ShadowQuery {
+    math::vec3 origin;
+    math::vec3 direction;
+    float c = 0.0f;
+    math::vec3 l;
+    bool in_shadow = false;
+    double enter = 0.0;
+    double leave = 0.0;
+};
+
+/// The shadow's span along origin + t * direction in double: the cylinder of `radius` behind the center along -l.
+ShadowQuery shadow_reference(math::dvec3 o, math::dvec3 d, math::dvec3 l, double radius, double altitude) {
+    ShadowQuery q{math::vec3(o), math::vec3(d), static_cast<float>(altitude * (2.0 * radius + altitude)),
+                  math::vec3(l)};
+    const math::dvec3 op = o - l * math::dot(o, l);
+    const math::dvec3 dp = d - l * math::dot(d, l);
+    const double a = math::dot(dp, dp);
+    const double b = math::dot(op, dp);
+    const double c = math::dot(op, op) - radius * radius;
+    const double discriminant = b * b - a * c;
+    if (a < 1e-12 || discriminant <= 0.0) {
+        return q;
+    }
+    double enter = (-b - std::sqrt(discriminant)) / a;
+    double leave = (-b + std::sqrt(discriminant)) / a;
+    // Behind the plane through the center perpendicular to l.
+    const double dl = math::dot(d, l);
+    if (dl > 0.0) {
+        leave = std::min(leave, -math::dot(o, l) / dl);
+    } else if (dl < 0.0) {
+        enter = std::max(enter, -math::dot(o, l) / dl);
+    } else if (math::dot(o, l) >= 0.0) {
+        return q;
+    }
+    q.in_shadow = enter < leave;
+    q.enter = enter;
+    q.leave = leave;
+    return q;
+}
+
+/// Twilight rays at real scale: a camera 300 m up on a 6360 km planet with the sun 0.5 to 18 degrees below its
+/// horizon, looking 0 to 80 degrees up, toward the sun, across and away; and from 1e4 km.
+std::vector<ShadowQuery> shadow_span_queries() {
+    constexpr double radius = 6360.0;
+    std::vector<ShadowQuery> out;
+    for (const double altitude : {0.3, 1e4 - radius}) {
+        const math::dvec3 up = math::normalize(math::dvec3(1.0, 2.0, 3.0));
+        const math::dvec3 east = math::normalize(math::cross(up, math::dvec3(0.0, 0.0, 1.0)));
+        const math::dvec3 north = math::cross(east, up);
+        const math::dvec3 o = up * (radius + altitude);
+        for (const double sun : {-0.5, -3.0, -10.0, -18.0}) {
+            const math::dvec3 l = east * std::cos(sun * deg) + up * std::sin(sun * deg);
+            for (const double azimuth : {0.0, 60.0, 120.0, 180.0}) {
+                for (const double elevation : {0.0, 5.0, 30.0, 80.0, -30.0}) {
+                    const math::dvec3 horizontal = east * std::cos(azimuth * deg) + north * std::sin(azimuth * deg);
+                    const math::dvec3 d =
+                        math::normalize(horizontal * std::cos(elevation * deg) + up * std::sin(elevation * deg));
+                    out.push_back(shadow_reference(o, d, l, radius, altitude));
+                }
+            }
+        }
+    }
     return out;
 }
 
@@ -225,6 +296,57 @@ TEST_CASE("[atmosphere.AC1] the shader's sphere helpers match their CPU twins at
                           i, ": GPU t1 ", gpu[i].y, ", CPU ", cpu->t1);
         }
         CHECK(gpu[i].w == (render::sphere_blocks(q.origin, q.direction, q.radius) ? 1.0f : 0.0f));
+    }
+}
+
+TEST_CASE("[atmosphere.AC1] the planet's shadow along a twilight ray matches a double reference, on the GPU too") {
+    const std::vector<ShadowQuery> queries = shadow_span_queries();
+    // Within a few float ulps of the ray's length where it crosses the air (1e-3 km = 1 m at 1e4 km). Ends farther than
+    // 2e4 km (rays nearly along the shadow's axis, ill-conditioned) need only be that far, on the same side.
+    const auto close = [](double got, double reference) {
+        if (std::abs(reference) > 2e4) {
+            return got * reference > 0.0 && std::abs(got) > 1e4;
+        }
+        return std::abs(got - reference) <= 2e-3 + 1e-6 * std::abs(reference);
+    };
+    int shadowed = 0;
+    for (const ShadowQuery& q : queries) {
+        const auto span = render::sphere_shadow_span(q.origin, q.direction, q.c, q.l);
+        REQUIRE(span.has_value() == q.in_shadow);
+        if (!span) {
+            continue;
+        }
+        ++shadowed;
+        CHECK_MESSAGE(close(span->t0, q.enter), "enter ", span->t0, " reference ", q.enter);
+        CHECK_MESSAGE(close(span->t1, q.leave), "leave ", span->t1, " reference ", q.leave);
+        for (const double f : {0.25, 0.5, 0.75}) {  // inside, by the point test
+            const double t = q.enter + f * (q.leave - q.enter);
+            if (t > 0.0 && t < 1e4) {
+                CHECK(render::sphere_blocks(q.origin + q.direction * static_cast<float>(t), q.l, 6360.0f));
+            }
+        }
+    }
+    CHECK(shadowed > 20);  // most twilight rays cross the shadow somewhere
+
+    auto device = test::gpu_device();
+    if (!device) {
+        return;
+    }
+    std::vector<math::vec4> packed;
+    for (const ShadowQuery& q : queries) {
+        packed.emplace_back(q.origin, q.c);
+        packed.emplace_back(q.direction, 0.0f);
+        packed.emplace_back(q.l, 0.0f);
+    }
+    const std::vector<math::vec4> gpu = run_probe(*device, "shadow_probe", packed, queries.size());
+    for (std::size_t i = 0; i < queries.size(); ++i) {
+        const auto cpu =
+            render::sphere_shadow_span(queries[i].origin, queries[i].direction, queries[i].c, queries[i].l);
+        CHECK_MESSAGE((gpu[i].x < gpu[i].y) == cpu.has_value(), "query ", i);
+        if (cpu) {
+            CHECK_MESSAGE(close(gpu[i].x, cpu->t0), "query ", i, ": GPU enter ", gpu[i].x, ", CPU ", cpu->t0);
+            CHECK_MESSAGE(close(gpu[i].y, cpu->t1), "query ", i, ": GPU leave ", gpu[i].y, ", CPU ", cpu->t1);
+        }
     }
 }
 

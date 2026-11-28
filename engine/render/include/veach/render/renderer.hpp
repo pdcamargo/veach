@@ -125,6 +125,8 @@ struct RenderView {
     std::optional<AutoExposureSettings> auto_exposure;
     /// The camera's SkyVisibility (or the open sky): aerial perspective and the sky's ambient light near the camera.
     SkyVisibility sky_visibility;
+    /// The camera's SunShadows (or the defaults): the real-time renderer's shadow maps (shadows.cpp).
+    SunShadows shadows;
     /// Temporal anti-aliasing (ADR 0061): on unless the camera's AntiAliasing turns it off, it has a PhotoMode, or
     /// VEACH_DISABLE_TAA=1 (the goldens). The matrices above are never jittered; the real-time renderer offsets its
     /// own projection by `jitter` (jittered_view_projection) and publishes motion without it.
@@ -353,6 +355,7 @@ private:
         std::uint64_t last_frame = 0;
         std::map<std::string, std::vector<double>> passes;
         std::vector<double> totals;
+        std::vector<double> frames;  ///< the command buffers' GPU spans (Device::last_frame_gpu_ms)
     };
     std::optional<TimingReport> timing_report_;
     void collect_timings();

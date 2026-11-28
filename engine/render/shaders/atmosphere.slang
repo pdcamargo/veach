@@ -114,13 +114,21 @@ void integrate_scattering(SkyFrame s, float3 origin, float3 direction, float max
     const float cos_theta = dot(direction, s.sun.xyz);
     const float phase_r = rayleigh_phase(cos_theta);
     const float phase_m = mie_phase(cos_theta, s.atmosphere.mie_absorption.w);
+    // The sun lights the part of each step outside the planet's shadow (as planet_in_scatter).
+    const float altitude = r - s.atmosphere.planet.x;
+    const float2 shadow = sphere_shadow_span(origin, direction, altitude * (r + s.atmosphere.planet.x), s.sun.xyz);
     luminance = float3(0.0, 0.0, 0.0);
     transmittance = float3(1.0, 1.0, 1.0);
     for (uint k = 0; k < steps; ++k) {
         const float3 p = origin + direction * ((float(k) + 0.5) * dt);
         const Medium m = medium_at(s.atmosphere, length(p) - s.atmosphere.planet.x);
         const float3 step_transmittance = exp(-m.extinction * dt);
-        const float3 single = (m.rayleigh * phase_r + m.mie * phase_m) * sun_transmittance(s, p);
+        float middle;
+        const float lit = lit_fraction(shadow, float(k) * dt, float(k + 1) * dt, middle);
+        const float3 q = origin + direction * middle;
+        const float3 sun = lit > 0.0 ? sample_transmittance(s, length(q), dot(normalize(q), s.sun.xyz)) * lit :
+                                       float3(0.0, 0.0, 0.0);
+        const float3 single = (m.rayleigh * phase_r + m.mie * phase_m) * sun;
         const float3 in_scatter = single + m.scattering * multiple_scattering(s, p);
         luminance += transmittance * (in_scatter - in_scatter * step_transmittance) / max(m.extinction, 1e-9);
         transmittance *= step_transmittance;

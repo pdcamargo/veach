@@ -1,4 +1,4 @@
-// The sun shadows' culling pyramids (docs/adr/0096-sun-shadow-culling.md, shadows.cpp): two coarse grids over each
+// The sun shadows' culling pyramids (docs/adr/0100-sun-shadow-culling.md, shadows.cpp): two coarse grids over each
 // cascade's map, a texel per 16 x 16 of it, each a pyramid whose texels of level L hold the minimum of the four below
 // (reverse-Z: the farthest from the light), like the camera's HiZ. gpu_cull.slang tests a caster's footprint on them.
 //

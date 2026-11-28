@@ -108,3 +108,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0095 | [Sun shadows: cascades culled and drawn by the GPU-driven path, chosen by view depth, filtered by the sun's size](0095-sun-shadows.md) | Accepted |
 | 0096 | [The sky's ambient light per shaded point from an SH table per medium; GTAO at half resolution without history](0096-ambient-light-and-occlusion.md) | Accepted |
 | 0097 | [Temporal AA as built: unjittered views, surface ids for disocclusion, the backdrop after the resolve](0097-temporal-aa-as-built.md) | Accepted |
+| 0100 | [Sun shadow culling: scene residency in one graph group, casters culled by this frame's receivers and by the light's occlusion, far cascades kept while the scene is still](0100-sun-shadow-culling.md) | Accepted |

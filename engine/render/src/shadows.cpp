@@ -505,7 +505,7 @@ ShadowRenderer::Output ShadowRenderer::record(RenderGraph& graph, const FrameCon
         return out;
     }
 
-    // The culling (ADR 0096): the receivers this frame's pixels look up in each cascade (from the camera's depth),
+    // The culling (ADR 0100): the receivers this frame's pixels look up in each cascade (from the camera's depth),
     // and occlusion from the light in two phases, as the camera's (ADR 0093): phase 1 tests last frame's map of the
     // cascade, phase 2 what phase 1 rejected against this frame's. VEACH_SHADOW_NO_RECEIVERS=1 and
     // VEACH_SHADOW_NO_OCCLUSION=1 turn either off, to compare.

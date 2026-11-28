@@ -324,15 +324,20 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   rechecked, meshlets culled, occluded and drawn per phase) is read back each frame (`SceneRenderer::cull_stats`, MCP `gpu_timings`' `culling`). Lighting has no indirect light
   from surfaces and no local reflections, and uses no ray tracing: `VEACH_DISABLE_RAY_TRACING=1` renders the same
   image. Example: `scripts/flight_helmet_realtime.luau`.
-- **Sun shadows** ([spec](../specs/sun-shadows/spec.md), [ADR 0095](../adr/0095-sun-shadows.md)): the brightest
+- **Sun shadows** ([spec](../specs/sun-shadows/spec.md), [ADR 0095](../adr/0095-sun-shadows.md),
+  [ADR 0100](../adr/0100-sun-shadow-culling.md)): the brightest
   directional lights (at most two) cast cascaded shadow maps, before shading (`shadows.cpp`). A camera's `SunShadows`
   sets how many suns cast (`suns`, 0 turns them off), where the last cascade ends (`distance`, meters, default 1000),
   how many cascades (`cascades`, 1 to 4, each a quarter of the next) and their size (`resolution`, default 2048).
   Each cascade is the bounding sphere of its slice of the frustum, snapped to its texels in the render frame (no
   shimmer as the camera moves or render space changes cell), culled by `gpu_cull.slang` with `cull_shadow_view` (no
-  occlusion, no normal cones; casters must be big enough and their shadow must reach the camera's slice) into its own
-  draw lists, and drawn depth-only into a layer of one `depth32_float` 2D array (`shadow_vs`, `shadow_fs_masked` in
-  `realtime_visibility.slang`). Shading calls `light_shadow` (`veach/shadows.slang`) once per light: the cascade by
+  normal cones; casters must be big enough and their shadow must reach the camera's slice) into its own draw lists,
+  and drawn depth-only into a layer of one `depth32_float` 2D array (`shadow_vs_opaque`, `shadow_vs`,
+  `shadow_fs_masked` in `realtime_visibility.slang`). Culling also drops casters that shadow none of this frame's
+  pixels (receiver pyramids marked from the camera's depth) and casters hidden from the light behind others (two
+  phases, as the camera's HiZ), both in `shadow_pyramids.slang`; the last two of three or four cascades are kept from
+  frame to frame while the scene, render frame and lights are still. `VEACH_SHADOW_NO_RECEIVERS=1`,
+  `VEACH_SHADOW_NO_OCCLUSION=1` and `VEACH_SHADOW_NO_CACHE=1` turn each off, to compare. Shading calls `light_shadow` (`veach/shadows.slang`) once per light: the cascade by
   view depth, a blocker search, then comparison-sampler PCF as wide as the light's angular radius makes the
   penumbra; the last tenth of each cascade blends into the next and the last fifth of the distance fades out.
   Beyond `distance` only a surface's own facing darkens it. `CullStats::shadow_meshlets_drawn` reports each

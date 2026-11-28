@@ -118,7 +118,7 @@ None.
 
 ## Links
 
-- ADRs: [0095](../../adr/0095-sun-shadows.md), [0062](../../adr/0062-shadows-ambient-reflections.md),
+- ADRs: [0095](../../adr/0095-sun-shadows.md), [0100](../../adr/0100-sun-shadow-culling.md), [0062](../../adr/0062-shadows-ambient-reflections.md),
   [0093](../../adr/0093-gpu-driven-core.md), [0090](../../adr/0090-rhi-texture-kinds-updates-and-raster-state.md),
   [0045](../../adr/0045-large-world-positions-and-reference-frames.md)
 - Backlog: VCH-142, VCH-143

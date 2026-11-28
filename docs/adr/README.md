@@ -85,3 +85,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0072 | [Runtime meshes live in a renderer-owned MeshStore of immutable snapshots](0072-runtime-meshes.md) | Accepted |
 | 0073 | [The job system: enkiTS behind veach::JobSystem, fixed chunks, results in index order](0073-job-system-enkits.md) | Accepted |
 | 0074 | [Amendments from SP-08: LOD-independent samples, remeshing on neighbor change, lattice positions](0074-amendments-from-sp-08.md) | Accepted |
+| 0075 | [Amendments from SP-11: Jolt's build flags, AVX2 on x64, Jolt optimized in Debug](0075-amendments-from-sp-11.md) | Accepted |

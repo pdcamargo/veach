@@ -223,6 +223,12 @@ CPMAddPackage(
         "DEBUG_RENDERER_IN_DEBUG_AND_RELEASE OFF" "PROFILER_IN_DEBUG_AND_RELEASE OFF" "ENABLE_OBJECT_STREAM OFF"
         "ENABLE_INSTALL OFF" "JPH_USE_DX12 OFF" "JPH_USE_VK OFF" "JPH_USE_MTL OFF" "JPH_USE_CPU_COMPUTE OFF"
         "CPP_RTTI_ENABLED OFF" "CPP_EXCEPTIONS_ENABLED OFF")
+# Unoptimized Jolt runs about 30x slower; Debug builds keep JPH_DEBUG and asserts but optimize Jolt itself. The state
+# hashes don't change with the optimization level (docs/adr/0075-amendments-from-sp-11.md). Clang only: MSVC's /O2
+# conflicts with the /RTC1 of its Debug flags.
+if(TARGET Jolt AND NOT MSVC)
+    target_compile_options(Jolt PRIVATE $<$<CONFIG:Debug>:-O2>)
+endif()
 
 # LLVM libc's header-only math (libc/shared/math): backs veach::dmath, correctly rounded math for canonical code
 # (docs/adr/0043-determinism-tiers-and-strict-floating-point.md, docs/research/spikes/sp-02-dmath.md). Pinned to a

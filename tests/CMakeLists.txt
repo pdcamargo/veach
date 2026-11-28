@@ -367,6 +367,8 @@ if(VEACH_LEAK_CHECK)
     endif()
     set(_leak_check sh "${PROJECT_SOURCE_DIR}/tools/scripts/leak-check.sh")
     add_test(NAME "leaks: unit tests" COMMAND ${_leak_check} $<TARGET_FILE:veach-tests>)
+    # The whole unit suite under `leaks`: 115 s on CI's runner before the frames and procgen tests joined.
+    set_tests_properties("leaks: unit tests" PROPERTIES TIMEOUT 600)
     add_test(NAME "leaks: lab headless run"
         COMMAND ${_leak_check} $<TARGET_FILE:veach-lab> --script scripts/hello.luau --frames 3 --headless)
 endif()

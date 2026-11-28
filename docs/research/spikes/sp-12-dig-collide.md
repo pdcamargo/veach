@@ -39,6 +39,7 @@ need as they are.
 | Colliders and physics scene | `tests/sp12/sp12_physics.*` | The only SP-12 file that includes Jolt; Jolt links `PRIVATE`. Shares SP-11's process-wide Jolt init (`sp11::ensure_jolt`) because both run in `veach-tests` |
 | The scenario | `tests/sp12/sp12_scenario.*` | Load, cook, install, drop the ball, apply the log at its ticks, recook, install at t + K |
 | Tests `[sp12.AC1]`..`[sp12.AC4]` | `tests/sp12/sp12_tests.cpp` | In `veach-tests`, the fast set. AC2 to AC4 are subcases of one test case, so the four scenario runs they share happen once per process: about 8 s in Debug on an M5 Max |
+| Site parameter (added by the [seams sweep](seams-sweep.md)) | `Site`, `ScenarioConfig::site`, `dig_log(site)` | The same flow anywhere on the planet; `default_site` is the site above and keeps the committed hashes |
 | `veach-bench-sp12` | `tests/sp12/sp12_bench.cpp` | The tables below; `--out DIR` writes a lab project for screenshots; `--surface E N` and `--basins` survey the ground |
 
 Tracy zones (`sp12 sample chunk`, `sp12 apply brush`, `sp12 mesh chunk`, `sp12 cook collider`,

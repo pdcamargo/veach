@@ -36,6 +36,7 @@ Throwaway, under `tests/sp13/` like SP-11, plus a lab view. Nothing in `engine/`
 | Tests | `tests/sp13/sp13_tests.cpp` | `[sp13.AC1]`–`[sp13.AC3]` in `veach-tests`, the fast set: 2.2, 0.4, 3.7 and 8.7 s in Debug |
 | `veach-bench-sp13` | `tests/sp13/sp13_bench.cpp` | `landing`, `freefall`, `walk`, `frames`: the tables below |
 | Lab view | `apps/lab/src/sp13_spike.cpp` | `VEACH_SP13=s [VEACH_SP13_AT=landed]`: runs the Sim to a moment and draws it with runtime meshes (ADR 0072). Compiled into the lab from `tests/sp13/CMakeLists.txt` |
+| Pad latitude (added by the [seams sweep](seams-sweep.md)) | `Config::latitude`, `make_planet(scale, latitude)` | 30° by default, the committed hashes unchanged; the sweep lands at the north pole |
 | Shared Jolt init | `tests/support/jolt_runtime.hpp` | One `Factory` and `RegisterTypes` per process for SP-11 and SP-13 together (ADR 0075, decision 5) |
 
 **The planet.** Earth-like at body scale s ([ADR 0049](../../adr/0049-scale-model.md)): R = 6,371 km × s, g = 9.80665

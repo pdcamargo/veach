@@ -93,3 +93,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0080 | [Amendments from SP-13: fictitious forces in rotating free flight, velocity-tracking scenes, handoff bands](0080-amendments-from-sp-13.md) | Accepted |
 | 0081 | [Creator control over atmosphere scaling and sunsets; s_a = √s_p stays the default](0081-creator-control-over-atmosphere-scaling.md) | Accepted |
 | 0082 | [Amendments from SP-14: metering rules, fp16 clamps, occluded aerial perspective, layered far bodies](0082-amendments-from-sp-14.md) | Accepted |
+| 0083 | [Terrain colliders carry their neighbors' border triangles as adjacency](0083-terrain-colliders-with-an-adjacency-ring.md) | Accepted |

@@ -45,6 +45,18 @@ inline constexpr std::array<double, 3> site_up{0.6, 0.8, 0.0};
 /// Integer: the offsets must be multiples of 5 mm.
 std::array<std::int64_t, 3> site_offset_mm(std::int64_t east, std::int64_t north, std::int64_t up);
 
+/// A dig site anywhere on the planet (the seams sweep, docs/research/spikes/seams-sweep.md): a surface point in integer
+/// body-local millimeters and its tangent frame (unit up, east, north; north = up × east).
+struct Site {
+    std::array<std::int64_t, 3> center_mm{};
+    std::array<double, 3> up{}, east{}, north{};
+};
+/// SP-12's site, along (0.6, 0.8, 0).
+inline constexpr Site default_site{dig_site_mm, site_up, {0.8, -0.6, 0.0}, {0.0, 0.0, 1.0}};
+/// `site` moved by (east, north, up) millimeters, rounded to the millimeter (+ − × and nearbyint: canonical). For
+/// default_site and offsets that are multiples of 5 mm it equals site_offset_mm(east, north, up).
+std::array<std::int64_t, 3> site_offset_mm(const Site& site, std::int64_t east, std::int64_t north, std::int64_t up);
+
 /// The LOD0 chunk holding a body-local point in millimeters.
 ChunkKey chunk_of_mm(const std::array<std::int64_t, 3>& p);
 

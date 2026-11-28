@@ -194,7 +194,7 @@ std::string_view kind_name(Transfer::Kind kind) {
     return "?";
 }
 
-Planet make_planet(double scale) {
+Planet make_planet(double scale, double latitude_deg) {
     Planet p;
     p.scale = scale;
     p.radius = 6'371'000.0 * scale;
@@ -205,7 +205,7 @@ Planet make_planet(double scale) {
     p.spin_period_q = space::period_q_from_seconds(86'164.0905);  // Earth's sidereal day, never scaled
     p.obliquity = 23.44 * deg;
     p.omega = 2.0 * pi / space::seconds_from_period_q(p.spin_period_q);
-    const double lat = 30.0 * deg;
+    const double lat = latitude_deg * deg;
     p.site_up = dvec3(dmath::cos(lat), dmath::sin(lat), 0.0);  // longitude 0 is the body's +X
     p.site = p.site_up * p.radius;
     p.site_east = math::normalize(math::cross(dvec3(0.0, 1.0, 0.0), p.site_up));
@@ -255,7 +255,7 @@ struct Sim::Impl {
     std::map<std::pair<int, int>, JPH::BodyID> chunks;
     std::vector<Transfer> transfers;
 
-    explicit Impl(const Config& c) : config(c), planet(make_planet(c.scale)) {
+    explicit Impl(const Config& c) : config(c), planet(make_planet(c.scale, c.latitude)) {
         spin = {.period_q = planet.spin_period_q,
                 .epoch_tick = 0,
                 .phase0 = 0.0,

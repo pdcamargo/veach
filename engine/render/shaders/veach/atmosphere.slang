@@ -52,6 +52,16 @@ struct SkyFrame {
     // Spike SP-14 (VCH-090), throwaway: a procedural starfield (planet mode, or no sky). x = brightness (0: off; 1 is
     // physical), y = one pixel's angle (radians), z = limiting magnitude, w = cells per cube-map face side.
     float4 stars;
+    // The space backdrop (veach.backdrop, ADR 0090). Read only when backdrop_info.w is 1.
+    float4 galactic_x;      ///< xyz = row 0 of the rotation galactic from render space; w = one pixel's angle (rad)
+    float4 galactic_y;      ///< xyz = row 1; w = the creator's exposure compensation (stops)
+    float4 galactic_z;      ///< xyz = row 2; w = the creator's exposure follow (0..1)
+    float4 camera_right;    ///< xyz = the camera's right, galactic
+    float4 camera_up;       ///< xyz = the camera's up, galactic
+    float4 backdrop_stars;  ///< x = star density, y = magnitude scale, z = saturation, w = how fast a lit sky hides it
+    uint4 backdrop_info;    ///< x = seed, y = texture width, z = height, w = 1: draw it
+    DescriptorHandle<Texture2D<float4>> backdrop;  ///< lat-long, galactic: rgb = nits, a = star density
+    DescriptorHandle<SamplerState> linear_repeat;
 };
 
 // ---- the medium ----------------------------------------------------------------------------------------------
@@ -592,4 +602,43 @@ float3 sky_radiance_any(SkyFrame s, float3 direction, bool with_sun) {
         return starfield_radiance(s, direction);
     }
     return sky_radiance(s, direction, with_sun);
+}
+
+/// The transmittance from the camera toward `direction` to what lies beyond the sky (the space backdrop, ADR 0090):
+/// 1 with no sky, 0 for a constant sky or through the ground or the occluder, the transmittance LUT's through the air
+/// (from the camera, or from where the ray enters the atmosphere when the camera is above it).
+float3 sky_to_space(SkyFrame s, float3 direction) {
+    if (s.mode == sky_none) {
+        return float3(1.0, 1.0, 1.0);
+    }
+    if (s.mode != sky_physical) {
+        return float3(0.0, 0.0, 0.0);
+    }
+    if (s.planet == 0) {
+        const float r = s.atmosphere.planet.x + s.camera.x;
+        return ray_sphere(float3(0.0, r, 0.0), direction, s.atmosphere.planet.x) < 0.0 ?
+                   sample_transmittance(s, r, direction.y) :
+                   float3(0.0, 0.0, 0.0);
+    }
+    const float3 origin = s.origin.xyz;
+    const float bottom = s.atmosphere.planet.x;
+    const float top = s.atmosphere.planet.y;
+    if (ray_sphere(origin, direction, bottom) >= 0.0) {
+        return float3(0.0, 0.0, 0.0);
+    }
+    const float3 to_occluder = s.occluder.xyz - origin;
+    const float tc = dot(to_occluder, direction);
+    if (s.occluder.w > 0.0 && tc > 0.0 && dot(to_occluder, to_occluder) - tc * tc < s.occluder.w * s.occluder.w) {
+        return float3(0.0, 0.0, 0.0);
+    }
+    const float r = length(origin);
+    if (r <= top) {
+        return sample_transmittance(s, max(r, bottom), dot(direction, origin / max(r, 1e-6)));
+    }
+    const float entry = ray_sphere(origin, direction, top);
+    if (entry < 0.0) {
+        return float3(1.0, 1.0, 1.0);
+    }
+    const float3 p = origin + direction * entry;
+    return sample_transmittance(s, top, dot(direction, p / top));
 }

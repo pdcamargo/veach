@@ -79,6 +79,22 @@ struct Sky {
     bool aerial_perspective = true;
 };
 
+/// The creator's settings for the space backdrop: the stars, the galactic band and the nebulae beyond every body
+/// (docs/specs/space-backdrop/spec.md, ADR 0090). On any one entity; none means the defaults. A module that knows
+/// where the camera is in its universe gives the backdrop its content (a star system's, from its address);
+/// `seed` makes one here for scenes without such a module. Scriptable.
+///
+/// Physically a sunlit planet in view makes the stars invisible (they are 13 to 20 stops darker). The backdrop is
+/// exposed on its own: `exposure_compensation` stops above its physical brightness in deep space (EV100 -4), and
+/// following the camera's exposure only by `exposure_follow`, so it stays visible next to a lit planet. Where the
+/// sky itself is bright (a day sky, the limb's glow) it fades back to physical, so day skies stay starless.
+struct SpaceBackdrop {
+    std::uint32_t seed = 0;              ///< nonzero: a backdrop from this seed (scenes with no module providing one)
+    bool visible = true;                 ///< false hides any backdrop
+    float exposure_compensation = 4.0f;  ///< stops above physical at EV100 -4
+    float exposure_follow = 0.1f;        ///< 0..1: how much a brighter camera exposure dims it (1: physical)
+};
+
 /// On a camera entity: photo mode (ADR 0041). The camera's view is path traced by the reference path tracer and
 /// accumulates while nothing changes; moving the camera or changing the scene restarts it. Needs hardware ray
 /// tracing. Scriptable.

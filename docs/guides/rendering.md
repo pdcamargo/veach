@@ -205,6 +205,15 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   mode's escaped rays. Without a `Sky` entity the sky follows the scene's brightest directional light; with one, it
   drives the sun from `time_of_day`. Closed test scenes set `Sky { mode = "none" }` (a warning says so when the scene
   has lights). Example: `scripts/bistro_sunset.luau`.
+- **The space backdrop** ([ADR 0090](../adr/0090-space-backdrop.md), [spec](../specs/space-backdrop/spec.md)): stars,
+  the galactic band and nebulae beyond every body, behind the sky and through its air. Data in
+  `ResolvedSky::backdrop` (`render::Backdrop`, from a module's extractor or the `SpaceBackdrop` component's `seed`;
+  `generate_backdrop(seed, GalaxyView)` makes one). The band and nebulae are baked once into a 4096 x 2048 lat-long
+  in galactic coordinates (`space backdrop bake`, when they change); the stars are drawn per pixel by the
+  `space backdrop` pass after shading (0.3 ms at 1440p on the M5 Max). It has its own exposure
+  (`SpaceBackdrop.exposure_compensation`, `exposure_follow`) and is left out of auto-exposure's metering: the radiance
+  target's alpha is the share of a pixel that is metered, so a pass that writes the HDR target before metering
+  writes alpha 1. Example: `scripts/space_backdrop.luau` (deep space, no meshes: a scene with a backdrop draws).
 - **Meshes made at run time** ([spec](../specs/runtime-meshes/spec.md), [ADR 0072](../adr/0072-runtime-meshes.md)):
   terrain chunks and other generated geometry go through the `render::MeshStore` service, not the cook step.
   `add(MeshData{vertices, indices, triangle_slots, materials})` validates the data (`render.mesh_invalid`), builds

@@ -560,7 +560,10 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
     Impl& s = *impl_;
     const RenderView* view = frame.view;
     s.sweep(frame.world.runtime_assets);  // even when nothing draws: removed meshes free their GPU data
-    if (view == nullptr || frame.world.meshes.empty()) {
+    // A scene with nothing to draw shows the background color, unless the sky has a space backdrop: deep space is a
+    // scene of its own.
+    const bool backdrop = frame.world.sky.backdrop.has_value() && frame.world.sky.backdrop_settings.visible;
+    if (view == nullptr || (frame.world.meshes.empty() && !backdrop)) {
         return;
     }
     // A PhotoMode on the camera selects the path tracer (ADR 0041), where the device can ray trace; otherwise the
@@ -607,9 +610,10 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
         instances.push_back(inst);
         draws.push_back(&draw);
     }
-    if (instances.empty()) {
+    if (instances.empty() && !backdrop) {
         return;
     }
+    photo = photo && !instances.empty();  // the path tracer needs geometry for its acceleration structure
     const std::uint32_t scene_flags =
         std::ranges::any_of(instances, [](const InstanceRecord& i) { return (i.flags & instance_has_alpha) != 0; })
             ? scene_has_alpha

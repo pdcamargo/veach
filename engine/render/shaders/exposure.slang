@@ -52,7 +52,8 @@ void exposure_histogram(uint3 id: SV_DispatchThreadID, uint index: SV_GroupIndex
     }
     GroupMemoryBarrierWithGroupSync();
     if (all(id.xy < params.size)) {
-        const float3 c = params.radiance.Load(int3(id.xy, 0)).rgb;
+        const float4 pixel = params.radiance.Load(int3(id.xy, 0));
+        const float3 c = pixel.rgb;
         if (any(isnan(c)) || any(isinf(c))) {
             InterlockedAdd(local_bins[counter_nonfinite], 1u);
         } else {
@@ -60,7 +61,8 @@ void exposure_histogram(uint3 id: SV_DispatchThreadID, uint index: SV_GroupIndex
                 InterlockedAdd(local_bins[counter_saturated], 1u);
             }
             const float pre_exposure = params.state[0].y;
-            const float luminance = dot(c, float3(0.2126, 0.7152, 0.0722)) / pre_exposure;
+            // Alpha is the metered share: the space backdrop, exposed on its own (ADR 0090), is left out.
+            const float luminance = dot(c, float3(0.2126, 0.7152, 0.0722)) * saturate(pixel.a) / pre_exposure;
             const float ev = log2(max(luminance, 1e-30) * 8.0);
             if (ev < params.histogram_min_ev) {
                 InterlockedAdd(local_bins[counter_below], 1u);

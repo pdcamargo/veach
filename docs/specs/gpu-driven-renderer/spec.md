@@ -79,7 +79,7 @@ const render::CullStats& stats = scene_renderer.cull_stats();  // instances_visi
 
 - Temporal accumulation and jitter (ADR 0061, the next task), shadows, clustered lights, transparency (ADR 0060).
 - LOD and draw distances for distant vegetation; a single-pass HiZ build; a static-instance path that writes records
-  once instead of comparing them every frame (all in VCH-137's follow-ups).
+  once instead of comparing them every frame (VCH-139).
 
 ## Open questions
 
@@ -90,6 +90,6 @@ None.
 - ADRs: [0093](../../adr/0093-gpu-driven-core.md), [0060](../../adr/0060-gpu-driven-visibility-buffer.md),
   [0089](../../adr/0089-indirect-work-and-fixed-latency-readback.md), [0078](../../adr/0078-sidedness-decides-the-shading-surface.md),
   [0045](../../adr/0045-large-world-positions-and-reference-frames.md)
-- Backlog: VCH-137
+- Backlog: VCH-138
 - Guides: [rendering](../../guides/rendering.md)
 - Measurements: [GPU-driven core against the interim path](../../research/gpu-driven/README.md)

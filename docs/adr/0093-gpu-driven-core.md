@@ -20,7 +20,7 @@ mesh shaders and no 64-bit atomics on the floor hardware (ADR 0060); every posit
 render origin's 64 m grid (ADR 0045); rasterization two-sided, because single-sided triangles seen from behind must
 still be drawn and shaded by their normals (ADR 0078, `rt.AC8`); a mip chain could not be built in the render graph
 (ADR 0090's not-done list); the atmosphere is being reworked in parallel (ADR 0092), so shading's calls into it must
-stay where they are. Spec: [gpu-driven renderer](../specs/gpu-driven-renderer/spec.md); backlog VCH-137.
+stay where they are. Spec: [gpu-driven renderer](../specs/gpu-driven-renderer/spec.md); backlog VCH-138.
 
 ## Decision
 
@@ -53,10 +53,10 @@ already cooked). Draws with the same materials share one run of material records
   mip L covers pixels [t, t + 1) x 2^(L + 1) exactly and the test is conservative. One dispatch per mip, reading the
   mip before: **the render graph tracks a state per mip** (`RenderGraph::mips(texture, first, count)` is a resource of
   its own; `rhi::Barrier::first_mip`/`mip_count`, subresource ranges on DX12, per-mip validation on Metal).
-- **Draw lists**: six compacted lists per phase, opaque meshlets of up to 32, 64 and 124 triangles then the same for
-  alpha-tested ones (`draw_list_of`), each with exact capacity computed on the CPU from per-slot meshlet counts. Each
+- **Draw lists**: eight compacted lists per phase, opaque meshlets of up to 16, 32, 64 and 124 triangles then the same
+  for alpha-tested ones (`draw_list_of`), each with exact capacity computed on the CPU from per-slot meshlet counts. Each
   list is one non-indexed `draw_indirect` whose `instance_count` the GPU counts with atomics and whose vertex count is
-  3 x the bucket's triangle limit, so small meshlets (grass cards) do not run 372 vertex invocations.
+  3 x the bucket's triangle limit, so a 12-triangle grass card runs 48 vertex invocations, not 372.
 - Counts become dispatch arguments in a one-thread `cull_args` pass; every indirect dispatch comes in rows of 32,768
   groups (D3D12 caps a row at 65,535).
 
@@ -78,10 +78,10 @@ one function (`surface_pixel`, `sky_pixel`).
 
 ## Consequences
 
-- Every scene and golden draws through this path; the goldens match the interim path's images (FLIP 0 to 0.00005 on
-  the same build type), so none was regenerated. Photo mode reads the same GPU scene and is otherwise unchanged.
+- Every scene and golden draws through this path; every real-time golden's image is the interim path's (mean FLIP
+  0.00000 between the two release builds), so none was regenerated. Photo mode reads the same GPU scene and is otherwise unchanged.
 - The CPU still walks every instance each frame (extraction, records, the comparison): fine for thousands, about
-  100 ms per frame for SP-16's 467,767 entities. A static-instance path (records written once, changes from the ECS)
+  31 ms per frame for SP-16's 467,767 entities (the interim path took 102 ms). A static-instance path (records written once, changes from the ECS)
   is the follow-up when such counts are real content.
 - Draw order inside a list follows atomics, so it varies run to run; coplanar overlapping surfaces may pick a different
   triangle per run. Goldens and the byte-identical frames test are unaffected.

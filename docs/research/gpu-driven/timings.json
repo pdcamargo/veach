@@ -1,0 +1,680 @@
+{
+ "bistro|1920x1080": {
+  "gpu_driven": {
+   "culling": {
+    "frame": 267,
+    "instances": 1296,
+    "instances_disoccluded": 0,
+    "instances_rechecked": 10,
+    "instances_visible": 247,
+    "meshlets_culled": 5910,
+    "meshlets_drawn": [
+     9379,
+     0
+    ],
+    "meshlets_occluded": 1864,
+    "meshlets_rechecked": 1864
+   },
+   "passes": {
+    "aerial perspective": 0.0313,
+    "classify": 0.040749999999999995,
+    "classify: args": 0.0019,
+    "clear": 0.00605,
+    "cull counters readback": 0.0018,
+    "cull draw args readback": 0.0017000000000000001,
+    "cull: args": 0.00225,
+    "cull: args (late meshlets)": 0.00245,
+    "cull: args (late)": 0.0023,
+    "cull: instances": 0.010700000000000001,
+    "cull: instances (late)": 0.00635,
+    "cull: meshlets": 0.01375,
+    "cull: meshlets (late)": 0.005849999999999999,
+    "cull: reset": 0.0017499999999999998,
+    "display": 0.0485,
+    "hiz 0": 0.02425,
+    "hiz 1": 0.00805,
+    "hiz 2": 0.0049,
+    "hiz 3": 0.00465,
+    "hiz 4": 0.00405,
+    "hiz 5": 0.004,
+    "hiz 6": 0.00365,
+    "hiz 7": 0.0039,
+    "hiz 8": 0.00375,
+    "hiz 9": 0.0037,
+    "shade": 0.3118,
+    "sky irradiance": 0.0973,
+    "sky view": 0.02125,
+    "visibility": 0.6794,
+    "visibility (late)": 0.00395
+   },
+   "rounds": 2,
+   "total_ms": 1.3796,
+   "wall_ms_per_frame": 2.775739034016927
+  },
+  "interim": {
+   "culling": null,
+   "passes": {
+    "aerial perspective": 0.0295,
+    "clear": 0.0056500000000000005,
+    "display": 0.044700000000000004,
+    "shade": 0.2721,
+    "sky irradiance": 0.09145,
+    "sky view": 0.0208,
+    "visibility": 1.6775000000000002
+   },
+   "rounds": 2,
+   "total_ms": 2.1487499999999997,
+   "wall_ms_per_frame": 2.7501805623372397
+  }
+ },
+ "bistro|2560x1440": {
+  "gpu_driven": {
+   "culling": {
+    "frame": 267,
+    "instances": 1296,
+    "instances_disoccluded": 0,
+    "instances_rechecked": 12,
+    "instances_visible": 245,
+    "meshlets_culled": 5910,
+    "meshlets_drawn": [
+     9336,
+     0
+    ],
+    "meshlets_occluded": 1927,
+    "meshlets_rechecked": 1927
+   },
+   "passes": {
+    "aerial perspective": 0.0305,
+    "classify": 0.0661,
+    "classify: args": 0.0018,
+    "clear": 0.0064,
+    "cull counters readback": 0.0017,
+    "cull draw args readback": 0.00165,
+    "cull: args": 0.0022,
+    "cull: args (late meshlets)": 0.0022500000000000003,
+    "cull: args (late)": 0.0022,
+    "cull: instances": 0.009899999999999999,
+    "cull: instances (late)": 0.0062,
+    "cull: meshlets": 0.012750000000000001,
+    "cull: meshlets (late)": 0.0056,
+    "cull: reset": 0.00165,
+    "display": 0.07705000000000001,
+    "hiz 0": 0.032,
+    "hiz 1": 0.0105,
+    "hiz 10": 0.0032,
+    "hiz 2": 0.005,
+    "hiz 3": 0.00385,
+    "hiz 4": 0.00385,
+    "hiz 5": 0.00375,
+    "hiz 6": 0.0036,
+    "hiz 7": 0.0035,
+    "hiz 8": 0.0039,
+    "hiz 9": 0.00355,
+    "shade": 0.49075,
+    "sky irradiance": 0.09075,
+    "sky view": 0.02,
+    "visibility": 0.7797000000000001,
+    "visibility (late)": 0.00435
+   },
+   "rounds": 2,
+   "total_ms": 1.70235,
+   "wall_ms_per_frame": 2.805347442626953
+  },
+  "interim": {
+   "culling": null,
+   "passes": {
+    "aerial perspective": 0.031,
+    "clear": 0.0066,
+    "display": 0.0775,
+    "shade": 0.46530000000000005,
+    "sky irradiance": 0.0916,
+    "sky view": 0.0206,
+    "visibility": 1.78195
+   },
+   "rounds": 2,
+   "total_ms": 2.4806,
+   "wall_ms_per_frame": 2.7707910537719727
+  }
+ },
+ "field_far|1920x1080": {
+  "gpu_driven": {
+   "culling": {
+    "frame": 107,
+    "instances": 467767,
+    "instances_disoccluded": 0,
+    "instances_rechecked": 4806,
+    "instances_visible": 351871,
+    "meshlets_culled": 2167,
+    "meshlets_drawn": [
+     369972,
+     0
+    ],
+    "meshlets_occluded": 3619,
+    "meshlets_rechecked": 3619
+   },
+   "passes": {
+    "aerial perspective": 0.0362,
+    "classify": 0.13485000000000003,
+    "classify: args": 0.0021000000000000003,
+    "clear": 0.016649999999999998,
+    "cull counters readback": 0.002,
+    "cull draw args readback": 0.0019,
+    "cull: args": 0.0026,
+    "cull: args (late meshlets)": 0.00255,
+    "cull: args (late)": 0.00255,
+    "cull: instances": 0.3886,
+    "cull: instances (late)": 0.00955,
+    "cull: meshlets": 0.03275,
+    "cull: meshlets (late)": 0.0079,
+    "cull: reset": 0.002,
+    "display": 0.05505,
+    "hiz 0": 0.03075,
+    "hiz 1": 0.00885,
+    "hiz 2": 0.00535,
+    "hiz 3": 0.00515,
+    "hiz 4": 0.00455,
+    "hiz 5": 0.0043,
+    "hiz 6": 0.00415,
+    "hiz 7": 0.00425,
+    "hiz 8": 0.0041,
+    "hiz 9": 0.0040999999999999995,
+    "shade": 0.6033,
+    "sky irradiance": 0.15225,
+    "sky view": 0.08,
+    "visibility": 5.759,
+    "visibility (late)": 0.00435
+   },
+   "rounds": 2,
+   "total_ms": 7.3732500000000005,
+   "wall_ms_per_frame": 31.796038150787354
+  },
+  "interim": {
+   "culling": null,
+   "passes": {
+    "aerial perspective": 0.0293,
+    "clear": 0.014700000000000001,
+    "display": 0.04535,
+    "shade": 0.3224,
+    "sky irradiance": 0.0915,
+    "sky view": 0.02135,
+    "visibility": 33.32615
+   },
+   "rounds": 2,
+   "total_ms": 33.855599999999995,
+   "wall_ms_per_frame": 102.32153177261353
+  }
+ },
+ "field_far|2560x1440": {
+  "gpu_driven": {
+   "culling": {
+    "frame": 107,
+    "instances": 467767,
+    "instances_disoccluded": 0,
+    "instances_rechecked": 4106,
+    "instances_visible": 352571,
+    "meshlets_culled": 2172,
+    "meshlets_drawn": [
+     371250,
+     0
+    ],
+    "meshlets_occluded": 3023,
+    "meshlets_rechecked": 3023
+   },
+   "passes": {
+    "aerial perspective": 0.0347,
+    "classify": 0.1785,
+    "classify: args": 0.002,
+    "clear": 0.02145,
+    "cull counters readback": 0.0019,
+    "cull draw args readback": 0.0018,
+    "cull: args": 0.00245,
+    "cull: args (late meshlets)": 0.00245,
+    "cull: args (late)": 0.00245,
+    "cull: instances": 0.38415,
+    "cull: instances (late)": 0.0089,
+    "cull: meshlets": 0.03095,
+    "cull: meshlets (late)": 0.00705,
+    "cull: reset": 0.00185,
+    "display": 0.0879,
+    "hiz 0": 0.03845,
+    "hiz 1": 0.01105,
+    "hiz 10": 0.0035,
+    "hiz 2": 0.00525,
+    "hiz 3": 0.00415,
+    "hiz 4": 0.0043,
+    "hiz 5": 0.004,
+    "hiz 6": 0.00395,
+    "hiz 7": 0.0037,
+    "hiz 8": 0.00425,
+    "hiz 9": 0.0038,
+    "shade": 0.8726,
+    "sky irradiance": 0.14355,
+    "sky view": 0.08335000000000001,
+    "visibility": 5.45885,
+    "visibility (late)": 0.00465
+   },
+   "rounds": 2,
+   "total_ms": 7.3943,
+   "wall_ms_per_frame": 32.005319595336914
+  },
+  "interim": {
+   "culling": null,
+   "passes": {
+    "aerial perspective": 0.0308,
+    "clear": 0.0253,
+    "display": 0.07855000000000001,
+    "shade": 0.48855000000000004,
+    "sky irradiance": 0.09204999999999999,
+    "sky view": 0.02135,
+    "visibility": 33.064499999999995
+   },
+   "rounds": 2,
+   "total_ms": 33.79555,
+   "wall_ms_per_frame": 102.8866958618164
+  }
+ },
+ "field_ground|1920x1080": {
+  "gpu_driven": {
+   "culling": {
+    "frame": 107,
+    "instances": 467767,
+    "instances_disoccluded": 0,
+    "instances_rechecked": 30084,
+    "instances_visible": 158549,
+    "meshlets_culled": 1827,
+    "meshlets_drawn": [
+     157409,
+     0
+    ],
+    "meshlets_occluded": 10250,
+    "meshlets_rechecked": 10250
+   },
+   "passes": {
+    "aerial perspective": 0.05665,
+    "classify": 0.0774,
+    "classify: args": 0.00315,
+    "clear": 0.0216,
+    "cull counters readback": 0.0029,
+    "cull draw args readback": 0.0028,
+    "cull: args": 0.0039,
+    "cull: args (late meshlets)": 0.0039,
+    "cull: args (late)": 0.00395,
+    "cull: instances": 0.37929999999999997,
+    "cull: instances (late)": 0.031799999999999995,
+    "cull: meshlets": 0.028999999999999998,
+    "cull: meshlets (late)": 0.015600000000000001,
+    "cull: reset": 0.0029,
+    "display": 0.08879999999999999,
+    "hiz 0": 0.044700000000000004,
+    "hiz 1": 0.01465,
+    "hiz 2": 0.00845,
+    "hiz 3": 0.008,
+    "hiz 4": 0.0069,
+    "hiz 5": 0.00645,
+    "hiz 6": 0.006,
+    "hiz 7": 0.00635,
+    "hiz 8": 0.00625,
+    "hiz 9": 0.0061,
+    "shade": 0.55545,
+    "sky irradiance": 0.17525,
+    "sky view": 0.0638,
+    "visibility": 5.62385,
+    "visibility (late)": 0.0059
+   },
+   "rounds": 2,
+   "total_ms": 7.460050000000001,
+   "wall_ms_per_frame": 31.534054279327393
+  },
+  "interim": {
+   "culling": null,
+   "passes": {
+    "aerial perspective": 0.029699999999999997,
+    "clear": 0.020499999999999997,
+    "display": 0.0446,
+    "shade": 0.21575,
+    "sky irradiance": 0.09225,
+    "sky view": 0.02145,
+    "visibility": 32.47125
+   },
+   "rounds": 2,
+   "total_ms": 32.8887,
+   "wall_ms_per_frame": 103.42273950576782
+  }
+ },
+ "field_ground|2560x1440": {
+  "gpu_driven": {
+   "culling": {
+    "frame": 107,
+    "instances": 467767,
+    "instances_disoccluded": 0,
+    "instances_rechecked": 29148,
+    "instances_visible": 159485,
+    "meshlets_culled": 1838,
+    "meshlets_drawn": [
+     156637,
+     0
+    ],
+    "meshlets_occluded": 12163,
+    "meshlets_rechecked": 12163
+   },
+   "passes": {
+    "aerial perspective": 0.0547,
+    "classify": 0.11929999999999999,
+    "classify: args": 0.0029,
+    "clear": 0.02355,
+    "cull counters readback": 0.00265,
+    "cull draw args readback": 0.00255,
+    "cull: args": 0.00365,
+    "cull: args (late meshlets)": 0.00375,
+    "cull: args (late)": 0.0037,
+    "cull: instances": 0.3591,
+    "cull: instances (late)": 0.030899999999999997,
+    "cull: meshlets": 0.027200000000000002,
+    "cull: meshlets (late)": 0.015349999999999999,
+    "cull: reset": 0.0028,
+    "display": 0.15025,
+    "hiz 0": 0.061549999999999994,
+    "hiz 1": 0.0184,
+    "hiz 10": 0.0051,
+    "hiz 2": 0.0083,
+    "hiz 3": 0.00615,
+    "hiz 4": 0.00655,
+    "hiz 5": 0.00605,
+    "hiz 6": 0.0060999999999999995,
+    "hiz 7": 0.0059,
+    "hiz 8": 0.00635,
+    "hiz 9": 0.00555,
+    "shade": 0.9026000000000001,
+    "sky irradiance": 0.1787,
+    "sky view": 0.0681,
+    "visibility": 4.9268,
+    "visibility (late)": 0.00675
+   },
+   "rounds": 2,
+   "total_ms": 6.9685500000000005,
+   "wall_ms_per_frame": 31.85288667678833
+  },
+  "interim": {
+   "culling": null,
+   "passes": {
+    "aerial perspective": 0.0308,
+    "clear": 0.0253,
+    "display": 0.07644999999999999,
+    "shade": 0.374,
+    "sky irradiance": 0.09215,
+    "sky view": 0.021400000000000002,
+    "visibility": 32.50775
+   },
+   "rounds": 2,
+   "total_ms": 33.13249999999999,
+   "wall_ms_per_frame": 102.93074369430542
+  }
+ },
+ "field_mid|1920x1080": {
+  "gpu_driven": {
+   "culling": {
+    "frame": 107,
+    "instances": 467767,
+    "instances_disoccluded": 0,
+    "instances_rechecked": 16527,
+    "instances_visible": 242766,
+    "meshlets_culled": 2145,
+    "meshlets_drawn": [
+     247411,
+     0
+    ],
+    "meshlets_occluded": 10645,
+    "meshlets_rechecked": 10645
+   },
+   "passes": {
+    "aerial perspective": 0.04435,
+    "classify": 0.07365,
+    "classify: args": 0.0024999999999999996,
+    "clear": 0.0221,
+    "cull counters readback": 0.0023,
+    "cull draw args readback": 0.0021999999999999997,
+    "cull: args": 0.00315,
+    "cull: args (late meshlets)": 0.0030499999999999998,
+    "cull: args (late)": 0.00315,
+    "cull: instances": 0.39435,
+    "cull: instances (late)": 0.01985,
+    "cull: meshlets": 0.03045,
+    "cull: meshlets (late)": 0.0133,
+    "cull: reset": 0.0023,
+    "display": 0.06765,
+    "hiz 0": 0.03605,
+    "hiz 1": 0.010450000000000001,
+    "hiz 2": 0.0063,
+    "hiz 3": 0.00615,
+    "hiz 4": 0.0055,
+    "hiz 5": 0.00505,
+    "hiz 6": 0.004699999999999999,
+    "hiz 7": 0.005,
+    "hiz 8": 0.00485,
+    "hiz 9": 0.00485,
+    "shade": 0.5145500000000001,
+    "sky irradiance": 0.1587,
+    "sky view": 0.07045,
+    "visibility": 5.56315,
+    "visibility (late)": 0.0049
+   },
+   "rounds": 2,
+   "total_ms": 7.2042,
+   "wall_ms_per_frame": 31.536078453063965
+  },
+  "interim": {
+   "culling": null,
+   "passes": {
+    "aerial perspective": 0.0295,
+    "clear": 0.0173,
+    "display": 0.04485,
+    "shade": 0.25125,
+    "sky irradiance": 0.0918,
+    "sky view": 0.02175,
+    "visibility": 32.65245
+   },
+   "rounds": 2,
+   "total_ms": 33.15805,
+   "wall_ms_per_frame": 101.87108993530273
+  }
+ },
+ "field_mid|2560x1440": {
+  "gpu_driven": {
+   "culling": {
+    "frame": 107,
+    "instances": 467767,
+    "instances_disoccluded": 0,
+    "instances_rechecked": 13039,
+    "instances_visible": 246254,
+    "meshlets_culled": 2166,
+    "meshlets_drawn": [
+     252610,
+     0
+    ],
+    "meshlets_occluded": 8951,
+    "meshlets_rechecked": 8951
+   },
+   "passes": {
+    "aerial perspective": 0.03995,
+    "classify": 0.10965,
+    "classify: args": 0.0022,
+    "clear": 0.01725,
+    "cull counters readback": 0.0021,
+    "cull draw args readback": 0.002,
+    "cull: args": 0.00275,
+    "cull: args (late meshlets)": 0.0027,
+    "cull: args (late)": 0.00275,
+    "cull: instances": 0.36135,
+    "cull: instances (late)": 0.016849999999999997,
+    "cull: meshlets": 0.026750000000000003,
+    "cull: meshlets (late)": 0.01155,
+    "cull: reset": 0.0020499999999999997,
+    "display": 0.10245000000000001,
+    "hiz 0": 0.044300000000000006,
+    "hiz 1": 0.01295,
+    "hiz 10": 0.0039,
+    "hiz 2": 0.00585,
+    "hiz 3": 0.0046,
+    "hiz 4": 0.00485,
+    "hiz 5": 0.00455,
+    "hiz 6": 0.00445,
+    "hiz 7": 0.0042,
+    "hiz 8": 0.0048000000000000004,
+    "hiz 9": 0.004200000000000001,
+    "shade": 0.74085,
+    "sky irradiance": 0.14315,
+    "sky view": 0.0589,
+    "visibility": 5.29945,
+    "visibility (late)": 0.0052499999999999995
+   },
+   "rounds": 2,
+   "total_ms": 7.0905000000000005,
+   "wall_ms_per_frame": 31.898036003112793
+  },
+  "interim": {
+   "culling": null,
+   "passes": {
+    "aerial perspective": 0.03095,
+    "clear": 0.02525,
+    "display": 0.07730000000000001,
+    "shade": 0.41685,
+    "sky irradiance": 0.09235,
+    "sky view": 0.02155,
+    "visibility": 32.8797
+   },
+   "rounds": 2,
+   "total_ms": 33.5666,
+   "wall_ms_per_frame": 103.76248836517334
+  }
+ },
+ "slice_s0.01_landed|2560x1440": {
+  "gpu_driven": {
+   "culling": null,
+   "passes": {
+    "GPU scene upload": 0.00645,
+    "aerial perspective": 0.10985,
+    "classify": 0.134,
+    "classify: args": 0.00375,
+    "clear": 0.01705,
+    "cull counters readback": 0.0032500000000000003,
+    "cull draw args readback": 0.0031000000000000003,
+    "cull: args": 0.0041,
+    "cull: args (late meshlets)": 0.00415,
+    "cull: args (late)": 0.004200000000000001,
+    "cull: instances": 0.019,
+    "cull: instances (late)": 0.01175,
+    "cull: meshlets": 0.0204,
+    "cull: meshlets (late)": 0.010249999999999999,
+    "cull: reset": 0.00395,
+    "display": 0.19295,
+    "exposure histogram": 0.15925,
+    "exposure readback": 0.0030499999999999998,
+    "exposure resolve": 0.038,
+    "hiz 0": 0.061700000000000005,
+    "hiz 1": 0.023,
+    "hiz 10": 0.00645,
+    "hiz 2": 0.0103,
+    "hiz 3": 0.00785,
+    "hiz 4": 0.00805,
+    "hiz 5": 0.00795,
+    "hiz 6": 0.0076500000000000005,
+    "hiz 7": 0.0074,
+    "hiz 8": 0.00775,
+    "hiz 9": 0.0074,
+    "shade": 1.0404499999999999,
+    "sky irradiance": 0.21545,
+    "sky view": 0.0643,
+    "space backdrop": 0.13645000000000002,
+    "visibility": 0.5484500000000001,
+    "visibility (late)": 0.0081
+   },
+   "rounds": 2,
+   "total_ms": 2.89435,
+   "wall_ms_per_frame": 11.894823567559753
+  },
+  "interim": {
+   "culling": null,
+   "passes": {
+    "aerial perspective": 0.0892,
+    "clear": 0.01235,
+    "display": 0.15465,
+    "exposure histogram": 0.12845,
+    "exposure readback": 0.0026,
+    "exposure resolve": 0.031450000000000006,
+    "shade": 0.77965,
+    "sky irradiance": 0.17585,
+    "sky view": 0.050699999999999995,
+    "space backdrop": 0.11235,
+    "visibility": 1.6476
+   },
+   "rounds": 2,
+   "total_ms": 3.3666,
+   "wall_ms_per_frame": 11.935719809054445
+  }
+ },
+ "slice_s1_landed|2560x1440": {
+  "gpu_driven": {
+   "culling": null,
+   "passes": {
+    "GPU scene upload": 0.00715,
+    "aerial perspective": 0.12689999999999999,
+    "classify": 0.15994999999999998,
+    "classify: args": 0.00445,
+    "clear": 0.017849999999999998,
+    "cull counters readback": 0.0040999999999999995,
+    "cull draw args readback": 0.00385,
+    "cull: args": 0.00485,
+    "cull: args (late meshlets)": 0.0049,
+    "cull: args (late)": 0.0049,
+    "cull: instances": 0.02205,
+    "cull: instances (late)": 0.0135,
+    "cull: meshlets": 0.0262,
+    "cull: meshlets (late)": 0.0127,
+    "cull: reset": 0.0045000000000000005,
+    "display": 0.22375,
+    "exposure histogram": 0.17995,
+    "exposure readback": 0.00355,
+    "exposure resolve": 0.04475,
+    "hiz 0": 0.07769999999999999,
+    "hiz 1": 0.02785,
+    "hiz 10": 0.0075,
+    "hiz 2": 0.012400000000000001,
+    "hiz 3": 0.0097,
+    "hiz 4": 0.00945,
+    "hiz 5": 0.00935,
+    "hiz 6": 0.009000000000000001,
+    "hiz 7": 0.0086,
+    "hiz 8": 0.00895,
+    "hiz 9": 0.008549999999999999,
+    "shade": 1.2948,
+    "sky irradiance": 0.27359999999999995,
+    "sky view": 0.07974999999999999,
+    "space backdrop": 0.09655,
+    "visibility": 0.7706,
+    "visibility (late)": 0.0097
+   },
+   "rounds": 2,
+   "total_ms": 3.6336500000000003,
+   "wall_ms_per_frame": 4.2181446577238315
+  },
+  "interim": {
+   "culling": null,
+   "passes": {
+    "aerial perspective": 0.08415,
+    "clear": 0.0126,
+    "display": 0.14715,
+    "exposure histogram": 0.11879999999999999,
+    "exposure readback": 0.003,
+    "exposure resolve": 0.0302,
+    "shade": 0.76985,
+    "sky irradiance": 0.1721,
+    "sky view": 0.04935,
+    "space backdrop": 0.0655,
+    "visibility": 2.0679
+   },
+   "rounds": 2,
+   "total_ms": 3.59795,
+   "wall_ms_per_frame": 4.24757118058381
+  }
+ }
+}

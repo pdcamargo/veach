@@ -294,7 +294,7 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
      space, with last frame's transform; only changed records are uploaded (a still scene uploads nothing).
   2. **Culling, phase 1** (`gpu_cull.slang`): instances, then meshlets in tasks of 64 (one-meshlet instances inline):
      the frustum, the normal cone (single-sided materials, uniform scale), last frame's HiZ pyramid. Survivors go to
-     six compacted draw lists (opaque and alpha-tested, by meshlet size); the occluded go to recheck lists.
+     eight compacted draw lists (opaque and alpha-tested, by meshlet size); the occluded go to recheck lists.
   3. `visibility`: the lists drawn indirectly, opaque then alpha-tested, into the `rg32_uint` visibility buffer
      (`{instance, meshlet << 7 | triangle}`), reverse-Z depth and `rg16_float` motion (previous minus current UV).
   4. `hiz 0..n` (`hiz.slang`): the pyramid of that depth, a pass per mip (`RenderGraph::mips`).

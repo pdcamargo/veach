@@ -6,6 +6,7 @@ veach_add_engine_library(render
         src/realtime_renderer.cpp
         src/scene_renderer.cpp
         src/png.cpp
+        src/readback.cpp
         src/render_graph.cpp
         src/renderer.cpp
     PUBLIC_DEPS veach::ecs veach::rhi veach::asset

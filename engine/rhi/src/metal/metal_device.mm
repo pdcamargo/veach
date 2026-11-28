@@ -5,6 +5,7 @@
 #include "metal_device.hpp"
 
 #include "../frame_timings.hpp"
+#include "../indirect_validation.hpp"
 #include "../pipeline_validation.hpp"
 #include "../ray_tracing.hpp"
 #include "../slot_map.hpp"
@@ -151,6 +152,10 @@ public:
     void set_parameters(const void* data, std::size_t size) override;
     void draw(std::uint32_t vertex_count, std::uint32_t instance_count, std::uint32_t first_vertex) override;
     void dispatch(std::uint32_t x, std::uint32_t y, std::uint32_t z) override;
+    void dispatch_indirect(BufferHandle args, std::uint64_t offset) override;
+    void draw_indirect(BufferHandle args, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) override;
+    void draw_indexed_indirect(BufferHandle indices, BufferHandle args, std::uint64_t offset, std::uint32_t count,
+                               std::uint32_t stride) override;
     void build_blas(AccelHandle blas) override;
     void refit_blas(AccelHandle blas) override;
     void build_tlas(AccelHandle tlas, std::span<const TlasInstance> instances) override;
@@ -881,6 +886,19 @@ public:
 
     void wait_idle() override { wait(tracker().last_submitted()); }
 
+    [[nodiscard]] bool is_complete(SubmissionId id) override {
+        if (tracker().is_complete(id)) {
+            return true;
+        }
+        // The command buffer knows before its completion handler has run; the queue completes in order.
+        if (const auto it = in_flight_.find(id.value);
+            it != in_flight_.end() && it->second.status >= MTLCommandBufferStatusCompleted) {
+            tracker().mark_completed(id);
+            return true;
+        }
+        return false;
+    }
+
     FrameInfo begin_frame() override {
         SubmissionId wait_for;
         const FrameInfo frame = tracker().begin_frame(wait_for);
@@ -1087,6 +1105,56 @@ void MetalCommandList::dispatch(std::uint32_t x, std::uint32_t y, std::uint32_t 
     [compute_ dispatchThreadgroups:MTLSizeMake(x, y, z) threadsPerThreadgroup:threads_per_group_];
 }
 
+// The RHI's indirect records are Metal's argument structures (ADR 0089).
+static_assert(sizeof(DispatchIndirectArgs) == sizeof(MTLDispatchThreadgroupsIndirectArguments));
+static_assert(sizeof(DrawIndirectArgs) == sizeof(MTLDrawPrimitivesIndirectArguments));
+static_assert(sizeof(DrawIndexedIndirectArgs) == sizeof(MTLDrawIndexedPrimitivesIndirectArguments));
+
+void MetalCommandList::dispatch_indirect(BufferHandle args, std::uint64_t offset) {
+    VEACH_ASSERT(compute_ != nil, "dispatch_indirect() outside a compute pass");
+    MetalBuffer* b = device_.buffer(args);
+    check_indirect_args(b ? &b->desc : nullptr, offset, 1, sizeof(DispatchIndirectArgs), sizeof(DispatchIndirectArgs),
+                        "dispatch_indirect");
+    flush_uses();
+    [compute_ dispatchThreadgroupsWithIndirectBuffer:b->buffer
+                                indirectBufferOffset:offset
+                               threadsPerThreadgroup:threads_per_group_];
+}
+
+// Metal has no multi-draw-indirect: one indirect draw per record (ADR 0089). Indirect command buffers would need
+// the GPU to encode draws, which Slang cannot express, and CPU-encoded ones take no indirect arguments.
+void MetalCommandList::draw_indirect(BufferHandle args, std::uint64_t offset, std::uint32_t count,
+                                     std::uint32_t stride) {
+    VEACH_ASSERT(render_ != nil, "draw_indirect() outside a render pass");
+    MetalBuffer* b = device_.buffer(args);
+    check_indirect_args(b ? &b->desc : nullptr, offset, count, stride, sizeof(DrawIndirectArgs), "draw_indirect");
+    flush_uses();
+    for (std::uint32_t i = 0; i < count; ++i) {
+        [render_ drawPrimitives:MTLPrimitiveTypeTriangle
+                  indirectBuffer:b->buffer
+            indirectBufferOffset:offset + std::uint64_t{i} * stride];
+    }
+}
+
+void MetalCommandList::draw_indexed_indirect(BufferHandle indices, BufferHandle args, std::uint64_t offset,
+                                             std::uint32_t count, std::uint32_t stride) {
+    VEACH_ASSERT(render_ != nil, "draw_indexed_indirect() outside a render pass");
+    MetalBuffer* i = device_.buffer(indices);
+    MetalBuffer* b = device_.buffer(args);
+    check_index_buffer(i ? &i->desc : nullptr, "draw_indexed_indirect");
+    check_indirect_args(b ? &b->desc : nullptr, offset, count, stride, sizeof(DrawIndexedIndirectArgs),
+                        "draw_indexed_indirect");
+    flush_uses();
+    for (std::uint32_t d = 0; d < count; ++d) {
+        [render_ drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                             indexType:MTLIndexTypeUInt32
+                           indexBuffer:i->buffer
+                     indexBufferOffset:0
+                        indirectBuffer:b->buffer
+                  indirectBufferOffset:offset + std::uint64_t{d} * stride];
+    }
+}
+
 void MetalCommandList::encode_accel(AccelHandle handle, bool refit) {
     end_encoder();
     MetalAccel* a = device_.accel(handle);
@@ -1263,8 +1331,9 @@ void MetalCommandList::use(ResourceRef ref, ResourceState state) {
     }
     if (state == ResourceState::color_target || state == ResourceState::depth_write ||
         state == ResourceState::present || state == ResourceState::copy_src || state == ResourceState::copy_dst ||
-        state == ResourceState::accel_build) {
-        return;  // attachments, blits and builds name their resources explicitly
+        state == ResourceState::accel_build || state == ResourceState::indirect_argument ||
+        state == ResourceState::index_read) {
+        return;  // attachments, blits, builds, and indirect and index buffers name their resources explicitly
     }
     use_one(device_.resource(ref), state);
     if (ref.kind == ResourceKind::acceleration_structure && !device_.has_residency_set()) {

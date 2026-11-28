@@ -116,6 +116,8 @@ enum class BufferUsage : std::uint32_t {
     copy_src = 1u << 1,
     copy_dst = 1u << 2,
     accel_input = 1u << 3,  ///< vertex/index data for acceleration structure builds
+    indirect = 1u << 4,     ///< arguments of indirect draws and dispatches (VCH-071)
+    index = 1u << 5,        ///< uint32 indices of indexed draws
 };
 
 enum class TextureUsage : std::uint32_t {
@@ -257,6 +259,38 @@ struct RenderPassDesc {
     std::string_view debug_name;
 };
 
+// ---- indirect arguments (VCH-071) -------------------------------------------------
+
+// What shaders write into BufferUsage::indirect buffers: the layouts of D3D12_DISPATCH_ARGUMENTS,
+// D3D12_DRAW_ARGUMENTS and D3D12_DRAW_INDEXED_ARGUMENTS, which are also Metal's
+// MTLDispatchThreadgroupsIndirectArguments, MTLDrawPrimitivesIndirectArguments and
+// MTLDrawIndexedPrimitivesIndirectArguments. Keep first_instance and vertex_offset at 0 in portable code: Metal adds
+// them to SV_InstanceID / SV_VertexID, D3D12 does not (ADR 0089).
+
+struct DispatchIndirectArgs {
+    std::uint32_t group_count_x = 0;
+    std::uint32_t group_count_y = 1;
+    std::uint32_t group_count_z = 1;
+};
+static_assert(sizeof(DispatchIndirectArgs) == 12);
+
+struct DrawIndirectArgs {
+    std::uint32_t vertex_count = 0;
+    std::uint32_t instance_count = 0;
+    std::uint32_t first_vertex = 0;
+    std::uint32_t first_instance = 0;
+};
+static_assert(sizeof(DrawIndirectArgs) == 16);
+
+struct DrawIndexedIndirectArgs {
+    std::uint32_t index_count = 0;
+    std::uint32_t instance_count = 0;
+    std::uint32_t first_index = 0;
+    std::int32_t vertex_offset = 0;
+    std::uint32_t first_instance = 0;
+};
+static_assert(sizeof(DrawIndexedIndirectArgs) == 20);
+
 // ---- synchronization (ADR 0029) ---------------------------------------------------
 
 enum class ResourceState : std::uint8_t {
@@ -270,6 +304,8 @@ enum class ResourceState : std::uint8_t {
     accel_build,
     accel_read,
     present,
+    indirect_argument,  ///< read by draw_indirect / draw_indexed_indirect / dispatch_indirect (buffers only)
+    index_read,         ///< the index buffer of an indexed draw (buffers, graphics passes only)
 };
 
 [[nodiscard]] std::string_view to_string(ResourceState state);

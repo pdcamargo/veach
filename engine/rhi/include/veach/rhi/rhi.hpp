@@ -143,6 +143,9 @@ public:
     /// Submits the work; if `present` is valid, its acquired image is presented afterwards.
     virtual SubmissionId submit(std::unique_ptr<CommandList> commands, SurfaceId present = {}) = 0;
     virtual void wait(SubmissionId submission) = 0;
+    /// Whether `submission`, and so every earlier one, has completed on the GPU. Never waits (VCH-073). Id 0 is
+    /// complete; an id not yet submitted is not.
+    [[nodiscard]] virtual bool is_complete(SubmissionId submission) = 0;
     /// Waits for all submitted work and runs every pending release.
     virtual void wait_idle() = 0;
 };

@@ -59,12 +59,9 @@ add_subdirectory(sp13)  # Spike SP-13 (VCH-089): walk, hover, land; its tests jo
 add_subdirectory(seams)  # The seams sweep: octant planes, poles, chunk corners; its tests join veach-tests; its bench is veach-bench-seams
 
 include("${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake")
-# Sanitized builds run the heavier canonical tests (octree welds, physics replays) about ten times slower.
-if(VEACH_SANITIZE)
-    doctest_discover_tests(veach-tests TEST_PREFIX "unit: " PROPERTIES TIMEOUT 600)
-else()
-    doctest_discover_tests(veach-tests TEST_PREFIX "unit: ")
-endif()
+# The end-to-end slice replays (orbit to a dug hole) take minutes in Debug on CI's runners, and sanitized builds run
+# the heavier canonical tests about ten times slower (VCH-131 makes them faster).
+doctest_discover_tests(veach-tests TEST_PREFIX "unit: " PROPERTIES TIMEOUT 900)
 
 # ---- Integration checks (acceptance criteria that need the real binaries) ----
 
@@ -394,7 +391,8 @@ if(VEACH_LEAK_CHECK)
         message(FATAL_ERROR "VEACH_LEAK_CHECK needs macOS and no VEACH_SANITIZE (use the 'leaks' preset)")
     endif()
     set(_leak_check sh "${PROJECT_SOURCE_DIR}/tools/scripts/leak-check.sh")
-    add_test(NAME "leaks: unit tests" COMMAND ${_leak_check} $<TARGET_FILE:veach-tests>)
+    # Without the end-to-end slice replays, which alone take most of the time under `leaks`.
+    add_test(NAME "leaks: unit tests" COMMAND ${_leak_check} $<TARGET_FILE:veach-tests> "--test-case-exclude=*the slice at s =*")
     # The whole unit suite under `leaks`: 115 s on CI's runner before the frames and procgen tests joined.
     set_tests_properties("leaks: unit tests" PROPERTIES TIMEOUT 600)
     add_test(NAME "leaks: lab headless run"

@@ -258,7 +258,9 @@ template <class Domain, class Fill>
 void drive(const FieldProgram& program, std::size_t samples, std::size_t begin, std::size_t end, std::span<float> out,
            std::uint32_t width, Fill&& fill) {
     VEACH_ASSERT(width >= 1 && width <= max_batch, "field graph: EvalOptions::batch must be 1 to 256");
-    auto batch = std::make_unique_for_overwrite<Batch>();
+    // One batch per thread, reused: small evaluations (a box bound's few points) would otherwise spend more time
+    // allocating it than evaluating. drive() never runs nested on one thread.
+    thread_local const std::unique_ptr<Batch> batch = std::make_unique_for_overwrite<Batch>();
     for (std::size_t s = begin; s < end; s += width) {
         const std::size_t n = std::min<std::size_t>(width, end - s);
         fill(*batch, s, n);

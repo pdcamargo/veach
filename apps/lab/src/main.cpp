@@ -14,6 +14,7 @@ int main(int argc, char** argv) {
     engine.import<veach::space::OrreryModule>();    // the space toolbox's orrery (spike SP-04, VCH-080)
     engine.import<veach::space::SpaceMcpModule>();  // MCP tools orrery_state and generate_system (VCH-100)
     engine.import<veach::PhysicsModule>();          // rigid bodies and characters, inspected with physics_* tools
+    engine.import<veach::TerrainModule>();          // engine/voxel terrain bodies, streamed and drawn (VCH-114)
     engine.import<lab::LabModule>();
     return engine.run();
 }

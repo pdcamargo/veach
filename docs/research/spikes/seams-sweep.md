@@ -59,7 +59,7 @@ because the surface crosses the lattice diagonally there.
 > **Since VCH-113** the walker runs on `engine/physics` ([spec](../../specs/physics/spec.md)) and the adjacency ring
 > is `physics::with_adjacency_ring`; every hash below reproduces unchanged. The ring's weld now numbers a triangle's
 > vertices a, b, then c explicitly: the code here did it inside one call's arguments, whose order C++ leaves open
-> ([ADR 0086](../../adr/0086-amendments-from-vch-113.md) decision 7). Rigid bodies were measured there too: rings
+> ([ADR 0087](../../adr/0087-amendments-from-vch-113.md) decision 7). Rigid bodies were measured there too: rings
 > remove the border kicks of sliding boxes (decision 2).
 
 Throwaway test code, plus a site parameter in SP-12 and a latitude parameter in SP-13. No engine changes: no engine

@@ -44,6 +44,25 @@ constexpr std::array<std::int64_t, 3> chunk_origin(const ChunkKey& k) {
     return {k.x * e, k.y * e, k.z * e};
 }
 
+/// A box of LOD0 lattice points, inclusive on both ends.
+struct LatticeBox {
+    std::array<std::int64_t, 3> lo{}, hi{};
+
+    [[nodiscard]] bool intersects(const LatticeBox& o) const {
+        return lo[0] <= o.hi[0] && o.lo[0] <= hi[0] && lo[1] <= o.hi[1] && o.lo[1] <= hi[1] && lo[2] <= o.hi[2] &&
+               o.lo[2] <= hi[2];
+    }
+};
+
+/// The lattice points a chunk's samples sit on: its grid with the apron (-1 to 33 cells on each axis). Face samples
+/// at half spacing lie inside it too.
+constexpr LatticeBox sample_box(const ChunkKey& k) {
+    const auto o = chunk_origin(k);
+    const std::int64_t s = cell_units(k.level);
+    return {{o[0] - s, o[1] - s, o[2] - s},
+            {o[0] + (chunk_cells + 1) * s, o[1] + (chunk_cells + 1) * s, o[2] + (chunk_cells + 1) * s}};
+}
+
 /// Faces, as bits of a 6-bit mask: bit 2a is the minimum face on axis a, bit 2a + 1 the maximum one.
 enum Face : std::uint8_t { neg_x = 0, pos_x = 1, neg_y = 2, pos_y = 3, neg_z = 4, pos_z = 5 };
 

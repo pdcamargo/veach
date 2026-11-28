@@ -28,7 +28,8 @@ add_executable(veach-tests
     mcp_tools_tests.cpp
     space_tests.cpp
     transform_tests.cpp
-    voxel_tests.cpp)
+    voxel_tests.cpp
+    voxel_terrain_tests.cpp)
 if(WIN32)
     target_sources(veach-tests PRIVATE dx12_tests.cpp)  # DX12 on WARP in hosted CI (ADR 0033)
 endif()
@@ -76,6 +77,13 @@ set_tests_properties("lab: SP-04 orrery from Luau" PROPERTIES
 add_test(NAME "lab: runtime mesh on the null RHI"
     COMMAND veach-lab --script scripts/runtime_mesh_realtime.luau --frames 3 --headless)
 set_tests_properties("lab: runtime mesh on the null RHI" PROPERTIES FAIL_REGULAR_EXPRESSION "\\] error ")
+
+# voxel.AC10 on every platform: the engine-backed terrain view streams a planet at orbit with no open edges.
+add_test(NAME "lab: terrain view streams a planet on the null RHI"
+    COMMAND veach-lab --script scripts/terrain_descent.luau --frames 30 --headless)
+set_tests_properties("lab: terrain view streams a planet on the null RHI" PROPERTIES
+    PASS_REGULAR_EXPRESSION "checkpoint orbit: .*, 0 open"
+    FAIL_REGULAR_EXPRESSION "\\] error ")
 
 file(GLOB_RECURSE _luau_scripts RELATIVE "${PROJECT_SOURCE_DIR}" CONFIGURE_DEPENDS
     "${PROJECT_SOURCE_DIR}/apps/*.luau" "${PROJECT_SOURCE_DIR}/tests/scripts/*.luau"
@@ -359,6 +367,8 @@ if(VEACH_LEAK_CHECK)
     endif()
     set(_leak_check sh "${PROJECT_SOURCE_DIR}/tools/scripts/leak-check.sh")
     add_test(NAME "leaks: unit tests" COMMAND ${_leak_check} $<TARGET_FILE:veach-tests>)
+    # The whole unit suite under `leaks`: 115 s on CI's runner before the frames and procgen tests joined.
+    set_tests_properties("leaks: unit tests" PROPERTIES TIMEOUT 600)
     add_test(NAME "leaks: lab headless run"
         COMMAND ${_leak_check} $<TARGET_FILE:veach-lab> --script scripts/hello.luau --frames 3 --headless)
 endif()
@@ -437,3 +447,9 @@ target_link_libraries(veach-bench-procgen PRIVATE veach::procgen)
 target_compile_definitions(veach-bench-procgen PRIVATE VEACH_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 set_target_properties(veach-bench-procgen PROPERTIES FOLDER "tests")
 veach_apply_warnings(veach-bench-procgen)
+# engine/voxel (voxel.AC11): chunks/s of the streaming jobs on 1, 4 and all threads, SP-09's 100 m benchmark.
+add_executable(veach-bench-terrain bench/terrain_bench.cpp)
+target_link_libraries(veach-bench-terrain PRIVATE veach::voxel)
+target_include_directories(veach-bench-terrain PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+set_target_properties(veach-bench-terrain PROPERTIES FOLDER "tests")
+veach_apply_warnings(veach-bench-terrain)

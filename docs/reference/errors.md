@@ -285,6 +285,32 @@ holds other bodies to change its parent frame. Only an empty scene changes frame
 one craft through a handoff altitude); move the other bodies first, or transfer into a scene already in that frame.
 The ECS binding logs it too when a `RigidBody` is not a direct child of a frame with a `PhysicsScene`.
 
+## voxel.density_invalid
+
+**A terrain density source cannot be built: a missing program output or a setting out of range.**
+
+`ProgramDensity::make` ([voxel spec](../specs/voxel-terrain/spec.md), [guide](../guides/voxel-terrain.md)) refused its
+field program or settings. The message names the output or setting. `density_output` and `material_output` must name
+outputs of the compiled program (the hint lists them); a sphere needs a positive `radius_m`; `classify_depth` is 0 to
+7.
+
+## voxel.brush_invalid
+
+**A brush op cannot be applied: an unknown kind or version, a radius out of range, a sequence number out of order.**
+
+`TerrainBody::apply` or `EditStore::apply` refused a brush op ([ADR 0054](../adr/0054-terrain-edits-and-water.md)).
+Radii are 1 mm to `max_brush_radius_mm` (16 m): split a larger edit into several ops. Ops apply in sequence order per
+body: a `seq` must be larger than the last one applied (0 lets the store number it). Nothing was changed.
+
+## voxel.base_mismatch
+
+**An edited chunk's regenerated base samples differ from the base its override record was made on.**
+
+`EditStore::restore` regenerated a chunk's samples and their hash is not the record's `base_hash`
+([ADR 0054](../adr/0054-terrain-edits-and-water.md)): the generator changed (a stage or graph version that is not
+pinned) or a determinism rule was broken. The record was restored anyway, because override samples are absolute;
+the seam between edited and regenerated samples may show. Pin the generator version the body was edited with.
+
 ## rhi.backend_unavailable
 
 **The requested RHI backend is not available on this platform.**

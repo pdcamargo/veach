@@ -71,6 +71,13 @@ VEACH_ERROR(physics_not_on_lattice, "physics.not_on_lattice",
             "Terrain colliders were sent to a physics scene whose origin is not a lattice point")
 VEACH_ERROR(physics_invalid_transfer, "physics.invalid_transfer",
             "A body cannot move to that physics scene: unknown scene, or a frame change with other bodies there")
+VEACH_ERROR(voxel_density_invalid, "voxel.density_invalid",
+            "A terrain density source cannot be built: a missing program output or a setting out of range")
+VEACH_ERROR(
+    voxel_brush_invalid, "voxel.brush_invalid",
+    "A brush op cannot be applied: an unknown kind or version, a radius out of range, a sequence number out of order")
+VEACH_ERROR(voxel_base_mismatch, "voxel.base_mismatch",
+            "An edited chunk's regenerated base samples differ from the base its override record was made on")
 
 VEACH_ERROR(rhi_backend_unavailable, "rhi.backend_unavailable",
             "The requested RHI backend is not available on this platform")

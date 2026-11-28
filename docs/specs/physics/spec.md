@@ -15,7 +15,7 @@ controllers with any up, and reports contact events in a fixed order. A thin ECS
 top. ([ADR 0058](../../adr/0058-physics-jolt.md), amended by [0075](../../adr/0075-amendments-from-sp-11.md),
 [0077](../../adr/0077-amendments-from-sp-12.md), [0080](../../adr/0080-amendments-from-sp-13.md),
 [0083](../../adr/0083-terrain-colliders-with-an-adjacency-ring.md) and
-[0086](../../adr/0086-amendments-from-vch-113.md); [ADR 0065](../../adr/0065-engine-areas-for-the-toolbox.md))
+[0087](../../adr/0087-amendments-from-vch-113.md); [ADR 0065](../../adr/0065-engine-areas-for-the-toolbox.md))
 
 ## Motivation
 
@@ -204,7 +204,7 @@ None.
 
 - ADRs: [0058](../../adr/0058-physics-jolt.md), [0075](../../adr/0075-amendments-from-sp-11.md),
   [0077](../../adr/0077-amendments-from-sp-12.md), [0080](../../adr/0080-amendments-from-sp-13.md),
-  [0083](../../adr/0083-terrain-colliders-with-an-adjacency-ring.md), [0086](../../adr/0086-amendments-from-vch-113.md),
+  [0083](../../adr/0083-terrain-colliders-with-an-adjacency-ring.md), [0087](../../adr/0087-amendments-from-vch-113.md),
   [0065](../../adr/0065-engine-areas-for-the-toolbox.md), [0073](../../adr/0073-job-system-enkits.md)
 - Backlog: VCH-113 (this), VCH-114 (terrain streaming), VCH-115 (the slice app)
 - Guides: [physics](../../guides/physics.md), [extending](../../guides/extending.md) (m)

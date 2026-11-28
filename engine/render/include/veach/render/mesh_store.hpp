@@ -64,6 +64,9 @@ class MeshStore {
 public:
     /// Builds the mesh (build_runtime_mesh) and stores it under a new id.
     [[nodiscard]] Result<AssetId> add(MeshData data);
+    /// Stores a mesh already built by build_runtime_mesh (on a worker: terrain chunks build theirs on the chunk's
+    /// job, then add them on the main thread in a fixed order, so ids stay deterministic).
+    [[nodiscard]] AssetId add(std::shared_ptr<const RuntimeMesh> built);
     /// Replaces a mesh. Entities drawing it draw the new data next frame; the old GPU buffers are retired.
     [[nodiscard]] Result<> update(AssetId mesh, MeshData data);
     /// Forgets a mesh; the renderer frees its GPU data. Entities still pointing at it draw nothing.

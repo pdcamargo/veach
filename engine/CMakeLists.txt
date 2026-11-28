@@ -4,7 +4,7 @@
 #                  platform <- rhi <- render
 #   core <- procgen (stages, field graphs, the generator sandbox; never rhi or render)
 #   core <- ecs <- physics (Jolt private; never rhi or render)
-#   core <- voxel (spike SP-08; ADR 0065's full chain comes later)
+#   core <- procgen <- voxel (terrain bodies; its ECS and render binding is runtime's TerrainModule, ADR 0086)
 #   runtime depends on everything; `veach::veach` is the umbrella users link.
 add_subdirectory(core)
 add_subdirectory(ecs)

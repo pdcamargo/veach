@@ -4,6 +4,7 @@
 # evaluator for field graphs, when it comes, is a render feature in engine/render that reads this area's op lists.
 veach_add_engine_library(procgen
     SOURCES
+        src/field_bounds.cpp
         src/field_eval.cpp
         src/field_graph.cpp
         src/sandbox.cpp

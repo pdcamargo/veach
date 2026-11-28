@@ -20,6 +20,7 @@
    veach::rhi or veach::render nor include their headers, so they run headless on any server.
 10. Jolt is private to engine/physics (ADR 0058, 0065): no file outside engine/physics/src includes a Jolt header, so
    no public header or other area depends on a Jolt type.
+11. engine/voxel never includes or links Jolt: it hands collider meshes to engine/physics as data (ADR 0065).
 """
 
 from __future__ import annotations
@@ -49,6 +50,7 @@ THREAD_ALLOWED = {
 HEADLESS_AREAS = ("engine/procgen/", "engine/voxel/", "engine/physics/")
 JOLT_INCLUDE = re.compile(r"#\s*include\s*[<\"]Jolt/")
 GPU_DEPENDENCY = re.compile(r"veach::(?:rhi|render)\b|\bveach_(?:rhi|render)\b|[<\"]veach/(?:rhi|render)/")
+JOLT_DEPENDENCY = re.compile(r"[<\"]Jolt/|\bJolt\b(?=\s*\)|\s+PRIVATE|\s+PUBLIC)")
 SELF = pathlib.Path(__file__).resolve()
 
 
@@ -102,6 +104,9 @@ def main() -> int:
                     and path.suffix in (".cpp", ".hpp", ".h", ".mm", ".inl")):
                 errors.append(f"{rel}:{lineno}: Jolt is private to engine/physics (ADR 0058, 0065); use "
                               "veach::physics (veach/physics/physics.hpp) instead of including Jolt")
+            if rel.startswith("engine/voxel/") and JOLT_DEPENDENCY.search(line) and not line.lstrip().startswith("#"):
+                errors.append(f"{rel}:{lineno}: engine/voxel hands collider meshes to physics as data "
+                              "(voxel::ColliderSink); only engine/physics includes or links Jolt (ADR 0065).")
             if rel.startswith("apps/") and "flecs::" in line:
                 errors.append(f"{rel}:{lineno}: `flecs::` in apps/ — use the veach:: aliases (veach::World, "
                               "veach::Entity, ...) or veach::ecs:: for raw Flecs")

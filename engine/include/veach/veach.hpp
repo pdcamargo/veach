@@ -40,3 +40,4 @@
 
 #include <veach/runtime/config.hpp>
 #include <veach/runtime/engine.hpp>
+#include <veach/runtime/terrain.hpp>

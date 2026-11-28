@@ -381,3 +381,60 @@ TEST_CASE("[procgen.AC10] the Luau builder makes the same program as the JSON fi
     REQUIRE_FALSE(pow.has_value());
     CHECK(pow.error().code == ErrorCode::script_compile_failed);
 }
+
+TEST_CASE("[procgen.AC12] lattice bounds and variations hold every evaluated value and every difference") {
+    const pg::FieldProgram caves = program_of(caves_json, {.seed = 7});
+    const pg::FieldProgram hills = program_of(terrain_json(), {.seed = 42, .planet_m_per_m = 1000.0});
+    for (const pg::FieldProgram* p : {&caves, &hills}) {
+        const std::vector<pg::FieldBound> bounds = pg::lattice_bounds(*p);
+        REQUIRE(bounds.size() == 1);
+        const pg::FieldBound& b = bounds[0];
+        CHECK(b.lo < b.hi);
+        CHECK(b.lipschitz > 0.0);
+        CHECK(b.error > 0.0);
+        CHECK(b.error < 1.0e-3 * (b.hi - b.lo));
+        // Pairs of points 1 to 64 lattice units apart, around the surface of an Earth-sized body.
+        HashStream pick = HashStream::make(11, "procgen.bounds", 0);
+        std::vector<pg::LatticePoint> points;
+        for (int k = 0; k < 4000; ++k) {
+            const pg::LatticePoint a{surface_x + pick.range(-5000, 5000), pick.range(-5000, 5000),
+                                     pick.range(-5000, 5000)};
+            const std::int64_t step = pick.range(1, 64);
+            points.push_back(a);
+            points.push_back({a[0] + step, a[1] + (k % 3 == 0 ? step : 0), a[2]});
+        }
+        std::vector<float> out(points.size());
+        pg::evaluate(*p, lod0, points, out);
+        int outside = 0, steep = 0, varied = 0, loose = 0;
+        double steepest = 0.0;
+        for (std::size_t i = 0; i < points.size(); i += 2) {
+            for (const std::size_t j : {i, i + 1}) {
+                outside += out[j] < b.lo - b.error || out[j] > b.hi + b.error;
+            }
+            double d2 = 0.0;
+            for (std::size_t a = 0; a < 3; ++a) {
+                const double d = static_cast<double>(points[i + 1][a] - points[i][a]) * lod0.spacing_m;
+                d2 += d * d;
+            }
+            const double slope =
+                (std::fabs(static_cast<double>(out[i + 1]) - static_cast<double>(out[i])) - 2.0 * b.error) /
+                std::sqrt(d2);
+            steepest = std::max(steepest, slope);
+            steep += slope > b.lipschitz;
+            // The variation within that distance bounds the change too, and never exceeds the slope bound.
+            const double variation = pg::lattice_variation(*p, std::sqrt(d2))[0];
+            varied +=
+                std::fabs(static_cast<double>(out[i + 1]) - static_cast<double>(out[i])) - 2.0 * b.error > variation;
+            loose += variation > b.lipschitz * std::sqrt(d2) * (1.0 + 1e-12);
+        }
+        CHECK(outside == 0);
+        CHECK(steep == 0);
+        CHECK(varied == 0);
+        CHECK(loose == 0);
+        // Far beyond every wavelength the variation is the whole range, not the slope times the distance.
+        CHECK(pg::lattice_variation(*p, 1.0e9)[0] <= (b.hi - b.lo) * (1.0 + 1e-9));
+        // Conservative, but not absurdly so.
+        INFO(std::format("steepest {} of bound {}", steepest, b.lipschitz));
+        CHECK(steepest > 0.005 * b.lipschitz);
+    }
+}

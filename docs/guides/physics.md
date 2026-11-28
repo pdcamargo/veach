@@ -2,7 +2,7 @@
 
 `engine/physics` (`veach::physics`, [spec](../specs/physics/spec.md)) runs rigid bodies, characters and terrain
 colliders on Jolt Physics, one scene per reference frame ([ADR 0058](../adr/0058-physics-jolt.md) and its amendments
-0075, 0077, 0080, 0083, 0086). Jolt is private: include `<veach/physics/physics.hpp>` (the core) or
+0075, 0077, 0080, 0083, 0087). Jolt is private: include `<veach/physics/physics.hpp>` (the core) or
 `<veach/physics/module.hpp>` (the ECS binding), never a Jolt header (`check_repo.py` rejects one outside
 `engine/physics/src`).
 

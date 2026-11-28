@@ -1,4 +1,4 @@
-# 0086: Amendments from building engine/physics: the gravity hook's contract, rings for rigid bodies, four threads per step, Jolt optimized in MSVC Debug
+# 0087: Amendments from building engine/physics: the gravity hook's contract, rings for rigid bodies, four threads per step, Jolt optimized in MSVC Debug
 
 Date: 2026-11-28
 

@@ -30,7 +30,10 @@ S10-1. All numbers: Apple M5 Max, release preset, 2026-11-27.
 
 ## What was built
 
-Throwaway, in the lab, plus one engine change behind an option.
+Throwaway, in the lab, plus one engine change behind an option. VCH-114 replaced the lab code below with
+`engine/voxel` (`TerrainBody`, `LodSelector`, `ProgramDensity`) and the lab's engine-backed terrain view
+(`apps/lab/src/terrain_view.cpp`, `scripts/terrain_descent.luau`); the spike's files are gone. See the
+[voxel terrain spec](../../specs/voxel-terrain/spec.md).
 
 | Piece | Where | Notes |
 |---|---|---|

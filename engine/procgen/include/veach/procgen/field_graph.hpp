@@ -176,4 +176,29 @@ void evaluate(const FieldProgram& program, std::span<const std::array<float, 3>>
 /// One octave of veach:fbm@1's gradient noise at (x, y, z) * frequency, roughly in [-1, 1] (cube-face domain).
 [[nodiscard]] float gradient_noise(float x, float y, float z, float frequency, std::uint32_t seed);
 
+// ---- Bounds ---------------------------------------------------------------------------------------------------------
+
+/// What one output can do anywhere on the lattice domain, proven from the op list (interval arithmetic and each
+/// op's Lipschitz constant), never sampled. Terrain uses it to skip chunks that cannot hold a surface
+/// (docs/adr/0053-terrain-density-field.md): with c the center of a box of radius r,
+/// value(p) >= value(c) - lipschitz * r - 2 * error for every p in the box, and the same above.
+struct FieldBound {
+    double lo = 0.0;  ///< every exact value is in [lo, hi]
+    double hi = 0.0;
+    /// |f(p) - f(q)| <= lipschitz * |p - q| for the exact function, p and q in realized meters.
+    double lipschitz = 0.0;
+    /// |evaluate() - f| <= error at every point: the interpreter's float rounding.
+    double error = 0.0;
+};
+
+/// One bound per output, in FieldProgram::outputs order. Conservative: veach:fbm@1's noise is bounded by 2 per unit
+/// amplitude and its gradient by 8.5 * sqrt(3) per cycle (Perlin's gradients, quintic fade), not by its typical range.
+[[nodiscard]] std::vector<FieldBound> lattice_bounds(const FieldProgram& program);
+
+/// The most each output can change within `radius_m` of any point (the exact function; evaluated values add twice
+/// the error): each veach:fbm@1 octave contributes the smaller of its slope times the radius and its whole range,
+/// so fine octaves stop counting once a box is many of their wavelengths across. Never more than
+/// lipschitz * radius_m. One pass over the op list: cheap enough per box.
+[[nodiscard]] std::vector<double> lattice_variation(const FieldProgram& program, double radius_m);
+
 }  // namespace veach::procgen

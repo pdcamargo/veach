@@ -79,7 +79,7 @@ flowchart BT
     render["render: Renderer, RenderGraph, features, extraction, photo mode"]
     physics["physics (planned): Jolt, scenes per frame, gravity registry"]
     procgen["procgen: stage runtime and cache, field graphs, CPU interpreter, Luau generator sandbox"]
-    voxel["voxel (planned): density chunks, mesher, edits, streaming"]
+    voxel["voxel: terrain bodies, density from field programs, LOD selection, streaming, edits, collider meshes"]
     runtime["runtime: Engine, config, main loop, MCP server"]
     space["space/: the toolbox (empty until the first slice)"]
     games["games, apps/lab"]
@@ -93,16 +93,16 @@ flowchart BT
     render --> asset
     physics -.-> ecs
     procgen --> core
-    voxel -.-> procgen
+    voxel --> procgen
     runtime --> script
     runtime --> render
     runtime -.-> physics
-    runtime -.-> voxel
+    runtime --> voxel
     space --> runtime
     games --> space
     games --> runtime
     classDef planned stroke-dasharray: 5 5
-    class physics,voxel planned
+    class physics planned
 ```
 
 - **core** depends only on glm (and Tracy when profiling). No Flecs, no SDL.
@@ -245,7 +245,7 @@ GPU error callbacks arrive on Metal's thread, which is why the log and the engin
 | `engine/core/`, `engine/ecs/` (planned additions) | `veach::dmath`, counter-based hash RNG; double positions in a reference-frame tree ([ADR 0065](adr/0065-engine-areas-for-the-toolbox.md)) |
 | `engine/physics/` (planned) | Jolt in double precision, one scene per frame, the gravity registry ([ADR 0058](adr/0058-physics-jolt.md)) |
 | `engine/procgen/` | Generation stage runtime and cache, field-graph IR, JSON loader and canonical CPU interpreter, the Luau generator sandbox ([ADR 0052](adr/0052-procgen-runtime.md), [spec](specs/procgen/spec.md)). Links core only, never rhi or render |
-| `engine/voxel/` (planned) | Density chunks, the CPU mesher, edits, streaming ([ADR 0053](adr/0053-terrain-density-field.md)) |
+| `engine/voxel/` | Terrain bodies on a body-local lattice: density from procgen field programs, the CPU mesher, octree LOD selection, streaming under a budget, the edit store, LOD0 collider meshes for physics ([ADR 0053](adr/0053-terrain-density-field.md), [ADR 0086](adr/0086-amendments-from-building-voxel.md), [spec](specs/voxel-terrain/spec.md)). Links core and procgen only; its ECS and render binding is `engine/runtime`'s `TerrainModule` |
 | `space/` | The space toolbox: a layer above the engine, empty until the first slice (galaxy, addresses, body kinds, orbits, planetary terrain, atmospheres, flight and travel) |
 | `apps/lab/` | The prototype app (`veach.project.json`, `scripts/`, sample assets, its own shaders and materials) |
 | `tools/veach-cli/` | `veach types`, `veach schemas`, `veach imgdiff` |

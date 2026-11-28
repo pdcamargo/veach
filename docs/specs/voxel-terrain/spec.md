@@ -1,6 +1,6 @@
 # Voxel terrain: streaming, edits and collider meshes
 
-**Status:** Approved
+**Status:** Implemented
 **Area:** voxel, runtime
 **Owner:** dev lead
 
@@ -143,7 +143,9 @@ camera.add<veach::TerrainViewer>();
 - **voxel.AC10** — The lab's terrain view flies from orbit to 10 m over a planet on Metal with 0 open edges at every
   checkpoint; its screenshots are in `docs/research/spikes/voxel-terrain/`.
 - **voxel.AC11** — `veach-bench-terrain` reports chunks per second on 1, 4 and all threads for SP-09's 100 m
-  checkpoint with a 19-octave procgen planet, against SP-09's 129 / 457 / 1,678 (measured, not a test).
+  checkpoint with a 19-octave procgen planet, against SP-09's 129 / 457 / 1,678 (measured, not a test). Measured on
+  the M5 Max, release preset: 213 / 824 / 2,786 chunks/s on 1 / 4 / 17 threads, 2,438 chunks selected (23 % without
+  triangles), 4.6 ms sampling and 0.07 ms meshing per chunk on one thread.
 
 ## Out of scope
 

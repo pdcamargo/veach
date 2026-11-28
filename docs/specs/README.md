@@ -29,7 +29,7 @@ acceptance criteria (`[area.ACn] ...`) → status Implemented.
 | [Job system](job-system/spec.md) | core | Implemented |
 | [Procgen: stage runtime, field graphs, generator sandbox](procgen/spec.md) | procgen | Implemented |
 | [Reference frames and double positions](frames/spec.md) | ecs, render, script | Implemented |
-| [Voxel terrain: streaming, edits and collider meshes](voxel-terrain/spec.md) | voxel, runtime | Approved |
+| [Voxel terrain: streaming, edits and collider meshes](voxel-terrain/spec.md) | voxel, runtime | Implemented |
 
 Specs of the raytracing-first era (the real-time renderer v0, temporal direct lighting, soft shadows, real-time GI)
 were removed at the reset ([ADR 0001](../adr/0001-reset.md)); they live in the `pathtracer-era` tag.

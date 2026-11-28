@@ -1,10 +1,11 @@
 // Seams sweep, throwaway: are the procgen inputs that ARE cube-mapped continuous across cube-face edges
 // (docs/research/spikes/seams-sweep.md)? SP-07's climate and biome map (64² × 6 cells, its Luau hook) and SP-06's
-// field graph evaluated over face regions. Header-only: the bench and veach-tests include it (both link SP-06, the
-// procgen sandbox and space gen).
+// field graph evaluated over face regions (engine/procgen since VCH-112). Header-only: the bench and veach-tests
+// include it (both link SP-06, the procgen sandbox and space gen).
 #pragma once
 
-#include "sp06/field_graph.hpp"
+#include <veach/procgen/field_graph.hpp>
+
 #include "support/sp07_climate.hpp"
 
 #include <algorithm>
@@ -152,9 +153,9 @@ Gradient gradient(std::span<const T> values, const std::vector<Pair>& pairs, boo
 }
 
 /// SP-06's FaceRegion for SP-07's face f at `n`²: sample (i, j) is SP-07's cell (f, i, j) (FaceRegion's v runs down).
-inline sp06::FaceRegion face_region(int f, int n) {
+inline procgen::FaceRegion face_region(int f, int n) {
     const Face& face = faces[static_cast<std::size_t>(f)];
-    sp06::FaceRegion r;
+    procgen::FaceRegion r;
     for (std::size_t a = 0; a < 3; ++a) {
         r.center[a] = static_cast<float>(face.c[a]);
         r.right[a] = static_cast<float>(face.eu[a]);
@@ -165,13 +166,13 @@ inline sp06::FaceRegion face_region(int f, int n) {
 }
 
 /// SP-06's terrain graph over the six faces at n², in SP-07's cell order.
-inline std::vector<float> field_graph_map(const sp06::Program& program, int n) {
+inline std::vector<float> field_graph_map(const procgen::FieldProgram& program, int n) {
     std::vector<float> out(static_cast<std::size_t>(n) * static_cast<std::size_t>(n) * 6);
     for (int f = 0; f < 6; ++f) {
-        sp06::evaluate_batch(program, face_region(f, n),
-                             std::span<float>(out).subspan(static_cast<std::size_t>(f) * static_cast<std::size_t>(n) *
-                                                               static_cast<std::size_t>(n),
-                                                           static_cast<std::size_t>(n) * static_cast<std::size_t>(n)));
+        procgen::evaluate(program, face_region(f, n),
+                          std::span<float>(out).subspan(
+                              static_cast<std::size_t>(f) * static_cast<std::size_t>(n) * static_cast<std::size_t>(n),
+                              static_cast<std::size_t>(n) * static_cast<std::size_t>(n)));
     }
     return out;
 }

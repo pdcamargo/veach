@@ -347,6 +347,19 @@ void evaluate(const FieldProgram& program, const FaceRegion& r, std::span<float>
                       });
 }
 
+void evaluate(const FieldProgram& program, std::span<const std::array<float, 3>> unit_directions, std::span<float> out,
+              EvalOptions options) {
+    check_out(program, unit_directions.size(), out);
+    drive<FaceDomain>(program, unit_directions.size(), 0, unit_directions.size(), out, options.batch,
+                      [&](Batch& b, std::size_t first, std::size_t n) {
+                          for (std::size_t k = 0; k < n; ++k) {
+                              b.x[k] = unit_directions[first + k][0];
+                              b.y[k] = unit_directions[first + k][1];
+                              b.z[k] = unit_directions[first + k][2];
+                          }
+                      });
+}
+
 float gradient_noise(float x, float y, float z, float frequency, std::uint32_t seed) {
     return noise(x, y, z, frequency, seed);
 }

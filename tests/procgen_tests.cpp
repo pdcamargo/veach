@@ -201,6 +201,22 @@ TEST_CASE("[procgen.AC4] on cube faces, batches equal single samples and the SP-
     CHECK(*hi - *lo > 0.5f);  // not flat
     // ADR 0043: the same bits on macOS arm64 (Apple Clang) and Windows x64 (MSVC), Debug and Release. SP-06's value.
     CHECK(hash_floats(batch) == 0xFB7136EA481F1F8Dull);
+
+    // The same directions as a list give the same values (FaceRegion's projection, written out).
+    std::vector<std::array<float, 3>> directions;
+    const float step = 2.0f / 128.0f;
+    for (std::uint32_t j = 0; j < 128; ++j) {
+        for (std::uint32_t i = 0; i < 128; ++i) {
+            const float u = (static_cast<float>(i) + 0.5f) * step - 1.0f;
+            const float v = 1.0f - (static_cast<float>(j) + 0.5f) * step;
+            const std::array<float, 3> c{u, v, 1.0f};  // center (0, 0, 1), right +x, up +y
+            const float len = std::sqrt(std::fma(c[0], c[0], std::fma(c[1], c[1], c[2] * c[2])));
+            directions.push_back({c[0] / len, c[1] / len, c[2] / len});
+        }
+    }
+    std::vector<float> listed(directions.size());
+    pg::evaluate(p, directions, listed, {.batch = 31});
+    CHECK(bit_equal(listed, batch));
 }
 
 TEST_CASE("[procgen.AC4] without hardware FMA, the double-precision path gives fma's bits") {

@@ -10,6 +10,7 @@
 
 #include "seams/seams.hpp"
 #include "seams/seams_cubemap.hpp"
+#include "sp06/field_gpu.hpp"
 #include "sp13/sp13_sim.hpp"
 
 #include <algorithm>
@@ -464,11 +465,7 @@ void cube() {
     print_gradient("precipitation (mm/yr/rad)", cubemap::gradient(std::span<const double>(out.precipitation), pairs));
     print_gradient("biome (id)", cubemap::gradient(std::span<const std::uint8_t>(out.biome), pairs));
 
-    auto json = sp06::terrain_graph_json();
-    if (!json) {
-        return;
-    }
-    auto program = sp06::compile(*json, {.seed = 42, .radius_planet_m = 6.0e6});
+    auto program = sp06::terrain_program();
     if (!program) {
         return;
     }
@@ -512,7 +509,10 @@ void cube() {
                     }
                     const auto value = [&](const std::array<float, 3>& q) {
                         const float l = std::sqrt(std::fma(q[0], q[0], std::fma(q[1], q[1], q[2] * q[2])));
-                        return sp06::evaluate_point(*program, q[0] / l, q[1] / l, q[2] / l);
+                        const std::array<float, 3> d{q[0] / l, q[1] / l, q[2] / l};
+                        float value_out = 0.0f;
+                        procgen::evaluate(*program, std::span(&d, 1), std::span(&value_out, 1));
+                        return value_out;
                     };
                     ++edge_points;
                     edge_mismatches += (pa != pb || value(pa) != value(pb)) ? 1 : 0;

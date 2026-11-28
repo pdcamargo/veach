@@ -7,6 +7,7 @@
 
 #include "seams/seams.hpp"
 #include "seams/seams_cubemap.hpp"
+#include "sp06/field_gpu.hpp"
 #include "sp13/sp13_sim.hpp"
 
 #include <veach/core/hash.hpp>
@@ -249,9 +250,7 @@ TEST_CASE("[seams.AC5] the cube-mapped procgen inputs have no seam at the face e
     auto hook = sandbox.load(sp07::read_hook(), "sp07_climate.luau");
     REQUIRE(hook.has_value());
     REQUIRE(sp07::run(sandbox, *hook, body, in, out).has_value());
-    auto json = sp06::terrain_graph_json();
-    REQUIRE(json.has_value());
-    auto program = sp06::compile(*json, {.seed = 42, .radius_planet_m = 6.0e6});
+    auto program = sp06::terrain_program();
     REQUIRE(program.has_value());
     const std::vector<float> field = field_graph_map(*program, n);
     const struct {

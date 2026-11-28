@@ -169,6 +169,9 @@ void evaluate(const FieldProgram& program, const Lattice& lattice, const Lattice
 void evaluate(JobSystem& jobs, const FieldProgram& program, const Lattice& lattice, const LatticeBox& box,
               std::span<float> out);
 void evaluate(const FieldProgram& program, const FaceRegion& region, std::span<float> out, EvalOptions options = {});
+/// The cube-face domain on any unit directions (the same values as a FaceRegion sample at the same direction).
+void evaluate(const FieldProgram& program, std::span<const std::array<float, 3>> unit_directions, std::span<float> out,
+              EvalOptions options = {});
 
 /// One octave of veach:fbm@1's gradient noise at (x, y, z) * frequency, roughly in [-1, 1] (cube-face domain).
 [[nodiscard]] float gradient_noise(float x, float y, float z, float frequency, std::uint32_t seed);

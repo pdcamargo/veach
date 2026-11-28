@@ -93,15 +93,16 @@ reliable part.
 
 ## Goldens
 
-Regenerated deliberately and inspected; mean FLIP against the previous images:
+Regenerated deliberately and inspected, again after merging the sun shadows (ADR 0095); mean FLIP against the images
+before this work, and against `main`'s with shadows:
 
-| Golden | Mean FLIP | What changed |
-|---|---|---|
-| bistro_noon | 0.327 | facades neutral grey instead of blue; AO; metals reflect |
-| bistro_sunset | 0.164 | shaded walls warm instead of blue; AO |
-| runtime_mesh_realtime | 0.045 | slopes facing away from the sun see the ground; AO in the valleys |
-| flight_helmet_realtime | 0.033 | the brass plate and metal parts reflect the constant sky |
-| thin_triangles_realtime | 0.006 | regenerated to keep WARP's margin |
+| Golden | Before this work | Main (with shadows) | What changed |
+|---|---|---|---|
+| bistro_noon | 0.327 | 0.354 | facades neutral grey instead of blue; AO; metals reflect |
+| bistro_sunset | 0.164 | 0.277 | shaded walls warm instead of blue (too warm in shadow: finding 2); AO |
+| runtime_mesh_realtime | 0.045 | 0.046 | slopes facing away from the sun see the ground; AO in the valleys |
+| flight_helmet_realtime | 0.033 | 0.033 | the brass plate and metal parts reflect the constant sky |
+| thin_triangles_realtime | 0.006 | 0.006 | regenerated to keep WARP's margin |
 
 The Cornell box (no sky), photo mode, the twilight goldens, blend modes and the space backdrop are unchanged. The
 DX12/WARP jobs compare against the same images.
@@ -114,7 +115,12 @@ DX12/WARP jobs compare against the same images.
 2. **Walls see the ground.** Half of a vertical surface's hemisphere is the sunlit ground; including it (the
    analytic ground in the table) is what makes shaded walls neutral rather than blue. In a street canyon without
    shadows that bounce is too strong; shadows on the ground will not reach it (the table's ground is analytic): probes
-   or a screen-space bounce would.
+   or a screen-space bounce would. With the sun shadows merged (ADR 0095), Bistro at sunset shows the same limit from
+   the sky's side: the facade facing the low sun is in the opposite buildings' shadow, yet still sees the bright sky
+   around the sun that those buildings hide, so it stays warm and the shadow reads weakly (golden `bistro_sunset`,
+   FLIP 0.28 against main's shadowed image). Occlusion beyond GTAO's 1.5 m (a street, a canyon) needs a large-scale
+   sky visibility: a bent cone from a coarse, long-radius pass, or the sun's shadow applied to the sky near the sun
+   (VCH-141).
 3. **GTAO without history needs its estimates blurred before they are clamped.** A pixel's two slices of an open plane
    seen at an angle sum to around 1, not exactly 1; clamping per pixel before the blur darkened open walls by their
    angle to the view, in rings. Blurring the unclamped estimate and clamping in the upsample removed it, as did

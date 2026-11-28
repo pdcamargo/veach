@@ -66,6 +66,9 @@ GI and no ray tracing (ADR 0039).
   thread, 0.11 to 0.25 ms) moves by -0.05 to +0.15 ms. [Measurements](../research/ambient-light/README.md). That is
   well above ADR 0062's estimate (0.1 ms at 1080p with temporal reuse); the levers (history, deinterleaving, half
   floats, a lighter pyramid) are VCH-141, and M1-class numbers (VCH-097) decide how far they must go.
+- No large-scale sky occlusion: the table is the open sky and the analytic ground, and GTAO reaches 1.5 m. In a
+  street the walls get the open ground's bounce, and with sun shadows (0095) a facade shadowed at sunset still gets
+  the bright sky around the sun that the street's buildings hide (VCH-141).
 - Screen-space limits: no occlusion from what is off screen or behind the front layer; thin foliage gets its
   neighbors' occlusion at half resolution; a cave is lit by the outdoor sky's SH times the camera's sky visibility, so
   its walls get "ground" light from below: local probes (ADR 0062) remain the answer.

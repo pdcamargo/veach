@@ -5,7 +5,7 @@ Validates the determinism claim of [ADR 0058](../../adr/0058-physics-jolt.md): J
 [ADR 0043](../../adr/0043-determinism-tiers-and-strict-floating-point.md), gives the same state hash on every platform
 and with any number of workers. Research: [09-physics](../09-physics.md) spike S1.
 
-**Verdict: the decision holds, pending the Windows CI run.** A pile of 200 boxes, spheres and capsules dropped into
+**Verdict: the decision holds**, Windows CI included. A pile of 200 boxes, spheres and capsules dropped into
 a heightfield bowl gives the same state hash after every one of 600 steps on:
 
 - macOS arm64 (NEON): Debug, Release and Debug with ASan/UBSan;
@@ -96,7 +96,7 @@ Step 1 is free fall, so it matches even in the control. The control diverges onc
 | Same, SSE2 only (`-mno-sse3 … -mno-sse4.2`, what MSVC x64 gets), Debug | equal |
 | Same, AVX2 + BMI + LZCNT + F16C (Jolt's x86 default), Release | equal |
 | 0, 1, 4 and 8 workers, each of the above that ran the bench or harness | equal |
-| **Windows x64, MSVC, Debug (CI)** | **pending: the next push** |
+| **Windows x64, MSVC, Debug (CI)** | **equal** (CI run 46087974524, commit 79db0bb) |
 
 The x86-64 harness was a scratch CMake project, not committed. It built Jolt from the pinned cache with the same
 options and `-ffp-contract=off -fno-fast-math`, and linked `sp11_scene.cpp`.

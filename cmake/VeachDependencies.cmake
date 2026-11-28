@@ -229,6 +229,11 @@ CPMAddPackage(
 if(TARGET Jolt AND NOT MSVC)
     target_compile_options(Jolt PRIVATE $<$<CONFIG:Debug>:-O2>)
 endif()
+# Jolt builds without RTTI, so UBSan's vptr check in code that uses Jolt's classes links against typeinfo that
+# doesn't exist. Code that links Jolt skips that one check.
+if(TARGET Jolt AND "undefined" IN_LIST VEACH_SANITIZE)
+    target_compile_options(Jolt INTERFACE -fno-sanitize=vptr)
+endif()
 
 # LLVM libc's header-only math (libc/shared/math): backs veach::dmath, correctly rounded math for canonical code
 # (docs/adr/0043-determinism-tiers-and-strict-floating-point.md, docs/research/spikes/sp-02-dmath.md). Pinned to a

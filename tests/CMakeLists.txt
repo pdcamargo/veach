@@ -78,6 +78,13 @@ add_test(NAME "lab: runtime mesh on the null RHI"
     COMMAND veach-lab --script scripts/runtime_mesh_realtime.luau --frames 3 --headless)
 set_tests_properties("lab: runtime mesh on the null RHI" PROPERTIES FAIL_REGULAR_EXPRESSION "\\] error ")
 
+# voxel.AC10 on every platform: the engine-backed terrain view streams a planet at orbit with no open edges.
+add_test(NAME "lab: terrain view streams a planet on the null RHI"
+    COMMAND veach-lab --script scripts/terrain_descent.luau --frames 30 --headless)
+set_tests_properties("lab: terrain view streams a planet on the null RHI" PROPERTIES
+    PASS_REGULAR_EXPRESSION "checkpoint orbit: .*, 0 open"
+    FAIL_REGULAR_EXPRESSION "\\] error ")
+
 file(GLOB_RECURSE _luau_scripts RELATIVE "${PROJECT_SOURCE_DIR}" CONFIGURE_DEPENDS
     "${PROJECT_SOURCE_DIR}/apps/*.luau" "${PROJECT_SOURCE_DIR}/tests/scripts/*.luau"
     "${PROJECT_SOURCE_DIR}/tests/procgen/*.luau")

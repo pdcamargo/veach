@@ -2,8 +2,8 @@
 
 #include "runtime_mesh_demo.hpp"
 #include "sp04_spike.hpp"
-#include "sp09_spike.hpp"
 #include "sp10_spike.hpp"
+#include "terrain_view.hpp"
 #ifdef VEACH_LAB_SP13
 #include "sp13_spike.hpp"
 #endif
@@ -45,9 +45,9 @@ LabModule::LabModule(veach::World& world) {
                                     lab_shaders::realtime_shade()},
         lab_shaders::material_kinds, veach::services(world).get<veach::AssetServer>()));
 
-    register_sp04_spike(world);  // spike SP-04 (VCH-080), throwaway: the sun from the system
-    register_sp09_spike(world);  // spike SP-09 (VCH-085), throwaway: planet octree and governed descent
-    register_sp10_spike(world);  // spike SP-10 (VCH-086), throwaway: a planet's atmosphere from ground to orbit
+    register_sp04_spike(world);    // spike SP-04 (VCH-080), throwaway: the sun from the system
+    register_terrain_view(world);  // engine/voxel terrain under a governed descent (VCH-114, after spike SP-09)
+    register_sp10_spike(world);    // spike SP-10 (VCH-086), throwaway: a planet's atmosphere from ground to orbit
 #ifdef VEACH_LAB_SP13
     register_sp13_spike(world);  // spike SP-13 (VCH-089), throwaway: walk, hover and land, drawn
 #endif

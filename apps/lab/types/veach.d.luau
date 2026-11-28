@@ -189,34 +189,6 @@ export type Sky = {
 	mie_g: number,
 	aerial_perspective: boolean,
 }
-export type Sp09Descent = {
-	body: number,
-	scale: number,
-	relief_exponent: number,
-	start_altitude: number,
-	end_altitude: number,
-	low_altitude: number,
-	tau: number,
-	v_floor: number,
-	skim_speed: number,
-	skim_seconds: number,
-	low_seconds: number,
-	lambda: number,
-	budget: number,
-	level_colors: boolean,
-	linear_encoding: boolean,
-}
-export type Sp09State = {
-	x: number,
-	y: number,
-	z: number,
-	altitude: number,
-	speed: number,
-	phase: number,
-	time: number,
-	drawn: number,
-	backlog: number,
-}
 export type Spinner = {
 	radians_per_second: number,
 	angle: number,
@@ -239,6 +211,28 @@ export type SunObserver = {
 	north: number,
 	up: number,
 	tick: number,
+}
+export type TerrainDescent = {
+	scale: number,
+	start_altitude: number,
+	end_altitude: number,
+	low_altitude: number,
+	tau: number,
+	v_floor: number,
+	skim_speed: number,
+	skim_seconds: number,
+	low_seconds: number,
+	lambda: number,
+	budget: number,
+}
+export type TerrainDescentState = {
+	altitude: number,
+	speed: number,
+	phase: number,
+	time: number,
+	drawn: number,
+	backlog: number,
+	lambda: number,
 }
 export type quat = {
 	x: number,
@@ -310,11 +304,11 @@ export type Veach = {
 		read RuntimeMeshDemo: Component<RuntimeMeshDemo>,
 		read SceneInstance: Component<SceneInstance>,
 		read Sky: Component<Sky>,
-		read Sp09Descent: Component<Sp09Descent>,
-		read Sp09State: Component<Sp09State>,
 		read Spinner: Component<Spinner>,
 		read SpotLight: Component<SpotLight>,
 		read SunObserver: Component<SunObserver>,
+		read TerrainDescent: Component<TerrainDescent>,
+		read TerrainDescentState: Component<TerrainDescentState>,
 		read Transform: Component<Transform>,
 		read TriangleDemo: Component<TriangleDemo>,
 		read UniverseClock: Component<UniverseClock>,

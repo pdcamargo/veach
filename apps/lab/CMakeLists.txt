@@ -4,8 +4,7 @@ veach_add_app(veach-lab
         src/main.cpp
         src/runtime_mesh_demo.cpp
         src/sp04_spike.cpp
-        src/sp09_spike.cpp
-        src/sp09_terrain.cpp
+        src/terrain_view.cpp
         src/sp10_spike.cpp
         src/sp14_spike.cpp
         src/triangle_feature.cpp

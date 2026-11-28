@@ -60,6 +60,8 @@ more than the code needs, or something different.
    integers to the frame's meters and through `RenderSpaceMap` relative to the render origin in double at extraction.
    Coarse chunks' shared vertices can differ by a float ulp of the chunk size (1.5 cm at 262 km chunks, seen from
    hundreds of kilometers): below a pixel, and the canonical weld check on lattice positions stays at 0 open edges.
+   This departs from [0074](0074-amendments-from-sp-08.md) rule 3 for rendering only; if pinholes ever show along
+   coarse seams, the render vertex format moves to 0074's lattice positions.
 
 ## Consequences
 

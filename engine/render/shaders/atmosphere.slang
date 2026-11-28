@@ -161,12 +161,15 @@ void sky_view_lut(uint3 id: SV_DispatchThreadID) {
 
 // ---- the ambient table (veach/ambient.slang, ADR 0095) ------------------------------------------------------------
 
-groupshared float3 ambient_sums[6][64];
+/// Each thread's partial sums, coefficient-major. float4 in one dimension: a 2D threadgroup array of float3 read back
+/// other threads' sums nondeterministically on Metal (Bistro's ambient light varied by up to FLIP 0.04 between runs).
+groupshared float4 ambient_sums[6 * 64];
 
 /// One entry of the medium's ambient table per group of 64 threads: the L2 SH of the radiance around a point at the
 /// group's altitude under a sun of color 1 at the group's zenith cosine, every direction through planet_march (the
-/// analytic ground lit below the horizon). 512 directions over the half sphere on the sun's side of its plane (the
-/// other half mirrors it), 8 per thread, in equal-area cells. Writes block b of the entry at (b * angles + x, y).
+/// analytic ground lit below the horizon). 256 directions over the half sphere on the sun's side of its plane (the
+/// other half mirrors it), 4 per thread, in equal-area cells (32 bands of height by 8 of azimuth), 24 steps each
+/// (within FLIP 0.002 of 2,048 directions in Bistro). Writes block b of the entry at (b * angles + x, y).
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void sky_ambient_lut(uint3 group: SV_GroupID, uint3 thread: SV_GroupThreadID) {
@@ -185,10 +188,10 @@ void sky_ambient_lut(uint3 group: SV_GroupID, uint3 thread: SV_GroupThreadID) {
     s.ground = float4(s0.planet != 0 ? s0.ground.xyz : s0.atmosphere.planet.zzz, 0.0);
     const float3 origin = float3(0.0, bottom + altitude, 0.0);
     float3 sums[6] = { float3(0.0), float3(0.0), float3(0.0), float3(0.0), float3(0.0), float3(0.0) };
-    for (uint k = 0; k < 8; ++k) {
+    for (uint k = 0; k < 4; ++k) {
         const uint index = thread.x + 64 * k;
-        const float up = 1.0 - 2.0 * (float(index / 16) + 0.5) / 32.0;
-        const float phi = atmosphere_pi * (float(index % 16) + 0.5) / 16.0;
+        const float up = 1.0 - 2.0 * (float(index / 8) + 0.5) / 32.0;
+        const float phi = atmosphere_pi * (float(index % 8) + 0.5) / 8.0;
         const float side = sqrt(max(1.0 - up * up, 0.0));
         const float3 direction = float3(side * cos(phi), up, side * sin(phi));
         float3 luminance;
@@ -201,16 +204,16 @@ void sky_ambient_lut(uint3 group: SV_GroupID, uint3 thread: SV_GroupThreadID) {
         }
     }
     for (uint i = 0; i < 6; ++i) {
-        ambient_sums[i][thread.x] = sums[i];
+        ambient_sums[i * 64 + thread.x] = float4(sums[i], 0.0);
     }
     GroupMemoryBarrierWithGroupSync();
     if (thread.x < 6) {
         float3 total = float3(0.0, 0.0, 0.0);
         for (uint j = 0; j < 64; ++j) {
-            total += ambient_sums[thread.x][j];
+            total += ambient_sums[thread.x * 64 + j].xyz;
         }
-        // Each cell is 4 pi / 1024 of the sphere and stands for its mirror image too.
+        // Each cell is 4 pi / 512 of the sphere and stands for its mirror image too.
         lut_params.output[uint2(thread.x * ambient_table_angles + group.x, group.y)] =
-            float4(total * (8.0 * atmosphere_pi / 1024.0), 1.0);
+            float4(total * (8.0 * atmosphere_pi / 512.0), 1.0);
     }
 }

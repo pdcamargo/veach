@@ -24,6 +24,7 @@
 #include <veach/render/png.hpp>
 #include <veach/render/render_graph.hpp>
 #include <veach/render/scene.hpp>
+#include <veach/render/upload.hpp>
 #include <veach/rhi/rhi.hpp>
 
 #include <cstdint>
@@ -196,6 +197,8 @@ struct FrameContext {
     std::uint32_t width = 0;
     std::uint32_t height = 0;
     const RenderView* view = nullptr;  ///< the primary view, or null when no camera is active
+    /// Upload memory for this frame's texture updates (render::upload_texture, VCH-076); never null in a frame.
+    UploadRing* uploads = nullptr;
 };
 
 /// The frame's target size: the primary window's, or 1280x720 when nothing says otherwise.
@@ -253,6 +256,8 @@ public:
     [[nodiscard]] rhi::Device& device() { return device_; }
     /// Meshes and materials made at run time (also the engine's MeshStore service).
     [[nodiscard]] MeshStore& meshes() { return meshes_; }
+    /// The upload ring features get as FrameContext::uploads.
+    [[nodiscard]] UploadRing& uploads() { return uploads_; }
     /// The last compiled graph, as text (RenderGraph::describe()).
     [[nodiscard]] const std::string& last_graph() const { return last_graph_; }
 
@@ -274,6 +279,7 @@ private:
     std::vector<bool> prepared_;  ///< per feature: true = ready, false = disabled
     bool features_prepared_ = false;
     TransientPool pool_;
+    UploadRing uploads_;  ///< its buffer is made on first use
 
     rhi::TextureHandle scene_color_;
     rhi::ResourceState scene_color_state_ = rhi::ResourceState::undefined;

@@ -84,8 +84,9 @@ public:
     // ---- resources
     [[nodiscard]] virtual Result<BufferHandle> create_buffer(const BufferDesc& desc,
                                                              std::span<const std::byte> initial_data = {}) = 0;
-    /// `mips`, if given, holds one tightly packed span per mip level (row_bytes x row_count each). A texture
-    /// created with data is uploaded before any later submission runs and starts in shader_read.
+    /// `mips`, if given, holds one tightly packed span per mip level (mip_bytes each: every layer and depth slice of
+    /// the level, in KTX2 order). A texture created with data is uploaded before any later submission runs and
+    /// starts in shader_read. Later updates go through CommandList::copy_buffer_to_texture (render::upload_texture).
     [[nodiscard]] virtual Result<TextureHandle> create_texture(
         const TextureDesc& desc, std::span<const std::span<const std::byte>> mips = {}) = 0;
     [[nodiscard]] virtual Result<SamplerHandle> create_sampler(const SamplerDesc& desc) = 0;
@@ -108,7 +109,12 @@ public:
 
     // ---- bindless descriptors (ADR 0027)
     [[nodiscard]] virtual DescriptorHandle descriptor(BufferHandle buffer, View view = View::read) = 0;
+    /// The whole texture: its TextureType's Slang type to read (Texture3D, TextureCube...); to write, mip 0 as
+    /// RWTexture2D, RWTexture3D or RWTexture2DArray (arrays and cube faces).
     [[nodiscard]] virtual DescriptorHandle descriptor(TextureHandle texture, View view = View::read) = 0;
+    /// Part of a texture (ADR 0090): mips and layers from `range`. Storage views see range.base_mip only; a part of
+    /// a cube reads as a 2D array. Views live as long as the texture; 0 for an invalid handle or range (logged).
+    [[nodiscard]] virtual DescriptorHandle descriptor(TextureHandle texture, View view, const TextureRange& range) = 0;
     [[nodiscard]] virtual DescriptorHandle descriptor(SamplerHandle sampler) = 0;
     [[nodiscard]] virtual DescriptorHandle descriptor(AccelHandle accel) = 0;
     /// A valid descriptor of `kind` that reads as zero (ADR 0027). Use it for "no resource"; handle 0 is invalid.

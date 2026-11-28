@@ -3,11 +3,13 @@
 // RHI value types: handles, formats, descriptors of resources and pipelines,
 // resource states and barriers. See ADR 0004 (RHI), 0024 (binding), 0025 (sync).
 
+#include <veach/core/error.hpp>
 #include <veach/rhi/shader.hpp>
 
 #include <array>
 #include <compare>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -57,8 +59,21 @@ static_assert(sizeof(DescriptorHandle) == 8);
 /// Which view of a resource a descriptor is for (DX12 has separate SRVs and UAVs).
 enum class View : std::uint8_t { read, storage };
 
-/// What a descriptor points at, for null descriptors (ADR 0027).
-enum class DescriptorKind : std::uint8_t { texture, storage_texture, buffer, storage_buffer, sampler };
+/// What a descriptor points at, for null descriptors (ADR 0027). `texture` and `storage_texture` are 2D; the
+/// others match the Slang type of the same name (Texture3D, RWTexture2DArray...).
+enum class DescriptorKind : std::uint8_t {
+    texture,
+    storage_texture,
+    buffer,
+    storage_buffer,
+    sampler,
+    texture_2d_array,
+    texture_3d,
+    texture_cube,
+    texture_cube_array,
+    storage_texture_2d_array,
+    storage_texture_3d,
+};
 
 struct SubmissionId {
     std::uint64_t value = 0;
@@ -85,6 +100,10 @@ enum class Format : std::uint8_t {
     bc7_srgb,    ///< BC7, sRGB-encoded: base color and emissive
     r32_uint,    ///< integer: color target, storage, loaded (not filtered) in shaders
     rg32_uint,   ///< integer: the visibility buffer (ADR 0040)
+    r8_unorm,    ///< one 8-bit channel: masks, densities
+    rg8_unorm,
+    r16_float,  ///< one half-float channel: heights, densities
+    rg16_float,
 };
 
 /// Bytes per pixel; 0 for block-compressed formats (use row_bytes / row_count).
@@ -152,6 +171,15 @@ struct BufferDesc {
     std::uint32_t stride = 0;
 };
 
+/// The shape of a texture, and the Slang type of its read view (ADR 0090).
+enum class TextureType : std::uint8_t {
+    d2,          ///< Texture2D
+    d2_array,    ///< Texture2DArray: `layers` slices
+    d3,          ///< Texture3D: `depth` slices
+    cube,        ///< TextureCube: 6 layers, the faces +X, -X, +Y, -Y, +Z, -Z
+    cube_array,  ///< TextureCubeArray: 6 layers per cube
+};
+
 struct TextureDesc {
     std::uint32_t width = 1;
     std::uint32_t height = 1;
@@ -159,21 +187,114 @@ struct TextureDesc {
     TextureUsage usage = TextureUsage::sampled;
     std::string debug_name;
     std::uint32_t mip_levels = 1;
+    TextureType type = TextureType::d2;
+    std::uint32_t depth = 1;   ///< d3 only: slices of mip 0 (mip n has mip_size(depth, n))
+    std::uint32_t layers = 1;  ///< d2_array: slices; cube: 6; cube_array: 6 per cube; 1 for d2 and d3
 };
 
-enum class Filter : std::uint8_t { nearest, linear };
+/// Layers of a texture: `layers` for arrays and cubes, 1 for d2 and d3.
+[[nodiscard]] std::uint32_t layer_count(const TextureDesc& desc);
+/// Depth slices of mip `level`: mip_size(depth, level) for d3, 1 otherwise.
+[[nodiscard]] std::uint32_t depth_of_mip(const TextureDesc& desc, std::uint32_t level);
+/// Tightly packed bytes of one mip level with every layer and slice: row_bytes x row_count x depth x layers, in
+/// KTX2 order (layers, then cube faces, then depth slices, then rows).
+[[nodiscard]] std::uint64_t mip_bytes(const TextureDesc& desc, std::uint32_t level);
+[[nodiscard]] std::string_view to_string(TextureType type);
+
+/// "To the end": the remaining mips or layers of a TextureRange.
+inline constexpr std::uint32_t remaining = UINT32_MAX;
+
+/// Part of a texture that a descriptor views: a run of mips and of layers (array layers, cube faces). Views of a 3D
+/// texture always cover all of its depth. Device::descriptor(texture, view, range).
+struct TextureRange {
+    std::uint32_t base_mip = 0;
+    std::uint32_t mip_count = remaining;  ///< storage views see one mip: base_mip
+    std::uint32_t base_layer = 0;
+    std::uint32_t layer_count = remaining;
+    constexpr auto operator<=>(const TextureRange&) const = default;
+};
+
+/// The mip and layer a render pass draws into: an array layer, a cube face, or a 3D texture's depth slice.
+struct TargetSlice {
+    std::uint32_t mip = 0;
+    std::uint32_t layer = 0;
+};
+
+/// A box in one mip of a texture, over a run of layers: what a buffer-to-texture copy writes.
+struct TextureRegion {
+    std::uint32_t mip = 0;
+    std::uint32_t base_layer = 0;
+    std::uint32_t layer_count = 1;
+    std::uint32_t x = 0;
+    std::uint32_t y = 0;
+    std::uint32_t z = 0;       ///< d3 only
+    std::uint32_t width = 0;   ///< 0: to the edge of the mip
+    std::uint32_t height = 0;  ///< 0: to the edge of the mip
+    std::uint32_t depth = 0;   ///< 0: to the back of the mip (1 for the 2D kinds)
+};
+
+/// Texel data for copy_buffer_to_texture starts at a multiple of 512 bytes and has rows 256-byte aligned (D3D12's
+/// placement and pitch rules; Metal accepts them). render::UploadRing lays data out this way.
+inline constexpr std::uint64_t texture_copy_offset_alignment = 512;
+inline constexpr std::uint32_t texture_copy_row_alignment = 256;
+/// Bytes from one row (of 4x4 blocks, for block-compressed formats) to the next in a copy of `width` texels.
+[[nodiscard]] std::uint32_t texture_copy_pitch(Format format, std::uint32_t width);
+/// Bytes from one layer's data to the next in a copy of `region` (resolved): its depth slices, row_pitch x
+/// row_count(height) bytes each, rounded up to texture_copy_offset_alignment.
+[[nodiscard]] std::uint64_t texture_copy_layer_stride(Format format, const TextureRegion& region,
+                                                      std::uint32_t row_pitch);
+
+/// `region` with its zero extents filled in, or rhi.invalid_texture if it does not fit in the texture, or cuts
+/// a 4x4 block of a block-compressed format anywhere but at the mip's edge.
+[[nodiscard]] Result<TextureRegion> resolve_region(const TextureDesc& desc, const TextureRegion& region);
+
+enum class Filter : std::uint8_t { nearest, linear };  ///< within a mip and between mips
 enum class AddressMode : std::uint8_t { clamp, repeat };
+
+/// Depth comparison: the fragment passes when `fragment op stored`. Reverse-Z (conventions.md): nearer is greater.
+/// Comparison samplers use the same order: `reference op texel`.
+enum class CompareOp : std::uint8_t { never, less, less_equal, greater, greater_equal, equal, always };
+
+/// Anisotropic filtering for textures seen at grazing angles (ADR 0090): terrain and material samplers use 8;
+/// 16 is the most every backend allows.
+inline constexpr std::uint32_t terrain_anisotropy = 8;
+inline constexpr std::uint32_t max_anisotropy_limit = 16;
 
 struct SamplerDesc {
     Filter filter = Filter::linear;
     AddressMode address = AddressMode::clamp;
+    /// 1: off. 2 to 16: anisotropic filtering, with Filter::linear.
+    std::uint32_t max_anisotropy = 1;
+    /// Set: a comparison sampler (Slang SamplerComparisonState, SampleCmp). Each texel reads 1 where `reference op
+    /// texel` holds and 0 elsewhere, and Filter::linear averages 2x2 of them (PCF). Reverse-Z shadow maps use
+    /// greater_equal: lit where the fragment is at least as near the light as the occluder.
+    std::optional<CompareOp> compare = std::nullopt;
 };
-
-/// Depth comparison: the fragment passes when `fragment op stored`. Reverse-Z (conventions.md): nearer is greater.
-enum class CompareOp : std::uint8_t { never, less, less_equal, greater, greater_equal, equal, always };
 
 /// Which faces are not drawn. Front faces wind counter-clockwise, as in glTF.
 enum class CullMode : std::uint8_t { none, back, front };
+
+/// How a color target combines a fragment's color `src` with the color already there, `dst` (ADR 0090).
+enum class BlendMode : std::uint8_t {
+    opaque,  ///< src replaces dst
+    /// Straight alpha: rgb = src.rgb * src.a + dst.rgb * (1 - src.a), a = src.a + dst.a * (1 - src.a).
+    alpha,
+    /// src.rgb is already multiplied by src.a: rgb = src.rgb + dst.rgb * (1 - src.a), a as for alpha.
+    premultiplied,
+    /// rgb = src.rgb + dst.rgb, and dst.a is kept: light is added, coverage is unchanged.
+    additive,
+};
+
+/// Depth bias for shadow maps, added to each fragment's depth before the depth test: constant x r + slope x the
+/// triangle's largest depth slope, then limited to |clamp| when clamp is not 0. r is the smallest step of the depth
+/// format near the triangle's depth (2^(exponent - 23) for depth32_float). Reverse-Z: a negative bias pushes depth
+/// away from the viewer (the light, for a shadow map).
+struct DepthBias {
+    std::int32_t constant = 0;  ///< whole steps: D3D12 takes an integer
+    float slope = 0.0f;
+    float clamp = 0.0f;
+    constexpr bool operator==(const DepthBias&) const = default;
+};
 
 struct GraphicsPipelineDesc {
     const ShaderLibrary* library = nullptr;
@@ -187,6 +308,8 @@ struct GraphicsPipelineDesc {
     CompareOp depth_compare = CompareOp::greater_equal;  ///< with depth_test; reverse-Z: nearer wins
     CullMode cull = CullMode::none;
     std::string debug_name;
+    std::array<BlendMode, 4> blend{};  ///< per color target, opaque by default; integer targets cannot blend
+    DepthBias depth_bias{};            ///< needs a depth_format
 };
 
 struct ComputePipelineDesc {
@@ -242,12 +365,14 @@ struct ColorAttachment {
     /// Integer formats (is_integer) clear to this instead, exactly on every backend. DX12 clears through floats:
     /// values up to 2^24 and 0xFFFFFFFF (which saturates) are exact, others are rounded (and logged).
     std::array<std::uint32_t, 4> clear_uint{};
+    TargetSlice slice{};  ///< the mip and layer drawn into
 };
 
 struct DepthAttachment {
     TextureHandle texture;  ///< invalid: the pass has no depth attachment
     LoadOp load = LoadOp::clear;
     float clear_depth = 0.0f;  ///< reverse-Z (conventions.md): 0 is the far plane
+    TargetSlice slice{};       ///< the mip and layer drawn into (one shadow cascade of a d2_array)
 };
 
 struct RenderPassDesc {

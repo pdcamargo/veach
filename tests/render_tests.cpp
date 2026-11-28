@@ -31,6 +31,11 @@ public:
     void refit_tlas(rhi::AccelHandle, std::span<const rhi::TlasInstance>) override { log("refit_tlas"); }
     void copy_texture_to_buffer(rhi::TextureHandle, rhi::BufferHandle) override { log("copy"); }
     void copy_buffer(rhi::BufferHandle, rhi::BufferHandle, std::uint64_t) override { log("copy"); }
+    void copy_buffer_to_texture(rhi::BufferHandle, std::uint64_t offset, std::uint32_t pitch, rhi::TextureHandle,
+                                const rhi::TextureRegion& r) override {
+        log(std::format("copy_buffer_to_texture offset {} pitch {} mip {} layers {}+{} at {},{},{} size {}x{}x{}",
+                        offset, pitch, r.mip, r.base_layer, r.layer_count, r.x, r.y, r.z, r.width, r.height, r.depth));
+    }
     void use(rhi::ResourceRef, ResourceState s) override { log(std::format("use {}", rhi::to_string(s))); }
     void barrier(std::span<const rhi::Barrier> barriers) override {
         for (const rhi::Barrier& b : barriers) {

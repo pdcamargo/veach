@@ -5,6 +5,7 @@
 #include "../texture_validation.hpp"
 
 #include <veach/core/assert.hpp>
+#include <veach/core/log.hpp>
 
 #include <algorithm>
 #include <cstring>
@@ -32,6 +33,8 @@ public:
     void refit_tlas(AccelHandle, std::span<const TlasInstance>) override {}
     void copy_texture_to_buffer(TextureHandle, BufferHandle) override {}
     void copy_buffer(BufferHandle, BufferHandle, std::uint64_t) override {}
+    void copy_buffer_to_texture(BufferHandle, std::uint64_t, std::uint32_t, TextureHandle,
+                                const TextureRegion&) override {}
     void use(ResourceRef, ResourceState) override {}
     void barrier(std::span<const Barrier>) override {}
     void push_debug_group(std::string_view) override {}
@@ -57,14 +60,26 @@ Result<BufferHandle> NullDevice::create_buffer(const BufferDesc& desc, std::span
     return buffers_.insert(std::move(buffer));
 }
 
-Result<TextureHandle> NullDevice::create_texture(const TextureDesc& desc, std::span<const std::span<const std::byte>>) {
+Result<TextureHandle> NullDevice::create_texture(const TextureDesc& desc,
+                                                 std::span<const std::span<const std::byte>> mips) {
     if (auto valid = validate_texture_desc(desc); !valid) {
         return std::unexpected(valid.error());
+    }
+    if (!mips.empty() && mips.size() != std::max(1u, desc.mip_levels)) {
+        return make_error(ErrorCode::internal,
+                          std::format("create_texture '{}': {} mip levels, data for {}", desc.debug_name,
+                                      std::max(1u, desc.mip_levels), mips.size()));
+    }
+    if (auto sized = validate_mip_data(desc, mips); !sized) {
+        return std::unexpected(sized.error());
     }
     return textures_.insert(desc);
 }
 
 Result<SamplerHandle> NullDevice::create_sampler(const SamplerDesc& desc) {
+    if (auto valid = validate_sampler_desc(desc); !valid) {
+        return std::unexpected(valid.error());
+    }
     return samplers_.insert(desc);
 }
 
@@ -96,7 +111,19 @@ DescriptorHandle NullDevice::descriptor(BufferHandle buffer, View) {
     return {buffer.index};
 }
 DescriptorHandle NullDevice::descriptor(TextureHandle texture, View) {
-    return {texture.index};
+    // Never 0, which means "none": the generation is.
+    return {textures_.get(texture) ? (std::uint64_t{texture.generation} << 32) | texture.index : 0};
+}
+DescriptorHandle NullDevice::descriptor(TextureHandle texture, View view, const TextureRange& range) {
+    const TextureDesc* desc = textures_.get(texture);
+    if (desc == nullptr) {
+        return {};
+    }
+    if (auto valid = resolve_range(*desc, view, range); !valid) {
+        log::error("rhi", valid.error());
+        return {};
+    }
+    return descriptor(texture, view);
 }
 DescriptorHandle NullDevice::descriptor(SamplerHandle sampler) {
     return {sampler.index};

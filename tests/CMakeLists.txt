@@ -14,6 +14,7 @@ add_executable(veach-tests
     realtime_tests.cpp
     render_tests.cpp
     rhi_tests.cpp
+    rhi_texture_tests.cpp  # docs/specs/rhi-textures/spec.md
     runtime_mesh_tests.cpp
     hot_reload_tests.cpp
     input_tests.cpp
@@ -39,6 +40,10 @@ target_link_libraries(veach-tests PRIVATE veach::veach veach::space veach::voxel
 # Shaders for RHI tests (tests/rhi_tests.cpp): <test_shaders.hpp>.
 veach_add_shader(veach-tests shaders/raster_states.slang ENTRIES vs_main:vertex fs_main:fragment)
 veach_add_shader(veach-tests shaders/atmosphere_probe.slang ENTRIES transmittance_probe:compute)
+veach_add_shader(veach-tests shaders/texture_kinds.slang ENTRIES write_volume:compute write_faces:compute
+    sample_volume:compute sample_layers:compute sample_cube:compute)
+veach_add_shader(veach-tests shaders/sampler_states.slang ENTRIES compare_depth:compute sample_grad:compute)
+veach_add_shader(veach-tests shaders/blend_states.slang ENTRIES vs_main:vertex fs_main:fragment)
 veach_shader_library(veach-tests NAMESPACE test_shaders)
 target_compile_definitions(veach-tests PRIVATE VEACH_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 target_include_directories(veach-tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -290,6 +295,8 @@ function(veach_scene_goldens rhi)
     veach_golden_test("golden: cornell box 1 AU out (frames${suffix})" frames_1au cornell_box_realtime ${rhi})
     veach_golden_test("golden: cornell box in a frame 0.1 ly out (frames${suffix})" frames_far_frame
         cornell_box_realtime ${rhi})
+    # rhi.AC18: the RHI's blend modes (docs/specs/rhi-textures/spec.md).
+    veach_golden_test("golden: blend modes (${rhi})" blend_modes blend_modes ${rhi})
     veach_golden_test("golden: cornell box in a turned frame, seen from the root (frames${suffix})" frames_across
         cornell_box_realtime ${rhi})
 endfunction()
@@ -340,7 +347,7 @@ if(APPLE)
             "cornell_box_realtime:cornell_box_realtime:3" "flight_helmet_realtime:flight_helmet_realtime:3"
             "bistro_noon:bistro_noon:3" "bistro_sunset:bistro_sunset:3"
             "runtime_mesh_realtime:runtime_mesh_realtime:3" "runtime_mesh:runtime_mesh:4"
-            "thin_triangles_realtime:thin_triangles_realtime:3")
+            "thin_triangles_realtime:thin_triangles_realtime:3" "blend_modes:blend_modes:3")
         string(REPLACE ":" ";" _golden "${_golden}")
         list(GET _golden 0 _script)
         list(GET _golden 1 _image)

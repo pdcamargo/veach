@@ -1,5 +1,6 @@
 veach_add_app(veach-lab
     SOURCES
+        src/blend_demo.cpp
         src/lab_module.cpp
         src/main.cpp
         src/runtime_mesh_demo.cpp
@@ -15,6 +16,7 @@ target_compile_definitions(veach-lab PRIVATE VEACH_LAB_PROJECT_DIR="${CMAKE_CURR
 
 veach_add_shader(veach-lab shaders/triangle.slang ENTRIES vs_main:vertex fs_main:fragment)
 veach_add_shader(veach-lab shaders/triangle_rt.slang ENTRIES trace:compute)
+veach_add_shader(veach-lab shaders/blend_demo.slang ENTRIES vs_main:vertex fs_main:fragment)
 # The material model's proof (ADR 0035): GlowMaterial overrides only evalEmission.
 veach_add_material(veach-lab GlowMaterial shaders/glow_material.slang EMISSIVE)
 veach_add_scene_shaders(veach-lab NAMESPACE lab_shaders)

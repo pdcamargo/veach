@@ -43,6 +43,12 @@ public:
     virtual void copy_texture_to_buffer(TextureHandle src, BufferHandle dst) = 0;
     /// Copies the first `size` bytes of `src` to the start of `dst` (copy_src and copy_dst states).
     virtual void copy_buffer(BufferHandle src, BufferHandle dst, std::uint64_t size) = 0;
+    /// Copies texels from `src` into `region` of `dst` (copy_src and copy_dst states; VCH-076). The data starts at
+    /// `offset` (a multiple of texture_copy_offset_alignment), rows are `row_pitch` bytes apart (a multiple of
+    /// texture_copy_row_alignment, at least row_bytes of the region), depth slices are row_pitch x row_count(height)
+    /// bytes apart, and layers texture_copy_layer_stride apart. render::upload_texture stages data this way.
+    virtual void copy_buffer_to_texture(BufferHandle src, std::uint64_t offset, std::uint32_t row_pitch,
+                                        TextureHandle dst, const TextureRegion& region) = 0;
 
     /// Declares that the current pass accesses `resource` in `state` (residency on Metal).
     virtual void use(ResourceRef resource, ResourceState state) = 0;

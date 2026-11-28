@@ -214,7 +214,7 @@ std::pair<std::uint32_t, std::uint32_t> target_size(const RenderWorld& world) {
     return {world.target_width != 0 ? world.target_width : 1280, world.target_height != 0 ? world.target_height : 720};
 }
 
-Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device) {
+Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device), uploads_(device) {
     add_extractor("frame", [](const World& world, RenderWorld& out) {
         if (const Time* time = world.try_get<Time>()) {
             out.frame = time->frame;
@@ -497,9 +497,10 @@ void Renderer::render() {
         "clear", [&](PassBuilder& b) { b.color_target(color, rhi::LoadOp::clear, background_color); },
         [](PassContext&) {});
 
-    const FrameContext frame{device_, render_world_,
-                             color,   width,
-                             height,  render_world_.views.empty() ? nullptr : &render_world_.views.front()};
+    const FrameContext frame{device_,  render_world_,
+                             color,    width,
+                             height,   render_world_.views.empty() ? nullptr : &render_world_.views.front(),
+                             &uploads_};
     for (std::size_t i = 0; i < features_.size(); ++i) {
         if (prepared_[i]) {
             features_[i]->record(graph, frame);

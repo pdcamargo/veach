@@ -6,6 +6,7 @@ veach_add_engine_library(render
         src/scene_renderer.cpp
         src/png.cpp
         src/render_graph.cpp
+        src/upload.cpp
         src/renderer.cpp
     PUBLIC_DEPS veach::ecs veach::rhi veach::asset
     PRIVATE_DEPS veach_stb

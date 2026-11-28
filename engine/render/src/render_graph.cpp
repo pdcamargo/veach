@@ -19,23 +19,24 @@ void PassBuilder::write(GraphResource resource, rhi::ResourceState state) {
     graph_.passes_.at(pass_).accesses.push_back({resource, state});
 }
 
-void PassBuilder::color_target(GraphResource resource, rhi::LoadOp load, std::array<float, 4> clear_color) {
-    graph_.add_color_target(pass_, resource, {{}, load, clear_color, {}});
+void PassBuilder::color_target(GraphResource resource, rhi::LoadOp load, std::array<float, 4> clear_color,
+                               rhi::TargetSlice slice) {
+    graph_.add_color_target(pass_, resource, {{}, load, clear_color, {}, slice});
 }
 
-void PassBuilder::color_target_uint(GraphResource resource, rhi::LoadOp load,
-                                    std::array<std::uint32_t, 4> clear_value) {
-    graph_.add_color_target(pass_, resource, {{}, load, {}, clear_value});
+void PassBuilder::color_target_uint(GraphResource resource, rhi::LoadOp load, std::array<std::uint32_t, 4> clear_value,
+                                    rhi::TargetSlice slice) {
+    graph_.add_color_target(pass_, resource, {{}, load, {}, clear_value, slice});
 }
 
-void PassBuilder::depth_target(GraphResource resource, rhi::LoadOp load, float clear_depth) {
+void PassBuilder::depth_target(GraphResource resource, rhi::LoadOp load, float clear_depth, rhi::TargetSlice slice) {
     auto& pass = graph_.passes_.at(pass_);
     if (pass.kind != PassKind::graphics || pass.depth_resource.is_valid()) {
         graph_.errors_.push_back(
             std::format("pass '{}': depth_target() needs a graphics pass with no other depth target", pass.name));
         return;
     }
-    pass.depth = {{}, load, clear_depth};
+    pass.depth = {{}, load, clear_depth, slice};
     pass.depth_resource = resource;
     pass.accesses.push_back({resource, rhi::ResourceState::depth_write});
 }
@@ -73,7 +74,8 @@ TransientPool::~TransientPool() {
 Result<rhi::TextureHandle> TransientPool::acquire(const rhi::TextureDesc& desc) {
     for (Entry& e : entries_) {
         if (!e.in_use && e.desc.width == desc.width && e.desc.height == desc.height && e.desc.format == desc.format &&
-            e.desc.usage == desc.usage) {
+            e.desc.usage == desc.usage && e.desc.type == desc.type && e.desc.depth == desc.depth &&
+            e.desc.layers == desc.layers && std::max(1u, e.desc.mip_levels) == std::max(1u, desc.mip_levels)) {
             e.in_use = true;
             return e.texture;
         }
@@ -133,6 +135,20 @@ GraphResource RenderGraph::create_texture(const rhi::TextureDesc& desc) {
     resources_.push_back(
         {desc.debug_name, {}, rhi::ResourceState::undefined, std::nullopt, rhi::ResourceState::undefined, false, desc});
     return {static_cast<std::uint32_t>(resources_.size() - 1)};
+}
+
+const rhi::TextureDesc* RenderGraph::texture_desc(GraphResource resource) const {
+    if (!resource.is_valid() || resource.id >= resources_.size()) {
+        return nullptr;
+    }
+    const Resource& r = resources_[resource.id];
+    if (r.transient) {
+        return &*r.transient;
+    }
+    if (r.ref.kind != rhi::ResourceKind::texture) {
+        return nullptr;
+    }
+    return device_.texture_desc({r.ref.index, r.ref.generation});
 }
 
 void RenderGraph::add_pass(std::string name, PassKind kind, const Setup& setup, Execute execute) {

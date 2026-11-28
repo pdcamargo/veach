@@ -45,6 +45,10 @@ MTLPixelFormat to_mtl(Format format) {
         case Format::bc7_srgb: return MTLPixelFormatBC7_RGBAUnorm_sRGB;
         case Format::r32_uint: return MTLPixelFormatR32Uint;
         case Format::rg32_uint: return MTLPixelFormatRG32Uint;
+        case Format::r8_unorm: return MTLPixelFormatR8Unorm;
+        case Format::rg8_unorm: return MTLPixelFormatRG8Unorm;
+        case Format::r16_float: return MTLPixelFormatR16Float;
+        case Format::rg16_float: return MTLPixelFormatRG16Float;
         case Format::rgb32_float:
         case Format::undefined: return MTLPixelFormatInvalid;
     }
@@ -81,6 +85,45 @@ MTLCullMode to_mtl(CullMode mode) {
     return MTLCullModeNone;
 }
 
+MTLTextureType to_mtl(TextureType type) {
+    switch (type) {
+        case TextureType::d2: return MTLTextureType2D;
+        case TextureType::d2_array: return MTLTextureType2DArray;
+        case TextureType::d3: return MTLTextureType3D;
+        case TextureType::cube: return MTLTextureTypeCube;
+        case TextureType::cube_array: return MTLTextureTypeCubeArray;
+    }
+    return MTLTextureType2D;
+}
+
+/// ADR 0090's blend presets.
+void set_blend(MTLRenderPipelineColorAttachmentDescriptor* a, BlendMode mode) {
+    a.blendingEnabled = mode != BlendMode::opaque;
+    a.rgbBlendOperation = MTLBlendOperationAdd;
+    a.alphaBlendOperation = MTLBlendOperationAdd;
+    switch (mode) {
+        case BlendMode::opaque: break;
+        case BlendMode::alpha:
+            a.sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+            a.destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+            a.sourceAlphaBlendFactor = MTLBlendFactorOne;
+            a.destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+            break;
+        case BlendMode::premultiplied:
+            a.sourceRGBBlendFactor = MTLBlendFactorOne;
+            a.destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+            a.sourceAlphaBlendFactor = MTLBlendFactorOne;
+            a.destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+            break;
+        case BlendMode::additive:
+            a.sourceRGBBlendFactor = MTLBlendFactorOne;
+            a.destinationRGBBlendFactor = MTLBlendFactorOne;
+            a.sourceAlphaBlendFactor = MTLBlendFactorZero;
+            a.destinationAlphaBlendFactor = MTLBlendFactorOne;
+            break;
+    }
+}
+
 MTLLoadAction to_mtl(LoadOp load) {
     switch (load) {
         case LoadOp::clear: return MTLLoadActionClear;
@@ -108,6 +151,8 @@ struct MetalTexture {
     bool drawable = false;  ///< a swapchain image; not owned
     bool gpu_written = false;
     std::shared_ptr<std::atomic<bool>> uploaded;  ///< set when its initial-data blit completed; null: none
+    /// Texture views made for descriptors of a part of the texture, or of a cube as a 2D array (ADR 0090).
+    std::map<std::pair<View, TextureRange>, id<MTLTexture>> views;
 };
 
 struct MetalPipeline {
@@ -116,6 +161,7 @@ struct MetalPipeline {
     MTLSize threads_per_group{1, 1, 1};
     id<MTLDepthStencilState> depth;  ///< render only; set with the pipeline
     MTLCullMode cull = MTLCullModeNone;
+    DepthBias depth_bias{};  ///< render only: encoder state on Metal, set with the pipeline
 };
 
 struct MetalAccel {
@@ -157,6 +203,8 @@ public:
     void refit_tlas(AccelHandle tlas, std::span<const TlasInstance> instances) override;
     void copy_texture_to_buffer(TextureHandle src, BufferHandle dst) override;
     void copy_buffer(BufferHandle src, BufferHandle dst, std::uint64_t size) override;
+    void copy_buffer_to_texture(BufferHandle src, std::uint64_t offset, std::uint32_t row_pitch, TextureHandle dst,
+                                const TextureRegion& region) override;
     void use(ResourceRef resource, ResourceState state) override;
     void barrier(std::span<const Barrier> barriers) override;
     void push_debug_group(std::string_view name) override { [buffer_ pushDebugGroup:ns(name)]; }
@@ -320,18 +368,37 @@ public:
 
     ~MetalDevice() override { wait_idle(); }
 
-    /// ADR 0027: shared storage, so the zeros are written once from the CPU.
+    /// ADR 0027: shared storage, so the zeros are written once from the CPU. One 1x1 texture of each type
+    /// (ADR 0090); the storage kinds share them.
     void create_null_resources() {
-        MTLTextureDescriptor* d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
-                                                                                     width:1
-                                                                                    height:1
-                                                                                 mipmapped:NO];
-        d.storageMode = MTLStorageModeShared;
-        d.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
-        null_texture_ = [device_ newTextureWithDescriptor:d];
-        const std::array<std::uint8_t, 4> zero{};
-        [null_texture_ replaceRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0 withBytes:zero.data() bytesPerRow:4];
-        null_texture_.label = @"null texture";
+        const auto make = [&](TextureType type, NSUInteger layers, NSString* label) {
+            MTLTextureDescriptor* d = [MTLTextureDescriptor new];
+            d.textureType = to_mtl(type);
+            d.pixelFormat = MTLPixelFormatRGBA8Unorm;
+            d.width = 1;
+            d.height = 1;
+            d.arrayLength = type == TextureType::cube || type == TextureType::cube_array ? layers / 6 : layers;
+            d.storageMode = MTLStorageModeShared;
+            d.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+            id<MTLTexture> texture = [device_ newTextureWithDescriptor:d];
+            const std::array<std::uint8_t, 4> zero{};
+            for (NSUInteger slice = 0; slice < layers; ++slice) {
+                [texture replaceRegion:MTLRegionMake2D(0, 0, 1, 1)
+                           mipmapLevel:0
+                                 slice:slice
+                             withBytes:zero.data()
+                           bytesPerRow:4
+                         bytesPerImage:4];
+            }
+            texture.label = label;
+            null_textures_.push_back(texture);
+            return texture;
+        };
+        null_texture_ = make(TextureType::d2, 1, @"null texture");
+        null_texture_2d_array_ = make(TextureType::d2_array, 1, @"null texture (2D array)");
+        null_texture_3d_ = make(TextureType::d3, 1, @"null texture (3D)");
+        null_texture_cube_ = make(TextureType::cube, 6, @"null texture (cube)");
+        null_texture_cube_array_ = make(TextureType::cube_array, 6, @"null texture (cube array)");
         null_buffer_ = [device_ newBufferWithLength:16 options:MTLResourceStorageModeShared];
         std::memset(null_buffer_.contents, 0, 16);
         null_buffer_.label = @"null buffer";
@@ -380,10 +447,14 @@ public:
                               "BC7 textures (ADR 0011) need an Apple-silicon Mac.");
         }
         const std::uint32_t levels = std::max(1u, desc.mip_levels);
-        MTLTextureDescriptor* d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:to_mtl(desc.format)
-                                                                                     width:desc.width
-                                                                                    height:desc.height
-                                                                                 mipmapped:NO];
+        MTLTextureDescriptor* d = [MTLTextureDescriptor new];
+        d.textureType = to_mtl(desc.type);
+        d.pixelFormat = to_mtl(desc.format);
+        d.width = desc.width;
+        d.height = desc.height;
+        d.depth = desc.type == TextureType::d3 ? desc.depth : 1;
+        const bool cube = desc.type == TextureType::cube || desc.type == TextureType::cube_array;
+        d.arrayLength = cube ? layer_count(desc) / 6 : layer_count(desc);
         d.mipmapLevelCount = levels;
         d.storageMode = MTLStorageModePrivate;
         d.hazardTrackingMode = MTLHazardTrackingModeTracked;
@@ -413,10 +484,13 @@ public:
                 return make_error(ErrorCode::internal, std::format("create_texture '{}': {} mip levels, data for {}",
                                                                    desc.debug_name, levels, mips.size()));
             }
+            if (auto sized = validate_mip_data(desc, mips); !sized) {
+                return std::unexpected(sized.error());
+            }
             uploaded = upload(texture, desc, mips);
         }
         make_resident(texture);
-        return textures_.insert({texture, desc, false, false, uploaded});
+        return textures_.insert({texture, desc, false, false, uploaded, {}});
     }
 
     /// Private textures are filled by a blit from a shared staging buffer, committed now: the queue runs in
@@ -436,17 +510,21 @@ public:
         for (std::uint32_t level = 0; level < mips.size(); ++level) {
             const std::uint32_t w = mip_size(desc.width, level);
             const std::uint32_t h = mip_size(desc.height, level);
+            const std::uint32_t depth = depth_of_mip(desc, level);
             const std::uint64_t row = row_bytes(desc.format, w);
+            const std::uint64_t image = row * row_count(desc.format, h);
             std::memcpy(static_cast<std::byte*>(staging.contents) + offset, mips[level].data(), mips[level].size());
-            [blit copyFromBuffer:staging
-                       sourceOffset:offset
-                  sourceBytesPerRow:row
-                sourceBytesPerImage:row * row_count(desc.format, h)
-                         sourceSize:MTLSizeMake(w, h, 1)
-                          toTexture:texture
-                   destinationSlice:0
-                   destinationLevel:level
-                  destinationOrigin:MTLOriginMake(0, 0, 0)];
+            for (std::uint32_t layer = 0; layer < layer_count(desc); ++layer) {  // KTX2 order: layer, slice, row
+                [blit copyFromBuffer:staging
+                           sourceOffset:offset + layer * image * depth
+                      sourceBytesPerRow:row
+                    sourceBytesPerImage:image
+                             sourceSize:MTLSizeMake(w, h, depth)
+                              toTexture:texture
+                       destinationSlice:layer
+                       destinationLevel:level
+                      destinationOrigin:MTLOriginMake(0, 0, 0)];
+            }
             offset += mips[level].size();
         }
         [blit endEncoding];
@@ -459,15 +537,25 @@ public:
     }
 
     [[nodiscard]] Result<SamplerHandle> create_sampler(const SamplerDesc& desc) override {
+        if (auto valid = validate_sampler_desc(desc); !valid) {
+            return std::unexpected(valid.error());
+        }
         MTLSamplerDescriptor* d = [MTLSamplerDescriptor new];
-        const MTLSamplerMinMagFilter filter =
-            desc.filter == Filter::linear ? MTLSamplerMinMagFilterLinear : MTLSamplerMinMagFilterNearest;
+        const bool linear = desc.filter == Filter::linear;
+        const MTLSamplerMinMagFilter filter = linear ? MTLSamplerMinMagFilterLinear : MTLSamplerMinMagFilterNearest;
         d.minFilter = filter;
         d.magFilter = filter;
+        // Between mips too, as on D3D12 (MIN_MAG_MIP_*): Metal's default ignores the mips.
+        d.mipFilter = linear ? MTLSamplerMipFilterLinear : MTLSamplerMipFilterNearest;
+        d.maxAnisotropy = desc.max_anisotropy;
         const MTLSamplerAddressMode address =
             desc.address == AddressMode::repeat ? MTLSamplerAddressModeRepeat : MTLSamplerAddressModeClampToEdge;
         d.sAddressMode = address;
         d.tAddressMode = address;
+        d.rAddressMode = address;
+        if (desc.compare) {
+            d.compareFunction = to_mtl(*desc.compare);
+        }
         d.supportArgumentBuffers = YES;
         return samplers_.insert([device_ newSamplerStateWithDescriptor:d]);
     }
@@ -524,6 +612,7 @@ public:
         d.fragmentFunction = *fs;
         for (std::size_t i = 0; i < desc.color_formats.size() && desc.color_formats[i] != Format::undefined; ++i) {
             d.colorAttachments[i].pixelFormat = to_mtl(desc.color_formats[i]);
+            set_blend(d.colorAttachments[i], desc.blend.at(i));
         }
         if (desc.depth_format != Format::undefined) {
             d.depthAttachmentPixelFormat = to_mtl(desc.depth_format);
@@ -542,8 +631,8 @@ public:
         MTLDepthStencilDescriptor* depth = [MTLDepthStencilDescriptor new];
         depth.depthCompareFunction = desc.depth_test ? to_mtl(desc.depth_compare) : MTLCompareFunctionAlways;
         depth.depthWriteEnabled = desc.depth_write;
-        return pipelines_.insert(
-            {state, nil, MTLSizeMake(1, 1, 1), [device_ newDepthStencilStateWithDescriptor:depth], to_mtl(desc.cull)});
+        return pipelines_.insert({state, nil, MTLSizeMake(1, 1, 1), [device_ newDepthStencilStateWithDescriptor:depth],
+                                  to_mtl(desc.cull), desc.depth_bias});
     }
 
     [[nodiscard]] Result<PipelineHandle> create_compute_pipeline(const ComputePipelineDesc& desc) override {
@@ -564,7 +653,7 @@ public:
                 std::format("compute pipeline '{}': {}x{}x{} threads per group exceeds the device limit {}",
                             desc.debug_name, g[0], g[1], g[2], state.maxTotalThreadsPerThreadgroup));
         }
-        return pipelines_.insert({nil, state, MTLSizeMake(g[0], g[1], g[2]), nil, MTLCullModeNone});
+        return pipelines_.insert({nil, state, MTLSizeMake(g[0], g[1], g[2]), nil, MTLCullModeNone, {}});
     }
 
     Result<AccelHandle> make_accel(MTLAccelerationStructureDescriptor* d, MetalAccel accel, std::string_view name) {
@@ -742,9 +831,44 @@ public:
         const MetalBuffer* b = buffers_.get(h);
         return {b ? b->buffer.gpuAddress : 0};
     }
-    [[nodiscard]] DescriptorHandle descriptor(TextureHandle h, View) override {
-        const MetalTexture* t = textures_.get(h);
-        return {t ? t->texture.gpuResourceID._impl : 0};
+    [[nodiscard]] DescriptorHandle descriptor(TextureHandle h, View view) override {
+        return descriptor(h, view, TextureRange{});
+    }
+    [[nodiscard]] DescriptorHandle descriptor(TextureHandle h, View view, const TextureRange& requested) override {
+        MetalTexture* t = textures_.get(h);
+        if (!t) {
+            return {};
+        }
+        auto range = resolve_range(t->desc, view, requested);
+        if (!range) {
+            log::error("rhi", range.error());
+            return {};
+        }
+        const TextureType type = view_type(t->desc, view, *range);
+        const bool whole = range->base_mip == 0 && range->base_layer == 0 &&
+                           range->layer_count == layer_count(t->desc) &&
+                           (view == View::storage || range->mip_count == std::max(1u, t->desc.mip_levels));
+        if (whole && type == t->desc.type) {
+            return {t->texture.gpuResourceID._impl};  // a storage view writes mip 0 of the texture itself
+        }
+        const auto key = std::make_pair(view, *range);
+        auto it = t->views.find(key);
+        if (it == t->views.end()) {
+            const NSRange slices = t->desc.type == TextureType::d3 ? NSMakeRange(0, 1)
+                                                                   : NSMakeRange(range->base_layer, range->layer_count);
+            id<MTLTexture> made =
+                [t->texture newTextureViewWithPixelFormat:t->texture.pixelFormat
+                                              textureType:to_mtl(type)
+                                                   levels:NSMakeRange(range->base_mip, range->mip_count)
+                                                   slices:slices];
+            if (!made) {
+                log::error("rhi", Error{ErrorCode::rhi_backend_unavailable,
+                                        std::format("Metal: cannot make a view of '{}'", t->desc.debug_name), ""});
+                return {};
+            }
+            it = t->views.emplace(key, made).first;
+        }
+        return {it->second.gpuResourceID._impl};
     }
     [[nodiscard]] DescriptorHandle descriptor(SamplerHandle h) override {
         auto* s = samplers_.get(h);
@@ -754,6 +878,12 @@ public:
         switch (kind) {
             case DescriptorKind::texture:
             case DescriptorKind::storage_texture: return {null_texture_.gpuResourceID._impl};
+            case DescriptorKind::texture_2d_array:
+            case DescriptorKind::storage_texture_2d_array: return {null_texture_2d_array_.gpuResourceID._impl};
+            case DescriptorKind::texture_3d:
+            case DescriptorKind::storage_texture_3d: return {null_texture_3d_.gpuResourceID._impl};
+            case DescriptorKind::texture_cube: return {null_texture_cube_.gpuResourceID._impl};
+            case DescriptorKind::texture_cube_array: return {null_texture_cube_array_.gpuResourceID._impl};
             case DescriptorKind::buffer:
             case DescriptorKind::storage_buffer: return {null_buffer_.gpuAddress};
             case DescriptorKind::sampler: return {null_sampler_.gpuResourceID._impl};
@@ -763,12 +893,16 @@ public:
 
     /// Null descriptors are reached through handles, so every encoder makes them resident.
     void use_null_resources(id<MTLComputeCommandEncoder> encoder) const {
-        [encoder useResource:null_texture_ usage:MTLResourceUsageRead | MTLResourceUsageWrite];
+        for (id<MTLTexture> texture : null_textures_) {
+            [encoder useResource:texture usage:MTLResourceUsageRead | MTLResourceUsageWrite];
+        }
         [encoder useResource:null_buffer_ usage:MTLResourceUsageRead | MTLResourceUsageWrite];
     }
     void use_null_resources(id<MTLRenderCommandEncoder> encoder) const {
         const MTLRenderStages stages = MTLRenderStageVertex | MTLRenderStageFragment;
-        [encoder useResource:null_texture_ usage:MTLResourceUsageRead stages:stages];
+        for (id<MTLTexture> texture : null_textures_) {
+            [encoder useResource:texture usage:MTLResourceUsageRead stages:stages];
+        }
         [encoder useResource:null_buffer_ usage:MTLResourceUsageRead stages:stages];
     }
 
@@ -820,7 +954,8 @@ public:
                                       surface_format, TextureUsage::color_target, "swapchain"},
                                      true,
                                      true,
-                                     nullptr});
+                                     nullptr,
+                                     {}});
         return s->image;
     }
 
@@ -960,7 +1095,12 @@ private:
     id<MTLCommandQueue> queue_;
     bool validation_ = false;
     id<MTLTexture> null_texture_;  ///< 1x1, zero; read and read-write
-    id<MTLBuffer> null_buffer_;    ///< 16 zero bytes
+    id<MTLTexture> null_texture_2d_array_;
+    id<MTLTexture> null_texture_3d_;
+    id<MTLTexture> null_texture_cube_;
+    id<MTLTexture> null_texture_cube_array_;
+    std::vector<id<MTLTexture>> null_textures_;  ///< all of the above
+    id<MTLBuffer> null_buffer_;                  ///< 16 zero bytes
     id<MTLSamplerState> null_sampler_;
     Capabilities caps_;
     SlotMap<MetalBuffer, BufferHandle> buffers_;
@@ -1003,8 +1143,15 @@ void MetalCommandList::begin_render_pass(const RenderPassDesc& desc) {
     for (std::uint32_t i = 0; i < desc.color_count; ++i) {
         const ColorAttachment& c = desc.colors.at(i);
         MetalTexture* t = device_.texture(c.texture);
-        VEACH_ASSERT(t != nullptr, "render pass '{}': invalid color attachment {}", desc.debug_name, i);
+        VEACH_ASSERT(t != nullptr && valid_target(t->desc, c.slice),
+                     "render pass '{}': invalid color attachment {} (or its mip and layer)", desc.debug_name, i);
         d.colorAttachments[i].texture = t->texture;
+        d.colorAttachments[i].level = c.slice.mip;
+        if (t->desc.type == TextureType::d3) {
+            d.colorAttachments[i].depthPlane = c.slice.layer;
+        } else {
+            d.colorAttachments[i].slice = c.slice.layer;
+        }
         d.colorAttachments[i].loadAction = to_mtl(c.load);
         d.colorAttachments[i].storeAction = MTLStoreActionStore;
         // Integer targets take the clear value as integers; doubles hold every 32-bit value exactly.
@@ -1015,8 +1162,11 @@ void MetalCommandList::begin_render_pass(const RenderPassDesc& desc) {
     }
     if (desc.depth.texture.is_valid()) {
         MetalTexture* t = device_.texture(desc.depth.texture);
-        VEACH_ASSERT(t != nullptr, "render pass '{}': invalid depth attachment", desc.debug_name);
+        VEACH_ASSERT(t != nullptr && valid_target(t->desc, desc.depth.slice),
+                     "render pass '{}': invalid depth attachment (or its mip and layer)", desc.debug_name);
         d.depthAttachment.texture = t->texture;
+        d.depthAttachment.level = desc.depth.slice.mip;
+        d.depthAttachment.slice = desc.depth.slice.layer;
         d.depthAttachment.loadAction = to_mtl(desc.depth.load);
         d.depthAttachment.storeAction = MTLStoreActionStore;
         d.depthAttachment.clearDepth = desc.depth.clear_depth;
@@ -1053,6 +1203,9 @@ void MetalCommandList::set_pipeline(PipelineHandle handle) {
         [render_ setRenderPipelineState:p->render];
         [render_ setDepthStencilState:p->depth];
         [render_ setCullMode:p->cull];
+        [render_ setDepthBias:static_cast<float>(p->depth_bias.constant)
+                   slopeScale:p->depth_bias.slope
+                        clamp:p->depth_bias.clamp];
         [render_ setFrontFacingWinding:MTLWindingCounterClockwise];  // glTF
     } else if (compute_ && p->compute) {
         [compute_ setComputePipelineState:p->compute];
@@ -1210,6 +1363,33 @@ void MetalCommandList::copy_buffer(BufferHandle src, BufferHandle dst, std::uint
     [blit endEncoding];
 }
 
+void MetalCommandList::copy_buffer_to_texture(BufferHandle src, std::uint64_t offset, std::uint32_t row_pitch,
+                                              TextureHandle dst, const TextureRegion& requested) {
+    end_encoder();
+    MetalBuffer* b = device_.buffer(src);
+    MetalTexture* t = device_.texture(dst);
+    VEACH_ASSERT(b != nullptr && t != nullptr, "copy_buffer_to_texture: invalid handles");
+    auto region = resolve_region(t->desc, requested);
+    VEACH_ASSERT(region.has_value(), "copy_buffer_to_texture: {}", region ? std::string() : region.error().message);
+    const std::uint64_t image = std::uint64_t{row_pitch} * row_count(t->desc.format, region->height);
+    const std::uint64_t stride = texture_copy_layer_stride(t->desc.format, *region, row_pitch);
+    VEACH_ASSERT(valid_copy_layout(t->desc.format, *region, offset, row_pitch, b->desc.size),
+                 "copy_buffer_to_texture into '{}': misaligned, or past the end of the buffer", t->desc.debug_name);
+    id<MTLBlitCommandEncoder> blit = blit_encoder();
+    for (std::uint32_t layer = 0; layer < region->layer_count; ++layer) {
+        [blit copyFromBuffer:b->buffer
+                   sourceOffset:offset + stride * layer
+              sourceBytesPerRow:row_pitch
+            sourceBytesPerImage:image
+                     sourceSize:MTLSizeMake(region->width, region->height, region->depth)
+                      toTexture:t->texture
+               destinationSlice:region->base_layer + layer
+               destinationLevel:region->mip
+              destinationOrigin:MTLOriginMake(region->x, region->y, region->z)];
+    }
+    [blit endEncoding];
+}
+
 void MetalCommandList::copy_texture_to_buffer(TextureHandle src, BufferHandle dst) {
     end_encoder();
     MetalTexture* t = device_.texture(src);
@@ -1267,6 +1447,14 @@ void MetalCommandList::use(ResourceRef ref, ResourceState state) {
         return;  // attachments, blits and builds name their resources explicitly
     }
     use_one(device_.resource(ref), state);
+    if (ref.kind == ResourceKind::texture) {
+        // Shaders may reach the texture through its views (ADR 0090): hazards and residency cover those too.
+        if (MetalTexture* t = device_.texture(TextureHandle{ref.index, ref.generation})) {
+            for (const auto& [key, view] : t->views) {
+                use_one(view, state);
+            }
+        }
+    }
     if (ref.kind == ResourceKind::acceleration_structure && !device_.has_residency_set()) {
         // A TLAS is only traversable if every BLAS it references is resident too.
         if (MetalAccel* tlas = device_.accel(AccelHandle{ref.index, ref.generation}); tlas && tlas->tlas) {

@@ -40,14 +40,17 @@ class PassBuilder {
 public:
     void read(GraphResource resource, rhi::ResourceState state = rhi::ResourceState::shader_read);
     void write(GraphResource resource, rhi::ResourceState state = rhi::ResourceState::shader_write);
-    /// Graphics passes only.
+    /// Graphics passes only. `slice` picks the mip and layer drawn into (an array layer, a cube face, a 3D slice);
+    /// the graph's barriers cover the whole texture.
     void color_target(GraphResource resource, rhi::LoadOp load = rhi::LoadOp::load,
-                      std::array<float, 4> clear_color = {0, 0, 0, 1});
+                      std::array<float, 4> clear_color = {0, 0, 0, 1}, rhi::TargetSlice slice = {});
     /// An integer color target (rhi::is_integer: rg32_uint, r32_uint), cleared to `clear_value` exactly.
     void color_target_uint(GraphResource resource, rhi::LoadOp load = rhi::LoadOp::load,
-                           std::array<std::uint32_t, 4> clear_value = {});
-    /// The depth attachment (one per pass), written in depth_write. Reverse-Z: the far plane clears to 0.
-    void depth_target(GraphResource resource, rhi::LoadOp load = rhi::LoadOp::load, float clear_depth = 0.0f);
+                           std::array<std::uint32_t, 4> clear_value = {}, rhi::TargetSlice slice = {});
+    /// The depth attachment (one per pass), written in depth_write. Reverse-Z: the far plane clears to 0. A shadow
+    /// cascade draws into one layer of a d2_array with `slice`.
+    void depth_target(GraphResource resource, rhi::LoadOp load = rhi::LoadOp::load, float clear_depth = 0.0f,
+                      rhi::TargetSlice slice = {});
     /// Keep this pass even if nothing reads what it writes (e.g. debug output).
     void side_effect();
 
@@ -118,6 +121,8 @@ public:
                          std::optional<rhi::ResourceState> final_state = std::nullopt);
     /// A texture that lives only within this frame (needs a TransientPool).
     GraphResource create_texture(const rhi::TextureDesc& desc);
+    /// The description of a texture in the graph (imported or transient), or null for buffers and invalid ids.
+    [[nodiscard]] const rhi::TextureDesc* texture_desc(GraphResource resource) const;
 
     void add_graphics_pass(std::string name, const Setup& setup, Execute execute);
     void add_compute_pass(std::string name, const Setup& setup, Execute execute);

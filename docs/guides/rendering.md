@@ -272,7 +272,12 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   Register it with `veach_add_material(<app> GlowMaterial shaders/glow_material.slang [EMISSIVE])`, then
   `veach_add_scene_shaders(<app> NAMESPACE <ns>)`. A glTF material selects it with `"extras": {"veach_material":
   "GlowMaterial"}`. Renderers call `evaluateSurface(kind, context)` and never read material records directly
-  ([ADR 0035](../adr/0035-material-model.md)).
+  ([ADR 0035](../adr/0035-material-model.md)). A material whose channels share work overrides `evalSurface` (all
+  channels at once). Procedural and triplanar materials read `SurfaceInput`'s object-space position, normal, tangent
+  (as stored), pixel gradients (`object_dx`, `object_dy`), `object_to_world` and the draw's `material_origin`; a
+  `MaterialAsset` gives a kind two 2D arrays (`array_textures`), a `custom` vec4 and anisotropic filtering
+  (`max_anisotropy`), with runtime textures from `MeshStore::add_texture`. The engine's `TerrainMaterial` is one
+  (`veach_add_terrain_material(<app>)`, [terrain materials](terrain-materials.md)).
 - **Lights:** `DirectionalLight` (lux), `PointLight` and `SpotLight` (candela), shining down −Z, and emissive
   surfaces (nits) ([ADR 0036](../adr/0036-lights-in-photometric-units.md)). `PointLight.radius`, `SpotLight.radius`
   (meters) and `DirectionalLight.angle` (angular diameter, radians) give a light a size: soft shadows in photo mode.

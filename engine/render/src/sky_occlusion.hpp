@@ -27,11 +27,11 @@ namespace veach::render {
 
 /// Mirrors SkyOcclusionFrame in shaders/veach/sky_occlusion.slang.
 struct SkyOcclusionFrame {
-    math::vec4 center{0.0f};  ///< xyz: the map's center (render space, snapped); w: its half-width (m)
-    math::vec4 up{0.0f};      ///< xyz; w: meters per texel
-    math::vec4 axis_x{0.0f};  ///< xyz: azimuth 0; w: the map's depth range (m)
-    math::vec4 axis_y{0.0f};  ///< xyz: azimuth 90 degrees; w: how far its bottom lies below its center (m)
-    math::vec4 reach{0.0f};   ///< x, y: the fade's start and end (m from the camera); z: the map's mips
+    math::vec4 center{0.0f};             ///< xyz: the map's center (render space, snapped); w: its half-width (m)
+    math::vec4 up{0.0f};                 ///< xyz; w: meters per texel
+    math::vec4 axis_x{0.0f};             ///< xyz: azimuth 0; w: the map's depth range (m)
+    math::vec4 axis_y{0.0f};             ///< xyz: azimuth 90 degrees; w: how far its bottom lies below its center (m)
+    math::vec4 reach{0.0f};              ///< x, y: the fade's start and end (m from the camera); z: the map's mips
     std::array<math::vec4, 2> lights{};  ///< toward each shadowed light, by ShadowFrame slot; w: 1 if used
     rhi::DescriptorHandle ratios;        ///< rgba16_float, a texel per cell of 8 x 8 pixels
     rhi::DescriptorHandle distances;     ///< r16_float, a texel per cell
@@ -82,8 +82,7 @@ public:
     /// scene's sky.
     Output record(RenderGraph& graph, const FrameContext& frame, const RenderView& view, const RealtimeScene& scene,
                   GraphResource depth, GraphResource visibility, const math::mat4& inverse_view_projection,
-                  const ShadowRenderer::Output& shadows,
-                  std::uint32_t width, std::uint32_t height);
+                  const ShadowRenderer::Output& shadows, std::uint32_t width, std::uint32_t height);
 
     struct Impl;
 

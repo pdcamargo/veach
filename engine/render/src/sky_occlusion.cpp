@@ -40,16 +40,14 @@ struct alignas(16) SkyParams {
     std::array<std::uint32_t, 2> size{};
     std::array<std::uint32_t, 2> extent{};
 };
-static_assert(rhi::parameters_match<SkyParams>(veach_render_shaders::layout::sky_occlusion,
-                                               {VEACH_PARAM(SkyParams, inverse_view_projection),
-                                                VEACH_PARAM(SkyParams, camera), VEACH_PARAM(SkyParams, frame),
-                                                VEACH_PARAM(SkyParams, shadows), VEACH_PARAM(SkyParams, sky),
-                                                VEACH_PARAM(SkyParams, instances), VEACH_PARAM(SkyParams, visibility),
-                                                VEACH_PARAM(SkyParams, top), VEACH_PARAM(SkyParams, lowest), VEACH_PARAM(SkyParams, downward),
-                                                VEACH_PARAM(SkyParams, heights), VEACH_PARAM(SkyParams, heights_out),
-                                                VEACH_PARAM(SkyParams, ratios), VEACH_PARAM(SkyParams, distances),
-                                                VEACH_PARAM(SkyParams, raw), VEACH_PARAM(SkyParams, near),
-                                                VEACH_PARAM(SkyParams, size), VEACH_PARAM(SkyParams, extent)}));
+static_assert(rhi::parameters_match<SkyParams>(
+    veach_render_shaders::layout::sky_occlusion,
+    {VEACH_PARAM(SkyParams, inverse_view_projection), VEACH_PARAM(SkyParams, camera), VEACH_PARAM(SkyParams, frame),
+     VEACH_PARAM(SkyParams, shadows), VEACH_PARAM(SkyParams, sky), VEACH_PARAM(SkyParams, instances),
+     VEACH_PARAM(SkyParams, visibility), VEACH_PARAM(SkyParams, top), VEACH_PARAM(SkyParams, lowest),
+     VEACH_PARAM(SkyParams, downward), VEACH_PARAM(SkyParams, heights), VEACH_PARAM(SkyParams, heights_out),
+     VEACH_PARAM(SkyParams, ratios), VEACH_PARAM(SkyParams, distances), VEACH_PARAM(SkyParams, raw),
+     VEACH_PARAM(SkyParams, near), VEACH_PARAM(SkyParams, size), VEACH_PARAM(SkyParams, extent)}));
 
 /// Full-resolution pixels per side of the cells the occlusion is traced in (veach/sky_occlusion.slang's sky_cell).
 constexpr std::uint32_t sky_cell = 8;
@@ -428,8 +426,7 @@ SkyOcclusionRenderer::Output SkyOcclusionRenderer::record(RenderGraph& graph, co
                                             2.0f * half_width / static_cast<float>(map_resolution >> (map_mips - 1)));
     Impl::Drawn& drawn = s.drawn;
     const bool redraw = !drawn.valid || drawn.half_width != half_width || math::dot(drawn.up, up) < 0.99999f ||
-                        device_frame >= drawn.frame + refresh_frames ||
-                        math::length(wanted - drawn.center) > 1e-3;
+                        device_frame >= drawn.frame + refresh_frames || math::length(wanted - drawn.center) > 1e-3;
     if (redraw) {
         drawn = {.center = wanted, .up = up, .half_width = half_width, .frame = device_frame, .valid = true};
     }

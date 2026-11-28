@@ -753,9 +753,13 @@ private:
             return;
         }
         if (tour_ == 8) {
-            // High in the day side's air (the sun 8 degrees up, at 80 % of the band's top), looking away from the
-            // sun just below the horizon: the terminator and the night side beyond it, under a lit sky (ADR 0095).
-            const double elevation = 8.0 * deg;
+            // 2 km up on the day side, the sun up by 0.4 of the angle to the horizon, looking away from it just below
+            // the horizon: the terminator and the night side beyond it, under a lit sky (ADR 0095). At s = 1 the
+            // horizon is 1.4 degrees of the planet away; at s = 0.01, 14.
+            const double altitude = 2000.0;
+            const double r_site = ground_radius(unit(site_));
+            const double horizon = dmath::acos(std::clamp(r_site / (r_site + altitude), 0.0, 1.0));
+            const double elevation = 0.4 * horizon;
             const dvec3 site_up = unit(site_);
             dvec3 axis = math::cross(sun, site_up);
             axis = length(axis) > 1e-6 ? unit(axis) : site_east_;
@@ -763,8 +767,7 @@ private:
             const dvec3 up = unit(toward * dmath::cos(elevation) + sun * dmath::sin(elevation));
             const dvec3 away = -unit(sun - up * math::dot(sun, up));
             const double r = ground_radius(up);
-            const double altitude = 0.8 * top_;
-            const double dip = dmath::acos(std::clamp(r / (r + altitude), 0.0, 1.0)) + 1.0 * deg;
+            const double dip = dmath::acos(std::clamp(r / (r + altitude), 0.0, 1.0)) + 0.5 * deg;
             eye = up * (r + altitude);
             look = eye + (away * dmath::cos(dip) - up * dmath::sin(dip)) * 1000.0;
             up_hint = up;

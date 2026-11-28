@@ -11,7 +11,7 @@ namespace veach::rhi {
 /// Every backend checks indirect arguments the same way before recording (VCH-071), so a call that works on one
 /// works on all: `count` records of `record_size` bytes, `stride` apart from `offset`, inside an indirect buffer.
 inline void check_indirect_args(const BufferDesc* args, std::uint64_t offset, std::uint32_t count, std::uint32_t stride,
-                                std::uint32_t record_size, std::string_view call) {
+                                std::uint32_t record_size, [[maybe_unused]] std::string_view call) {
     VEACH_ASSERT(args != nullptr, "{}: invalid argument buffer", call);
     VEACH_ASSERT(has(args->usage, BufferUsage::indirect), "{}: buffer '{}' was not created with BufferUsage::indirect",
                  call, args->debug_name);
@@ -24,7 +24,7 @@ inline void check_indirect_args(const BufferDesc* args, std::uint64_t offset, st
 }
 
 /// The index buffer of draw_indexed_indirect: uint32 indices in a BufferUsage::index buffer.
-inline void check_index_buffer(const BufferDesc* indices, std::string_view call) {
+inline void check_index_buffer(const BufferDesc* indices, [[maybe_unused]] std::string_view call) {
     VEACH_ASSERT(indices != nullptr, "{}: invalid index buffer", call);
     VEACH_ASSERT(has(indices->usage, BufferUsage::index), "{}: buffer '{}' was not created with BufferUsage::index",
                  call, indices->debug_name);

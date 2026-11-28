@@ -12,6 +12,3 @@ veach_add_engine_library(physics
         src/world.cpp
     PUBLIC_DEPS veach::core veach::ecs
     PRIVATE_DEPS Jolt)
-# Jolt builds without RTTI (VeachDependencies.cmake), so a class derived from one of its classes with out-of-line
-# virtuals (JobSystemWithBarrier) has no base typeinfo to link against: compile that file without RTTI too.
-set_source_files_properties(src/jobs.cpp PROPERTIES COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/GR-,-fno-rtti>")

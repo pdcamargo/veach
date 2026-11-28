@@ -102,18 +102,19 @@ void walk(int legs) {
             const double t0 = now_s();
             const WalkResult r = run_walk(w);
             std::printf(
-                "%-38s %s: %zu colliders, %.1f m, %zu steps (%zu near chunk boundaries, %zu near octant planes), %zu "
+                "%-38s %s: %zu colliders (%zu triangles), %.1f m, %zu steps (%zu near chunk boundaries, %zu near "
+                "octant planes), %zu "
                 "chunk crossings, %zu octant crossings  %.2f s\n"
                 "    unsupported %zu (max gap %.4f m), feet height %.4f..%.4f m, |dv| at boundaries max %.4f p99 %.4f, "
                 "at planes max %.4f, interior max %.4f p99 %.4f m/s\n"
                 "    up error max %.3g rad, heading step max %.3g rad, compass jump %.3f rad, farthest from the "
                 "midpoint %.2f m, back at start within "
                 "%.3f m, chain 0x%016llx\n",
-                std::string(w.name).c_str(), variant_names[variant], r.colliders, r.distance, r.steps, r.boundary_steps,
-                r.plane_steps, r.chunk_crossings, r.octant_crossings, now_s() - t0, r.unsupported,
-                r.max_unsupported_gap, r.min_gap, r.max_gap, r.max_dv_boundary, r.p99_dv_boundary, r.max_dv_plane,
-                r.max_dv_interior, r.p99_dv_interior, r.max_up_error, r.max_heading_step, r.compass_jump,
-                r.max_from_mid, r.end_error, static_cast<unsigned long long>(r.chain));
+                std::string(w.name).c_str(), variant_names[variant], r.colliders, r.collider_triangles, r.distance,
+                r.steps, r.boundary_steps, r.plane_steps, r.chunk_crossings, r.octant_crossings, now_s() - t0,
+                r.unsupported, r.max_unsupported_gap, r.min_gap, r.max_gap, r.max_dv_boundary, r.p99_dv_boundary,
+                r.max_dv_plane, r.max_dv_interior, r.p99_dv_interior, r.max_up_error, r.max_heading_step,
+                r.compass_jump, r.max_from_mid, r.end_error, static_cast<unsigned long long>(r.chain));
             if (r.first_loss_leg >= 0) {
                 std::printf(
                     "    first loss: leg %d step %d, ground state %d, feet (%.3f, %.3f, %.3f) m, %.4f m above "

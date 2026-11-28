@@ -301,6 +301,7 @@ WalkResult run_walk(const WalkConfig& config) {
                                                           JPH::EMotionType::Static, layers::static_),
                                 JPH::EActivation::DontActivate);
         ++r.colliders;
+        r.collider_triangles += c.triangles;
     }
     system.OptimizeBroadPhase();
 

@@ -126,6 +126,7 @@ struct WalkResult {
     double first_loss_gap = 0;
     double max_from_mid = 0;  ///< farthest the feet got from the walk's midpoint (half_length: on track)
     std::size_t colliders = 0;
+    std::size_t collider_triangles = 0;  ///< in the per-chunk colliders (ring triangles included)
     struct Step {
         Vec feet{};
         double dv = 0, dv_up = 0;

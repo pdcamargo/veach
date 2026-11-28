@@ -211,6 +211,13 @@ if(Python3_FOUND)
             WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
         set_tests_properties("mcp: sky set over MCP (metal)" PROPERTIES
             SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT 600 LABELS full)
+        # backdrop.AC9: a midday sky hides the space backdrop, a night sky shows it (space-backdrop spec).
+        add_test(NAME "mcp: a lit sky hides the space backdrop (metal)"
+            COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/mcp/test_mcp_lab.py"
+                    --lab $<TARGET_FILE:veach-lab> --out "${CMAKE_CURRENT_BINARY_DIR}/mcp/backdrop_sky" backdrop_sky
+            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
+        set_tests_properties("mcp: a lit sky hides the space backdrop (metal)" PROPERTIES
+            SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE")
     endif()
     if(WIN32)
         add_test(NAME "mcp: golden through MCP (dx12)"

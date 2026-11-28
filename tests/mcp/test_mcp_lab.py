@@ -584,6 +584,36 @@ def sky(lab: str, out_dir: str) -> None:
     check(client.close() == 0, "the lab exits 0")
 
 
+def backdrop_sky(lab: str, out_dir: str) -> None:
+    """backdrop.AC9: a lit sky hides the space backdrop's boost (docs/specs/space-backdrop/spec.md). Under the
+    midday sky at EV100 15 the backdrop at its default creator settings (4 stops, follow 0.1) and the physical one
+    (0 stops, follow 1: invisible by day) differ by at most one 8-bit step anywhere; at midnight, same camera and
+    exposure, the boosted stars are there and the physical ones are not."""
+    os.makedirs(out_dir, exist_ok=True)
+    client = realtime_client(lab, "scripts/space_backdrop_day.luau")
+    if client is None:
+        return
+    boosted = {"exposure_compensation": 4.0, "exposure_follow": 0.1}
+    physical = {"exposure_compensation": 0.0, "exposure_follow": 1.0}
+
+    def largest_difference(time_of_day: float, name: str) -> int:
+        client.call_json("set_component", entity="camera", component="Sky", value={"time_of_day": time_of_day})
+        images = []
+        for label, settings in (("boosted", boosted), ("physical", physical)):
+            client.call_json("set_component", entity="camera", component="SpaceBackdrop", value=settings)
+            client.call_json("step_frames", count=3)
+            images.append(shot(client, out_dir, f"{name}_{label}"))
+        return max(abs(a[c] - b[c]) for a, b in zip(images[0], images[1]) for c in range(3))
+
+    noon = largest_difference(12.0, "noon")
+    check(noon <= 1, f"[backdrop.AC9] a midday sky hides the boost: the boosted backdrop differs from the physical "
+                     f"one by {noon} of 255 (limit 1)")
+    night = largest_difference(0.0, "midnight")
+    check(night >= 100, f"[backdrop.AC9] a night sky shows it: the boosted backdrop differs from the physical one by "
+                        f"{night} of 255 (at least 100)")
+    check(client.close() == 0, "the lab exits 0")
+
+
 def golden(lab: str, imgdiff: str, golden_path: str, out: str, rhi: str) -> None:
     client = McpClient([lab, "--mcp", "--headless", "--rhi", rhi])
     try:
@@ -619,7 +649,7 @@ def main() -> int:
     parser.add_argument("--out")
     parser.add_argument("--rhi", default="metal")
     parser.add_argument("mode", choices=["protocol", "golden", "fly", "axes", "reload", "photo_mode", "gpu_timings",
-                                         "replay", "replay_windowed", "sky"])
+                                         "replay", "replay_windowed", "sky", "backdrop_sky"])
     args = parser.parse_args()
     if args.mode == "protocol":
         protocol(args.lab)
@@ -637,6 +667,8 @@ def main() -> int:
         gpu_timings(args.lab, args.rhi)
     elif args.mode == "sky":
         sky(args.lab, args.out)
+    elif args.mode == "backdrop_sky":
+        backdrop_sky(args.lab, args.out)
     elif args.mode == "photo_mode":
         photo_mode(args.lab, args.imgdiff, args.golden, args.out, args.rhi)
     else:

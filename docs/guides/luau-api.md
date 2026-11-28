@@ -266,9 +266,10 @@ C++ components tagged `veach::Scriptable` (all fields Luau-representable). The e
   ```
 - `SpaceBackdrop` (on any one entity; none means the defaults): the stars, galactic band and nebulae beyond every
   body. `exposure_compensation` (stops above physical in deep space, default 4) and `exposure_follow` (0..1, how
-  much a brighter camera exposure dims it, default 0.1; 1 is physical) are the creator's look; `visible = false`
-  hides it; a nonzero `seed` makes one for a scene with no module that provides it (the space toolbox derives each
-  system's own). See [space-backdrop](../specs/space-backdrop/spec.md).
+  much a brighter camera exposure dims it, default 0.1; 1 is physical) are the creator's look under a dark sky; a
+  lit sky in front takes the boost back by itself (gone by day, whole in space and at night, the brightest stars
+  back first at dusk), so nothing needs switching by time of day; `visible = false` hides it; a nonzero `seed`
+  makes one for a scene with no module that provides it (the space toolbox derives each system's own). See [space-backdrop](../specs/space-backdrop/spec.md).
 
   ```lua
   camera:set(veach.components.SpaceBackdrop, { seed = 7, visible = true, exposure_compensation = 4, exposure_follow = 0.1 })

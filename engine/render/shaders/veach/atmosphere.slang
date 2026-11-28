@@ -70,7 +70,7 @@ struct SkyFrame {
     float4 galactic_z;      ///< xyz = row 2; w = the creator's exposure follow (0..1)
     float4 camera_right;    ///< xyz = the camera's right, galactic
     float4 camera_up;       ///< xyz = the camera's up, galactic
-    float4 backdrop_stars;  ///< x = star density, y = magnitude scale, z = saturation, w = how fast a lit sky hides it
+    float4 backdrop_stars;  ///< x = star density, y = magnitude scale, z = saturation, w = 1 / its band's nits
     uint4 backdrop_info;    ///< x = seed, y = texture width, z = height, w = 1: draw it
     DescriptorHandle<Texture2D<float4>> backdrop;  ///< lat-long, galactic: rgb = nits, a = star density
     DescriptorHandle<SamplerState> linear_repeat;  ///< also the sky-view LUT's: its azimuth wraps

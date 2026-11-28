@@ -86,8 +86,10 @@ struct Sky {
 ///
 /// Physically a sunlit planet in view makes the stars invisible (they are 13 to 20 stops darker). The backdrop is
 /// exposed on its own: `exposure_compensation` stops above its physical brightness in deep space (EV100 -4), and
-/// following the camera's exposure only by `exposure_follow`, so it stays visible next to a lit planet. Where the
-/// sky itself is bright (a day sky, the limb's glow) it fades back to physical, so day skies stay starless.
+/// following the camera's exposure only by `exposure_follow`, so it stays visible next to a lit planet. The sky in
+/// front hides that boost where it outshines the backdrop both in the world and in the image: whole under a black
+/// sky and the faint air around a planet's limb, gone under a day sky (starless), back in twilight with the
+/// brightest stars first (docs/specs/space-backdrop/spec.md, "The sky in front hides the boost").
 struct SpaceBackdrop {
     std::uint32_t seed = 0;              ///< nonzero: a backdrop from this seed (scenes with no module providing one)
     bool visible = true;                 ///< false hides any backdrop

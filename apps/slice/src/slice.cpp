@@ -710,13 +710,16 @@ private:
 
     // ---- The demo's extra views, after the landing and the dig (VEACH_SLICE_SHOTS only) ------------------------
 
-    static constexpr std::uint32_t tour_views = 3;
+    static constexpr std::uint32_t tour_views = 6;
 
     static const char* tour_name(std::uint32_t view) {
         switch (view) {
             case 1: return "hole_eye";
             case 2: return "haze_200m";
-            default: return "sunset_300m";
+            case 3: return "sunset_300m";
+            case 4: return "dusk_sun_-3";
+            case 5: return "twilight_sun_-6";
+            default: return "twilight_sun_-10";
         }
     }
 
@@ -746,17 +749,18 @@ private:
             up_hint = up;
             return;
         }
-        // A point on the planet where the sun is 2 degrees up, on the great circle through the site and the sun,
-        // looking toward the sun along the horizon.
+        // A point on the planet where the sun is 2 degrees up (sunset), or 3, 6 and 10 degrees down (dusk and
+        // twilight), on the great circle through the site and the sun. At sunset, looking toward the sun along the
+        // horizon; in twilight, away from it 30 degrees up, where the stars come out.
+        const double elevation = (tour_ == 3 ? 2.0 : tour_ == 4 ? -3.0 : tour_ == 5 ? -6.0 : -10.0) * deg;
         const dvec3 site_up = unit(site_);
         dvec3 axis = math::cross(sun, site_up);
         axis = length(axis) > 1e-6 ? unit(axis) : site_east_;
         const dvec3 toward = unit(math::cross(axis, sun));  // perpendicular to the sun, on the site's side
-        const double elevation = 2.0 * deg;
         const dvec3 up = unit(toward * dmath::cos(elevation) + sun * dmath::sin(elevation));
         const dvec3 horizontal = unit(sun - up * math::dot(sun, up));
         eye = up * (ground_radius(up) + 300.0);
-        look = eye + horizontal * 1000.0 + up * 10.0;
+        look = tour_ == 3 ? eye + horizontal * 1000.0 + up * 10.0 : eye - horizontal * 1000.0 + up * 577.0;
         up_hint = up;
     }
 

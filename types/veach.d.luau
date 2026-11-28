@@ -166,6 +166,10 @@ export type Sky = {
 	mie_g: number,
 	aerial_perspective: boolean,
 }
+export type SkyVisibility = {
+	visibility: number,
+	reach: number,
+}
 export type SpotLight = {
 	color: vector,
 	intensity: number,
@@ -232,6 +236,7 @@ export type Veach = {
 		read RelativeMouse: Component<RelativeMouse>,
 		read SceneInstance: Component<SceneInstance>,
 		read Sky: Component<Sky>,
+		read SkyVisibility: Component<SkyVisibility>,
 		read SpotLight: Component<SpotLight>,
 		read Transform: Component<Transform>,
 		read Window: Component<Window>,

@@ -26,7 +26,8 @@ veach_add_shader(veach_render shaders/realtime_visibility.slang ENTRIES vis_vs:v
 veach_add_shader(veach_render shaders/realtime_shade.slang ENTRIES shade:compute
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
 veach_add_shader(veach_render shaders/atmosphere.slang ENTRIES transmittance_lut:compute multiscattering_lut:compute
-    sky_view_lut:compute aerial_lut:compute sky_irradiance:compute)
+    sky_view_lut:compute sky_irradiance:compute)
+veach_add_shader(veach_render shaders/aerial_volume.slang ENTRIES aerial_volume:compute)
 veach_shader_library(veach_render NAMESPACE veach_render_shaders)
 # png.cpp compiles stb's implementation; its warnings are not ours.
 set_source_files_properties(src/png.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)

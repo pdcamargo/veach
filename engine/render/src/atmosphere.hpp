@@ -1,7 +1,9 @@
 #pragma once
 
-// The physical atmosphere's lookup tables (ADR 0038), built by compute passes each frame for both renderers. The
-// CPU side (the sun, transmittance) is public: <veach/render/atmosphere.hpp>.
+// The physical atmosphere's lookup tables and aerial-perspective volume (ADR 0038, 0063, 0076, 0091), built by compute
+// passes each frame for both renderers; the shade pass applies them through aerial_perspective() and
+// sky_ambient_radiance() in shaders/veach/atmosphere.slang. The CPU side (the sun, transmittance, the sphere helpers,
+// PlanetSky) is public: <veach/render/atmosphere.hpp>.
 
 #include <veach/core/error.hpp>
 #include <veach/render/atmosphere.hpp>
@@ -32,6 +34,8 @@ public:
     [[nodiscard]] Result<> prepare(rhi::Device& device);
     /// Builds this frame's tables for `view` (the physical sky only) and uploads its SkyFrame.
     [[nodiscard]] SkyResources record(RenderGraph& graph, const ResolvedSky& sky, const RenderView& view);
+    /// Media whose transmittance and multiple-scattering tables were built so far (AtmosphereLutCache::builds).
+    [[nodiscard]] std::uint64_t medium_builds() const;
 
     struct Impl;
 

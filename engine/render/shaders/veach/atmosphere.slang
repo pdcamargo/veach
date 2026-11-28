@@ -1,7 +1,14 @@
-// The physical atmosphere (ADR 0038, docs/specs/physical-sky/spec.md), after Hillaire 2020: Rayleigh and Mie
-// scattering and ozone absorption over a spherical planet, tabulated in lookup tables that both renderers read.
-// Lengths in kilometers. LUT luminance is per lux of sun illuminance at the top of the atmosphere; SkyFrame scales it
-// to nits. The CPU mirror (render/src/atmosphere.cpp) integrates transmittance the same way.
+// The physical atmosphere (ADR 0038, 0063, 0076, 0082, docs/specs/physical-sky/spec.md and
+// docs/specs/planet-atmosphere/spec.md), after Hillaire 2020: Rayleigh and Mie scattering and ozone absorption over a
+// spherical planet, tabulated in lookup tables that both renderers read. Lengths in kilometers. LUT luminance is per
+// lux of sun illuminance at the top of the atmosphere; SkyFrame scales it to nits. The CPU mirror
+// (render/src/atmosphere.cpp) integrates transmittance and intersects spheres the same way.
+//
+// Two ways in: the Sky component's flat-world sky (planet = 0: the camera above the ground at the origin, +Y up, one
+// sun), and a planet around any center (planet = 1: render::PlanetSky, filled by a module's extractor), from the
+// ground to orbit, lit by up to four suns, with spherical occluders that eclipse them. The aerial-perspective volume
+// and its apply function serve both: the CPU fills the planet block for the Sky too (one sun, centered below the
+// camera).
 
 import veach.bindless;
 
@@ -9,6 +16,11 @@ static const float atmosphere_pi = 3.14159265358979;
 static const uint sky_none = 0;
 static const uint sky_constant = 1;
 static const uint sky_physical = 2;
+static const uint planet_max_suns = 4;
+static const uint planet_max_occluders = 4;
+/// The sky-view LUT's size (render::sky_view_size): its elevation is clamped to texel centers so the wrapping sampler
+/// wraps azimuth only.
+static const float2 sky_view_size = float2(192.0, 108.0);
 
 /// Mirrors render::AtmosphereParams: the medium.
 struct AtmosphereParams {
@@ -22,37 +34,99 @@ struct AtmosphereParams {
 /// Mirrors render::SkyFrame: everything a pass needs about this frame's sky, in one structured-buffer element.
 struct SkyFrame {
     AtmosphereParams atmosphere;
-    float4 sun;        ///< xyz direction toward the sun (world, +Y up), w = sun illuminance at the top (lux)
+    float4 sun;        ///< xyz direction toward the sun (world), w = the brightest sun's illuminance at the top (lux)
     float4 camera;     ///< x = camera altitude above the ground (km), yzw unused
     float4 constant;   ///< xyz = Sky.color (nits) for constant mode
     float4x4 inverse_view_projection;  ///< unjittered: the aerial-perspective volume's frustum
     DescriptorHandle<Texture2D<float4>> transmittance;
     DescriptorHandle<Texture2D<float4>> multiscattering;
     DescriptorHandle<Texture2D<float4>> sky_view;
-    DescriptorHandle<Texture2D<float4>> aerial;      ///< 32 slices of 32 x 32, side by side
+    DescriptorHandle<Texture3D<float4>> aerial;      ///< the froxel volume (aerial_volume.slang)
     DescriptorHandle<Texture2D<float4>> irradiance;  ///< 1 x 1: the sky's average for an upward normal
     DescriptorHandle<SamplerState> linear_clamp;
-    uint mode;         ///< sky_*
-    uint aerial_on;    ///< 1: apply aerial perspective
-    uint pad0;
+    uint mode;           ///< sky_*
+    uint aerial_on;      ///< 1: apply aerial perspective
+    uint aerial_slices;  ///< the volume's depth slices
     uint pad1;
-    // Spike SP-10 (VCH-086), throwaway: a planet around any center, up to four suns, one spherical occluder.
-    // Read only when `planet` is 1; the Sky path above ignores them.
-    float4 origin;           ///< xyz = the camera relative to the planet's center (km), w = its altitude (km)
-    float4 frame_x;          ///< xyz = the sky-view LUT's azimuth origin: a unit vector perpendicular to local up
-    float4 ground;           ///< xyz = the analytic ground's albedo (rgb)
-    float4 occluder;         ///< xyz = center relative to the planet's center (km), w = radius (km; 0: none)
-    float4 occluder_albedo;  ///< xyz
-    float4 sun_directions[4];  ///< xyz toward the sun, w = angular radius (radians)
-    float4 sun_colors[4];      ///< xyz = illuminance at the top (lux, rgb) / sun.w
+    // The planet block. With planet = 1 it is a PlanetSky's; with planet = 0 the CPU fills it for the Sky (one sun of
+    // color 1, the center straight below the camera) and only the aerial-perspective volume reads it.
+    float4 origin;     ///< xyz = the camera relative to the planet's center (km), w = its altitude (km)
+    float4 frame_x;    ///< xyz = the sky-view LUT's azimuth origin: a unit vector perpendicular to local up
+    float4 ground;     ///< xyz = the analytic ground's albedo (rgb)
+    float4 occluders[planet_max_occluders];        ///< xyz = center relative to the planet's center (km), w = radius
+    float4 occluder_albedo[planet_max_occluders];  ///< xyz = albedo, w = 1: the sky draws it (a sphere lit by the suns)
+    float4 sun_directions[planet_max_suns];  ///< xyz toward the sun, w = angular radius (radians)
+    float4 sun_colors[planet_max_suns];      ///< xyz = illuminance at the top (lux, rgb) / sun.w
     uint planet;       ///< 1: planet mode
     uint sun_count;
     uint march;        ///< 0: the sky-view LUT inside the atmosphere, a per-pixel march outside; 1: always march; 2: never
     uint march_steps;  ///< steps of the per-pixel march and the sky-view LUT
-    // Spike SP-14 (VCH-090), throwaway: a procedural starfield (planet mode, or no sky). x = brightness (0: off; 1 is
-    // physical), y = one pixel's angle (radians), z = limiting magnitude, w = cells per cube-map face side.
+    /// The starfield (render::Starfield). x = brightness (0: off; 1 is physical), y = one pixel's angle (radians),
+    /// z = limiting magnitude, w = cells per cube-map face side.
     float4 stars;
+    /// Sky visibility around the camera (render::SkyVisibility, ADR 0082 rule 5): x = the fraction of the sky the
+    /// camera's surroundings leave open, y = how far they reach (km). Air and surfaces nearer than that receive the
+    /// sky's light times x: caves and interiors get no haze, and it returns beyond them.
+    float4 occlusion;
+    DescriptorHandle<SamplerState> linear_wrap;  ///< the sky-view LUT's sampler: its azimuth wraps
+    uint occluder_count;
+    uint pad2;
 };
+
+// ---- spheres ---------------------------------------------------------------------------------------------------
+//
+// One helper for every ray-sphere test (ADR 0076 decision 6). Kilometer floats from orbit at real scale lose the
+// near root with the textbook quadratic and shadow sample points that rounding put a few meters under the ground;
+// the stable quadratic and the inward-ray shadow test don't. Tested at 1e4 km on the CPU and the GPU
+// (tests/atmosphere_tests.cpp); render::sphere_span is the CPU twin.
+
+/// Where origin + t * direction (a unit vector) is inside a sphere about the origin of coordinates, given
+/// c = |origin|^2 - radius^2. Callers at the camera compute c from its altitude h above a sphere of radius R as
+/// h * (2R + h), which does not cancel at planetary radii. t0 <= t1; false if the ray's line misses the sphere.
+bool sphere_span(float3 origin, float3 direction, float c, out float t0, out float t1) {
+    const float b = dot(origin, direction);
+    const float discriminant = b * b - c;
+    t0 = 0.0;
+    t1 = 0.0;
+    if (discriminant < 0.0) {
+        return false;
+    }
+    const float q = b >= 0.0 ? -b - sqrt(discriminant) : -b + sqrt(discriminant);
+    const float other = q != 0.0 ? c / q : 0.0;
+    t0 = min(q, other);
+    t1 = max(q, other);
+    return true;
+}
+
+/// Distance along a ray from `origin` (relative to the sphere's center) to a sphere of `radius`: the nearest positive
+/// hit, or -1.
+float ray_sphere(float3 origin, float3 direction, float radius) {
+    float t0;
+    float t1;
+    if (!sphere_span(origin, direction, dot(origin, origin) - radius * radius, t0, t1)) {
+        return -1.0;
+    }
+    return t0 >= 0.0 ? t0 : (t1 >= 0.0 ? t1 : -1.0);
+}
+
+/// ray_sphere from a point at distance r from the center (r = ground radius + altitude, so c = (r - radius) *
+/// (r + radius) keeps the altitude's precision where |origin|^2 - radius^2 would cancel).
+float ray_sphere_at(float3 origin, float3 direction, float r, float radius) {
+    float t0;
+    float t1;
+    if (!sphere_span(origin, direction, (r - radius) * (r + radius), t0, t1)) {
+        return -1.0;
+    }
+    return t0 >= 0.0 ? t0 : (t1 >= 0.0 ? t1 : -1.0);
+}
+
+/// The shadow test: true when the ray from `p` toward `l` (unit) passes through the sphere of `radius` about the
+/// origin of coordinates, i.e. heads inward and passes closer than the radius. A point rounded under the surface does
+/// not shadow itself toward a sun above its horizon.
+bool sphere_blocks(float3 p, float3 l, float radius) {
+    const float b = dot(p, l);
+    return b < 0.0 && dot(p, p) - b * b < radius * radius;
+}
 
 // ---- the medium ----------------------------------------------------------------------------------------------
 
@@ -83,21 +157,6 @@ float rayleigh_phase(float cos_theta) {
 float mie_phase(float cos_theta, float g) {
     const float k = 3.0 / (8.0 * atmosphere_pi) * (1.0 - g * g) / (2.0 + g * g);
     return k * (1.0 + cos_theta * cos_theta) / pow(max(1.0 + g * g - 2.0 * g * cos_theta, 1e-6), 1.5);
-}
-
-/// Distance along a ray from `origin` (relative to the planet's center) to a sphere of `radius`: the nearest positive
-/// hit, or -1.
-float ray_sphere(float3 origin, float3 direction, float radius) {
-    const float b = dot(origin, direction);
-    const float c = dot(origin, origin) - radius * radius;
-    const float discriminant = b * b - c;
-    if (discriminant < 0.0) {
-        return -1.0;
-    }
-    const float s = sqrt(discriminant);
-    const float t0 = -b - s;
-    const float t1 = -b + s;
-    return t0 >= 0.0 ? t0 : (t1 >= 0.0 ? t1 : -1.0);
 }
 
 // ---- transmittance LUT parameterization (Bruneton 2017, as Hillaire) --------------------------------------------
@@ -146,6 +205,12 @@ float3 integrate_transmittance(AtmosphereParams a, float r, float mu) {
 
 float3 sample_transmittance(SkyFrame s, float r, float mu) {
     return s.transmittance.SampleLevel(s.linear_clamp, transmittance_uv(s.atmosphere, r, mu), 0.0).rgb;
+}
+
+/// The sky-view LUT at `uv`: azimuth (x) wraps, elevation (y) stops at the first and last texel centers.
+float3 sample_sky_view(SkyFrame s, float2 uv) {
+    const float v = clamp(uv.y, 0.5 / sky_view_size.y, 1.0 - 0.5 / sky_view_size.y);
+    return s.sky_view.SampleLevel(s.linear_wrap, float2(uv.x, v), 0.0).rgb;
 }
 
 // ---- sky-view LUT parameterization (Hillaire: latitude squeezed toward the horizon) ----------------------------
@@ -202,7 +267,7 @@ float3 sky_radiance(SkyFrame s, float3 direction, bool with_sun) {
     if (s.mode == sky_constant) {
         return s.constant.xyz;
     }
-    float3 l = s.sky_view.SampleLevel(s.linear_clamp, sky_view_uv(s, direction), 0.0).rgb;
+    float3 l = sample_sky_view(s, sky_view_uv(s, direction));
     if (with_sun && dot(direction, s.sun.xyz) > cos(sun_angular_radius)) {
         const float r = s.atmosphere.planet.x + s.camera.x;
         const float solid_angle = 2.0 * atmosphere_pi * (1.0 - cos(sun_angular_radius));
@@ -214,53 +279,139 @@ float3 sky_radiance(SkyFrame s, float3 direction, bool with_sun) {
     return l * s.sun.w;
 }
 
-/// The real-time renderer's ambient radiance over the upper hemisphere (nits): the sky's cosine-weighted average.
-float3 sky_ambient_radiance(SkyFrame s) {
+/// How much of the sky's light reaches air or a surface `distance_km` from the camera (ADR 0082 rule 5): the sky
+/// visibility of the camera's surroundings within their reach, rising to 1 over the next reach beyond it.
+float sky_visibility_at(SkyFrame s, float distance_km) {
+    const float reach = s.occlusion.y;
+    if (reach <= 0.0) {
+        return 1.0;
+    }
+    return lerp(s.occlusion.x, 1.0, smoothstep(reach, 2.0 * reach, distance_km));
+}
+
+/// The real-time renderer's ambient radiance over the upper hemisphere (nits) on a surface `distance_m` from the
+/// camera: the sky's cosine-weighted average, occluded near the camera as the sky visibility says.
+float3 sky_ambient_radiance(SkyFrame s, float distance_m) {
     if (s.mode == sky_physical) {
-        // In planet mode ground.w scales it (spike SP-14: a cave's stand-in for occlusion; 1 otherwise).
-        return s.irradiance.Load(int3(0, 0, 0)).rgb * s.sun.w * (s.planet != 0 ? s.ground.w : 1.0);
+        return s.irradiance.Load(int3(0, 0, 0)).rgb * s.sun.w * sky_visibility_at(s, distance_m * 0.001);
     }
     return s.mode == sky_constant ? s.constant.xyz : float3(0.0, 0.0, 0.0);
 }
 
-static const uint aerial_slices = 32;
-static const float aerial_depth_km = 32.0;
+// ---- the aerial-perspective volume (ADR 0076 decision 3, ADR 0091) ----------------------------------------------
+//
+// A camera froxel volume: x and y are screen cells, z is how far through the air along each cell's view ray. The
+// depth range follows the body, per ray: a ray's slices span the air it crosses, from where it enters the atmosphere
+// (the camera, inside it) to where it meets the analytic ground (plus a margin for terrain below it). A ray that misses
+// the ground ends at its lowest point from outside the atmosphere, so terrain standing above the ground radius at the
+// limb lands at the same dense end as the ground next to it; from inside, its end slides from that lowest point at the
+// ground's tangent to the shell's exit at the horizontal, so neighboring rays never jump. So the volume covers hundreds
+// of km from orbit and the whole atmosphere at small scale with the same 64 slices, and none is spent on empty space.
+// Slices crowd at both ends (aerial_x): near the camera for haze on nearby terrain and the inside of a cave, near the
+// ground for the veil seen from orbit. The last slice holds the whole path through the shell, for what lies beyond (a moon seen
+// through the limb). A surface is read at its own fraction of its own ray's span, so cells agree on "how far toward
+// the ground" even where a grazing view makes neighboring rays meet the ground kilometers apart.
 
-/// The aerial-perspective slice coordinate (0..1, quadratic: finer near the camera) of a view depth in km.
-float aerial_slice(float depth_km) {
-    return sqrt(saturate(depth_km / aerial_depth_km));
+/// A ray's span through the air: where it enters (t_in, km from the camera), how long its slices span, and how long
+/// the whole path through the shell is (the last slice's).
+struct AerialRay {
+    bool valid;  ///< false: the ray misses the atmosphere
+    float t_in;
+    float span;
+    float full;
+};
+
+/// The volume's ray parameters for a view direction (world, unit), from the SkyFrame's planet block (filled for the
+/// Sky too).
+AerialRay aerial_ray(SkyFrame s, float3 direction) {
+    AerialRay ray;
+    ray.valid = false;
+    ray.t_in = 0.0;
+    ray.span = 0.0;
+    ray.full = 0.0;
+    const float bottom = s.atmosphere.planet.x;
+    const float top = s.atmosphere.planet.y;
+    const float altitude = max(s.origin.w, 0.001);
+    const float r = bottom + altitude;
+    float t0;
+    float t1;
+    if (!sphere_span(s.origin.xyz, direction, (r - top) * (r + top), t0, t1) || t1 <= 0.0) {
+        return ray;
+    }
+    float g0;
+    float g1;
+    const bool ground = sphere_span(s.origin.xyz, direction, altitude * (r + bottom), g0, g1) && g0 > 0.0;
+    ray.t_in = max(t0, 0.0);
+    const float b = dot(s.origin.xyz, direction);
+    const float lowest = clamp(-b, ray.t_in, t1);  // the ray's closest approach to the center, inside the shell
+    float t_out = t1;
+    if (ground) {
+        t_out = g0;
+    } else if (t0 > 0.0) {
+        t_out = lowest;  // from outside: the lowest point
+    } else if (b < 0.0) {
+        // From inside, below the horizontal: from the lowest point (at the ground's tangent, where it meets g0) to the
+        // exit (at the horizontal), by how high the lowest point is above the ground relative to the camera.
+        const float miss = (altitude * (r + bottom) - b * b) / (sqrt(max(r * r - b * b, 0.0)) + bottom);
+        t_out = lerp(lowest, t1, smoothstep(0.0, 1.0, saturate(miss / altitude)));
+    }
+    // The margin: terrain below the ground radius (basins, holes).
+    ray.span = max(t_out - ray.t_in, 0.0) * 1.02 + 0.02 * (top - bottom);
+    ray.full = ground ? ray.span : max(ray.span, t1 - ray.t_in);  // never through the planet
+    ray.valid = true;
+    return ray;
 }
 
-/// Light added and transmittance (in .a) between the camera and a point at `depth_m` meters along the view through
-/// screen position `uv` (0..1, y down). Identity when the sky is not physical or aerial perspective is off.
-float4 aerial_perspective(SkyFrame s, float2 uv, float depth_m) {
+/// The slice coordinate (0..1) of a fraction x of a ray's span, and its inverse: x = ((1 - cos(pi w)) / 2)^2, so slices
+/// go as w^4 near the camera (centimeters to meters first, for a wall in a cave) and crowd at the ground's end as well.
+/// render::aerial_slice_w and aerial_slice_x are the twins.
+float aerial_w(float x) {
+    return acos(clamp(1.0 - 2.0 * sqrt(saturate(x)), -1.0, 1.0)) / atmosphere_pi;
+}
+
+float aerial_x(float w) {
+    const float f = 0.5 - 0.5 * cos(atmosphere_pi * w);
+    return f * f;
+}
+
+/// The view direction (world, unit) through screen position `uv` (0..1, y down): the volume's cell rays.
+float3 aerial_cell_direction(SkyFrame s, float2 uv) {
+    const float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+    const float4 near = mul(s.inverse_view_projection, float4(ndc, 1.0, 1.0));  // reverse-Z
+    const float4 mid = mul(s.inverse_view_projection, float4(ndc, 0.5, 1.0));
+    return normalize(mid.xyz / mid.w - near.xyz / near.w);
+}
+
+/// Light added (nits) and transmittance (in .a) between the camera and a surface `distance_m` meters along `direction`
+/// (world, unit), seen at screen position `uv` (0..1, y down). Identity when the sky is not physical or aerial
+/// perspective is off. Both renderers call it on every surface.
+float4 aerial_perspective(SkyFrame s, float3 direction, float2 uv, float distance_m) {
     if (s.mode != sky_physical || s.aerial_on == 0) {
         return float4(0.0, 0.0, 0.0, 1.0);
     }
-    const float slice = aerial_slice(depth_m * 0.001) * float(aerial_slices) - 0.5;
-    const float lo = clamp(floor(slice), 0.0, float(aerial_slices - 1));
-    const float hi = min(lo + 1.0, float(aerial_slices - 1));
-    const float f = saturate(slice - lo);
-    const float2 cell = clamp(uv, 0.5 / 32.0, 1.0 - 0.5 / 32.0);
-    const float4 a = s.aerial.SampleLevel(s.linear_clamp, float2((lo + cell.x) / float(aerial_slices), cell.y), 0.0);
-    const float4 b = s.aerial.SampleLevel(s.linear_clamp, float2((hi + cell.x) / float(aerial_slices), cell.y), 0.0);
-    float4 v = lerp(a, b, f);
-    if (slice < 0.0) {  // nearer than the first slice's center: fade toward no effect at the camera
-        const float w = saturate((slice + 0.5) / 0.5);
-        v = lerp(float4(0.0, 0.0, 0.0, 1.0), v, w);
+    const AerialRay ray = aerial_ray(s, direction);
+    const float into_air = distance_m * 0.001 - ray.t_in;
+    if (!ray.valid || into_air <= 0.0) {
+        return float4(0.0, 0.0, 0.0, 1.0);  // nearer than the atmosphere (a craft in orbit)
+    }
+    const float slices = float(s.aerial_slices);
+    // Past the span: the last slice (the whole path).
+    const float w = into_air >= ray.span ? 1.0 : min(aerial_w(into_air / ray.span), 1.0 - 0.5 / slices);
+    float4 v = s.aerial.SampleLevel(s.linear_clamp, float3(uv, w), 0.0);
+    const float first = 0.5 / slices;
+    if (w < first) {  // nearer than the first slice's center: fade toward no effect where the air begins
+        v = lerp(float4(0.0, 0.0, 0.0, 1.0), v, w / first);
     }
     return float4(v.rgb * s.sun.w, v.a);
 }
 
-// ---- spike SP-10 (VCH-086), throwaway: a planet around any center, from the ground to orbit ----------------------
+// ---- a planet around any center, from the ground to orbit (ADR 0063, 0076) ---------------------------------------
 //
 // Positions are relative to the planet's center, in km; local up is the direction from the center. All suns are
 // summed into one sky-view LUT parameterized by absolute azimuth around local up (from frame_x). The LUT path and the
 // per-pixel march call the same integrator (planet_march) with the same step count, so switching between them at the
 // top of the atmosphere differs only by the LUT's resolution. Luminance is per lux of `sun.w` (the brightest sun's
 // unattenuated illuminance); each sun's own illuminance is sun_colors[i] in those units.
-
-static const uint planet_max_suns = 4;
 
 float3 planet_up(SkyFrame s) {
     return normalize(s.origin.xyz);
@@ -271,42 +422,29 @@ float3 planet_frame_z(SkyFrame s) {
     return cross(s.frame_x.xyz, planet_up(s));
 }
 
-/// Where origin + t * direction meets a sphere about the planet's center, given c = |origin|^2 - radius^2 (callers
-/// at the camera compute c from the altitude, which does not cancel at planetary radii). t0 <= t1; false if it
-/// misses. The stable quadratic: the root near 0 keeps its precision.
-bool sphere_span(float3 origin, float3 direction, float c, out float t0, out float t1) {
-    const float b = dot(origin, direction);
-    const float discriminant = b * b - c;
-    t0 = 0.0;
-    t1 = 0.0;
-    if (discriminant < 0.0) {
-        return false;
-    }
-    const float q = b >= 0.0 ? -b - sqrt(discriminant) : -b + sqrt(discriminant);
-    const float other = q != 0.0 ? c / q : 0.0;
-    t0 = min(q, other);
-    t1 = max(q, other);
-    return true;
-}
-
-/// The visible fraction of a sun's disk (angular radius `sun_radius`) toward `l` seen from `p`, with the occluder
-/// sphere in the way: the area of the sun's disk outside the occluder's, as flat disks (the lens-area formula; the
-/// spike's unit test checks the CPU twin against a numeric integral).
-float planet_sun_visible(SkyFrame s, float3 p, float3 l, float sun_radius) {
-    if (s.occluder.w <= 0.0) {
-        return 1.0;
-    }
-    const float3 d = s.occluder.xyz - p;
-    const float distance = length(d);
-    if (dot(d, l) <= 0.0) {
+/// The visible fraction of one sun's disk (angular radius `sun_radius`) toward `l` seen from `p`, past one occluder
+/// sphere: the area of the sun's disk outside the occluder's, as flat disks (the lens-area formula;
+/// space::disk_visible_fraction is the CPU twin, checked against a numeric integral).
+float disk_visible(float3 p, float3 l, float sun_radius, float4 occluder) {
+    const float3 d = occluder.xyz - p;
+    const float along = dot(d, l);
+    if (along <= 0.0) {
         return 1.0;  // the occluder is behind
     }
-    if (distance <= s.occluder.w) {
+    const float distance = length(d);
+    if (distance <= occluder.w) {
         return 0.0;
     }
-    const float a = asin(s.occluder.w / distance);                         // the occluder's angular radius
-    const float c = 2.0 * asin(min(length(d / distance - l) * 0.5, 1.0));  // separation, precise at small angles
+    // Most samples are far from any eclipse: reject without trigonometry when the separation exceeds the radii's
+    // sum, cos(separation) < cos(a + b) (b is small: cos b and sin b to second order).
+    const float sin_a = occluder.w / distance;
+    const float cos_a = sqrt(1.0 - sin_a * sin_a);
     const float b = sun_radius;
+    if (along / distance < cos_a * (1.0 - 0.5 * b * b) - sin_a * b) {
+        return 1.0;
+    }
+    const float a = asin(sin_a);                                         // the occluder's angular radius
+    const float c = 2.0 * asin(min(length(d / distance - l) * 0.5, 1.0));  // separation, precise at small angles
     if (c >= a + b) {
         return 1.0;
     }
@@ -319,18 +457,25 @@ float planet_sun_visible(SkyFrame s, float3 p, float3 l, float sun_radius) {
     return saturate(1.0 - lens / (atmosphere_pi * b * b));
 }
 
+/// The visible fraction of sun `i`'s disk from `p`, past every occluder (eclipses per sample, ADR 0076 decision 2).
+/// Overlapping occluders multiply, which is exact when at most one covers the disk.
+float planet_sun_visible(SkyFrame s, float3 p, uint i) {
+    float visible = 1.0;
+    for (uint k = 0; k < s.occluder_count; ++k) {
+        visible *= disk_visible(p, s.sun_directions[i].xyz, s.sun_directions[i].w, s.occluders[k]);
+    }
+    return visible;
+}
+
 /// Transmittance of sun `i`'s light to `p` (0 in the planet's shadow); `visible` is the fraction of its disk the
-/// occluder leaves.
+/// occluders leave.
 float3 planet_sun_transmittance(SkyFrame s, float3 p, uint i, out float visible) {
     const float3 l = s.sun_directions[i].xyz;
-    visible = planet_sun_visible(s, p, l, s.sun_directions[i].w);
-    // The planet's shadow: the ray toward the sun heads inward and passes closer than the radius. Not ray_sphere:
-    // seen from orbit, sample points carry meters of rounding, and one rounded under the ground would shadow itself.
-    const float b = dot(p, l);
-    const float r = length(p);
-    if (b < 0.0 && r * r - b * b < s.atmosphere.planet.x * s.atmosphere.planet.x) {
+    visible = planet_sun_visible(s, p, i);
+    if (sphere_blocks(p, l, s.atmosphere.planet.x)) {
         return float3(0.0, 0.0, 0.0);
     }
+    const float r = length(p);
     return sample_transmittance(s, r, dot(p / r, l));
 }
 
@@ -340,6 +485,35 @@ float3 planet_multiple_scattering(SkyFrame s, float3 p, uint i) {
     const float mu = dot(p / r, s.sun_directions[i].xyz);
     const float height = (r - s.atmosphere.planet.x) / (s.atmosphere.planet.y - s.atmosphere.planet.x);
     return s.multiscattering.SampleLevel(s.linear_clamp, float2(mu * 0.5 + 0.5, saturate(height)), 0.0).rgb;
+}
+
+/// Per-sun phase values along one view direction.
+struct SunPhases {
+    float rayleigh[planet_max_suns];
+    float mie[planet_max_suns];
+};
+
+SunPhases sun_phases(SkyFrame s, float3 direction) {
+    SunPhases ph;
+    for (uint i = 0; i < planet_max_suns; ++i) {
+        const float cos_theta = dot(direction, s.sun_directions[i].xyz);
+        ph.rayleigh[i] = rayleigh_phase(cos_theta);
+        ph.mie[i] = mie_phase(cos_theta, s.atmosphere.mie_absorption.w);
+    }
+    return ph;
+}
+
+/// Light scattered toward the viewer per km at `p` (per lux of sun.w), every sun with its eclipses; `m` is the medium
+/// there.
+float3 planet_in_scatter(SkyFrame s, float3 p, Medium m, SunPhases ph) {
+    float3 in_scatter = float3(0.0, 0.0, 0.0);
+    for (uint i = 0; i < s.sun_count; ++i) {
+        float visible;
+        const float3 sun = planet_sun_transmittance(s, p, i, visible);
+        const float3 single = (m.rayleigh * ph.rayleigh[i] + m.mie * ph.mie[i]) * sun;
+        in_scatter += (single + m.scattering * planet_multiple_scattering(s, p, i)) * s.sun_colors[i].xyz * visible;
+    }
+    return in_scatter;
 }
 
 /// In-scattered luminance (per lux of sun.w) and transmittance along origin + t * direction, t in [0, t_max],
@@ -366,25 +540,13 @@ void planet_march(SkyFrame s, float3 origin, float altitude, float3 direction, f
     if (end <= start) {
         return;
     }
-    float phase_r[planet_max_suns];
-    float phase_m[planet_max_suns];
-    for (uint i = 0; i < s.sun_count; ++i) {
-        const float cos_theta = dot(direction, s.sun_directions[i].xyz);
-        phase_r[i] = rayleigh_phase(cos_theta);
-        phase_m[i] = mie_phase(cos_theta, s.atmosphere.mie_absorption.w);
-    }
+    const SunPhases ph = sun_phases(s, direction);
     const float dt = (end - start) / float(steps);
     for (uint k = 0; k < steps; ++k) {
         const float3 p = origin + direction * (start + (float(k) + 0.5) * dt);
         const Medium m = medium_at(s.atmosphere, length(p) - bottom);
         const float3 step_transmittance = exp(-m.extinction * dt);
-        float3 in_scatter = float3(0.0, 0.0, 0.0);
-        for (uint i = 0; i < s.sun_count; ++i) {
-            float visible;
-            const float3 sun = planet_sun_transmittance(s, p, i, visible);
-            const float3 single = (m.rayleigh * phase_r[i] + m.mie * phase_m[i]) * sun;
-            in_scatter += (single + m.scattering * planet_multiple_scattering(s, p, i)) * s.sun_colors[i].xyz * visible;
-        }
+        const float3 in_scatter = planet_in_scatter(s, p, m, ph);
         luminance += transmittance * (in_scatter - in_scatter * step_transmittance) / max(m.extinction, 1e-9);
         transmittance *= step_transmittance;
     }
@@ -441,7 +603,7 @@ float3 planet_sky_view_direction(SkyFrame s, float2 uv) {
                      planet_frame_z(s) * (cos(elevation) * sin(azimuth)));
 }
 
-// ---- spike SP-14 (VCH-090), throwaway: a procedural starfield -------------------------------------------------
+// ---- spike SP-14 (VCH-090): a procedural starfield ---------------------------------------------------------------
 //
 // One star or none per cell of a cube map with stars.w cells per face side, so the field is fixed on the sky. Counts
 // follow the real sky (N(< m) = 4800 * 10^(0.49 (m - 6)): about 15 stars brighter than 1, 4800 than 6) up to the
@@ -536,7 +698,7 @@ bool planet_marches(SkyFrame s) {
 }
 
 /// The sky's radiance toward `direction` in planet mode (nits): the atmosphere (LUT or march) with the ground, the
-/// occluder (a sphere lit by the suns, beyond the atmosphere) and, with `with_sun`, the suns' disks.
+/// occluders the sky draws (spheres lit by the suns, beyond the atmosphere) and, with `with_sun`, the suns' disks.
 float3 planet_sky_radiance(SkyFrame s, float3 direction, bool with_sun) {
     const float3 origin = s.origin.xyz;
     const float bottom = s.atmosphere.planet.x;
@@ -546,7 +708,7 @@ float3 planet_sky_radiance(SkyFrame s, float3 direction, bool with_sun) {
     if (planet_marches(s)) {
         planet_march(s, origin, altitude, direction, 1e9, s.march_steps, true, l, t);
     } else {
-        l = s.sky_view.SampleLevel(s.linear_clamp, planet_sky_view_uv(s, direction), 0.0).rgb;
+        l = sample_sky_view(s, planet_sky_view_uv(s, direction));
         float g0;
         float g1;
         const bool ground =
@@ -555,18 +717,30 @@ float3 planet_sky_radiance(SkyFrame s, float3 direction, bool with_sun) {
                      sample_transmittance(s, bottom + altitude, dot(direction, planet_up(s)));
     }
     if (any(t > 0.0)) {
-        // The occluder, if the ray meets it (it is beyond the atmosphere: the in-scattering in front is `l`).
-        const float3 to_center = s.occluder.xyz - origin;
-        const float tc = dot(to_center, direction);
-        const float miss2 = dot(to_center, to_center) - tc * tc;
-        if (s.occluder.w > 0.0 && tc > 0.0 && miss2 < s.occluder.w * s.occluder.w) {
-            const float3 hit = origin + direction * (tc - sqrt(s.occluder.w * s.occluder.w - miss2));
-            const float3 n = normalize(hit - s.occluder.xyz);
+        // The nearest occluder the sky draws, if the ray meets one (they are beyond the atmosphere: the in-scattering
+        // in front is `l`).
+        float nearest = 1e30;
+        uint hit_index = planet_max_occluders;
+        for (uint k = 0; k < s.occluder_count; ++k) {
+            if (s.occluder_albedo[k].w <= 0.0) {
+                continue;
+            }
+            const float3 to_center = s.occluders[k].xyz - origin;
+            const float tc = dot(to_center, direction);
+            const float miss2 = dot(to_center, to_center) - tc * tc;
+            const float r2 = s.occluders[k].w * s.occluders[k].w;
+            if (tc > 0.0 && miss2 < r2 && tc - sqrt(r2 - miss2) < nearest) {
+                nearest = tc - sqrt(r2 - miss2);
+                hit_index = k;
+            }
+        }
+        if (hit_index < planet_max_occluders) {
+            const float3 n = normalize(origin + direction * nearest - s.occluders[hit_index].xyz);
             float3 irradiance = float3(0.0, 0.0, 0.0);
             for (uint i = 0; i < s.sun_count; ++i) {
                 irradiance += s.sun_colors[i].xyz * saturate(dot(n, s.sun_directions[i].xyz));
             }
-            l += t * irradiance * s.occluder_albedo.xyz / atmosphere_pi;
+            l += t * irradiance * s.occluder_albedo[hit_index].xyz / atmosphere_pi;
         } else if (with_sun) {
             for (uint i = 0; i < s.sun_count; ++i) {
                 const float radius = s.sun_directions[i].w;
@@ -574,7 +748,7 @@ float3 planet_sky_radiance(SkyFrame s, float3 direction, bool with_sun) {
                     l += t * s.sun_colors[i].xyz / (2.0 * atmosphere_pi * (1.0 - cos(radius)));
                 }
             }
-            if (s.stars.x > 0.0) {  // spike SP-14
+            if (s.stars.x > 0.0) {
                 l += t * starfield_radiance(s, direction) / s.sun.w;
             }
         }
@@ -582,13 +756,13 @@ float3 planet_sky_radiance(SkyFrame s, float3 direction, bool with_sun) {
     return l * s.sun.w;
 }
 
-/// sky_radiance for the real-time renderer: the planet's sky in planet mode (spike SP-10), the Sky's otherwise.
-/// Photo mode keeps calling sky_radiance (the path tracer's kernel size is near Metal's compiler limit).
+/// sky_radiance for the real-time renderer: the planet's sky in planet mode, the Sky's otherwise. Photo mode keeps
+/// calling sky_radiance (the path tracer's kernel size is near Metal's compiler limit).
 float3 sky_radiance_any(SkyFrame s, float3 direction, bool with_sun) {
     if (s.planet != 0 && s.mode == sky_physical) {
         return planet_sky_radiance(s, direction, with_sun);
     }
-    if (s.mode == sky_none && with_sun && s.stars.x > 0.0) {  // spike SP-14: deep space
+    if (s.mode == sky_none && with_sun && s.stars.x > 0.0) {  // deep space
         return starfield_radiance(s, direction);
     }
     return sky_radiance(s, direction, with_sun);

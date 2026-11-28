@@ -120,6 +120,8 @@ struct RenderView {
     std::uint64_t camera = 0;             ///< the camera entity
     /// Spike SP-14 (VCH-090), throwaway: auto-exposure in the real-time renderer; `exposure` is then its first value.
     std::optional<AutoExposureSettings> auto_exposure;
+    /// The camera's SkyVisibility (or the open sky): aerial perspective and the sky's ambient light near the camera.
+    SkyVisibility sky_visibility;
 };
 
 /// A mesh to draw this frame: an imported or runtime mesh (MeshStore), the material of each of its slots, and where
@@ -148,8 +150,8 @@ struct ResolvedSky {
     Sky settings;
     math::vec3 sun_direction{0.0f, 1.0f, 0.0f};  ///< toward the sun
     float sun_illuminance_top = 128000.0f;       ///< lux at the top of the atmosphere
-    /// Spike SP-10 (VCH-086), throwaway: a planet's sky, set by a module's extractor; replaces the Sky's atmosphere
-    /// in the real-time renderer when `mode` is physical.
+    /// A planet's sky (ADR 0063), set by a module's extractor; replaces the Sky's atmosphere in the real-time
+    /// renderer when `mode` is physical.
     std::optional<PlanetSky> planet;
     /// Spike SP-14 (VCH-090), throwaway: a starfield, in planet mode or with mode none.
     std::optional<Starfield> stars;

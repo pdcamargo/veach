@@ -24,6 +24,7 @@ add_executable(veach-tests
     script_tests.cpp
     frames_tests.cpp
     sky_tests.cpp
+    atmosphere_tests.cpp  # VCH-131: the planet atmosphere
     sp10_atmosphere_tests.cpp  # spike SP-10 (VCH-086)
     sp14_depth_tests.cpp  # spike SP-14 (VCH-090)
     space_gen_tests.cpp
@@ -41,6 +42,7 @@ target_link_libraries(veach-tests PRIVATE veach::veach veach::space veach::voxel
 # Shaders for RHI tests (tests/rhi_tests.cpp): <test_shaders.hpp>.
 veach_add_shader(veach-tests shaders/raster_states.slang ENTRIES vs_main:vertex fs_main:fragment)
 veach_add_shader(veach-tests shaders/atmosphere_probe.slang ENTRIES transmittance_probe:compute)
+veach_add_shader(veach-tests shaders/sphere_probe.slang ENTRIES sphere_probe:compute)
 veach_add_shader(veach-tests shaders/indirect_cull.slang ENTRIES cull:compute write_args:compute count_threads:compute)
 veach_add_shader(veach-tests shaders/indirect_draw.slang ENTRIES vs_main:vertex fs_main:fragment)
 veach_add_shader(veach-tests shaders/texture_kinds.slang ENTRIES write_volume:compute write_faces:compute

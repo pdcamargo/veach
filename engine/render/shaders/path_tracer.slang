@@ -144,7 +144,8 @@ void trace_pixels(uint3 id : SV_DispatchThreadID) {
         float first_hit;
         float3 l = radiance(params.camera_position_exposure.xyz, direction, rng, first_hit);
         if (first_hit > 0.0) {  // aerial perspective, as the real-time renderer
-            const float4 air = aerial_perspective(params.sky[0], (float2(id.xy) + jitter) / float2(params.size), first_hit);
+            const float4 air = aerial_perspective(params.sky[0], direction, (float2(id.xy) + jitter) / float2(params.size),
+                                                 first_hit);
             l = l * air.a + air.rgb;
         }
         // Left out so one bad sample cannot blacken a pixel for good, but counted: it is a bug (render.nonfinite_samples).

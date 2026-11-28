@@ -458,6 +458,13 @@ Result<EngineConfig> resolve_config(const AppInfo& app, std::span<const std::str
     }
     if (cli->rhi) {
         p.rhi = *cli->rhi;
+    } else if (!p.headless && p.rhi == rhi::Backend::null) {
+        // A window on the null RHI stays black: windowed runs default to the platform's GPU backend.
+#if defined(__APPLE__)
+        p.rhi = rhi::Backend::metal;
+#elif defined(_WIN32)
+        p.rhi = rhi::Backend::dx12;
+#endif
     }
     if (cli->rest) {
         p.rest = true;
@@ -532,7 +539,7 @@ Core flags (every Veach app accepts these; they override veach.project.json):
   --log-level LEVEL       trace, debug, info (default), warn or error.
   --project PATH          Project directory (or its veach.project.json).
   --script PATH           Startup Luau script, relative to the project directory.
-  --rhi null|metal|dx12   GPU backend (default: null).
+  --rhi null|metal|dx12   GPU backend (default: null headless; metal or dx12 with a window).
   --rest                  Serve the Flecs explorer API on http://localhost:27750.
   --wait-for-profiler     Profile builds: wait (up to 30 s) for a Tracy capture to connect before init.
   --screenshot PATH       Write the last frame as a PNG (needs --frames N and --rhi metal). Works headless.

@@ -109,8 +109,15 @@ TEST_CASE("[lifecycle.AC5] bad flags and bad project files explain the fix") {
 
     const std::vector<std::string_view> no_frames{"--screenshot", "out.png", "--rhi", "metal"};
     CHECK(resolve_config({.name = "t"}, no_frames).error().code == ErrorCode::cli_conflicting_flags);
-    const std::vector<std::string_view> null_rhi{"--screenshot", "out.png", "--frames", "1"};
+    const std::vector<std::string_view> null_rhi{"--headless", "--screenshot", "out.png", "--frames", "1"};
     CHECK(resolve_config({.name = "t"}, null_rhi).error().message.find("GPU backend") != std::string::npos);
+#if defined(__APPLE__)
+    // A window on the null RHI would stay black: without --rhi, a windowed run takes the platform's GPU backend.
+    const std::vector<std::string_view> windowed{"--window"};
+    CHECK(resolve_config({.name = "t"}, windowed)->project.rhi == rhi::Backend::metal);
+    const std::vector<std::string_view> headless{"--headless"};
+    CHECK(resolve_config({.name = "t"}, headless)->project.rhi == rhi::Backend::null);
+#endif
 
     const std::vector<std::string_view> bad_number{"--frames", "three"};
     CHECK(resolve_config({.name = "t"}, bad_number).error().code == ErrorCode::cli_invalid_value);

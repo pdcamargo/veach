@@ -17,13 +17,15 @@ record/replay (VCH-014) and the MCP server (VCH-003) possible.
 
 ## Requirements
 
-- MUST initialize in this order: core (log) → platform → ecs → assets → script → rhi → render → modules.
-- MUST shut down in exact reverse order of the steps that completed, including after a failed init step.
+- MUST initialize in this order: core (log) → jobs → platform → ecs → assets → script → rhi → render → modules
+  ([ADR 0073](../../adr/0073-job-system-enkits.md) added jobs).
+- MUST shut down in exact reverse order of the steps that completed, including after a failed init step, after
+  finishing every queued job.
 - MUST log every init and shutdown step (category `engine`, `init <step> (<detail>)` / `shutdown <step>`).
 - MUST resolve configuration before init: CLI flags override `veach.project.json`, which overrides defaults.
 - MUST accept the core flags in every app: `--headless`, `--window`, `--frames N`, `--seed N`,
   `--log-format human|json`, `--project <path>`, plus `--log-level`, `--script`, `--rhi`, `--rest`,
-  `--wait-for-profiler`, `--help`.
+  `--wait-for-profiler`, `--jobs`, `--help`.
 - MUST reject unknown flags with a suggestion, and invalid or conflicting values with the accepted ones.
 - MUST run exactly one fixed simulation step per frame in headless runs, unpaced, so runs are deterministic.
 - MUST run the Startup phase once before the first frame and the Shutdown phase once before teardown.

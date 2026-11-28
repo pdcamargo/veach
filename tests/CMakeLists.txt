@@ -14,6 +14,7 @@ add_executable(veach-tests
     runtime_mesh_tests.cpp
     hot_reload_tests.cpp
     input_tests.cpp
+    jobs_tests.cpp
     scene_tests.cpp
     script_tests.cpp
     sky_tests.cpp
@@ -320,6 +321,12 @@ add_executable(veach-bench-script bench/script_bench.cpp)
 target_link_libraries(veach-bench-script PRIVATE veach::veach)
 set_target_properties(veach-bench-script PROPERTIES FOLDER "tests")
 veach_apply_warnings(veach-bench-script)
+
+# veach::JobSystem: ms and speedup of the canonical 10^7-item workload per thread count (ADR 0073).
+add_executable(veach-bench-jobs bench/jobs_bench.cpp)
+target_link_libraries(veach-bench-jobs PRIVATE veach::core)
+set_target_properties(veach-bench-jobs PROPERTIES FOLDER "tests")
+veach_apply_warnings(veach-bench-jobs)
 
 # veach::dmath: ns/call against the platform libm and 10^7-input hashes (docs/research/spikes/sp-02-dmath.md).
 add_executable(veach-bench-dmath bench/dmath_bench.cpp)

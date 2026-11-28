@@ -4,6 +4,7 @@
 #include <veach/asset/asset_server.hpp>
 #include <veach/asset/scene.hpp>
 #include <veach/asset/texture.hpp>
+#include <veach/core/jobs.hpp>
 #include <veach/core/log.hpp>
 #include <veach/core/profile.hpp>
 #include <veach/ecs/components.hpp>
@@ -142,6 +143,24 @@ Result<> Engine::init() {
                                config_.project_dir.generic_string());
         },
         [this] { log::remove_sink(error_sink_); });
+    if (!step) {
+        return step;
+    }
+
+    step = run_step(
+        "jobs",
+        [&]() -> Result<std::string> {
+            jobs_ = std::make_unique<JobSystem>(project.jobs);
+            services_.provide<JobSystem>(*jobs_);
+            const std::uint32_t threads = jobs_->thread_count();
+            return threads == 1
+                       ? std::string("1 thread, no workers")
+                       : std::format("{} threads: main + {} worker{}", threads, threads - 1, threads == 2 ? "" : "s");
+        },
+        [this] {
+            services_.revoke<JobSystem>();
+            jobs_.reset();  // joins the workers
+        });
     if (!step) {
         return step;
     }
@@ -555,6 +574,11 @@ void Engine::shutdown() {
         run_phase(PhaseId::shutdown, 0.0);
         started_ = false;
         log::info("engine", "stopped after {} frame{} ({} fixed steps)", frame_, frame_ == 1 ? "" : "s", fixed_steps_);
+    }
+    // Every job finishes before anything it might read (assets, scripts, the world) is torn down.
+    if (jobs_) {
+        jobs_->wait_idle();
+        log::debug("engine", "jobs drained");
     }
     while (!steps_.empty()) {
         Step step = std::move(steps_.back());

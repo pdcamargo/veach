@@ -43,8 +43,11 @@ struct ProjectConfig {
     log::Level log_level = log::Level::info;
     rhi::Backend rhi = rhi::Backend::null;
     std::uint32_t frames_in_flight = 2;  ///< How far the CPU may run ahead of the GPU (ADR 0030).
-    bool rest = false;                   ///< Serve the Flecs REST API / explorer on port 27750.
-    bool hot_reload = true;              ///< Windowed runs reload changed assets and scripts every 250 ms (VCH-004).
+    /// Threads that run jobs, the main thread included (ADR 0073). 0: the hardware threads minus one. 1: no
+    /// workers, everything on the main thread. Results never depend on it.
+    std::uint32_t jobs = 0;
+    bool rest = false;       ///< Serve the Flecs REST API / explorer on port 27750.
+    bool hot_reload = true;  ///< Windowed runs reload changed assets and scripts every 250 ms (VCH-004).
     /// "input": action -> one or two keys. Not a reflected member (reflection has no maps yet): parsed and
     /// schema-described by hand, see input_schema().
     std::vector<ActionBinding> input;

@@ -123,12 +123,13 @@ flowchart BT
 files), then initializes:
 
 ```
-core → platform → ecs → assets → script → rhi → render → modules
+core → jobs → platform → ecs → assets → script → rhi → render → modules
 ```
 
 | Step | Creates |
 |---|---|
 | core | Log configuration (format, level), error counter |
+| jobs | `JobSystem`: the worker threads (`jobs` / `--jobs`, default hardware threads − 1) |
 | platform | `Platform` backend: `sdl3`, or `headless` (no SDL at all) |
 | ecs | `World`, `CoreModule`, per-phase pipelines, `PlatformModule`, `Time`/`Random`, the primary window entity (OS window created here) |
 | assets | `AssetServer` rooted at the project directory |
@@ -138,7 +139,7 @@ core → platform → ecs → assets → script → rhi → render → modules
 | modules | User modules in `import<T>()` order, then the reflection check |
 
 Then `start()` loads the startup script through the asset system and runs Startup once. Shutdown runs the
-Shutdown phase, then undoes the completed steps in exact reverse, each by RAII. A failed step unwinds only
+Shutdown phase, waits for every queued job, then undoes the completed steps in exact reverse, each by RAII. A failed step unwinds only
 what completed. The exit code is 0 only if nothing was logged at error level.
 ([spec](specs/engine-lifecycle/spec.md))
 
@@ -214,12 +215,23 @@ Types (`types/veach.d.luau`) are generated from reflection. ([spec](specs/script
 
 ## Threading model
 
-Single-threaded today: the main thread runs the loop, all phases and all scripts. A job system (enkiTS or
-Taskflow, decided by ADR in VCH-015) comes first in the toolbox work, because procgen, terrain, physics and
-simulation LOD all need it. Flecs worker threads, Jolt's job interface and the per-worker Luau procgen VMs will be
-hooked into it rather than spawning their own. Asset loaders are written to be thread-safe from the start: they never touch the world.
-Until then, script systems are `immediate()` and apply their command buffers directly after collecting their
-batch. The CPU may run `frames_in_flight` frames ahead of the GPU (default 2; [ADR 0030](adr/0030-frame-and-sync-model.md)).
+The main thread runs the loop, all phases, all scripts and owns the World; nothing else touches it. Parallel work
+runs on the engine's job system, `veach::JobSystem` on enkiTS ([ADR 0073](adr/0073-job-system-enkits.md),
+[spec](specs/job-system/spec.md)), created in the `jobs` init step with `jobs` threads counting the main thread
+(`--jobs N`, default hardware threads − 1; `--jobs 1` has no workers):
+
+- `parallel_for` / `parallel_reduce` cut `[0, count)` into fixed chunks of `grain` items, independent of the thread
+  count, and reduce in chunk order on the caller, so canonical results are the same on any machine
+  ([ADR 0043](adr/0043-determinism-tiers-and-strict-floating-point.md)). `TaskGroup` runs independent jobs.
+- Jobs never touch the World: inputs are prepared before the call, outputs go to indexed slots, the main thread
+  applies them. Simulation never depends on when a job finishes.
+- Nothing else starts threads: `check_repo.py` rejects `std::thread`, `std::async` and friends, and Flecs's own
+  `set_threads`, outside the job system. The one exception is the MCP server's blocking stdin reader.
+- Jolt's `JobSystemWithBarrier` (VCH-087), Flecs `multi_threaded()` systems (VCH-107) and the per-worker Luau procgen
+  VMs run on the same workers.
+
+Asset loaders are written to be thread-safe from the start: they never touch the world.
+Script systems are `immediate()` and apply their command buffers directly after collecting their batch. The CPU may run `frames_in_flight` frames ahead of the GPU (default 2; [ADR 0030](adr/0030-frame-and-sync-model.md)).
 Destroyed GPU resources are released once the submissions that might use them complete.
 GPU error callbacks arrive on Metal's thread, which is why the log and the engine's error counter are thread-safe.
 

@@ -13,6 +13,9 @@
    /fp:precise (MSVC) globally, and no build file turns on fast math or FP contraction.
 6. The engine never knows the space toolbox exists: nothing under engine/ names `veach/space`, `veach::space` or
    `veach_space` (ADR 0042). What the toolbox needs that is generic moves down into the engine instead.
+8. The engine owns the threads (ADR 0073): no code under engine/, space/, apps/ or tools/ starts a thread
+   (std::thread, std::jthread, std::async, pthread_create, CreateThread, _beginthread) or gives Flecs its own
+   (set_threads). Work goes to veach::JobSystem. Tests may start threads to test thread safety.
 """
 
 from __future__ import annotations
@@ -30,6 +33,14 @@ MARKER = re.compile(r"\b(TODO|FIXME|XXX|HACK)\b(?!\(VCH-\d{3,}\))")
 REFERENCE = re.compile(r"\b(?:TODO|FIXME|XXX|HACK)\(VCH-(\d{3,})\)")
 SPACE = re.compile(r"veach/space\b|veach::space\b|\bveach_space\b")
 GETENV = re.compile(r"\bgetenv\s*\(|_dupenv_s\s*\(")
+THREAD = re.compile(r"\bstd::j?thread\b(?!::(?:hardware_concurrency|id)\b)|\bstd::async\b|\bpthread_create\b|"
+                    r"\bCreateThread\b|\b_beginthread(?:ex)?\b|set_(?:task_)?threads\s*\(")
+# Threads the engine owns outside the job system, each with its reason. Add to this list only with an ADR.
+THREAD_ALLOWED = {
+    # The MCP server's stdin reader blocks in getline for the whole session; on a worker it would take one
+    # away from jobs for good (ADR 0073).
+    "engine/runtime/src/mcp_server.cpp",
+}
 SELF = pathlib.Path(__file__).resolve()
 
 
@@ -70,6 +81,10 @@ def main() -> int:
             if GETENV.search(line) and rel not in ("engine/core/src/env.cpp",) and not rel.endswith((".py", ".sh", ".yml")):
                 errors.append(f"{rel}:{lineno}: read environment variables with veach::env() (veach/core/env.hpp); "
                               "MSVC deprecates getenv, and warnings are errors")
+            if (rel.split("/")[0] in ("engine", "space", "apps", "tools") and rel not in THREAD_ALLOWED
+                    and path.suffix in (".cpp", ".hpp", ".h", ".mm", ".inl") and THREAD.search(line)):
+                errors.append(f"{rel}:{lineno}: the engine owns the threads (ADR 0073); run the work on "
+                              "veach::JobSystem (parallel_for, TaskGroup) instead of starting a thread")
             if rel.startswith("apps/") and "flecs::" in line:
                 errors.append(f"{rel}:{lineno}: `flecs::` in apps/ — use the veach:: aliases (veach::World, "
                               "veach::Entity, ...) or veach::ecs:: for raw Flecs")

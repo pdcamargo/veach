@@ -1,6 +1,7 @@
 #include <veach/runtime/config.hpp>
 #include <veach/runtime/replay.hpp>
 
+#include <veach/core/jobs.hpp>
 #include <veach/core/suggest.hpp>
 #include <veach/ecs/components.hpp>
 #include <veach/ecs/json.hpp>
@@ -23,6 +24,7 @@ struct CliOverrides {
     std::optional<bool> headless;
     std::optional<std::uint64_t> frames;
     std::optional<std::uint64_t> seed;
+    std::optional<std::uint64_t> jobs;
     std::optional<log::Format> log_format;
     std::optional<log::Level> log_level;
     std::optional<std::string> project;
@@ -42,7 +44,7 @@ const std::vector<std::string>& known_flags() {
     static const std::vector<std::string> flags{
         "--help",       "--headless",    "--window", "--frames", "--seed",   "--log-format",
         "--log-level",  "--project",     "--script", "--rhi",    "--rest",   "--wait-for-profiler",
-        "--screenshot", "--write-types", "--mcp",    "--record", "--replay",
+        "--screenshot", "--write-types", "--mcp",    "--record", "--replay", "--jobs",
     };
     return flags;
 }
@@ -97,7 +99,7 @@ Result<CliOverrides> parse_args(std::span<const std::string_view> args) {
             cli.mcp = true;
         } else if (flag == "--wait-for-profiler") {
             cli.wait_for_profiler = true;
-        } else if (flag == "--frames" || flag == "--seed") {
+        } else if (flag == "--frames" || flag == "--seed" || flag == "--jobs") {
             auto v = value();
             if (!v) {
                 return std::unexpected(v.error());
@@ -106,7 +108,7 @@ Result<CliOverrides> parse_args(std::span<const std::string_view> args) {
             if (!n) {
                 return std::unexpected(n.error());
             }
-            (flag == "--frames" ? cli.frames : cli.seed) = *n;
+            (flag == "--frames" ? cli.frames : flag == "--seed" ? cli.seed : cli.jobs) = *n;
         } else if (flag == "--log-format") {
             auto v = value();
             if (!v) {
@@ -268,6 +270,7 @@ void register_config_types(World& world) {
         .member(&ProjectConfig::log_level, "log_level")
         .member(&ProjectConfig::rhi, "rhi")
         .member(&ProjectConfig::frames_in_flight, "frames_in_flight")
+        .member(&ProjectConfig::jobs, "jobs")
         .member(&ProjectConfig::rest, "rest")
         .member(&ProjectConfig::hot_reload, "hot_reload");
 }
@@ -374,6 +377,13 @@ Result<EngineConfig> resolve_config(const AppInfo& app, std::span<const std::str
     if (cli->rest) {
         p.rest = true;
     }
+    if (cli->jobs) {
+        if (*cli->jobs > max_job_threads) {
+            return invalid("--jobs", std::to_string(*cli->jobs),
+                           std::format("0 (the hardware threads minus one) to {}", max_job_threads));
+        }
+        p.jobs = static_cast<std::uint32_t>(*cli->jobs);
+    }
     // Record and replay (docs/specs/record-replay/spec.md): a replay takes its seed and script from the recording;
     // neither runs hot reload, which would make the run unrepeatable.
     if (!config.record.empty() && !config.replay.empty()) {
@@ -405,6 +415,11 @@ Result<EngineConfig> resolve_config(const AppInfo& app, std::span<const std::str
                           std::format("frames_in_flight is {}; it must be between 1 and 4", p.frames_in_flight),
                           "2 is the default: the CPU records one frame while the GPU renders the previous one.");
     }
+    if (p.jobs > max_job_threads) {
+        return make_error(ErrorCode::data_type_mismatch,
+                          std::format("jobs is {}; it must be between 0 and {}", p.jobs, max_job_threads),
+                          "0 (the default) uses the hardware threads minus one; 1 runs every job on the main thread.");
+    }
     if (!config.screenshot.empty()) {
         if (p.frames == 0) {
             return make_error(ErrorCode::cli_conflicting_flags, "--screenshot needs --frames N",
@@ -426,6 +441,8 @@ Core flags (every Veach app accepts these; they override veach.project.json):
   --window                Open the primary window (default unless the project says headless).
   --frames N              Run N frames, then shut down. 0 = until quit (default).
   --seed N                Seed for deterministic simulation randomness.
+  --jobs N                Threads that run jobs, the main thread included. 0 = hardware threads - 1 (default),
+                          1 = single-threaded. Results are the same for every N.
   --log-format human|json Console log format. json = one JSON object per line.
   --log-level LEVEL       trace, debug, info (default), warn or error.
   --project PATH          Project directory (or its veach.project.json).

@@ -71,7 +71,7 @@ cmd.apply();   // or cmd.discard()
 
 ## Out of scope
 
-- Multithreaded systems (VCH-015). Transforms and hierarchy (VCH-007). Relationships beyond parent/child stay
+- Multithreaded systems (VCH-107). Transforms and hierarchy (VCH-007). Relationships beyond parent/child stay
   out of the script API.
 
 ## Open questions

@@ -65,7 +65,7 @@ cmake --build --preset debug --target update-goldens     # regenerate golden ima
 clang-format -i <files>                                  # LLVM 23; a Claude hook formats edited files
 ```
 
-Every app takes `--headless --window --frames N --seed N --log-format human|json --log-level L --project P
+Every app takes `--headless --window --frames N --seed N --jobs N --log-format human|json --log-level L --project P
 --script S --rhi null|metal|dx12 --rest --wait-for-profiler --screenshot PATH --write-types PATH --mcp
 --record PATH --replay PATH --help`. A recording repeats a run exactly, headless: record a bug once with `--record`, then
 `--replay` it as often as needed ([spec](docs/specs/record-replay/spec.md)).
@@ -124,6 +124,8 @@ running window. Look at screenshots you take; a successful call is not a correct
   Windows, uses `veach::dmath` and counter-based hashing, never platform `sin`/`exp` or a shared random stream; GPU
   output is visual-only and never feeds gameplay.
 - **Never own the loop.** No `progress()`, no new worlds, pipelines or threads in user code. Attach systems to phases.
+  Parallel work goes to `veach::JobSystem` (`parallel_for`, `parallel_reduce`, `TaskGroup`): fixed chunks, results
+  in indexed slots, never the World from a job; `check_repo.py` rejects `std::thread` ([ADR 0073](docs/adr/0073-job-system-enkits.md)).
 - **Determinism.** Simulation uses `veach::Time` (fixed 1/60 s) and `veach::Random`. Never use wall-clock
   time or `rand()` in simulation.
 - **Conventions (glTF):** right-handed, **+Y up, −Z forward**, +X right; meters, seconds, radians; column-major

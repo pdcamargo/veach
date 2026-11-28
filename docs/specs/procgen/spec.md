@@ -1,6 +1,6 @@
 # Procgen: stage runtime, field graphs and the generator sandbox
 
-**Status:** Approved
+**Status:** Implemented
 **Area:** procgen
 **Owner:** dev lead
 
@@ -88,18 +88,20 @@ veach::Result<pg::FieldProgram> program = pg::compile(*graph, {.seed = body_seed
 const pg::Lattice lattice{.spacing_m = 0.5, .origin_m = {0.0, 0.0, 0.0}};
 // One chunk's corners: first + step * (x, y, z), x fastest. The step picks the points; nodes never see it.
 const pg::LatticeBox box{.first = {i0, j0, k0}, .step = 1 << level, .count = {35, 35, 35}};
-std::vector<float> density(program->outputs().size() * box.size());       // planar: [output][sample]
+std::vector<float> density(program->outputs.size() * box.size());         // planar: [output][sample]
 pg::evaluate(*program, lattice, box, density);                             // this thread
 pg::evaluate(jobs, *program, lattice, box, density);                       // veach::JobSystem, fixed chunks
 pg::evaluate(*program, lattice, std::span<const pg::LatticePoint>(points), density);  // any point list
+pg::evaluate(*program, face_region, heights);                              // cube-face domain: a square of a face
+pg::evaluate(*program, std::span<const std::array<float, 3>>(directions), heights);  // or any unit directions
 
 // ---- Stages: typed, pure, memoized ----
 pg::StageRegistry registry;
 auto system = registry.add<SystemRecord>({.id = "space:system", .version = 1, .stability = pg::Stability::frozen},
     &system_hash,
     [](const pg::StageContext& ctx, const UniverseRecord& u) { return generate(ctx.seed(), ctx.address, u); },
-    pg::from(universe, pg::root_address));                                 // an ancestor at address 0
-pg::StageRuntime runtime(*registry, {.universe_seed = 42, .manifest_fingerprint = fp, .cache_capacity = 4096});
+    pg::from(*universe, pg::root_address));                                // an ancestor at address 0
+pg::StageRuntime runtime(registry, {.universe_seed = 42, .manifest_fingerprint = fp, .cache_capacity = 4096});
 veach::Result<std::shared_ptr<const SystemRecord>> r = runtime.get(*system, address);
 runtime.override(*system, address, authored_record);                       // downstream stages re-run
 
@@ -138,19 +140,21 @@ auto built = sandbox.build_graph(graph_source, "terrain.graph.luau");      // th
 - **procgen.AC10** — The Luau builder, run in the generator sandbox, builds the SP-06 terrain graph with the same
   op list as the JSON file; a builder error is `procgen.graph_invalid` with the script's line.
 - **procgen.AC11** — `veach-bench-procgen` reports the interpreter's samples per second per core on the face region
-  and on a lattice box (measured, not a test: ADR 0052's bar is 10 M samples/s per core).
+  and on a lattice box (measured, not a test: ADR 0052's bar is 10 M samples/s per core). Measured on one M5 Max
+  thread, release preset: 19.2 M samples/s on SP-06's 1024² face, 18.0 M on 35³ lattice chunks of the same
+  11-octave graph, 28.1 M for a 7-octave cave graph.
 
 ## Out of scope
 
 - The GPU evaluator: a render feature in `engine/render` that uploads `FieldProgram::words` (SP-06's
   `tests/sp06/shaders` are its prototype).
 - Graphs as assets with a loader, hot reload by graph hash, and the MCP tools `procgen_inspect`, `procgen_eval`,
-  `procgen_preview` (VCH-116).
+  `procgen_preview` (VCH-120).
 - More node types (density primitives such as a sphere distance, domain warp with vec3 registers,
   `veach:sample_cubemap@1`), graph-level `params`, constant deduplication, a public node registry for C++ modules,
-  octave fading below `min_planet_wavelength_m`, and explicit SIMD kernels (VCH-117).
+  octave fading below `min_planet_wavelength_m`, and explicit SIMD kernels (VCH-121).
 - Luau stages and stage overrides by mods (`procgen.stage(...)`, ADR 0052), and the generator type environment for
-  `luau-analyze` (ADR 0070 consequences) (VCH-117 lists the Luau half).
+  `luau-analyze` (ADR 0070 consequences) (VCH-121 lists the Luau half).
 - Genesis, epochs, pins and which stage version a body uses: `space/` semantics on top of the registry
   ([ADR 0055](../../adr/0055-universe-identity-and-versioning.md), VCH-094).
 
@@ -168,5 +172,5 @@ None.
   [0074](../../adr/0074-amendments-from-sp-08.md)
 - Spikes: [SP-05](../../research/spikes/sp-05-system-statistics.md), [SP-06](../../research/spikes/sp-06-field-graph.md),
   [SP-07](../../research/spikes/sp-07-luau-generator.md)
-- Backlog: VCH-112 (this), VCH-114 (voxel samples density through it), VCH-116, VCH-117
+- Backlog: VCH-112 (this), VCH-114 (voxel samples density through it), VCH-120, VCH-121
 - Guides: [procgen](../../guides/procgen.md)

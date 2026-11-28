@@ -1,5 +1,9 @@
 # SP-06: one field graph, three evaluators (VCH-082)
 
+> **Promoted (VCH-112).** The compiler and the CPU interpreter are now `engine/procgen`
+> (`veach/procgen/field_graph.hpp`), with this spike's committed hashes; `tests/sp06/` keeps the two GPU evaluators.
+> See the [procgen spec](../../specs/procgen/spec.md).
+
 Validates [ADR 0052](../../adr/0052-procgen-runtime.md) (JSON field graphs, a canonical CPU batch interpreter, a
 visual-only GPU interpreter) with spike S1 of [research 05](../05-procgen-graph.md#12-spike-candidates), under the
 determinism rules of [ADR 0043](../../adr/0043-determinism-tiers-and-strict-floating-point.md) and the hash of

@@ -1,7 +1,7 @@
 # Extending Veach
 
 How to add a component, system, module, Luau binding, engine subsystem, asset loader, MCP tool,
-error code, extractor or material, and how to run work in parallel. App and game code uses `veach::` names only and includes
+error code, extractor, material or generation stage, and how to run work in parallel. App and game code uses `veach::` names only and includes
 `<veach/veach.hpp>`; engine code may use Flecs directly. Background:
 [ARCHITECTURE.md](../ARCHITECTURE.md), [ADR 0019](../adr/0019-veach-modules-and-services.md) (modules and services).
 
@@ -211,3 +211,19 @@ if (!added) {
 5. Module tools are not in `--record` recordings: keep them read-only, or write through components an agent can see.
 6. Test the handler with `McpTools::call` (see `tests/mcp_tools_tests.cpp`), and the app over stdio in
    `tests/mcp/test_mcp_lab.py`.
+
+## (l) Procedural generation: a stage, a field graph or a generator hook
+
+Generated content that gameplay reads goes through `engine/procgen`
+([guide](procgen.md), [spec](../specs/procgen/spec.md)): records are C++ **stages** registered on a
+`veach::procgen::StageRegistry` and read through a `StageRuntime`; per-sample functions are **field graphs** (JSON or
+the Luau builder) compiled per body and evaluated on lattice points; small per-body programs are Luau **generator
+hooks** in `veach::procgen::Sandbox`. See `space/gen/src/stages.cpp` for the toolbox's stages.
+
+1. Stages and nodes are pure: no World, no command buffer, no scale factor, no clock, no `rand()`; randomness from
+   the stage context's streams or the node's seed.
+2. Canonical code only (ADR 0043): `veach::dmath` for transcendentals, `veach::hash` for randomness, no iteration
+   over unordered containers where order reaches the output.
+3. Commit a hash of the output in a unit test; a changed output is a new version, never an edited hash.
+4. A field graph takes positions, never a level of detail ([ADR 0074](../adr/0074-amendments-from-sp-08.md)).
+5. Nothing under `engine/procgen` links rhi or render; a GPU evaluator is a render feature (`check_repo.py`).

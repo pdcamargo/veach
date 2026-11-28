@@ -149,6 +149,34 @@ export type Sp03LargePosition = {
 	y: number,
 	z: number,
 }
+export type Sp09Descent = {
+	body: number,
+	scale: number,
+	relief_exponent: number,
+	start_altitude: number,
+	end_altitude: number,
+	low_altitude: number,
+	tau: number,
+	v_floor: number,
+	skim_speed: number,
+	skim_seconds: number,
+	low_seconds: number,
+	lambda: number,
+	budget: number,
+	level_colors: boolean,
+	linear_encoding: boolean,
+}
+export type Sp09State = {
+	x: number,
+	y: number,
+	z: number,
+	altitude: number,
+	speed: number,
+	phase: number,
+	time: number,
+	drawn: number,
+	backlog: number,
+}
 export type Spinner = {
 	radians_per_second: number,
 	angle: number,
@@ -237,6 +265,8 @@ export type Veach = {
 		read Sky: Component<Sky>,
 		read Sp03Ladder: Component<Sp03Ladder>,
 		read Sp03LargePosition: Component<Sp03LargePosition>,
+		read Sp09Descent: Component<Sp09Descent>,
+		read Sp09State: Component<Sp09State>,
 		read Spinner: Component<Spinner>,
 		read SpotLight: Component<SpotLight>,
 		read SunObserver: Component<SunObserver>,

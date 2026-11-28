@@ -3,6 +3,7 @@ veach_add_engine_library(render
         src/ambient_occlusion.cpp
         src/atmosphere.cpp
         src/backdrop.cpp
+        src/bloom.cpp
         src/gpu_scene.cpp
         src/mesh_store.cpp
         src/realtime_renderer.cpp
@@ -48,6 +49,8 @@ veach_add_shader(veach_render shaders/classify.slang ENTRIES classify:compute cl
 # Temporal anti-aliasing (ADR 0061, docs/specs/temporal-aa/spec.md).
 veach_add_shader(veach_render shaders/taa.slang ENTRIES taa_resolve:compute taa_sharpen:compute
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
+# Bloom (docs/specs/bloom/spec.md, bloom.cpp); the display pass blends it in.
+veach_add_shader(veach_render shaders/bloom.slang ENTRIES bloom_downsample:compute bloom_upsample:compute)
 veach_add_shader(veach_render shaders/atmosphere.slang ENTRIES transmittance_lut:compute multiscattering_lut:compute
     sky_view_lut:compute sky_ambient_lut:compute)
 veach_add_shader(veach_render shaders/aerial_volume.slang ENTRIES aerial_volume:compute)

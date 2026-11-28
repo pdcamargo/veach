@@ -110,6 +110,10 @@ export type AntiAliasing = {
 export type BlendDemo = {
 	opacity: number,
 }
+export type Bloom = {
+	intensity: number,
+	radius: number,
+}
 export type Camera = {
 	fov_y: number,
 	near_plane: number,
@@ -348,6 +352,7 @@ export type Veach = {
 		read AmbientOcclusion: Component<AmbientOcclusion>,
 		read AntiAliasing: Component<AntiAliasing>,
 		read BlendDemo: Component<BlendDemo>,
+		read Bloom: Component<Bloom>,
 		read Camera: Component<Camera>,
 		read CelestialBody: Component<CelestialBody>,
 		read DirectionalLight: Component<DirectionalLight>,

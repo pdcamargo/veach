@@ -314,7 +314,12 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
      little where it moves. A camera turns it off with `AntiAliasing { temporal = false }`, every camera with
      `VEACH_DISABLE_TAA=1`. A feature that reconstructs positions from `depth` uses
      `render::jittered_view_projection(view.view_projection, view.jitter, width, height)`.
-  8. `space backdrop` (when there is one), metering, `display`: AgX.
+  8. `space backdrop` (when there is one); `bloom: down 0..n`, `bloom: up n..0` ([spec](../specs/bloom/spec.md),
+     [ADR 0099](../adr/0099-bloom.md)): the glare of a lens, threshold-free and energy-conserving, a 13-tap downsample
+     chain from half resolution (Karis's average into level 0) and a tent upsample, its levels weighted by their size
+     on the screen (`render::bloom_chain`); metering (without the bloom); `display`: the bloom blended in
+     (`lerp(image, bloom, intensity)`), then AgX. A camera's `Bloom { intensity, radius }` tunes it (0.04 and 0.12 of
+     the image height by default; `intensity = 0` turns it off), every camera with `VEACH_DISABLE_BLOOM=1`.
 
   `FrameContext::blackboard` hands `visibility`, `depth`, `motion`, `hdr_color` (the resolved image) and
   `ambient_occlusion` to features recorded after it. What culling did (`render::CullStats`: instances visible and
@@ -413,7 +418,8 @@ build/debug/tools/veach-cli/veach imgdiff tests/golden/flight_helmet_realtime.pn
   return shadows that vary from run to run. Take screenshots you compare the same way.
 - Goldens render **without temporal AA** (`golden_test.cmake` sets `VEACH_DISABLE_TAA=1`): each tests one frame's
   shading. A temporal golden (`veach_golden_test(... TAA FRAMES n)`) renders n frames of the fixed jitter sequence and
-  is byte-identical from run to run; screenshots you compare with a golden need the same setting.
+  is byte-identical from run to run; screenshots you compare with a golden need the same setting. Goldens render
+  **with bloom** (it has no history, so it is deterministic).
 - **Regenerating goldens is a deliberate act:** `cmake --build --preset debug --target update-goldens` writes
   `tests/golden/*.png` (stored in Git LFS). Look at the images before committing, and say why they changed in
   the commit message.

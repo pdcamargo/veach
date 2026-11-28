@@ -8,13 +8,35 @@ struct Params {
     DescriptorHandle<RWTexture2D<float4>> output;  ///< scene_color, rgba8 (sRGB-encoded values)
     uint2 size;
     float exposure;  ///< 1 / (1.2 * 2^ev100)
-    uint tonemap;    ///< bit 0: AgX, else clamp (debug views that are already display values); bit 1: auto-exposure
+    uint tonemap;    ///< bit 0: AgX, else clamp (debug views that are already display values); bit 1: auto-exposure;
+                     ///< bit 2: bloom
     uint2 input_size;  ///< radiance's size; a smaller one (a debug view at render resolution) is scaled, nearest
     /// Spike SP-14 (VCH-090): with tonemap bit 1, the exposure is state[0].y / state[0].z (exposure.slang): the
     /// adapted exposure over the pre-exposure the radiance was written with.
     DescriptorHandle<StructuredBuffer<float4>> exposure_state;
+    /// With tonemap bit 2: bloom (bloom.slang, docs/specs/bloom/spec.md), the chain's result at half resolution, read
+    /// through a tent (bloom_tent) and blended in as lerp(radiance, bloom, bloom_intensity). The real-time
+    /// renderer only; both are pre-exposed alike.
+    DescriptorHandle<Texture2D<float4>> bloom;
+    DescriptorHandle<SamplerState> linear_clamp;
+    float2 bloom_texel;
+    float bloom_intensity;
 };
 [[vk::push_constant]] ConstantBuffer<Params> params;
+
+static const uint tonemap_bloom = 4u;
+
+float3 bloom_at(float2 uv) {
+    return params.bloom.SampleLevel(params.linear_clamp, uv, 0.0).rgb;
+}
+
+/// The bloom chain's result under a tent: four bilinear taps half a texel of it apart, a box one texel wide over the
+/// bilinear filter (a quadratic B-spline), smooth enough to hide the half-resolution texels at a third of the cost of
+/// nine taps over every displayed pixel.
+float3 bloom_tent(float2 uv) {
+    const float2 t = 0.5 * params.bloom_texel;
+    return 0.25 * (bloom_at(uv - t) + bloom_at(uv + t) + bloom_at(uv + float2(-t.x, t.y)) + bloom_at(uv + float2(t.x, -t.y)));
+}
 
 // AgX, after Troy Sobotka's reference and Benjamin Wrensch's fit (as in Blender 4 and Godot): linear Rec.709 in,
 // display-encoded Rec.709 out.
@@ -59,7 +81,10 @@ void display(uint3 id : SV_DispatchThreadID) {
         return;
     }
     const uint2 source = min(id.xy * params.input_size / params.size, params.input_size - 1);
-    const float3 radiance = params.radiance.Load(int3(source, 0)).rgb;
+    float3 radiance = params.radiance.Load(int3(source, 0)).rgb;
+    if ((params.tonemap & tonemap_bloom) != 0) {
+        radiance = lerp(radiance, bloom_tent((float2(id.xy) + 0.5) / float2(params.size)), params.bloom_intensity);
+    }
     float exposure = params.exposure;
     if ((params.tonemap & 2u) != 0) {
         const float4 state = params.exposure_state[0];

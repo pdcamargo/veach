@@ -129,6 +129,8 @@ struct RenderView {
     AmbientOcclusion ambient_occlusion;
     /// The camera's SunShadows (or the defaults): the real-time renderer's shadow maps (shadows.cpp).
     SunShadows shadows;
+    /// The camera's Bloom (or the defaults); intensity 0 with a PhotoMode or VEACH_DISABLE_BLOOM=1.
+    Bloom bloom;
     /// Temporal anti-aliasing (ADR 0061): on unless the camera's AntiAliasing turns it off, it has a PhotoMode, or
     /// VEACH_DISABLE_TAA=1 (the goldens). The matrices above are never jittered; the real-time renderer offsets its
     /// own projection by `jitter` (jittered_view_projection) and publishes motion without it.

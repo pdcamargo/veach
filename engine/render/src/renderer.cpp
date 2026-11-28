@@ -290,7 +290,8 @@ Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device), readba
             out.target_height = handle.height != 0 ? handle.height : window.height;
         });
     });
-    add_extractor("views", [no_taa = env_is_one("VEACH_DISABLE_TAA")](const World& world, RenderWorld& out) {
+    add_extractor("views", [no_taa = env_is_one("VEACH_DISABLE_TAA"), no_bloom = env_is_one("VEACH_DISABLE_BLOOM")](
+                               const World& world, RenderWorld& out) {
         const auto [width, height] = target_size(out);
         const float aspect = static_cast<float>(width) / static_cast<float>(height);
         std::vector<std::pair<std::uint64_t, const Camera*>> cameras;
@@ -350,6 +351,12 @@ Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device), readba
             }
             if (const SunShadows* shadows = world.entity(id).try_get<SunShadows>()) {
                 view.shadows = *shadows;
+            }
+            if (const Bloom* bloom = world.entity(id).try_get<Bloom>()) {
+                view.bloom = *bloom;
+            }
+            if (no_bloom || view.photo_mode) {
+                view.bloom.intensity = 0.0f;
             }
             const AntiAliasing* aa = world.entity(id).try_get<AntiAliasing>();
             view.temporal_aa = !no_taa && !view.photo_mode && (aa == nullptr || aa->temporal);
@@ -792,6 +799,7 @@ RenderModule::RenderModule(World& world) {
         .member(&AmbientOcclusion::radius, "radius")
         .member(&AmbientOcclusion::intensity, "intensity")
         .add<Scriptable>();
+    world.component<Bloom>().member(&Bloom::intensity, "intensity").member(&Bloom::radius, "radius").add<Scriptable>();
     world.component<SunShadows>()
         .member(&SunShadows::suns, "suns")
         .member(&SunShadows::distance, "distance")

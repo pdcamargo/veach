@@ -104,14 +104,20 @@ struct alignas(16) DisplayParams {
     rhi::DescriptorHandle output;
     std::array<std::uint32_t, 2> size{};
     float exposure = 1.0f;
-    std::uint32_t tonemap = 1;  ///< bit 0: AgX; bit 1: auto-exposure (spike SP-14)
+    std::uint32_t tonemap = 1;  ///< bit 0: AgX; bit 1: auto-exposure (spike SP-14); bit 2: bloom
     std::array<std::uint32_t, 2> input_size{};
     rhi::DescriptorHandle exposure_state;  ///< spike SP-14 (VCH-090): read with tonemap bit 1
+    rhi::DescriptorHandle bloom;           ///< with tonemap bit 2: the bloom chain's result (bloom.cpp)
+    rhi::DescriptorHandle linear_clamp;
+    std::array<float, 2> bloom_texel{};  ///< 1 / its size
+    float bloom_intensity = 0.0f;
 };
 static_assert(rhi::parameters_match<DisplayParams>(
     veach_render_shaders::layout::display,
     {VEACH_PARAM(DisplayParams, radiance), VEACH_PARAM(DisplayParams, output), VEACH_PARAM(DisplayParams, size),
      VEACH_PARAM(DisplayParams, exposure), VEACH_PARAM(DisplayParams, tonemap), VEACH_PARAM(DisplayParams, input_size),
-     VEACH_PARAM(DisplayParams, exposure_state)}));
+     VEACH_PARAM(DisplayParams, exposure_state), VEACH_PARAM(DisplayParams, bloom),
+     VEACH_PARAM(DisplayParams, linear_clamp), VEACH_PARAM(DisplayParams, bloom_texel),
+     VEACH_PARAM(DisplayParams, bloom_intensity)}));
 
 }  // namespace veach::render

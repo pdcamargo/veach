@@ -143,6 +143,10 @@ auto built = sandbox.build_graph(graph_source, "terrain.graph.luau");      // th
   and on a lattice box (measured, not a test: ADR 0052's bar is 10 M samples/s per core). Measured on one M5 Max
   thread, release preset: 19.2 M samples/s on SP-06's 1024² face, 18.0 M on 35³ lattice chunks of the same
   11-octave graph, 28.1 M for a 7-octave cave graph.
+- **procgen.AC12** — `lattice_bounds(program)` gives each output a value range, a Lipschitz constant per realized
+  meter and a float-error bound, proven from the op list: on 8,000 points of the cave and hill graphs every
+  evaluated value lies in the range and no difference between points 0.5 to 32 m apart exceeds the Lipschitz bound
+  (plus twice the error). Terrain uses it to skip chunks that cannot hold a surface (VCH-114).
 
 ## Out of scope
 

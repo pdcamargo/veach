@@ -96,6 +96,13 @@ different values on the two domains: compare like with like.
 19 M samples/s on a cube face (`veach-bench-procgen`; ADR 0052's bar is 10 M). Streaming should run one chunk per
 job; `evaluate(jobs, ...)` cuts one box into jobs of 4,096 samples, which only pays for large boxes.
 
+**Bounds.** `pg::lattice_bounds(program)` proves, per output, the range of every value it can take, a Lipschitz
+constant per realized meter and a bound on the interpreter's rounding, from the op list alone (interval arithmetic;
+`veach:fbm@1`'s noise is bounded by 2 per unit amplitude and its gradient by 8.5·√3 per cycle). With one evaluation
+at a box's center, `value(c) ± (lipschitz · radius + 2 · error)` bounds the whole box: terrain streaming uses it to
+skip chunks that are all air or all rock ([voxel guide](voxel-terrain.md)). The bounds are conservative by design,
+loose by a factor of 10 to 100 on real graphs, so split boxes until they decide.
+
 ### The Luau builder
 
 A builder script declares the same IR in strict Luau. It runs in the generator sandbox (same rules and budgets as

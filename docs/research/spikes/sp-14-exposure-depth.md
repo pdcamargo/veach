@@ -272,7 +272,7 @@ one by one through MCP `gpu_timings`; median per pass, median of two interleaved
 | Configuration | shade | exposure histogram | exposure resolve | display | exposure readback |
 |---|---|---|---|---|---|
 | ground (A), auto-exposure, stars | 0.170 | 0.038 | 0.016 | 0.044 | 0.001 |
-| cave (C), auto-exposure, stars | 0.217 | 0.038 | 0.016 | 0.044 | 0.001 |
+| cave (C), auto-exposure, stars | 0.221 | 0.038 | 0.016 | 0.044 | 0.001 |
 | orbit over the limb (E), auto-exposure, stars | 0.725 | 0.032 | 0.016 | 0.044 | 0.001 |
 | deep space (G), auto-exposure, stars | 0.222 | 0.028 | 0.016 | 0.044 | 0.001 |
 | deep space (G), auto-exposure, no stars | 0.069 | 0.028 | 0.012 | 0.044 | 0.001 |

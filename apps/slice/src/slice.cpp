@@ -350,17 +350,27 @@ private:
 
     /// The flattest of 60 candidate points at 20° to 40° north (the field's slope over ±30 m).
     void choose_site() {
+        // In daylight (the sun at least 20 degrees up at the start) if any candidate is; the flattest of those.
         double best = 1e300;
+        bool lit_found = false;
         for (int i = 0; i < 5; ++i) {
             const double lat = (20.0 + 5.0 * i) * deg;
             for (int j = 0; j < 12; ++j) {
                 const double lon = 30.0 * j * deg;
                 const vs::LocalFrame f = vs::local_frame(lat, lon);
+                const bool lit = universe_->local_sun(home_->index, f.up, universe_->tick()).elevation > 20.0 * deg;
+                if (lit_found && !lit) {
+                    continue;
+                }
                 const double h0 = ground_radius(f.up);
                 double slope = 0.0;
                 for (const dvec3& d : {f.east, -f.east, f.north, -f.north}) {
                     const dvec3 p = f.up * h0 + d * 30.0;
                     slope = std::max(slope, std::abs(ground_radius(p) - h0) / 30.0);
+                }
+                if (lit && !lit_found) {
+                    lit_found = true;
+                    best = 1e300;
                 }
                 if (slope < best) {
                     best = slope;

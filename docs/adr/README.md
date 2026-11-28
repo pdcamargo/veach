@@ -86,3 +86,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0073 | [The job system: enkiTS behind veach::JobSystem, fixed chunks, results in index order](0073-job-system-enkits.md) | Accepted |
 | 0074 | [Amendments from SP-08: LOD-independent samples, remeshing on neighbor change, lattice positions](0074-amendments-from-sp-08.md) | Accepted |
 | 0075 | [Amendments from SP-11: Jolt's build flags, AVX2 on x64, Jolt optimized in Debug](0075-amendments-from-sp-11.md) | Accepted |
+| 0076 | [Amendments from SP-10: the march's cost, eclipses per sample, a body-sized aerial-perspective volume](0076-amendments-from-sp-10.md) | Accepted |

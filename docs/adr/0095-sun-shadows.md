@@ -15,7 +15,7 @@ It left open how cascades meet the GPU-driven core (0093: compacted indirect lis
 rasterization), where they end and what lies beyond, how they are filtered and biased, and where the lookup sits in
 the shading that other features (GTAO, TAA, sky ambient) change at the same time. The RHI has depth bias, comparison
 samplers and 2D arrays (0090) but no depth clamp. Render space moves on a 64 m grid (0045, 0085). Spec:
-[sun shadows](../specs/sun-shadows/spec.md); backlog VCH-140; measurements:
+[sun shadows](../specs/sun-shadows/spec.md); backlog VCH-142; measurements:
 [sun shadows](../research/sun-shadows/README.md).
 
 ## Decision
@@ -52,7 +52,7 @@ samplers and 2D arrays (0090) but no depth clamp. Render space moves on a 64 m g
    already darkens the slopes turned from a low sun and aerial perspective lowers the contrast; the screenshots of a
    2° sun from 300 m show the fade at 800 to 1000 m reads as haze. A horizon map needs coarse terrain heights, which
    the engine does not have (they are the toolbox's, 0042): it becomes an engine seam (a far-shadow term a module
-   provides, as data) when the toolbox needs it, VCH-141.
+   provides, as data) when the toolbox needs it, VCH-143.
 7. **The real cost is the frame's GPU span.** Passes overlap on Apple GPUs (the cascades run beside the camera's
    culling), so `VEACH_GPU_TIMINGS` now also logs `frame_ms`, the command buffer's span, next to the sum of passes.
 
@@ -64,14 +64,14 @@ samplers and 2D arrays (0090) but no depth clamp. Render space moves on a 64 m g
   2.8 ms at sunset, the SP-16 field +1.7 to 2.2 ms, at 1080p and 1440p; the CPU pays 1.7 to 2 ms more per Bistro frame
   for six more passes declaring every mesh buffer and texture. Above 0062's 0.4 ms estimate, and geometry-bound: a
   low sun sweeps every caster of a town into every cascade, which fewer or smaller cascades barely change. Light-side
-  occlusion (last frame's cascade as a HiZ), cached far cascades and scene residency declared once are VCH-141; ADR
+  occlusion (last frame's cascade as a HiZ), cached far cascades and scene residency declared once are VCH-143; ADR
   0064's presets will set `SunShadows`.
 - Memory: 16 MB per cascade at 2048² (64 MB for one sun, 128 MB for two).
 - The goldens with a sun changed on purpose (Bistro at noon and sunset, FlightHelmet and the runtime mesh in real
   time); the thin-triangles golden turns shadow maps off to keep checking shading only.
 - The penumbra filter has no temporal component; with TAA (0061) it can trade taps for rotation.
 - Revisit if: shadow passes dominate frames with many cascades of static geometry (cache or stagger the far cascades,
-  VCH-141), the sweep test keeps too many casters in open terrain (a tighter receiver volume), or a scene needs
+  VCH-143), the sweep test keeps too many casters in open terrain (a tighter receiver volume), or a scene needs
   shadows past a kilometer (the horizon term).
 
 ## Alternatives considered

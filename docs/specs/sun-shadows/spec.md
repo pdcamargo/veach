@@ -16,7 +16,7 @@ unchanged.
 Nothing cast a shadow in real time: the slice looked flat, the dug hole's walls were sunlit, Bistro's street had no
 shade. ADR 0062 decided cascaded shadow maps near and analytic occluders far; ADR 0090 gave the RHI depth bias,
 comparison samplers and texture arrays; ADR 0093 gave the culling and indirect draws the cascades reuse. Item 4 of the
-renderer pass (VCH-140).
+renderer pass (VCH-142).
 
 ## Requirements
 
@@ -91,7 +91,7 @@ const float shadow = light_shadow(shadows, i, position, facing, l, cos_l, view_d
 - Shadows of point and spot lights, cloud shadows, ring shadows (ADR 0062's analytic occluders; eclipses already dim
   the sun's radiance), far-terrain self-shadowing beyond the last cascade (a horizon map from the toolbox's coarse
   heights), cached or staggered cascades, quality presets choosing the cascade count and resolution (ADR 0064):
-  VCH-141.
+  VCH-143.
 - Temporal filtering of the penumbrae (with TAA, ADR 0061).
 
 ## Open questions
@@ -103,6 +103,6 @@ None.
 - ADRs: [0095](../../adr/0095-sun-shadows.md), [0062](../../adr/0062-shadows-ambient-reflections.md),
   [0093](../../adr/0093-gpu-driven-core.md), [0090](../../adr/0090-rhi-texture-kinds-updates-and-raster-state.md),
   [0045](../../adr/0045-large-world-positions-and-reference-frames.md)
-- Backlog: VCH-140, VCH-141
+- Backlog: VCH-142, VCH-143
 - Guides: [rendering](../../guides/rendering.md)
 - Measurements: [sun shadows](../../research/sun-shadows/README.md)

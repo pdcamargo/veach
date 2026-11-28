@@ -1,4 +1,4 @@
-# Sun shadows (VCH-140)
+# Sun shadows (VCH-142)
 
 What the sun shadows of [ADR 0095](../../adr/0095-sun-shadows.md) ([spec](../../specs/sun-shadows/spec.md)) look like
 and cost. Apple M5 Max, Metal, release builds, 2026-11-28, default settings (one shadowed sun per scene, 4 cascades of
@@ -105,10 +105,10 @@ shape and only move with the view.
    9,379), and at sunset a 3° sun sweeps every caster in the town into every cascade (25,000 to 48,000 meshlets each;
    resolution or fewer cascades barely help, 2 x 1024² to 250 m still adds 1.4 ms). Each cascade also has a fixed
    cost of about 0.1 to 0.2 ms (clear, store, a render pass). The fix for low suns is occlusion from the light's side
-   (last frame's cascade as a HiZ, as the camera does) and caching the far cascades: VCH-141.
+   (last frame's cascade as a HiZ, as the camera does) and caching the far cascades: VCH-143.
 4. **The CPU pays 1.7 to 2 ms per frame in Bistro**: the six new passes each declare every mesh buffer and texture
    (about 3,000 in Bistro) for residency and barriers, which the render graph walks. Declaring scene residency once per
-   frame is VCH-141's too.
+   frame is VCH-143's too.
 5. **The field adds 1.7 to 2.2 ms**: the far cascades draw the grass of a square kilometer (186,000 and 261,000
    meshlets); vegetation distances and LOD (VCH-139) cut this with the camera's own cost.
 6. **A second sun adds about 0.7 ms** in Bistro (the second, higher sun's cascades hold fewer casters).

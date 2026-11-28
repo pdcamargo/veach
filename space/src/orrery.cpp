@@ -16,20 +16,6 @@ namespace {
 constexpr double pi = 3.141592653589793238462643383279502884;
 constexpr double deg = pi / 180.0;
 
-std::optional<System> make_system(const Orrery& o) {
-    const ScaleFactors s{.body = o.scale, .orbit = o.scale};
-    if (o.system == "sol") {
-        return sol(s);
-    }
-    if (o.system == "earthlike") {
-        return earthlike(s);
-    }
-    if (o.system == "reference") {
-        return reference_system();
-    }
-    return std::nullopt;
-}
-
 /// The one realized system (a spike supports one orrery per world).
 struct OrreryState {
     std::string key;  ///< system and scale it was built from
@@ -93,7 +79,7 @@ OrreryModule::OrreryModule(World& world) {
                 state->bodies.clear();
                 state->built = false;
                 state->key = key;
-                std::optional<System> system = make_system(orrery);
+                std::optional<System> system = preset(orrery.system, orrery.scale);
                 if (!system) {
                     log::error("space", "orrery: unknown system '{}' (known: sol, earthlike, reference)",
                                orrery.system);
@@ -101,9 +87,7 @@ OrreryModule::OrreryModule(World& world) {
                 }
                 state->system = std::move(*system);
                 state->poses.assign(state->system.nodes().size(), Pose{});
-                const std::int32_t sun = state->system.find("sun");
-                const std::int32_t star_a = state->system.find("star_a");
-                state->star = sun >= 0 ? sun : (star_a >= 0 ? star_a : 0);
+                state->star = primary_star(state->system);
                 for (const OrbitNode& n : state->system.nodes()) {
                     state->bodies.push_back(e.world().entity().child_of(e).set_name(n.name.c_str()).id());
                 }

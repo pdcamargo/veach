@@ -5,6 +5,7 @@
 # (ADR 0043).
 add_library(veach_space STATIC
     src/clock.cpp
+    src/mcp_tools.cpp
     src/orbit.cpp
     src/orrery.cpp
     src/presets.cpp

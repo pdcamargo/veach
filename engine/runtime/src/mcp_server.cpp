@@ -13,6 +13,7 @@
 #include <veach/render/scene_renderer.hpp>
 #include <veach/rhi/rhi.hpp>
 #include <veach/runtime/engine.hpp>
+#include <veach/runtime/mcp_tools.hpp>
 #include <veach/script/script_runtime.hpp>
 
 #include <nlohmann/json.hpp>
@@ -283,6 +284,10 @@ json McpServer::tools() const {
              "(require(\"@veach\"); writes apply only if it returns without error). Returns its "
              "return values and the log lines it produced.",
              {{"type", "object"}, {"properties", {{"source", {{"type", "string"}}}}}, {"required", {"source"}}}));
+    // Then the tools modules registered (VCH-100), in registration order.
+    for (json& t : engine_.services().get<McpTools>().list()) {
+        list.push_back(std::move(t));
+    }
     return list;
 }
 
@@ -637,11 +642,15 @@ json McpServer::call_tool(std::string_view name, const json& arguments) {
         return json_result(out);
     }
 
-    std::vector<std::string> names;
-    for (const json& t : tools()) {
-        names.push_back(t.at("name").get<std::string>());
+    // A module's tool, or mcp.unknown_tool with a did-you-mean over every tool. On this thread, between frames.
+    auto output = engine_.services().get<McpTools>().call(name, world, arguments);
+    if (!output) {
+        throw ToolError{output.error()};
     }
-    fail(ErrorCode::mcp_unknown_tool, std::format("unknown tool '{}'", name), did_you_mean(name, names));
+    if (auto* blocks = std::get_if<McpContent>(&*output)) {
+        return {{"content", std::move(blocks->blocks)}};
+    }
+    return json_result(std::get<json>(*output));
 }
 
 json McpServer::handle(const json& message) {
@@ -655,7 +664,10 @@ json McpServer::handle(const json& message) {
     };
 
     const std::string method = message.value("method", "");
-    const json params = message.value("params", json::object());
+    json params = message.value("params", json::object());
+    if (!params.is_object()) {
+        params = json::object();  // "params": null is common from clients
+    }
     if (!is_request) {
         return nullptr;  // notifications (initialized, cancelled, ...) need no answer
     }
@@ -665,14 +677,22 @@ json McpServer::handle(const json& message) {
         if (std::ranges::find(protocol_versions, requested) != protocol_versions.end()) {
             version = requested;
         }
+        std::string instructions =
+            "Veach engine. Inspect and change the live ECS world (query_entities, get/set_component, "
+            "spawn_entity), advance it (step_frames), look at it (screenshot, render_graph_plan, "
+            "gpu_timings, photo_mode) and run Luau in it (eval). Errors carry [codes] documented in "
+            "docs/reference/errors.md.";
+        std::string module_tools;
+        for (const McpTool& t : engine_.services().get<McpTools>().tools()) {
+            module_tools += (module_tools.empty() ? "" : ", ") + t.name;
+        }
+        if (!module_tools.empty()) {
+            instructions += std::format(" Tools added by this app's modules: {}.", module_tools);
+        }
         return respond({{"protocolVersion", version},
                         {"capabilities", {{"tools", {{"listChanged", false}}}}},
                         {"serverInfo", {{"name", "veach"}, {"version", "0.1.0"}}},
-                        {"instructions",
-                         "Veach engine. Inspect and change the live ECS world (query_entities, get/set_component, "
-                         "spawn_entity), advance it (step_frames), look at it (screenshot, render_graph_plan, "
-                         "gpu_timings, photo_mode) and run Luau in it (eval). Errors carry [codes] documented in "
-                         "docs/reference/errors.md."}});
+                        {"instructions", instructions}});
     }
     if (method == "ping") {
         return respond(json::object());

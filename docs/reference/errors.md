@@ -340,3 +340,17 @@ The hint suggests the closest tool name; `tools/list` returns every tool with it
 **An MCP tool call has missing or ill-typed arguments.**
 
 The message names the argument. Each tool's `inputSchema` (from `tools/list`) describes the expected arguments.
+
+## mcp.duplicate_tool
+
+**A module registered an MCP tool name that is already taken.**
+
+`McpTools::add` refuses a name that a built-in tool (`eval`, `step_frames`...) or another module already uses. Rename
+the tool, prefixed with the module's area (`physics_raycast`), or register it from one module only.
+
+## mcp.invalid_tool
+
+**A module registered an MCP tool with a bad name, schema or handler.**
+
+Names are 1-64 characters of `A-Z a-z 0-9 _ - .` (Veach uses snake_case), the input schema is a JSON Schema with
+`"type": "object"`, and the handler is set. Guide: [extending](../guides/extending.md#k-an-mcp-tool).

@@ -19,6 +19,7 @@ add_executable(veach-tests
     script_tests.cpp
     sky_tests.cpp
     space_gen_tests.cpp
+    mcp_tools_tests.cpp
     space_tests.cpp
     transform_tests.cpp
     voxel_tests.cpp)

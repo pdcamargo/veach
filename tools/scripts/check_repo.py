@@ -29,6 +29,7 @@ CODE_NAMES = {"CMakeLists.txt"}
 MARKER = re.compile(r"\b(TODO|FIXME|XXX|HACK)\b(?!\(VCH-\d{3,}\))")
 REFERENCE = re.compile(r"\b(?:TODO|FIXME|XXX|HACK)\(VCH-(\d{3,})\)")
 SPACE = re.compile(r"veach/space\b|veach::space\b|\bveach_space\b")
+GETENV = re.compile(r"\bgetenv\s*\(|_dupenv_s\s*\(")
 SELF = pathlib.Path(__file__).resolve()
 
 
@@ -66,6 +67,9 @@ def main() -> int:
             if rel.startswith("engine/") and SPACE.search(line):
                 errors.append(f"{rel}:{lineno}: the engine names the space toolbox; it must not know it exists "
                               "(ADR 0042). Move what the toolbox needs into the engine as a generic feature.")
+            if GETENV.search(line) and rel not in ("engine/core/src/env.cpp",) and not rel.endswith((".py", ".sh", ".yml")):
+                errors.append(f"{rel}:{lineno}: read environment variables with veach::env() (veach/core/env.hpp); "
+                              "MSVC deprecates getenv, and warnings are errors")
             if rel.startswith("apps/") and "flecs::" in line:
                 errors.append(f"{rel}:{lineno}: `flecs::` in apps/ — use the veach:: aliases (veach::World, "
                               "veach::Entity, ...) or veach::ecs:: for raw Flecs")

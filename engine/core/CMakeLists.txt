@@ -2,6 +2,7 @@ veach_add_engine_library(core
     SOURCES
         src/assert.cpp
         src/dmath.cpp
+        src/env.cpp
         src/error.cpp
         src/ids.cpp
         src/log.cpp

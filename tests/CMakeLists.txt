@@ -7,6 +7,7 @@ add_executable(veach-tests
     gpu_texture_tests.cpp
     lifecycle_tests.cpp
     platform_tests.cpp
+    procgen_sandbox_tests.cpp
     realtime_tests.cpp
     render_tests.cpp
     rhi_tests.cpp
@@ -32,6 +33,7 @@ target_include_directories(veach-tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 set_target_properties(veach-tests PROPERTIES FOLDER "tests")
 veach_apply_warnings(veach-tests)
 veach_deploy_d3d12(veach-tests)
+add_subdirectory(sp06)  # Spike SP-06 (VCH-082): its tests join veach-tests; its bench is veach-bench-sp06
 
 include("${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake")
 doctest_discover_tests(veach-tests TEST_PREFIX "unit: ")
@@ -349,3 +351,11 @@ target_link_libraries(veach-bench-sp08-mesher PRIVATE veach::voxel)
 target_include_directories(veach-bench-sp08-mesher PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 set_target_properties(veach-bench-sp08-mesher PROPERTIES FOLDER "tests")
 veach_apply_warnings(veach-bench-sp08-mesher)
+# Spike SP-07 (VCH-083), throwaway: climate hook cells/s and per-call overhead in the Luau procgen sandbox
+# (docs/research/spikes/sp-07-luau-generator.md).
+add_executable(veach-bench-sp07 bench/sp07_luau_generator_bench.cpp)
+target_link_libraries(veach-bench-sp07 PRIVATE veach::veach veach_space_gen)
+target_include_directories(veach-bench-sp07 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(veach-bench-sp07 PRIVATE VEACH_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+set_target_properties(veach-bench-sp07 PROPERTIES FOLDER "tests")
+veach_apply_warnings(veach-bench-sp07)

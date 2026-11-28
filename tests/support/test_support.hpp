@@ -1,5 +1,7 @@
 #pragma once
 
+#include <veach/core/env.hpp>
+
 // Shared helpers for the test suite. Tests map to spec acceptance criteria:
 // each TEST_CASE name starts with the criterion id, e.g. "[lifecycle.AC1]".
 
@@ -126,18 +128,9 @@ inline std::filesystem::path source_dir() {
     return VEACH_SOURCE_DIR;
 }
 
-/// True if the environment variable `name` is "1" (portable: MSVC deprecates std::getenv).
+/// True if the environment variable `name` is "1".
 inline bool env_is_one(const char* name) {
-#if defined(_MSC_VER)
-    char* value = nullptr;
-    std::size_t length = 0;
-    const bool one = _dupenv_s(&value, &length, name) == 0 && value != nullptr && std::string_view(value) == "1";
-    std::free(value);  // NOLINT(cppcoreguidelines-no-malloc)
-    return one;
-#else
-    const char* value = std::getenv(name);  // NOLINT(concurrency-mt-unsafe)
-    return value != nullptr && std::string_view(value) == "1";
-#endif
+    return veach::env_is_one(name);
 }
 
 }  // namespace veach::test

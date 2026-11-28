@@ -182,6 +182,16 @@ A value written from Luau does not match the field's type, or names a field that
 
 The field type cannot be represented in Luau (arrays, maps, opaque types other than strings). Script component fields may be boolean, number, string or vector.
 
+## procgen.budget_exceeded
+
+**A generator hook ran past its safepoint, wall-clock or memory budget.**
+
+A Luau generator hook in the procgen sandbox ([ADR 0052](../adr/0052-procgen-runtime.md)) was stopped and its outputs
+were discarded. The message says which budget: **safepoints** (loop iterations, calls and returns; deterministic, so
+the same hook fails the same way on every machine), **wall clock** (a hang guard that differs between machines) or
+**memory**. Usually a loop never ends or a table grows without end. If the work is genuinely that large, split it
+into several calls (per cube face or per row) or raise the budget in `SandboxOptions`.
+
 ## rhi.backend_unavailable
 
 **The requested RHI backend is not available on this platform.**

@@ -1,10 +1,12 @@
 #include "sp04_spike.hpp"
 
+#include <veach/core/env.hpp>
 #include <veach/space/orrery.hpp>
 #include <veach/space/presets.hpp>
 #include <veach/space/sun.hpp>
 
 #include <cstdlib>
+#include <optional>
 #include <string>
 
 namespace lab {
@@ -14,34 +16,17 @@ namespace {
 constexpr double pi = 3.141592653589793238462643383279502884;
 constexpr double deg = pi / 180.0;
 
-// getenv is fine here: read once at startup, single-threaded. MSVC and clang-cl both deprecate it.
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#endif
-const char* env(const char* name) {
-#if defined(_MSC_VER)
-#pragma warning(suppress : 4996)
-#endif
-    return std::getenv(name);
-}
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#endif
-
 }  // namespace
 
 void register_sp04_spike(veach::World& world) {
-    const char* scale_text = env("VEACH_SP04_SCALE");
-    if (scale_text == nullptr) {
+    const std::optional<std::string> scale_text = veach::env("VEACH_SP04_SCALE");
+    if (!scale_text) {
         return;
     }
     namespace vs = veach::space;
-    const double scale = std::strtod(scale_text, nullptr);
-    const char* event_text = env("VEACH_SP04_EVENT");
-    const char* time_text = env("VEACH_SP04_TIME");
-    const std::string event = event_text != nullptr ? event_text : "june";
-    const bool sunset = time_text != nullptr && std::string(time_text) == "sunset";
+    const double scale = std::strtod(scale_text->c_str(), nullptr);
+    const std::string event = veach::env("VEACH_SP04_EVENT").value_or("june");
+    const bool sunset = veach::env("VEACH_SP04_TIME") == "sunset";
     const int quarter = event == "september" ? 1 : (event == "december" ? 2 : 0);
 
     const vs::System system = vs::earthlike({.body = scale, .orbit = scale});

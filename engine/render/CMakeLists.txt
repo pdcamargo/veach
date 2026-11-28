@@ -6,6 +6,7 @@ veach_add_engine_library(render
         src/mesh_store.cpp
         src/realtime_renderer.cpp
         src/scene_renderer.cpp
+        src/shadows.cpp
         src/png.cpp
         src/readback.cpp
         src/render_graph.cpp
@@ -28,6 +29,7 @@ veach_add_shader(veach_render shaders/path_tracer.slang ENTRIES trace_pixels:com
 # HiZ pyramid and the classification run no material code.
 veach_add_shader(veach_render shaders/realtime_visibility.slang
     ENTRIES vis_vs:vertex vis_fs:fragment vis_fs_masked:fragment
+            shadow_vs:vertex shadow_fs:fragment shadow_fs_masked:fragment
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
 veach_shade_bins("${CMAKE_CURRENT_BINARY_DIR}/generated" 1 _shade_entries)
 veach_add_shader(veach_render "${CMAKE_CURRENT_BINARY_DIR}/generated/realtime_shade_bins.slang"

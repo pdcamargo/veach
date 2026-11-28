@@ -280,6 +280,12 @@ export type SunObserver = {
 	up: number,
 	tick: number,
 }
+export type SunShadows = {
+	suns: number,
+	distance: number,
+	cascades: number,
+	resolution: number,
+}
 export type quat = {
 	x: number,
 	y: number,
@@ -369,6 +375,7 @@ export type Veach = {
 		read SpaceBackdrop: Component<SpaceBackdrop>,
 		read SpotLight: Component<SpotLight>,
 		read SunObserver: Component<SunObserver>,
+		read SunShadows: Component<SunShadows>,
 		read Transform: Component<Transform>,
 		read Universe: Component<Universe>,
 		read UniverseClock: Component<UniverseClock>,

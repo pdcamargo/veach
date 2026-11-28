@@ -20,6 +20,8 @@ camera:set(c.Transform, {
 camera:set(c.Camera, { fov_y = math.rad(45), near_plane = 0.1, active = true, ev100 = 12 })
 -- SP-08's constant magenta sky: the ambient light is all a surface gets when the sun is cut off.
 camera:set(c.Sky, { mode = "constant", color = vector.create(600, 0, 600) })
+-- No shadow maps: this golden checks how the fins shade, not the (correct) shadows the 25 cm fins cast on the ground.
+camera:set(c.SunShadows, { suns = 0, distance = 1000, cascades = 4, resolution = 2048 })
 
 -- Behind the fins: their camera-facing side faces away from it, their (upward) normals toward it.
 local sun = veach.spawn("sun")

@@ -183,6 +183,12 @@ export type SpotLight = {
 	outer_angle: number,
 	radius: number,
 }
+export type SunShadows = {
+	suns: number,
+	distance: number,
+	cascades: number,
+	resolution: number,
+}
 export type quat = {
 	x: number,
 	y: number,
@@ -245,6 +251,7 @@ export type Veach = {
 		read SkyVisibility: Component<SkyVisibility>,
 		read SpaceBackdrop: Component<SpaceBackdrop>,
 		read SpotLight: Component<SpotLight>,
+		read SunShadows: Component<SunShadows>,
 		read Transform: Component<Transform>,
 		read Window: Component<Window>,
 	},

@@ -1,7 +1,7 @@
 // The real-time renderer's shading (docs/adr/0093-gpu-driven-core.md): rebuilds each pixel's surface from the
-// visibility buffer and lights it with the same materials and BRDF as photo mode. Every punctual light, unshadowed; the
-// sky's irradiance as ambient light on the diffuse lobe; emission; the sky behind geometry and aerial perspective in
-// front of it. No ray tracing: it runs on any GPU the engine targets (ADR 0003).
+// visibility buffer and lights it with the same materials and BRDF as photo mode. Every punctual light, the brightest
+// directional ones shadowed by their shadow maps (veach/shadows.slang); the sky's irradiance as ambient light on the
+// diffuse lobe; emission; the sky behind geometry and aerial perspective in front of it. No ray tracing: it runs on any GPU the engine targets (ADR 0003).
 //
 // Binned by material kind: the classification pass (classify.slang) lists the 8x8 tiles that show each bin (bin 0 is
 // the sky, bin k + 1 material kind k), and each bin is one indirect dispatch of its own entry point, a group per tile,
@@ -17,6 +17,7 @@ import veach.lights;
 import veach.material;
 import veach.materials_generated;  // evaluateSurface(kind, c)
 import veach.scene;
+import veach.shadows;
 
 static const uint no_geometry = 0xFFFFFFFFu;  ///< the visibility buffer's clear value
 static const uint shade_tile_size = 8;        ///< classify.slang's tiles
@@ -41,7 +42,7 @@ struct ShadeParams {
     uint flags;  ///< shade_auto_exposure, shade_no_fp16_clamp
     uint tile_capacity;
     uint pad0;
-    uint2 pad1;
+    DescriptorHandle<StructuredBuffer<ShadowFrame>> shadows;  ///< the sun shadow maps (shadows.cpp)
 };
 [[vk::push_constant]] ConstantBuffer<ShadeParams> params;
 
@@ -125,6 +126,7 @@ float4 surface_pixel(SkyFrame sky, uint kind, uint2 visible_id, float2 pixel, fl
     // surface (a Transvoxel transition cell in a chunk's face plane) faces away from a light the surface faces; by the
     // triangle it kept only the sky's ambient light, which under SP-08's magenta sky looked like pinholes (VCH-108).
     const float3 facing = double_sided ? hit.surface.geometric_normal : hit.surface.normal;
+    const ShadowFrame shadows = params.shadows[0];
     float3 light = hit.front || double_sided ? s.emission : float3(0.0, 0.0, 0.0);
     // A normal map can turn the shading normal away from the camera at grazing angles: bend it back until the
     // surface faces the viewer, so such pixels are lit rather than black (photo mode averages them out instead).
@@ -141,11 +143,18 @@ float4 surface_pixel(SkyFrame sky, uint kind, uint2 visible_id, float2 pixel, fl
             float3 l;
             float distance;
             const float3 irradiance = punctual_irradiance(veach_scene.lights[i], hit.surface.position, l, distance);
-            if (dot(facing, l) <= 0.0) {
-                continue;  // behind the surface: with no shadows, a normal map would otherwise leak it in
+            const float cos_l = dot(facing, l);
+            if (cos_l <= 0.0) {
+                continue;  // behind the surface: a normal map would otherwise leak it in
+            }
+            // The one seam for shadows: the share of this light its shadow map lets through (1 if it casts none).
+            const float shadow = light_shadow(shadows, i, hit.surface.position, facing, l, cos_l,
+                                              length(hit.surface.position - origin), veach_scene.lights[i].size);
+            if (shadow <= 0.0) {
+                continue;
             }
             float pdf;
-            light += irradiance * brdf_eval(b, v, frame.to_local(l), pdf);
+            light += irradiance * shadow * brdf_eval(b, v, frame.to_local(l), pdf);
         }
         light += sky_ambient_radiance(sky, distance) * b.diffuse;
     }

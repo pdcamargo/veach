@@ -94,3 +94,55 @@ VisibilityTargets vis_fs_masked(VisibilityVertex in) {
     out.motion = motion_of(in);
     return out;
 }
+
+// ---- shadow casters (shaders/veach/shadows.slang, shadows.cpp): depth only, into one cascade of a sun's shadow map.
+// The same draw lists and vertex pulling, with the cascade's orthographic view_projection (reverse-Z: 1 toward the
+// sun). Casters between the cascade and the sun, beyond its near plane, are flattened onto it rather than clipped
+// ("pancaking"), so a cascade's depth range need only cover its receivers.
+
+struct ShadowVertex {
+    float4 position : SV_Position;
+    float2 uv : TEXCOORD0;
+    nointerpolation uint2 id : TEXCOORD1;  ///< instance, meshlet
+};
+
+[shader("vertex")]
+ShadowVertex shadow_vs(uint vertex: SV_VertexID, uint draw_instance: SV_InstanceID) {
+    veach_scene.instances = visibility.instances;
+    const uint2 entry = visibility.visible[visibility.list_offset + draw_instance];
+    const InstanceRecord inst = visibility.instances[entry.x];
+    const uint triangle = vertex / 3;
+    ShadowVertex out;
+    out.uv = float2(0.0, 0.0);
+    out.id = entry;
+    if (triangle >= nonuniform(inst.meshlets)[entry.y * 8 + 3]) {
+        out.position = float4(0.0, 0.0, 0.0, 1.0);
+        return out;
+    }
+    const TriangleRef t = meshlet_triangle(inst, entry.y, triangle);
+    const uint corner = vertex % 3;
+    const Corner c = fetch(inst, corner == 0 ? t.vertices.x : (corner == 1 ? t.vertices.y : t.vertices.z));
+    out.position = mul(visibility.view_projection, float4(to_world(inst.object_to_world, c.position, 1.0), 1.0));
+    out.position.z = min(out.position.z, out.position.w);  // orthographic: w is 1
+    out.uv = c.uv;
+    return out;
+}
+
+/// Opaque casters: depth only.
+[shader("fragment")]
+void shadow_fs(ShadowVertex in) {}
+
+/// Alpha-tested casters: the visibility pass's coverage test, so foliage casts the shadow of its cards' texels.
+[shader("fragment")]
+void shadow_fs_masked(ShadowVertex in) {
+    const InstanceRecord inst = visibility.instances[in.id.x];
+    const uint slot = nonuniform(inst.meshlets)[in.id.y * 8 + 4];
+    const MaterialRecord material = visibility.materials[inst.material_base + slot];
+    SurfaceInput surface = {};
+    surface.uv = in.uv;
+    MaterialContext ctx = { surface, material };
+    const float cutoff = (material.flags & material_alpha_mask) != 0 ? material.alpha_cutoff : 0.5;
+    if (evaluateAlpha(material.kind, ctx) < cutoff) {
+        discard;
+    }
+}

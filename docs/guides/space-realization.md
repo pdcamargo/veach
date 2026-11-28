@@ -90,7 +90,10 @@ under a body-fixed camera).
 
 How bright it looks is the creator's: a `SpaceBackdrop` component anywhere in the world
 (`exposure_compensation`, `exposure_follow`, `visible`; [Luau API](luau-api.md)). The defaults keep it visible next
-to a sunlit planet, about 1.7 stops dimmer than in deep space, and never let it move auto-exposure. Screenshots:
+to a sunlit planet, about 1.7 stops dimmer than in deep space, and never let it move auto-exposure. That boost
+applies only under a dark sky: the sky in front hides it where it outshines the backdrop both in the world and in
+the image, so the ground's day sky is starless, space around the limb keeps its stars, and at dusk the brightest
+stars come out first ([rule](../specs/space-backdrop/spec.md#the-sky-in-front-hides-the-boost)). Screenshots:
 [space-backdrop](../research/spikes/space-backdrop/README.md).
 
 ## Flight policy

@@ -79,7 +79,7 @@ struct alignas(16) SkyFrame {
     math::vec4 galactic_z{0.0f};  ///< row 2; w = exposure follow
     math::vec4 camera_right{0.0f};
     math::vec4 camera_up{0.0f};
-    math::vec4 backdrop_stars{0.0f};               ///< density, magnitude scale, saturation, sky veil
+    math::vec4 backdrop_stars{0.0f};               ///< density, magnitude scale, saturation, 1 / reference nits
     std::array<std::uint32_t, 4> backdrop_info{};  ///< seed, width, height, on
     rhi::DescriptorHandle backdrop;
     rhi::DescriptorHandle linear_repeat;
@@ -105,9 +105,10 @@ static_assert(offsetof(SkyFrame, occlusion) == 720);
 static_assert(offsetof(SkyFrame, occluder_count) == 736);
 static_assert(sizeof(SkyFrame) == 752);
 
-/// How fast a lit sky hides the backdrop's boost: its gain falls by e per this much exposed sky luminance
-/// (veach/backdrop.slang's backdrop_gain). A day sky (about 0.2 exposed) hides it; a twilight sky (0.01) does not.
-constexpr float backdrop_sky_veil = 30.0f;
+/// The faintest luminance the backdrop's boost is measured against (nits): a quarter of the Milky Way's band. A lit
+/// sky hides the boost by how much brighter it is than the backdrop's band (veach/backdrop.slang's backdrop_gain);
+/// a backdrop with no band still fades under a sky this bright.
+constexpr float backdrop_reference_floor = 1e-4f;
 
 struct Lut {
     const char* name;
@@ -516,7 +517,8 @@ SkyResources AtmosphereRenderer::record(RenderGraph& graph, const ResolvedSky& s
         f.galactic_z = math::vec4(b.orientation[2], std::clamp(sky.backdrop_settings.exposure_follow, 0.0f, 1.0f));
         f.camera_right = math::vec4(to_galactic * world_from_view[0], 0.0f);
         f.camera_up = math::vec4(to_galactic * world_from_view[1], 0.0f);
-        f.backdrop_stars = math::vec4(b.star_density, b.star_magnitude_scale, b.star_saturation, backdrop_sky_veil);
+        f.backdrop_stars = math::vec4(b.star_density, b.star_magnitude_scale, b.star_saturation,
+                                      1.0f / std::max(b.band_brightness, backdrop_reference_floor));
         const std::uint32_t width = backdrop_width(b);
         f.backdrop_info = {b.seed, width, width / 2, 1u};
         f.backdrop = device.descriptor(s.backdrop.texture());

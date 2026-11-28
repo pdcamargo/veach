@@ -330,11 +330,28 @@ public float3 backdrop_radiance(SkyFrame s, float3 d) {
 
 /// The creator's gain on the backdrop for a pixel exposed by `exposure` (render::SpaceBackdrop): the backdrop is
 /// shown `exposure_compensation` stops above its physical brightness at EV100 -4 (deep space), and follows the
-/// camera's exposure by `exposure_follow` (1: physical; 0: the same at every exposure). Where the sky itself is
-/// bright (`sky_exposed` is its exposed luminance) the gain fades back to physical, as a lit sky hides the stars.
+/// camera's exposure by `exposure_follow` (1: physical; 0: the same at every exposure).
+///
+/// The sky in front hides the boost, as a lit sky hides the stars (`sky_exposed` is the pixel's exposed sky radiance
+/// luminance: the air's light along the ray, the limb's glow; docs/specs/space-backdrop/spec.md, "The sky in front
+/// hides the boost"). `v` is that light, physical, over the backdrop's own (its band's brightest, backdrop_stars.w);
+/// `x = v / g` is the same in the image, against the boosted backdrop. The boost above physical is divided by
+/// (1 + v)^w, w going smoothly (in log x) from 0 where the sky is under half the boosted backdrop in the image to 1
+/// where it is twice as bright: only a sky both physically brighter than the backdrop and visible against its boost
+/// hides it. Under a black sky (space, the night side, a moonless night) it is whole; under a day sky (v ~ 1e7, x
+/// ~ 5) it is gone and the backdrop is physical, millions of times darker than the sky; the air around a planet's
+/// limb seen from orbit, physically brighter than the band but dimmer than it in the image, keeps it; in twilight it
+/// comes back as the sky darkens, the brightest stars first.
 public float backdrop_gain(SkyFrame s, float exposure, float sky_exposed) {
     const float ev100 = log2(1.0 / (1.2 * max(exposure, 1e-30)));
     const float stops = s.galactic_y.w + (1.0 - s.galactic_z.w) * (ev100 + 4.0);
     const float gain = exp2(clamp(stops, -40.0, 40.0));
-    return 1.0 + (gain - 1.0) * exp(-sky_exposed * s.backdrop_stars.w);
+    const float v = sky_exposed / max(exposure, 1e-30) * s.backdrop_stars.w;
+    const float x = v / gain;
+    if (x <= 0.5) {
+        return gain;  // a black sky, or one dimmer than the boosted backdrop in the image (w = 0)
+    }
+    const float t = saturate((log2(x) + 1.0) * 0.5);  // x = 0.5: 0, x = 2: 1
+    const float w = t * t * (3.0 - 2.0 * t);
+    return 1.0 + (gain - 1.0) * exp2(-w * log2(1.0 + v));
 }

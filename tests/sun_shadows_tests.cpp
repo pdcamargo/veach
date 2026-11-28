@@ -160,6 +160,7 @@ TEST_CASE("[shadows.AC4] a box shadows the floor under the sun, and casters outs
         world.component<DirectionalLight>();
         world.component<Sky>();
         world.component<SunShadows>();
+        world.component<AntiAliasing>();
         render::Renderer renderer(*device);
         auto owned = std::make_unique<render::SceneRenderer>(
             render::SceneShaders{test_shaders::path_tracer(), test_shaders::realtime_visibility(),
@@ -253,6 +254,7 @@ TEST_CASE("[shadows.AC8] casters that shadow no visible pixel, or hide behind ot
         world.component<DirectionalLight>();
         world.component<Sky>();
         world.component<SunShadows>();
+        world.component<AntiAliasing>();
         render::Renderer renderer(*device);
         auto owned = std::make_unique<render::SceneRenderer>(
             render::SceneShaders{test_shaders::path_tracer(), test_shaders::realtime_visibility(),
@@ -287,7 +289,8 @@ TEST_CASE("[shadows.AC8] casters that shadow no visible pixel, or hide behind ot
             .set(Transform{{0.0, 30.0, 0.0},
                            math::angleAxis(-std::numbers::pi_v<float> / 2.0f, math::vec3(1, 0, 0)),
                            math::vec3(1.0f)})
-            .set(Camera{math::radians(60.0f), 0.1f, true});
+            .set(Camera{math::radians(60.0f), 0.1f, true})
+            .set(AntiAliasing{.temporal = false});  // frames compared byte for byte: each its own image (ADR 0061)
         const auto capture = [&] {
             propagate_transforms(world);
             renderer.extract(world);
@@ -340,6 +343,7 @@ TEST_CASE("[shadows.AC9] a still scene keeps its far cascades until something mo
         world.component<DirectionalLight>();
         world.component<Sky>();
         world.component<SunShadows>();
+        world.component<AntiAliasing>();
         render::Renderer renderer(*device);
         auto owned = std::make_unique<render::SceneRenderer>(
             render::SceneShaders{test_shaders::path_tracer(), test_shaders::realtime_visibility(),
@@ -370,7 +374,8 @@ TEST_CASE("[shadows.AC9] a still scene keeps its far cascades until something mo
             .set(Transform{{0.0, 100.0, 0.0},
                            math::angleAxis(-std::numbers::pi_v<float> / 2.0f, math::vec3(1, 0, 0)),
                            math::vec3(1.0f)})
-            .set(Camera{math::radians(60.0f), 0.1f, true});
+            .set(Camera{math::radians(60.0f), 0.1f, true})
+            .set(AntiAliasing{.temporal = false});  // frames compared byte for byte: each its own image (ADR 0061)
         const render::CullStats& stats = scene->cull_stats();
         const auto capture = [&] {
             propagate_transforms(world);

@@ -5,7 +5,6 @@
 #include "support/test_support.hpp"
 #include "test_shaders.hpp"
 
-#include <chrono>
 #include <veach/render/readback.hpp>
 #include <veach/render/render_graph.hpp>
 #include <veach/render/renderer.hpp>

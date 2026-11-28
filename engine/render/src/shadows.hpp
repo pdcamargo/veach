@@ -76,10 +76,11 @@ public:
     };
     /// Fits, culls and draws this frame's cascades for `view`; what each cascade drew reaches
     /// `stats.shadow_meshlets_drawn` frames_in_flight frames later (`stats` must outlive the frames in flight).
-    /// `depth` is the camera's depth buffer once visibility has drawn it: casters that shadow none of its pixels are
+    /// `depth` is the camera's depth buffer once visibility has drawn it, and `inverse_depth_projection` takes its
+    /// pixels back to render space (the jittered view's inverse, ADR 0097): casters that shadow none of its pixels are
     /// not drawn (the receiver mask). Without it every caster in a cascade's slice is.
     Output record(RenderGraph& graph, const FrameContext& frame, const RenderView& view, const RealtimeScene& scene,
-                  GraphResource depth, CullStats& stats);
+                  GraphResource depth, const math::mat4& inverse_depth_projection, CullStats& stats);
 
     struct Impl;
 

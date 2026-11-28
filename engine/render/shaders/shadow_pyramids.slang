@@ -19,7 +19,7 @@ import veach.bindless;
 import veach.shadows;  // ShadowFrame
 
 struct PyramidParams {
-    float4x4 inverse_view_projection;  ///< the camera's (reverse-Z)
+    float4x4 inverse_view_projection;  ///< the camera's depth to render space (reverse-Z, jittered as drawn)
     DescriptorHandle<Texture2D<float>> depth;
     DescriptorHandle<StructuredBuffer<ShadowFrame>> shadows;
     DescriptorHandle<RWStructuredBuffer<uint>> pyramids;   ///< every pyramid, levels one after the other

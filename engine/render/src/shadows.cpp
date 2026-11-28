@@ -464,7 +464,8 @@ Result<> ShadowRenderer::prepare(rhi::Device& device, const SceneShaders& shader
 }
 
 ShadowRenderer::Output ShadowRenderer::record(RenderGraph& graph, const FrameContext& frame, const RenderView& view,
-                                              const RealtimeScene& scene, GraphResource depth, CullStats& stats) {
+                                              const RealtimeScene& scene, GraphResource depth,
+                                              const math::mat4& inverse_depth_projection, CullStats& stats) {
     VEACH_ZONE("ShadowRenderer::record");
     Impl& s = *impl_;
     const std::uint32_t slot = s.device->current_frame().slot % static_cast<std::uint32_t>(s.frames.size());
@@ -753,7 +754,7 @@ ShadowRenderer::Output ShadowRenderer::record(RenderGraph& graph, const FrameCon
         ctx.cmd.set_parameters(p);
     };
     const PyramidParams pyramid_params{
-        .inverse_view_projection = view.inverse_view_projection,
+        .inverse_view_projection = inverse_depth_projection,
         .size = {depth_desc != nullptr ? depth_desc->width : 0u, depth_desc != nullptr ? depth_desc->height : 0u},
         .mask_size = pyramid_size,
         .levels = pyramid_levels,

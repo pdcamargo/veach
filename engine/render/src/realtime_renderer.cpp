@@ -1022,7 +1022,8 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     }
 
     // ---- the sun shadow maps (shadows.hpp): each cascade culled and drawn on its own.
-    const ShadowRenderer::Output shadow_maps = s.shadows.record(graph, frame, view, scene, depth, s.stats);
+    const ShadowRenderer::Output shadow_maps =
+        s.shadows.record(graph, frame, view, scene, depth, inverse_jittered, s.stats);
 
     // ---- ambient occlusion from the final depth (ADR 0096): the shading's ambient light reads it.
     const std::optional<GraphResource> occlusion = s.ambient_occlusion.record(graph, depth, view, width, height);

@@ -1111,7 +1111,17 @@ public:
     void wait(SubmissionId submission) override {
         if (submission.value != 0 && fence_->GetCompletedValue() < submission.value) {
             fence_->SetEventOnCompletion(submission.value, event_);
-            WaitForSingleObject(event_, INFINITE);
+            // A GPU that never finishes (a shader stuck in a loop, WARP included) would wait here without a word, and a
+            // test would time out with no output (VCH-110): say so every 10 s, and stop if the device was removed.
+            unsigned waited_s = 0;
+            while (WaitForSingleObject(event_, 10000) == WAIT_TIMEOUT) {
+                waited_s += 10;
+                if (FAILED(device_->GetDeviceRemovedReason())) {
+                    break;  // poll() reports it
+                }
+                log::warn("rhi", "still waiting for the GPU after {} s: submission {}, last completed {}", waited_s,
+                          submission.value, fence_->GetCompletedValue());
+            }
         }
         poll();
     }

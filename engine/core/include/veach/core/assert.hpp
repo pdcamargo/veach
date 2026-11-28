@@ -14,6 +14,15 @@ namespace veach::detail {
 
 }  // namespace veach::detail
 
+namespace veach {
+
+/// Makes a failing C runtime check end the process with a message on stderr. On Windows the debug CRT's assertions
+/// and abort() otherwise open a modal dialog that nobody sees on CI: the test hangs until its timeout, with no output
+/// (VCH-110). Call once, first thing; a no-op elsewhere.
+void report_crashes_on_stderr();
+
+}  // namespace veach
+
 #define VEACH_PANIC(...) ::veach::detail::panic(std::format(__VA_ARGS__), std::source_location::current())
 
 #ifdef NDEBUG

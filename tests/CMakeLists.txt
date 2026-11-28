@@ -182,9 +182,14 @@ endif()
 # (ADR 0033). Skipped on GPUs that can't run them, unless VEACH_REQUIRE_GPU=1.
 set(_golden_dir "${PROJECT_SOURCE_DIR}/tests/golden")
 # veach_golden_test(<name> <script> <golden> <rhi> [FRAMES n] [MAX_MEAN x] [MAX_P999 x] [MAX_OUTLIERS n]
-#                   [NO_RAY_TRACING])
+#                   [NO_RAY_TRACING] [TIMEOUT s])
+# TIMEOUT is CTest's (default 120 s); the lab gets 15 s less, so a hang prints its log (golden_test.cmake).
 function(veach_golden_test name script golden rhi)
-    cmake_parse_arguments(ARG "NO_RAY_TRACING" "FRAMES;MAX_MEAN;MAX_P999;MAX_OUTLIERS" "" ${ARGN})
+    cmake_parse_arguments(ARG "NO_RAY_TRACING" "FRAMES;MAX_MEAN;MAX_P999;MAX_OUTLIERS;TIMEOUT" "" ${ARGN})
+    if(NOT ARG_TIMEOUT)
+        set(ARG_TIMEOUT 120)
+    endif()
+    math(EXPR lab_timeout "${ARG_TIMEOUT} - 15")
     if(NOT ARG_FRAMES)
         set(ARG_FRAMES 3)
     endif()
@@ -208,8 +213,9 @@ function(veach_golden_test name script golden rhi)
         COMMAND "${CMAKE_COMMAND}" -DLAB=$<TARGET_FILE:veach-lab> -DIMGDIFF=$<TARGET_FILE:veach-cli> -DRHI=${rhi}
                 -DSCRIPT=scripts/${script}.luau -DGOLDEN=${_golden_dir}/${golden}.png
                 -DOUT=${CMAKE_CURRENT_BINARY_DIR}/golden/${out_name}.png -DMAX_MEAN=${ARG_MAX_MEAN}
-                -DFRAMES=${ARG_FRAMES} ${extra} -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/golden_test.cmake")
-    set_tests_properties("${name}" PROPERTIES SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE")
+                -DFRAMES=${ARG_FRAMES} -DLAB_TIMEOUT=${lab_timeout} ${extra}
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/golden_test.cmake")
+    set_tests_properties("${name}" PROPERTIES SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE" TIMEOUT ${ARG_TIMEOUT})
 endfunction()
 
 # The real-time renderer (docs/specs/realtime-renderer/spec.md) and photo mode (docs/specs/photo-mode/spec.md) on one
@@ -234,7 +240,13 @@ function(veach_scene_goldens rhi)
         flight_helmet_realtime ${rhi} NO_RAY_TRACING ${helmet_limits})
     # photo.AC1: photo mode's reference images.
     veach_golden_test("golden: cornell box (photo mode${suffix})" cornell_box cornell_box ${rhi} FRAMES 4)
-    veach_golden_test("golden: flight helmet (photo mode${suffix})" flight_helmet flight_helmet ${rhi} FRAMES 4)
+    set(helmet_photo_timeout "")
+    if(rhi STREQUAL "dx12")
+        # On WARP the helmet takes long (cooking 15 textures, then path tracing on the CPU).
+        set(helmet_photo_timeout TIMEOUT 600)
+    endif()
+    veach_golden_test("golden: flight helmet (photo mode${suffix})" flight_helmet flight_helmet ${rhi} FRAMES 4
+        ${helmet_photo_timeout})
     # Runtime meshes (docs/specs/runtime-meshes/spec.md): a generated heightfield that changes on frame 2.
     veach_golden_test("golden: runtime mesh (realtime${suffix})" runtime_mesh_realtime runtime_mesh_realtime ${rhi})
     veach_golden_test("golden: runtime mesh (photo mode${suffix})" runtime_mesh runtime_mesh ${rhi} FRAMES 4)
@@ -303,8 +315,14 @@ elseif(WIN32)
         COMMAND veach-lab --rhi dx12 --headless --frames 3 --script scripts/nonfinite_light.luau)
     set_tests_properties("lab: NaN samples are errors (dx12)" PROPERTIES
         PASS_REGULAR_EXPRESSION "path-traced samples were NaN or infinite.*render\\.nonfinite_samples")
-    # On WARP the helmet takes long (cooking 15 textures, then path tracing on the CPU); ctest's default is 120 s.
-    set_tests_properties("golden: flight helmet (photo mode, dx12)" PROPERTIES TIMEOUT 600)
+    # VCH-110: the thin-triangles golden hung on WARP with no output. Each of these drops one ingredient of its scene;
+    # which of them pass tells which ingredient hangs (see each script). Logged at debug level: how far a hang got.
+    foreach(_variant ground no_sky sky_only)
+        add_test(NAME "lab: thin triangles diagnostic, ${_variant} (dx12)"
+            COMMAND veach-lab --rhi dx12 --headless --frames 3 --log-level debug
+                    --script scripts/diagnostics/thin_triangles_${_variant}.luau)
+        set_tests_properties("lab: thin triangles diagnostic, ${_variant} (dx12)" PROPERTIES TIMEOUT 100)
+    endforeach()
     # Two frames in flight under load (dx12.AC6). A debug-layer error makes the exit code 1.
     add_test(NAME "dx12: ray-traced soak"
         COMMAND veach-lab --rhi dx12 --headless --frames 300 --script scripts/triangle_raytraced.luau)

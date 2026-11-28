@@ -14,8 +14,10 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <numbers>
 #include <vector>
 
@@ -229,6 +231,93 @@ TEST_CASE("[shadows.AC4] a box shadows the floor under the sun, and casters outs
         camera.set(SunShadows{.suns = 0});
         const render::Image without = capture();
         CHECK(luminance_at(without, shaded) == doctest::Approx(luminance_at(without, lit)).epsilon(0.05));
+        device->wait_idle();
+    }
+    CHECK_MESSAGE(logs.errors().empty(), logs.errors());
+}
+
+TEST_CASE("[shadows.AC8] casters that shadow no visible pixel, or hide behind others from the sun, are not drawn") {
+    test::LogCapture logs;
+    {
+        std::unique_ptr<rhi::Device> device = test::gpu_device();
+        if (!device) {
+            MESSAGE("skipped: no GPU device");
+            return;
+        }
+        test::TempProject project{"sun-shadow-culling"};
+        World world;
+        AssetServer assets{world, project.path()};
+        world.import<CoreModule>();
+        world.component<Camera>();
+        world.component<RuntimeMeshInstance>();
+        world.component<DirectionalLight>();
+        world.component<Sky>();
+        world.component<SunShadows>();
+        render::Renderer renderer(*device);
+        auto owned = std::make_unique<render::SceneRenderer>(
+            render::SceneShaders{test_shaders::path_tracer(), test_shaders::realtime_visibility(),
+                                 test_shaders::realtime_shade_bins()},
+            test_shaders::material_kinds, assets);
+        render::SceneRenderer* scene = owned.get();
+        renderer.add_feature(std::move(owned));
+        render::MeshData data = cube();
+        data.materials = {renderer.meshes().add_material(
+            {.name = "grey", .base_color = {0.6f, 0.6f, 0.6f, 1.0f}, .metallic = 0.0f, .roughness = 0.8f})};
+        const AssetId box = *renderer.meshes().add(data);
+        const auto place = [&](const char* name, math::dvec3 at, math::vec3 scale) {
+            world.entity(name)
+                .set(Transform{at, math::quat(1.0f, 0.0f, 0.0f, 0.0f), scale})
+                .set(RuntimeMeshInstance{box});
+        };
+        // The sun travels along (1, -1, 0); the camera looks straight down from 30 m, so every receiver is in the
+        // second cascade (view depths 14 to 62.5 m). A roof at 10 m hides the floor under it, x -21 to -6 m, from the
+        // camera, and shadows the floor at x -4 to 6 m, which the camera sees.
+        place("floor", {0.0, -0.1, 0.0}, {80.0f, 0.2f, 80.0f});
+        place("roof", {-9.0, 10.0, 0.0}, {10.0f, 0.2f, 6.0f});
+        // Under the roof as the sun sees it, its shadow on the visible floor at x = 4 m: hidden from the light.
+        place("hidden", {3.0, 1.0, 0.0}, math::vec3(0.2f));
+        // Clear of the roof toward the sun, but its shadow falls at x = -12 m, under the roof: no pixel sees it.
+        place("unseen", {-13.0, 1.0, 0.0}, math::vec3(0.5f));
+        const math::vec3 travel = math::normalize(math::vec3(1.0f, -1.0f, 0.0f));
+        world.entity("sun")
+            .set(Transform{{0.0, 0.0, 0.0}, math::quatLookAtRH(travel, math::vec3(0, 0, 1)), math::vec3(1.0f)})
+            .set(DirectionalLight{math::vec3(1.0f), 5.0f});
+        world.entity("sky").set(Sky{.mode = SkyMode::constant, .color = math::vec3(0.2f, 0.3f, 0.5f)});
+        world.entity("camera")
+            .set(Transform{{0.0, 30.0, 0.0},
+                           math::angleAxis(-std::numbers::pi_v<float> / 2.0f, math::vec3(1, 0, 0)),
+                           math::vec3(1.0f)})
+            .set(Camera{math::radians(60.0f), 0.1f, true});
+        const auto capture = [&] {
+            propagate_transforms(world);
+            renderer.extract(world);
+            render::Image out;
+            renderer.request_capture([&](Result<render::Image> image) {
+                REQUIRE(image.has_value());
+                out = std::move(*image);
+            });
+            renderer.render();
+            return out;
+        };
+        const render::Image first = capture();
+        render::Image last;
+        for (int frame = 0; frame < 4; ++frame) {
+            last = capture();
+        }
+        renderer.readbacks().flush();
+        const render::CullStats& stats = scene->cull_stats();
+        REQUIRE(stats.shadow_meshlets_drawn.size() == 4);
+        // Only the floor and the roof cast into the second cascade once last frame's map shows the hidden box behind
+        // the roof (the first frame has no such map and draws it); the first cascade has no receiver at all.
+        CHECK(stats.shadow_meshlets_drawn[0] == 0);
+        CHECK(stats.shadow_meshlets_drawn[1] == 2);
+        // What the culling dropped changed no pixel.
+        REQUIRE(first.rgba.size() == last.rgba.size());
+        int worst = 0;
+        for (std::size_t i = 0; i < first.rgba.size(); ++i) {
+            worst = std::max(worst, std::abs(int{first.rgba[i]} - int{last.rgba[i]}));
+        }
+        CHECK(worst <= 1);
         device->wait_idle();
     }
     CHECK_MESSAGE(logs.errors().empty(), logs.errors());

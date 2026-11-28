@@ -30,16 +30,22 @@ struct CullView {
     std::uint32_t phase_stride = 0;
     std::array<std::uint32_t, 8> list_offsets{};
     std::uint32_t task_capacity = 0;
-    std::array<std::uint32_t, 3> pad{};
+    std::uint32_t receiver_base = 0;   ///< cull_receivers: this cascade's receiver pyramid in CullParams::pyramids
+    std::uint32_t pyramid_size = 0;    ///< a shadow cascade's pyramids: level 0's texels per side (a power of two)
+    std::uint32_t pyramid_levels = 0;  ///< log2(pyramid_size) + 1
     std::array<math::vec4, 6> receiver_planes{};  ///< cull_shadow_view: the receivers' slice of the camera's frustum
     math::vec4 sweep{0.0f};                       ///< cull_shadow_view: away from the light; w: smallest caster radius
+    std::uint32_t occluder_base = 0;  ///< a shadow cascade with occlusion: its occluder pyramid in CullParams::pyramids
+    std::array<std::uint32_t, 3> pad{};
 };
-static_assert(sizeof(CullView) == 416);
+static_assert(sizeof(CullView) == 432);
 static_assert(offsetof(CullView, screen) == 224 && offsetof(CullView, list_offsets) == 256 &&
               offsetof(CullView, receiver_planes) == 304);
 constexpr std::uint32_t cull_previous_hiz = 1u;
 /// A shadow cascade (shadows.cpp): no normal cones, and only casters big enough whose shadows reach the receivers.
 constexpr std::uint32_t cull_shadow_view = 2u;
+/// With cull_shadow_view: also drop casters that shadow none of this frame's receivers (shadow_pyramids.slang).
+constexpr std::uint32_t cull_receivers = 4u;
 
 /// Mirrors CullParams in shaders/gpu_cull.slang.
 struct alignas(16) CullParams {
@@ -57,8 +63,7 @@ struct alignas(16) CullParams {
     rhi::DescriptorHandle bin_tiles;
     std::uint32_t phase = 0;
     std::uint32_t bin_count = 0;
-    std::uint32_t pad0 = 0;
-    std::uint32_t pad1 = 0;
+    rhi::DescriptorHandle pyramids;  ///< shadow cascades: their receiver and occluder pyramids (any buffer otherwise)
 };
 static_assert(rhi::parameters_match<CullParams>(
     veach_render_shaders::layout::gpu_cull,
@@ -66,8 +71,7 @@ static_assert(rhi::parameters_match<CullParams>(
      VEACH_PARAM(CullParams, hiz), VEACH_PARAM(CullParams, counters), VEACH_PARAM(CullParams, draw_args),
      VEACH_PARAM(CullParams, dispatch_args), VEACH_PARAM(CullParams, tasks), VEACH_PARAM(CullParams, recheck_instances),
      VEACH_PARAM(CullParams, recheck_meshlets), VEACH_PARAM(CullParams, visible), VEACH_PARAM(CullParams, bin_tiles),
-     VEACH_PARAM(CullParams, phase), VEACH_PARAM(CullParams, bin_count), VEACH_PARAM(CullParams, pad0),
-     VEACH_PARAM(CullParams, pad1)}));
+     VEACH_PARAM(CullParams, phase), VEACH_PARAM(CullParams, bin_count), VEACH_PARAM(CullParams, pyramids)}));
 
 // gpu_cull.slang's counters, records and sizes.
 constexpr std::uint32_t counter_count = 64;

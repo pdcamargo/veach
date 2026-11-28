@@ -214,7 +214,7 @@ ${kinds}}};
     # The real-time renderer with the same materials (ADR 0093): the visibility pass, and shading binned by material
     # kind, an entry point per bin.
     veach_add_shader(${target} "${PROJECT_SOURCE_DIR}/engine/render/shaders/realtime_visibility.slang"
-        ENTRIES vis_vs:vertex vis_fs:fragment vis_fs_masked:fragment shadow_vs:vertex shadow_fs:fragment
+        ENTRIES vis_vs:vertex vis_fs:fragment vis_fs_masked:fragment shadow_vs:vertex shadow_vs_opaque:vertex shadow_fs:fragment
             shadow_fs_masked:fragment INCLUDES ${include_dirs})
     veach_shade_bins("${gen_dir}" ${kind} shade_entries)
     veach_add_shader(${target} "${gen_dir}/realtime_shade_bins.slang" ENTRIES ${shade_entries} INCLUDES ${include_dirs})

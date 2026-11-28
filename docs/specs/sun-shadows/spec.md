@@ -30,6 +30,10 @@ renderer pass (VCH-142).
 - Casters MUST be culled per cascade on the GPU by the GPU-driven culling, against the cascade's box and against the
   camera's frustum slice swept away from the light, dropping casters under 0.35 texel in radius; survivors MUST
   be drawn by indirect draws from compacted lists (ADR 0089), alpha-tested ones with their alpha test.
+- Casters MUST also be culled, without changing any pixel, where they shadow none of this frame's receivers (the
+  camera's depth, marked on each cascade's map as far as its lookups reach) and where they hide behind other casters
+  as the light sees them (two-phase occlusion from the light: last frame's map of the cascade, then this frame's first
+  phase), and the shading MUST skip the filter where every texel it could read is nearer the light (VCH-143).
 - Casters between a cascade and the light MUST cast even when they lie beyond its near plane.
 - Acne and peter-panning MUST be held off by a slope-scaled raster bias on the casters and a normal offset and a
   constant bias on the receivers, sized in texels of each cascade.
@@ -87,6 +91,12 @@ const float shadow = light_shadow(shadows, i, position, facing, l, cos_l, view_d
 - **shadows.AC6** — Screenshots of Bistro at noon and sunset (against photo mode), the slice landed and from inside the
   dug hole at s = 0.01 and s = 1, the SP-16 field and a low sun's long shadows, and a moving camera's frames, show no
   acne, no peter-panning and no shimmer ([findings](../../research/sun-shadows/README.md)).
+- **shadows.AC7** — A read-only group is one access per pass: the plan shows it once, every pass names the same group
+  id to the backend in a frame and the next frame's is another; writing it, or reading it in another state, is
+  `render.graph_invalid`.
+- **shadows.AC8** — On the GPU: a box hidden from the sun behind a roof, its shadow on a floor the camera sees, and a
+  box whose shadow falls on floor the roof hides from the camera, are not drawn into the cascade; the image is the
+  frame's before the culling knew of them.
 
 ## Out of scope
 

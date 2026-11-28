@@ -1,5 +1,6 @@
 #include "shadows.hpp"
 
+#include <veach/core/env.hpp>
 #include <veach/core/log.hpp>
 #include <veach/core/profile.hpp>
 
@@ -7,6 +8,7 @@
 #include "veach_render_shaders.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstring>
 #include <format>
@@ -30,6 +32,44 @@ constexpr float fade_share = 0.2f;  ///< the last cascade fades out over this sh
 /// receiver's own offsets leave on steep slopes.
 constexpr rhi::DepthBias caster_bias{.constant = 0, .slope = -1.5f, .clamp = 0.0f};
 
+/// Mirrors PyramidParams in shaders/shadow_pyramids.slang.
+struct alignas(16) PyramidParams {
+    math::mat4 inverse_view_projection{1.0f};
+    rhi::DescriptorHandle depth;
+    rhi::DescriptorHandle shadows;
+    rhi::DescriptorHandle pyramids;
+    rhi::DescriptorHandle map;
+    std::array<std::uint32_t, 2> size{};
+    std::uint32_t mask_size = 0;
+    std::uint32_t levels = 0;
+    std::uint32_t layer_stride = 0;
+    std::uint32_t count = 0;
+    std::uint32_t level = 0;
+    float margin_texels = 0.0f;
+    float depth_margin = 0.0f;
+    std::uint32_t first_layer = 0;
+    std::uint32_t map_size = 0;
+    std::uint32_t receivers = 0;
+};
+static_assert(rhi::parameters_match<PyramidParams>(
+    veach_render_shaders::layout::shadow_pyramids,
+    {VEACH_PARAM(PyramidParams, inverse_view_projection), VEACH_PARAM(PyramidParams, depth),
+     VEACH_PARAM(PyramidParams, shadows), VEACH_PARAM(PyramidParams, pyramids), VEACH_PARAM(PyramidParams, map),
+     VEACH_PARAM(PyramidParams, size), VEACH_PARAM(PyramidParams, mask_size), VEACH_PARAM(PyramidParams, levels),
+     VEACH_PARAM(PyramidParams, layer_stride), VEACH_PARAM(PyramidParams, count), VEACH_PARAM(PyramidParams, level),
+     VEACH_PARAM(PyramidParams, margin_texels), VEACH_PARAM(PyramidParams, depth_margin),
+     VEACH_PARAM(PyramidParams, first_layer), VEACH_PARAM(PyramidParams, map_size),
+     VEACH_PARAM(PyramidParams, receivers)}));
+
+/// The culling pyramids' level 0 has a texel per 16 x 16 texels of the map (16 to 256 per side), so a lookup's reach
+/// (receiver_margin_texels) touches at most 2 x 2 of them.
+constexpr std::uint32_t pyramid_texels = 16;
+/// How far from its receiver a lookup reads the map, in texels: the blocker search and the widest PCF disk
+/// (max_penumbra_texels), bilinear taps, the normal offset, and one texel to spare.
+constexpr float receiver_margin_texels = max_penumbra_texels + 1.0f + normal_offset_texels + 1.5f;
+/// How much farther from the light than its receiver a lookup's point may be: the normal offset, and one to spare.
+constexpr float receiver_depth_margin_texels = normal_offset_texels + 1.0f;
+
 float luminance(math::vec3 c) {
     return 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z;
 }
@@ -48,7 +88,7 @@ std::array<float, max_shadow_cascades> cascade_splits(float distance, std::uint3
 }
 
 CascadeFit fit_cascade(const RenderView& view, const math::dvec3& origin, math::vec3 l, float near, float far,
-                       std::uint32_t resolution) {
+                       std::uint32_t resolution, float toward_light) {
     // The slice's bounding sphere: on the view axis, through its far corners (and its near ones when it fits both).
     const float tan_x = 1.0f / view.projection[0][0];
     const float tan_y = 1.0f / view.projection[1][1];
@@ -83,9 +123,9 @@ CascadeFit fit_cascade(const RenderView& view, const math::dvec3& origin, math::
     };
     center += x * snap(x) + y * snap(y);
 
-    // Depth: 0 at radius behind the center (away from the light), 1 at twice the radius toward it; casters beyond
-    // are flattened onto 1 by shadow_vs.
-    const float range = 3.0f * radius;
+    // Depth: 0 at radius behind the center (away from the light), 1 at twice the radius toward it or `toward_light`
+    // if farther; casters beyond are flattened onto 1 by shadow_vs.
+    const float range = radius + std::max(2.0f * radius, toward_light);
     CascadeFit fit;
     fit.center = center;
     fit.radius = radius;
@@ -149,9 +189,14 @@ struct ShadowRenderer::Impl {
     rhi::PipelineHandle cull_reset;
     rhi::PipelineHandle cull_instances;
     rhi::PipelineHandle cull_meshlets;
+    rhi::PipelineHandle cull_recheck;
     rhi::PipelineHandle cull_args;
     rhi::PipelineHandle casters_opaque;
     rhi::PipelineHandle casters_masked;
+    rhi::PipelineHandle receivers_clear;
+    rhi::PipelineHandle receivers_mark;
+    rhi::PipelineHandle pyramid_reduce;
+    rhi::PipelineHandle occluders_build;
     rhi::SamplerHandle compare;
 
     struct Buffer {
@@ -159,15 +204,28 @@ struct ShadowRenderer::Impl {
         std::uint64_t size = 0;
         bool written = false;
     };
-    /// Per cascade (light slot x cascade): its culling's counters, records and draw lists.
+    /// Per cascade (light slot x cascade): its culling's counters, records and draw lists (both phases').
     struct CascadeBuffers {
         Buffer counters;
         Buffer draw_args;
         Buffer dispatch_args;
         Buffer tasks;
+        Buffer recheck_instances;
+        Buffer recheck_meshlets;
         Buffer visible;
     };
     std::array<CascadeBuffers, max_shadowed_lights * max_shadow_cascades> cascades;
+    /// Every cascade's receiver pyramid, then every cascade's occluder pyramid (shadow_pyramids.slang).
+    Buffer pyramids;
+    /// What each layer's occluder pyramid was built from: last frame's cascade, for phase 1's occlusion test.
+    struct Previous {
+        math::mat4 clip_from_render{1.0f};
+        math::dvec3 origin{0.0};
+        bool valid = false;
+    };
+    std::array<Previous, max_shadowed_lights * max_shadow_cascades> previous{};
+    std::uint32_t pyramid_layers = 0;  ///< the layer count and size the occluder pyramids were built for
+    std::uint32_t pyramid_size = 0;
     /// Per frame slot: a CullView per cascade, and the ShadowFrame the shading reads.
     std::vector<std::array<rhi::BufferHandle, max_shadowed_lights * max_shadow_cascades>> views;
     std::vector<rhi::BufferHandle> frames;
@@ -188,11 +246,15 @@ struct ShadowRenderer::Impl {
             return;
         }
         for (CascadeBuffers& c : cascades) {
-            for (Buffer* b : {&c.counters, &c.draw_args, &c.dispatch_args, &c.tasks, &c.visible}) {
+            for (Buffer* b : {&c.counters, &c.draw_args, &c.dispatch_args, &c.tasks, &c.recheck_instances,
+                              &c.recheck_meshlets, &c.visible}) {
                 if (b->handle.is_valid()) {
                     device->destroy(b->handle);
                 }
             }
+        }
+        if (pyramids.handle.is_valid()) {
+            device->destroy(pyramids.handle);
         }
         for (const auto& slot : views) {
             for (const rhi::BufferHandle b : slot) {
@@ -211,7 +273,8 @@ struct ShadowRenderer::Impl {
             device->destroy(compare);
         }
         for (rhi::PipelineHandle* p :
-             {&cull_reset, &cull_instances, &cull_meshlets, &cull_args, &casters_opaque, &casters_masked}) {
+             {&cull_reset, &cull_instances, &cull_meshlets, &cull_recheck, &cull_args, &casters_opaque, &casters_masked,
+              &receivers_clear, &receivers_mark, &pyramid_reduce, &occluders_build}) {
             if (p->is_valid()) {
                 device->destroy(*p);
             }
@@ -222,6 +285,7 @@ struct ShadowRenderer::Impl {
     Impl(Impl&&) = delete;
     Impl& operator=(Impl&&) = delete;
 
+    /// `b` holds at least `size` bytes. `keep`: a grown buffer is a new one, its contents undefined (`written` false).
     Result<> ensure(Buffer& b, std::uint64_t size, rhi::BufferUsage usage, std::uint32_t stride, const char* name) {
         size = std::max<std::uint64_t>(size, 16);
         if (b.handle.is_valid() && b.size >= size) {
@@ -285,23 +349,36 @@ ShadowRenderer::~ShadowRenderer() = default;
 Result<> ShadowRenderer::prepare(rhi::Device& device, const SceneShaders& shaders) {
     Impl& s = *impl_;
     s.device = &device;
-    const rhi::ShaderLibrary& cull = veach_render_shaders::gpu_cull();
-    for (const auto& [entry, group, out] :
-         {std::tuple{"cull_reset", std::array<std::uint32_t, 3>{64, 1, 1}, &s.cull_reset},
-          std::tuple{"cull_instances", std::array<std::uint32_t, 3>{64, 1, 1}, &s.cull_instances},
-          std::tuple{"cull_meshlets", std::array<std::uint32_t, 3>{64, 1, 1}, &s.cull_meshlets},
-          std::tuple{"cull_args", std::array<std::uint32_t, 3>{1, 1, 1}, &s.cull_args}}) {
-        auto pipeline = device.create_compute_pipeline({&cull, entry, group, std::string("shadow ") + entry});
+    for (const auto& [library, entry, group, out] :
+         {std::tuple{&veach_render_shaders::gpu_cull(), "cull_reset", std::array<std::uint32_t, 3>{64, 1, 1},
+                     &s.cull_reset},
+          std::tuple{&veach_render_shaders::gpu_cull(), "cull_instances", std::array<std::uint32_t, 3>{64, 1, 1},
+                     &s.cull_instances},
+          std::tuple{&veach_render_shaders::gpu_cull(), "cull_meshlets", std::array<std::uint32_t, 3>{64, 1, 1},
+                     &s.cull_meshlets},
+          std::tuple{&veach_render_shaders::gpu_cull(), "cull_recheck_meshlets", std::array<std::uint32_t, 3>{64, 1, 1},
+                     &s.cull_recheck},
+          std::tuple{&veach_render_shaders::gpu_cull(), "cull_args", std::array<std::uint32_t, 3>{1, 1, 1},
+                     &s.cull_args},
+          std::tuple{&veach_render_shaders::shadow_pyramids(), "receivers_clear",
+                     std::array<std::uint32_t, 3>{64, 1, 1}, &s.receivers_clear},
+          std::tuple{&veach_render_shaders::shadow_pyramids(), "receivers_mark", std::array<std::uint32_t, 3>{8, 8, 1},
+                     &s.receivers_mark},
+          std::tuple{&veach_render_shaders::shadow_pyramids(), "pyramid_reduce", std::array<std::uint32_t, 3>{8, 8, 1},
+                     &s.pyramid_reduce},
+          std::tuple{&veach_render_shaders::shadow_pyramids(), "occluders_build", std::array<std::uint32_t, 3>{8, 8, 1},
+                     &s.occluders_build}}) {
+        auto pipeline = device.create_compute_pipeline({library, entry, group, std::string("shadow ") + entry});
         if (!pipeline) {
             return std::unexpected(pipeline.error());
         }
         *out = *pipeline;
     }
-    for (const auto& [fragment, out] :
-         {std::pair{"shadow_fs", &s.casters_opaque}, std::pair{"shadow_fs_masked", &s.casters_masked}}) {
+    for (const auto& [vertex, fragment, out] : {std::tuple{"shadow_vs_opaque", "shadow_fs", &s.casters_opaque},
+                                                std::tuple{"shadow_vs", "shadow_fs_masked", &s.casters_masked}}) {
         rhi::GraphicsPipelineDesc desc;
         desc.library = &shaders.visibility;
-        desc.vertex_entry = "shadow_vs";
+        desc.vertex_entry = vertex;
         desc.fragment_entry = fragment;
         desc.depth_format = rhi::Format::depth32_float;
         desc.depth_test = true;
@@ -347,7 +424,7 @@ Result<> ShadowRenderer::prepare(rhi::Device& device, const SceneShaders& shader
 }
 
 ShadowRenderer::Output ShadowRenderer::record(RenderGraph& graph, const FrameContext& frame, const RenderView& view,
-                                              const RealtimeScene& scene, CullStats& stats) {
+                                              const RealtimeScene& scene, GraphResource depth, CullStats& stats) {
     VEACH_ZONE("ShadowRenderer::record");
     Impl& s = *impl_;
     const std::uint32_t slot = s.device->current_frame().slot % static_cast<std::uint32_t>(s.frames.size());
@@ -370,6 +447,9 @@ ShadowRenderer::Output ShadowRenderer::record(RenderGraph& graph, const FrameCon
     };
     if (layers == 0) {
         stats.shadow_meshlets_drawn.clear();
+        for (Impl::Previous& p : s.previous) {
+            p.valid = false;
+        }
         write_frame();
         return out;
     }
@@ -380,7 +460,19 @@ ShadowRenderer::Output ShadowRenderer::record(RenderGraph& graph, const FrameCon
         return out;
     }
 
-    // Draw lists: the camera's layout (the same capacities), phase 1 only (cull_reset clears both phases' records).
+    // The culling (ADR 0096): the receivers this frame's pixels look up in each cascade (from the camera's depth),
+    // and occlusion from the light in two phases, as the camera's (ADR 0093): phase 1 tests last frame's map of the
+    // cascade, phase 2 what phase 1 rejected against this frame's. VEACH_SHADOW_NO_RECEIVERS=1 and
+    // VEACH_SHADOW_NO_OCCLUSION=1 turn either off, to compare.
+    const rhi::TextureDesc* depth_desc = graph.texture_desc(depth);
+    const bool masked = depth_desc != nullptr && !env_is_one("VEACH_SHADOW_NO_RECEIVERS");
+    const bool occlusion = !env_is_one("VEACH_SHADOW_NO_OCCLUSION");
+    const std::uint32_t pyramid_size = std::clamp(std::bit_floor(resolution / pyramid_texels), 16u, 256u);
+    const auto pyramid_levels = static_cast<std::uint32_t>(std::bit_width(pyramid_size));
+    const std::uint32_t layer_stride = (4 * pyramid_size * pyramid_size - 1) / 3;  // every level, 1 x 1 included
+    const std::uint32_t phases = occlusion ? 2 : 1;
+
+    // Draw lists: the camera's layout (the same capacities), for each phase (cull_reset clears both phases' records).
     std::uint32_t meshlets = 0;
     std::array<std::uint32_t, draw_list_count> list_offsets{};
     for (std::uint32_t l = 0; l < draw_list_count; ++l) {
@@ -398,8 +490,12 @@ ShadowRenderer::Output ShadowRenderer::record(RenderGraph& graph, const FrameCon
                        rw | rhi::BufferUsage::indirect | rhi::BufferUsage::copy_src, u32, "shadow draw args"),
               s.ensure(c.dispatch_args, 4 * dispatch_record, rw | rhi::BufferUsage::indirect, u32,
                        "shadow dispatch args"),
-              s.ensure(c.tasks, std::uint64_t{scene.task_count} * u64, rw, u64, "shadow cull tasks"),
-              s.ensure(c.visible, std::uint64_t{meshlets} * u64, rw, u64, "shadow draw lists")}) {
+              s.ensure(c.tasks, std::uint64_t{phases} * scene.task_count * u64, rw, u64, "shadow cull tasks"),
+              s.ensure(c.recheck_instances, occlusion ? std::uint64_t{scene.instance_count} * u32 : 0, rw, u32,
+                       "shadow recheck instances"),
+              s.ensure(c.recheck_meshlets, occlusion ? std::uint64_t{meshlets} * u64 : 0, rw, u64,
+                       "shadow recheck meshlets"),
+              s.ensure(c.visible, std::uint64_t{phases} * meshlets * u64, rw, u64, "shadow draw lists")}) {
             if (!ready) {
                 log::error("render", ready.error());
                 write_frame();
@@ -407,6 +503,18 @@ ShadowRenderer::Output ShadowRenderer::record(RenderGraph& graph, const FrameCon
             }
         }
     }
+    if (masked || occlusion) {
+        if (auto ready = s.ensure(s.pyramids, 2ull * layers * layer_stride * u32, rw, u32, "shadow culling pyramids");
+            !ready) {
+            log::error("render", ready.error());
+            write_frame();
+            return out;
+        }
+    }
+    // Last frame's occluder pyramids serve phase 1 only if they were built for these layers in this buffer.
+    const bool pyramids_kept = s.pyramids.written && s.pyramid_layers == layers && s.pyramid_size == pyramid_size;
+    s.pyramid_layers = layers;
+    s.pyramid_size = pyramid_size;
 
     const GraphResource map = graph.import(
         maps.texture, "sun shadow maps", maps.written ? rhi::ResourceState::shader_read : rhi::ResourceState::undefined,
@@ -435,8 +543,8 @@ ShadowRenderer::Output ShadowRenderer::record(RenderGraph& graph, const FrameCon
     const rhi::BufferHandle materials = scene.materials;
     const std::array<std::uint32_t, draw_list_count> list_capacity = scene.list_capacity;
     const rhi::DescriptorHandle null_texture = s.device->null_descriptor(rhi::DescriptorKind::texture);
-    // Every cascade's culling runs in the same four compute passes (a dispatch per cascade, on buffers of its own):
-    // twenty small dependent passes cost more in pipeline drains than their work.
+    // Every cascade's culling runs in the same compute passes (a dispatch per cascade, on buffers of its own): twenty
+    // small dependent passes cost more in pipeline drains than their work.
     struct Cascade {
         std::uint32_t layer = 0;
         CascadeFit fit;
@@ -445,33 +553,49 @@ ShadowRenderer::Output ShadowRenderer::record(RenderGraph& graph, const FrameCon
         GraphResource draw_args;
         GraphResource dispatch_args;
         GraphResource tasks;
+        GraphResource recheck_instances;
+        GraphResource recheck_meshlets;
         GraphResource visible;
     };
     std::vector<Cascade> cascades;
+    const math::dvec3 origin = frame.world.space.origin;
     for (std::uint32_t light = 0; light < lights.size(); ++light) {
         shadow.lights.at(light) = lights[light];
         const math::vec3 toward = -frame.world.lights.at(lights[light]).direction;
         for (std::uint32_t c = 0; c < cascade_count; ++c) {
             const std::uint32_t layer = light * cascade_count + c;
             // Receivers: the slice of view depths this cascade serves, from where the previous one starts blending
-            // into it.
+            // into it. Its depth reaches the shadow distance toward the light, so casters between the cascade and the
+            // light keep their depth order (occlusion) rather than all flattening onto its near plane.
             const float near = c == 0 ? view.near_plane : splits.at(c - 1) * (1.0f - cascade_blend);
-            const CascadeFit fit = fit_cascade(view, frame.world.space.origin, toward, near, splits.at(c), resolution);
+            const CascadeFit fit = fit_cascade(view, origin, toward, near, splits.at(c), resolution, settings.distance);
             shadow.cascades.at(layer) = {.clip_from_render = fit.clip_from_render,
                                          .scale = math::vec4(fit.texel, fit.depth_range, fit.radius, 0.0f)};
+            // Phase 1's occluders: last frame's map of this layer, its view moved into this frame's render space.
+            Impl::Previous& previous = s.previous.at(layer);
+            const bool occlude = occlusion && pyramids_kept && previous.valid;
+            const math::mat4 occlusion_view_projection =
+                occlude ? previous.clip_from_render *
+                              math::translate(math::mat4(1.0f), math::vec3(origin - previous.origin))
+                        : fit.clip_from_render;
+            previous = {.clip_from_render = fit.clip_from_render, .origin = origin, .valid = occlusion};
             CullView cull{
                 .view_projection = fit.clip_from_render,
-                .occlusion_view_projection = fit.clip_from_render,
+                .occlusion_view_projection = occlusion_view_projection,
                 .planes = fit.planes,
                 .camera = math::vec4(fit.center, 0.0f),
                 .screen = {resolution, resolution},
-                .flags = cull_shadow_view,
+                .flags = cull_shadow_view | (masked ? cull_receivers : 0u) | (occlude ? cull_previous_hiz : 0u),
                 .instance_count = scene.instance_count,
-                .phase_stride = 0,
+                .phase_stride = meshlets,
                 .task_capacity = scene.task_count,
+                .receiver_base = layer * layer_stride,
+                .pyramid_size = pyramid_size,
+                .pyramid_levels = pyramid_levels,
                 .receiver_planes = receiver_planes(view, near, splits.at(c),
                                                    (max_penumbra_texels + normal_offset_texels + 2.0f) * fit.texel),
-                .sweep = math::vec4(-toward, small_caster_texels * fit.texel)};
+                .sweep = math::vec4(-toward, small_caster_texels * fit.texel),
+                .occluder_base = (layers + layer) * layer_stride};
             std::copy(list_offsets.begin(), list_offsets.end(), cull.list_offsets.begin());
             const rhi::BufferHandle view_buffer = s.views.at(slot).at(layer);
             if (void* mapped = s.device->map(view_buffer); mapped != nullptr) {
@@ -485,46 +609,111 @@ ShadowRenderer::Output ShadowRenderer::record(RenderGraph& graph, const FrameCon
                                 .draw_args = s.import(graph, b.draw_args, "shadow draw args"),
                                 .dispatch_args = s.import(graph, b.dispatch_args, "shadow dispatch args"),
                                 .tasks = s.import(graph, b.tasks, "shadow cull tasks"),
+                                .recheck_instances = s.import(graph, b.recheck_instances, "shadow recheck instances"),
+                                .recheck_meshlets = s.import(graph, b.recheck_meshlets, "shadow recheck meshlets"),
                                 .visible = s.import(graph, b.visible, "shadow draw lists")});
         }
     }
+    for (std::uint32_t k = layers; k < s.previous.size(); ++k) {
+        s.previous.at(k).valid = false;
+    }
 
-    const auto bind = [instances, materials, null_texture](PassContext& ctx, const Cascade& c) {
+    std::optional<GraphResource> pyramids;
+    if (masked || occlusion) {
+        pyramids = s.import(graph, s.pyramids, "shadow culling pyramids");
+    }
+    if (occlusion) {
+        // The shading skips the filter where the occluders say a lookup is wholly in shadow.
+        out.occluders = pyramids;
+        shadow.occluders = s.device->descriptor(s.pyramids.handle);
+        shadow.occluder_size = pyramid_size;
+        shadow.occluder_stride = layer_stride;
+        shadow.occluder_base = layers * layer_stride;
+    }
+    const GraphResource frame_data = graph.import(out.frame, "shadow frame", rhi::ResourceState::shader_read);
+    const auto bind = [instances, materials, null_texture, pyramids](PassContext& ctx, const Cascade& c,
+                                                                     std::uint32_t phase) {
         const auto storage = [&](GraphResource r) {
             return ctx.device.descriptor(ctx.buffer(r), rhi::View::storage);
         };
-        CullParams p{.phase = 0, .bin_count = 0};
+        CullParams p{.phase = phase, .bin_count = 0};
         p.view = ctx.device.descriptor(ctx.buffer(c.view));
         p.instances = ctx.device.descriptor(ctx.buffer(instances));
         p.materials = ctx.device.descriptor(materials);
-        p.hiz = null_texture;  // no occlusion: cull_previous_hiz is never set
+        p.hiz = null_texture;  // a shadow view's occluders are in `pyramids`
         p.counters = storage(c.counters);
         p.draw_args = storage(c.draw_args);
         p.dispatch_args = storage(c.dispatch_args);
         p.tasks = storage(c.tasks);
-        p.recheck_instances = storage(c.counters);  // phase 1 without a pyramid rechecks nothing
-        p.recheck_meshlets = storage(c.tasks);
+        p.recheck_instances = storage(c.recheck_instances);
+        p.recheck_meshlets = storage(c.recheck_meshlets);
         p.visible = storage(c.visible);
         p.bin_tiles = storage(c.counters);  // bin_count 0: never written
+        p.pyramids = ctx.device.descriptor(ctx.buffer(pyramids ? *pyramids : c.view));
         ctx.cmd.set_parameters(p);
     };
+    const PyramidParams pyramid_params{
+        .inverse_view_projection = view.inverse_view_projection,
+        .size = {depth_desc != nullptr ? depth_desc->width : 0u, depth_desc != nullptr ? depth_desc->height : 0u},
+        .mask_size = pyramid_size,
+        .levels = pyramid_levels,
+        .layer_stride = layer_stride,
+        .count = layers * layer_stride,  // the receivers' half: the occluders stay for the next frame's phase 1
+        .margin_texels = receiver_margin_texels,
+        .depth_margin = receiver_depth_margin_texels,
+        .map_size = resolution,
+        .receivers = masked ? 1u : 0u};
+    const auto bind_pyramids = [pyramid_params, pyramids, depth, frame_data, masked, map](
+                                   PassContext& ctx, std::uint32_t level, std::uint32_t first_layer) {
+        PyramidParams p = pyramid_params;
+        p.level = level;
+        p.first_layer = first_layer;
+        p.depth = masked ? ctx.device.descriptor(ctx.texture(depth))
+                         : ctx.device.null_descriptor(rhi::DescriptorKind::texture);
+        p.shadows = ctx.device.descriptor(ctx.buffer(frame_data));
+        p.pyramids = ctx.device.descriptor(ctx.buffer(*pyramids), rhi::View::storage);
+        p.map = ctx.device.descriptor(ctx.texture(map));
+        ctx.cmd.set_parameters(p);
+    };
+    // A pyramid's levels above 0, four per pass (pyramid_reduce), for layers [first, first + layers).
+    const auto reduce = [&](const char* name, std::uint32_t first_layer) {
+        for (std::uint32_t level = 0; level + 1 < pyramid_levels; level += 4) {
+            graph.add_compute_pass(
+                std::format("{} {}", name, level + 1), [&](PassBuilder& pb) { pb.write(*pyramids); },
+                [=, pipeline = s.pyramid_reduce](PassContext& ctx) {
+                    ctx.cmd.set_pipeline(pipeline);
+                    bind_pyramids(ctx, level, first_layer);
+                    const std::uint32_t groups = std::max(1u, ((pyramid_size >> (level + 1)) + 7) / 8);
+                    ctx.cmd.dispatch(groups, groups, layers);
+                });
+        }
+    };
+
     enum class Step : std::uint8_t { reset, instances, args, meshlets };
-    for (const auto& [step, name] :
-         {std::pair{Step::reset, "shadow: cull reset"}, std::pair{Step::instances, "shadow: cull instances"},
-          std::pair{Step::args, "shadow: cull args"}, std::pair{Step::meshlets, "shadow: cull meshlets"}}) {
+    const auto cull_pass = [&](Step step, std::uint32_t phase, const std::string& name) {
         graph.add_compute_pass(
             name,
             [&](PassBuilder& pb) {
-                if (step == Step::instances || step == Step::meshlets) {
+                const bool culls = step == Step::instances || step == Step::meshlets;
+                if (culls) {
                     scene.read_meshes(pb);
                 }
+                if (pyramids && (culls || step == Step::reset)) {
+                    if (step == Step::reset) {
+                        pb.write(*pyramids);
+                    } else {
+                        pb.read(*pyramids);
+                    }
+                }
                 for (const Cascade& c : cascades) {
-                    if (step == Step::instances || step == Step::meshlets) {
+                    if (culls) {
                         pb.read(c.view);
                         pb.write(c.tasks);
+                        pb.write(c.recheck_instances);
+                        pb.write(c.recheck_meshlets);
                         pb.write(c.visible);
                     }
-                    if (step == Step::meshlets) {
+                    if (step == Step::meshlets || (step == Step::instances && phase == 1)) {
                         pb.read(c.dispatch_args, rhi::ResourceState::indirect_argument);
                     } else if (step == Step::args) {
                         pb.write(c.dispatch_args);
@@ -540,67 +729,134 @@ ShadowRenderer::Output ShadowRenderer::record(RenderGraph& graph, const FrameCon
                         : step == Step::instances ? s.cull_instances
                         : step == Step::args      ? s.cull_args
                                                   : s.cull_meshlets,
-             count = scene.instance_count](PassContext& ctx) {
+             recheck = s.cull_recheck, clear = s.receivers_clear, count = scene.instance_count](PassContext& ctx) {
                 ctx.cmd.set_pipeline(pipeline);
                 // The cascades' dispatches touch disjoint buffers: no barrier between them.
                 for (const Cascade& c : cascades) {
-                    bind(ctx, c);
+                    bind(ctx, c, phase);
                     if (step == Step::instances) {
-                        const auto [x, y] = rows_of((count + 63) / 64);
-                        ctx.cmd.dispatch(x, y);
+                        if (phase == 1) {
+                            ctx.cmd.dispatch_indirect(ctx.buffer(c.dispatch_args), dispatch_recheck_instances);
+                        } else {
+                            const auto [x, y] = rows_of((count + 63) / 64);
+                            ctx.cmd.dispatch(x, y);
+                        }
                     } else if (step == Step::meshlets) {
-                        ctx.cmd.dispatch_indirect(ctx.buffer(c.dispatch_args), dispatch_tasks_1);
+                        ctx.cmd.dispatch_indirect(ctx.buffer(c.dispatch_args),
+                                                  phase == 0 ? dispatch_tasks_1 : dispatch_tasks_2);
                     } else {
                         ctx.cmd.dispatch(1, 1);
                     }
                 }
-            });
-    }
-
-    // Each cascade's casters: depth only, into its layer of the map.
-    for (const Cascade& c : cascades) {
-        const VisibilityParams params{
-            .view_projection = c.fit.clip_from_render,
-            .previous_view_projection = c.fit.clip_from_render,
-            .inverse_size = {1.0f / static_cast<float>(resolution), 1.0f / static_cast<float>(resolution)}};
-        graph.add_graphics_pass(
-            std::format("shadow {}: casters", c.layer),
-            [&](PassBuilder& pb) {
-                pb.depth_target(map, rhi::LoadOp::clear, 0.0f, {.mip = 0, .layer = c.layer});  // reverse-Z
-                scene.read_geometry(pb);
-                pb.read(c.visible);
-                pb.read(c.draw_args, rhi::ResourceState::indirect_argument);
-            },
-            [=, opaque = s.casters_opaque, masked = s.casters_masked, visible = c.visible,
-             draw_args = c.draw_args](PassContext& ctx) mutable {
-                VisibilityParams p = params;
-                p.instances = ctx.device.descriptor(ctx.buffer(instances));
-                p.materials = ctx.device.descriptor(materials);
-                p.visible = ctx.device.descriptor(ctx.buffer(visible));
-                rhi::PipelineHandle bound;
-                for (std::uint32_t l = 0; l < draw_list_count; ++l) {
-                    if (list_capacity.at(l) == 0) {
-                        continue;
+                if (step == Step::meshlets && phase == 1) {
+                    // Appends to the same lists through atomics: no ordering needed between the two.
+                    ctx.cmd.set_pipeline(recheck);
+                    for (const Cascade& c : cascades) {
+                        bind(ctx, c, 1);
+                        ctx.cmd.dispatch_indirect(ctx.buffer(c.dispatch_args), dispatch_recheck_meshlets);
                     }
-                    const rhi::PipelineHandle pipeline = l < draw_bucket_count ? opaque : masked;
-                    if (pipeline != bound) {
-                        ctx.cmd.set_pipeline(pipeline);
-                        bound = pipeline;
-                    }
-                    p.list_offset = list_offsets.at(l);
-                    ctx.cmd.set_parameters(p);
-                    ctx.cmd.draw_indirect(ctx.buffer(draw_args), l * sizeof(rhi::DrawIndirectArgs));
+                }
+                if (step == Step::reset && masked) {
+                    ctx.cmd.set_pipeline(clear);
+                    bind_pyramids(ctx, 0, 0);
+                    const auto [x, y] = rows_of((pyramid_params.count + 63) / 64);
+                    ctx.cmd.dispatch(x, y);
                 }
             });
-        // What it drew, for CullStats (MCP gpu_timings).
-        if (frame.readbacks != nullptr) {
+    };
+    // Each cascade's casters of a phase: depth only, into its layer of the map.
+    const auto draw = [&](std::uint32_t phase) {
+        for (const Cascade& c : cascades) {
+            const VisibilityParams params{
+                .view_projection = c.fit.clip_from_render,
+                .previous_view_projection = c.fit.clip_from_render,
+                .inverse_size = {1.0f / static_cast<float>(resolution), 1.0f / static_cast<float>(resolution)}};
+            graph.add_graphics_pass(
+                std::format("shadow {}: casters{}", c.layer, phase == 0 ? "" : " (late)"),
+                [&](PassBuilder& pb) {
+                    pb.depth_target(map, phase == 0 ? rhi::LoadOp::clear : rhi::LoadOp::load, 0.0f,
+                                    {.mip = 0, .layer = c.layer});  // reverse-Z
+                    scene.read_geometry(pb);
+                    pb.read(c.visible);
+                    pb.read(c.draw_args, rhi::ResourceState::indirect_argument);
+                },
+                [=, opaque = s.casters_opaque, masked_casters = s.casters_masked, visible = c.visible,
+                 draw_args = c.draw_args](PassContext& ctx) mutable {
+                    VisibilityParams p = params;
+                    p.instances = ctx.device.descriptor(ctx.buffer(instances));
+                    p.materials = ctx.device.descriptor(materials);
+                    p.visible = ctx.device.descriptor(ctx.buffer(visible));
+                    rhi::PipelineHandle bound;
+                    for (std::uint32_t l = 0; l < draw_list_count; ++l) {
+                        if (list_capacity.at(l) == 0) {
+                            continue;
+                        }
+                        const rhi::PipelineHandle pipeline = l < draw_bucket_count ? opaque : masked_casters;
+                        if (pipeline != bound) {
+                            ctx.cmd.set_pipeline(pipeline);
+                            bound = pipeline;
+                        }
+                        p.list_offset = list_offsets.at(l) + phase * meshlets;
+                        ctx.cmd.set_parameters(p);
+                        ctx.cmd.draw_indirect(ctx.buffer(draw_args),
+                                              (phase * draw_list_count + l) * sizeof(rhi::DrawIndirectArgs));
+                    }
+                });
+        }
+    };
+
+    cull_pass(Step::reset, 0, "shadow: cull reset");
+    if (masked) {
+        // What this frame's pixels look up in each cascade, then the pyramid over it.
+        graph.add_compute_pass(
+            "shadow: receivers",
+            [&](PassBuilder& pb) {
+                pb.read(depth);
+                pb.read(frame_data);
+                pb.write(*pyramids);
+            },
+            [=, pipeline = s.receivers_mark](PassContext& ctx) {
+                ctx.cmd.set_pipeline(pipeline);
+                bind_pyramids(ctx, 0, 0);
+                ctx.cmd.dispatch((pyramid_params.size[0] + 7) / 8, (pyramid_params.size[1] + 7) / 8);
+            });
+        reduce("shadow: receivers", 0);
+    }
+    cull_pass(Step::instances, 0, "shadow: cull instances");
+    cull_pass(Step::args, 0, "shadow: cull args");
+    cull_pass(Step::meshlets, 0, "shadow: cull meshlets");
+    draw(0);
+    if (occlusion) {
+        // The occluders: phase 1's maps, phase 2's test now and next frame's phase 1.
+        graph.add_compute_pass(
+            "shadow: occluders",
+            [&](PassBuilder& pb) {
+                pb.read(map);
+                pb.write(*pyramids);
+            },
+            [=, pipeline = s.occluders_build](PassContext& ctx) {
+                ctx.cmd.set_pipeline(pipeline);
+                bind_pyramids(ctx, 0, layers);
+                ctx.cmd.dispatch(pyramid_size, pyramid_size, layers);
+            });
+        reduce("shadow: occluders", layers);
+        cull_pass(Step::args, 1, "shadow: cull args (late)");
+        cull_pass(Step::instances, 1, "shadow: cull instances (late)");
+        cull_pass(Step::args, 1, "shadow: cull args (late meshlets)");
+        cull_pass(Step::meshlets, 1, "shadow: cull meshlets (late)");
+        draw(1);
+    }
+
+    // What each cascade drew, both phases, for CullStats (MCP gpu_timings).
+    if (frame.readbacks != nullptr) {
+        for (const Cascade& c : cascades) {
             frame.readbacks->read(
-                graph, c.draw_args, draw_list_count * sizeof(rhi::DrawIndirectArgs),
+                graph, c.draw_args, 2 * draw_list_count * sizeof(rhi::DrawIndirectArgs),
                 [&stats, layer = c.layer, layers](Result<ReadbackData> data) {
-                    if (!data || data->bytes.size() < draw_list_count * sizeof(rhi::DrawIndirectArgs)) {
+                    if (!data || data->bytes.size() < 2 * draw_list_count * sizeof(rhi::DrawIndirectArgs)) {
                         return;
                     }
-                    std::array<rhi::DrawIndirectArgs, draw_list_count> records{};
+                    std::array<rhi::DrawIndirectArgs, 2 * draw_list_count> records{};
                     std::memcpy(records.data(), data->bytes.data(), sizeof(records));
                     stats.shadow_meshlets_drawn.resize(layers);
                     stats.shadow_meshlets_drawn.at(layer) = 0;

@@ -655,6 +655,7 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
         p.recheck_meshlets = storage(recheck_meshlets);
         p.visible = storage(visible);
         p.bin_tiles = storage(bin_tiles);
+        p.pyramids = p.view;  // never read: the camera's view has no shadow pyramids
         ctx.cmd.set_parameters(p);
     };
     const auto read_meshes = scene.read_meshes;
@@ -878,7 +879,7 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     }
 
     // ---- the sun shadow maps (shadows.hpp): each cascade culled and drawn on its own.
-    const ShadowRenderer::Output shadow_maps = s.shadows.record(graph, frame, view, scene, s.stats);
+    const ShadowRenderer::Output shadow_maps = s.shadows.record(graph, frame, view, scene, depth, s.stats);
 
     // ---- shade, a dispatch per bin: lights, the sky's ambient light, emission, the sky and aerial perspective.
     ShadeParams shade{.inverse_view_projection = view.inverse_view_projection,
@@ -902,6 +903,9 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
             }
             if (shadow_maps.map) {
                 b.read(*shadow_maps.map);
+            }
+            if (shadow_maps.occluders) {
+                b.read(*shadow_maps.occluders);
             }
             b.write(radiance, rhi::ResourceState::shader_write);
         },

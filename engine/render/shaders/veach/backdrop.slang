@@ -1,4 +1,4 @@
-// The procedural space backdrop (docs/specs/space-backdrop/spec.md, ADR 0090): stars per pixel, and the baked band
+// The procedural space backdrop (docs/specs/space-backdrop/spec.md, ADR 0091): stars per pixel, and the baked band
 // and nebulae (shaders/backdrop.slang) sampled from a lat-long texture in galactic coordinates. Everything is in the
 // backdrop's galactic frame: +X toward the galactic center, +Y the north galactic pole. SkyFrame (veach.atmosphere)
 // carries the rotation from render space, the camera's axes and the creator's exposure (render::SpaceBackdrop).

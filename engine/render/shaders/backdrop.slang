@@ -1,4 +1,4 @@
-// The space backdrop's bake (ADR 0090, docs/specs/space-backdrop/spec.md): the galactic band (disk light, bulge, star clouds, dust lanes) and the nebulae, once, into a lat-long
+// The space backdrop's bake (ADR 0091, docs/specs/space-backdrop/spec.md): the galactic band (disk light, bulge, star clouds, dust lanes) and the nebulae, once, into a lat-long
 // rgba16f texture in galactic coordinates. rgb is radiance (nits); a is the star density the per-pixel stars use
 // there (veach.backdrop). Run when the backdrop's baked fields change (render::Backdrop::bakes_like). Its parameter
 // layout matches render::BackdropBakeParams (backdrop.cpp).

@@ -103,7 +103,7 @@ static_assert(rhi::parameters_match<ExposureParams>(veach_render_shaders::layout
                                                      VEACH_PARAM(ExposureParams, highlight_white),
                                                      VEACH_PARAM(ExposureParams, reset),
                                                      VEACH_PARAM(ExposureParams, highlight_max_pull)}));
-/// Mirrors CompositeParams in shaders/backdrop_composite.slang (the space backdrop, ADR 0090).
+/// Mirrors CompositeParams in shaders/backdrop_composite.slang (the space backdrop, ADR 0091).
 struct alignas(16) BackdropCompositeParams {
     math::mat4 inverse_view_projection{1.0f};
     rhi::DescriptorHandle radiance;
@@ -133,7 +133,7 @@ struct RealtimeRenderer::Impl {
     rhi::PipelineHandle visibility_pipeline;
     rhi::PipelineHandle shade_pipeline;
     rhi::PipelineHandle display_pipeline;
-    rhi::PipelineHandle backdrop_pipeline;  ///< the space backdrop's composite (ADR 0090)
+    rhi::PipelineHandle backdrop_pipeline;  ///< the space backdrop's composite (ADR 0091)
 
     // Spike SP-14 (VCH-090): auto-exposure, created when a view first asks for it.
     struct ExposureReadback {
@@ -403,7 +403,7 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
             ctx.cmd.dispatch((shade.size[0] + 7) / 8, (shade.size[1] + 7) / 8);
         });
 
-    // ---- the space backdrop (ADR 0090): beyond the sky, on the pixels the shade pass marked, before metering.
+    // ---- the space backdrop (ADR 0091): beyond the sky, on the pixels the shade pass marked, before metering.
     if (frame.world.sky.backdrop && frame.world.sky.backdrop_settings.visible) {
         BackdropCompositeParams composite{.inverse_view_projection = view.inverse_view_projection,
                                           .size = {width, height},

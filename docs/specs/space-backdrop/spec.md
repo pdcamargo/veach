@@ -15,7 +15,7 @@ must look alive, including with a sunlit planet in frame.
 ## Motivation
 
 Before this, the sky beyond a planet was SP-14's starfield (`ResolvedSky::stars`, ADR 0082): physically dim, it
-vanished next to a sunlit planet under auto-exposure, and the slice showed a black sky around its planet. VCH-131.
+vanished next to a sunlit planet under auto-exposure, and the slice showed a black sky around its planet. VCH-133.
 
 ## Requirements
 
@@ -65,13 +65,13 @@ camera:set(c.SpaceBackdrop, { seed = 7, visible = true, exposure_compensation = 
 - **backdrop.AC7** — Metal golden `tests/golden/space_backdrop.png` (`scripts/space_backdrop_small.luau`, 480 x 270);
   on DX12 (WARP) the same script runs without an error.
 - **backdrop.AC8** — measured: the `space backdrop` pass at most 0.3 ms at 1440p (release, M5 Max), in the slice's
-  orbit view and in deep space. Recorded in [ADR 0090](../../adr/0090-space-backdrop.md).
+  orbit view and in deep space. Recorded in [ADR 0091](../../adr/0091-space-backdrop.md).
 
 ## Out of scope
 
 - Photo mode's escaped rays do not see the backdrop yet (the path tracer's kernel is near Metal's compiler limit).
 - A real galaxy query (where the stars are, which ones are near): the toolbox's galaxy model here is a stand-in.
-- Baking into a cube map once the RHI has them (VCH-072), and spreading the bake over frames for warps (VCH-131
+- Baking into a cube map once the RHI has them (VCH-072), and spreading the bake over frames for warps (VCH-133
   follow-ups in the backlog).
 
 ## Open questions
@@ -80,9 +80,9 @@ None.
 
 ## Links
 
-- ADRs: [0090](../../adr/0090-space-backdrop.md), [0082](../../adr/0082-amendments-from-sp-14.md),
+- ADRs: [0090](../../adr/0091-space-backdrop.md), [0082](../../adr/0082-amendments-from-sp-14.md),
   [0063](../../adr/0063-astronomical-rendering.md), [0042](../../adr/0042-space-toolbox-layering.md),
   [0043](../../adr/0043-determinism-tiers-and-strict-floating-point.md), [0050](../../adr/0050-universe-addresses-and-seeds.md)
-- Backlog: VCH-131
+- Backlog: VCH-133
 - Guides: [rendering](../../guides/rendering.md), [space realization](../../guides/space-realization.md)
 - Screenshots: [research/spikes/space-backdrop](../../research/spikes/space-backdrop/README.md)

@@ -1,11 +1,11 @@
-# 0090: The space backdrop: a baked band and nebulae, stars per pixel, its own exposure
+# 0091: The space backdrop: a baked band and nebulae, stars per pixel, its own exposure
 
 Date: 2026-11-28
 
 ## Status
 
 Accepted. Builds on [0063](0063-astronomical-rendering.md) and [0082](0082-amendments-from-sp-14.md) (whose
-procedural starfield stays for SP-14's scenes). Spec: [space-backdrop](../specs/space-backdrop/spec.md). VCH-131.
+procedural starfield stays for SP-14's scenes). Spec: [space-backdrop](../specs/space-backdrop/spec.md). VCH-133.
 
 ## Context
 

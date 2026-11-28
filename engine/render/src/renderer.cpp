@@ -102,7 +102,7 @@ void resolve_sky(const World& world, RenderWorld& out) {
         }
     });
     ResolvedSky& r = out.sky;
-    // The space backdrop (ADR 0090): the creator's settings, and a backdrop of the component's own when it has a
+    // The space backdrop (ADR 0091): the creator's settings, and a backdrop of the component's own when it has a
     // seed, with the galactic center toward -Z and the north galactic pole +Y.
     std::optional<std::pair<std::uint64_t, SpaceBackdrop>> backdrop;
     world.each([&](Entity e, const SpaceBackdrop& b) {

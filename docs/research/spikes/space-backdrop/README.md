@@ -1,6 +1,6 @@
 # Space backdrop: screenshots
 
-VCH-131, [spec](../../../specs/space-backdrop/spec.md), [ADR 0090](../../../adr/0090-space-backdrop.md). Metal on the
+VCH-133, [spec](../../../specs/space-backdrop/spec.md), [ADR 0091](../../../adr/0091-space-backdrop.md). Metal on the
 M5 Max, 2560 x 1440, release build, default creator settings in the slice (`SpaceBackdrop { exposure_compensation =
 4, exposure_follow = 0.1 }`), the same values in the lab's deep-space script.
 

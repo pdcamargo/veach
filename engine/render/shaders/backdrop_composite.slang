@@ -1,4 +1,4 @@
-// The space backdrop on the real-time image (ADR 0090, docs/specs/space-backdrop/spec.md): after the shade pass, on
+// The space backdrop on the real-time image (ADR 0091, docs/specs/space-backdrop/spec.md): after the shade pass, on
 // the sky pixels it marked (alpha 2), the baked texture and the stars (veach.backdrop), through the air
 // (sky_to_space), at the creator's gain, added to the exposed radiance. Alpha becomes the share of the pixel that
 // auto-exposure meters: the sky's, not the backdrop's. Its parameter layout matches render::BackdropCompositeParams

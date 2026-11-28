@@ -1,7 +1,7 @@
 add_executable(veach-tests
     main.cpp
     asset_tests.cpp
-    backdrop_tests.cpp  # VCH-131: the space backdrop
+    backdrop_tests.cpp  # VCH-133: the space backdrop
     core_tests.cpp
     determinism_tests.cpp
     ecs_tests.cpp

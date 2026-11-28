@@ -1,6 +1,6 @@
 #pragma once
 
-// A star system's sky beyond its bodies (docs/specs/space-backdrop/spec.md, ADR 0090): the engine's space backdrop
+// A star system's sky beyond its bodies (docs/specs/space-backdrop/spec.md, ADR 0091): the engine's space backdrop
 // (<veach/render/backdrop.hpp>) derived from the universe seed and where the system is in the galaxy (its address,
 // ADR 0050). Canonical (veach::hash and dmath, ADRs 0043 and 0044): every system's sky differs, and a revisit, on
 // any platform, sees the same one. Not a generation stage: it feeds pixels only, never gameplay.

@@ -153,7 +153,7 @@ struct ResolvedSky {
     std::optional<PlanetSky> planet;
     /// Spike SP-14 (VCH-090), throwaway: a starfield, in planet mode or with mode none.
     std::optional<Starfield> stars;
-    /// The space backdrop (ADR 0090): drawn behind the sky when set and `backdrop_settings.visible`. From the
+    /// The space backdrop (ADR 0091): drawn behind the sky when set and `backdrop_settings.visible`. From the
     /// SpaceBackdrop component's seed, or a module's extractor (which sets its orientation every frame).
     std::optional<Backdrop> backdrop;
     SpaceBackdrop backdrop_settings;  ///< the first SpaceBackdrop in entity order, or the defaults

@@ -52,7 +52,7 @@ struct SkyFrame {
     // Spike SP-14 (VCH-090), throwaway: a procedural starfield (planet mode, or no sky). x = brightness (0: off; 1 is
     // physical), y = one pixel's angle (radians), z = limiting magnitude, w = cells per cube-map face side.
     float4 stars;
-    // The space backdrop (veach.backdrop, ADR 0090). Read only when backdrop_info.w is 1.
+    // The space backdrop (veach.backdrop, ADR 0091). Read only when backdrop_info.w is 1.
     float4 galactic_x;      ///< xyz = row 0 of the rotation galactic from render space; w = one pixel's angle (rad)
     float4 galactic_y;      ///< xyz = row 1; w = the creator's exposure compensation (stops)
     float4 galactic_z;      ///< xyz = row 2; w = the creator's exposure follow (0..1)
@@ -604,7 +604,7 @@ float3 sky_radiance_any(SkyFrame s, float3 direction, bool with_sun) {
     return sky_radiance(s, direction, with_sun);
 }
 
-/// The transmittance from the camera toward `direction` to what lies beyond the sky (the space backdrop, ADR 0090):
+/// The transmittance from the camera toward `direction` to what lies beyond the sky (the space backdrop, ADR 0091):
 /// 1 with no sky, 0 for a constant sky or through the ground or the occluder, the transmittance LUT's through the air
 /// (from the camera, or from where the ray enters the atmosphere when the camera is above it).
 float3 sky_to_space(SkyFrame s, float3 direction) {

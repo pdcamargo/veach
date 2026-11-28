@@ -80,7 +80,7 @@ struct Sky {
 };
 
 /// The creator's settings for the space backdrop: the stars, the galactic band and the nebulae beyond every body
-/// (docs/specs/space-backdrop/spec.md, ADR 0090). On any one entity; none means the defaults. A module that knows
+/// (docs/specs/space-backdrop/spec.md, ADR 0091). On any one entity; none means the defaults. A module that knows
 /// where the camera is in its universe gives the backdrop its content (a star system's, from its address);
 /// `seed` makes one here for scenes without such a module. Scriptable.
 ///

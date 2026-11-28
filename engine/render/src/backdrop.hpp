@@ -1,6 +1,6 @@
 #pragma once
 
-// The space backdrop's GPU side (ADR 0090): bakes render::Backdrop's band and nebulae into a lat-long texture when
+// The space backdrop's GPU side (ADR 0091): bakes render::Backdrop's band and nebulae into a lat-long texture when
 // they change, and hands the sky (atmosphere.cpp) the texture to sample. The data and the generator are public:
 // <veach/render/backdrop.hpp>.
 

@@ -1,4 +1,4 @@
-// The space backdrop (docs/specs/space-backdrop/spec.md, ADR 0090): canonical generation in the engine and per system
+// The space backdrop (docs/specs/space-backdrop/spec.md, ADR 0091): canonical generation in the engine and per system
 // in space/, and the renderer's passes on the null RHI. The Metal image is a golden (tests/CMakeLists.txt).
 
 #include <veach/render/backdrop.hpp>

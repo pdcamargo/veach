@@ -76,7 +76,7 @@ atmosphere, the sun at its physical illuminance and the system's space backdrop.
 
 ## The sky beyond the bodies
 
-`space::system_backdrop(config)` (`veach/space/backdrop.hpp`, [ADR 0090](../adr/0090-space-backdrop.md)) turns the
+`space::system_backdrop(config)` (`veach/space/backdrop.hpp`, [ADR 0091](../adr/0091-space-backdrop.md)) turns the
 universe seed and the system address into the engine's `render::Backdrop`: stars, the galactic band, nebulae.
 Canonical and independent of the scale: every system has its own sky, the same on every revisit and at s = 0.01 and
 s = 1. Where the system is in the galaxy shapes it (`space::galaxy_view`, a stand-in disk and bulge until the galaxy

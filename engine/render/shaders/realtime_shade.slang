@@ -42,7 +42,7 @@ static const float fp16_max = 65504.0;
 /// the air) exceeds it at any exposure below about EV100 14.5. Apple GPUs saturate such writes anyway; IEEE rounding
 /// gives infinity. NaN is kept, for the exposure pass's check to count it (spike SP-14).
 /// `metered` (alpha) is the share of the pixel's luminance auto-exposure meters (exposure.slang): 1 but where the space
-/// backdrop shows, which is exposed on its own (ADR 0090) and must not pull the camera's exposure.
+/// backdrop shows, which is exposed on its own (ADR 0091) and must not pull the camera's exposure.
 float4 storable(float3 c, float metered = 1.0) {
     if ((params.flags & shade_no_fp16_clamp) == 0) {
         c = float3(c.x > fp16_max ? fp16_max : c.x, c.y > fp16_max ? fp16_max : c.y, c.z > fp16_max ? fp16_max : c.z);

@@ -257,7 +257,7 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   mode's escaped rays. Without a `Sky` entity the sky follows the scene's brightest directional light; with one, it
   drives the sun from `time_of_day`. Closed test scenes set `Sky { mode = "none" }` (a warning says so when the scene
   has lights). Example: `scripts/bistro_sunset.luau`.
-- **The space backdrop** ([ADR 0090](../adr/0090-space-backdrop.md), [spec](../specs/space-backdrop/spec.md)): stars,
+- **The space backdrop** ([ADR 0091](../adr/0091-space-backdrop.md), [spec](../specs/space-backdrop/spec.md)): stars,
   the galactic band and nebulae beyond every body, behind the sky and through its air. Data in
   `ResolvedSky::backdrop` (`render::Backdrop`, from a module's extractor or the `SpaceBackdrop` component's `seed`;
   `generate_backdrop(seed, GalaxyView)` makes one). The band and nebulae are baked once into a 4096 x 2048 lat-long

@@ -1,6 +1,6 @@
 #pragma once
 
-// The procedural space backdrop (docs/specs/space-backdrop/spec.md, ADR 0090): what lies beyond every body: a dense
+// The procedural space backdrop (docs/specs/space-backdrop/spec.md, ADR 0091): what lies beyond every body: a dense
 // field of stars with black-body colors and a realistic spread of magnitudes, a galactic band with dust lanes and
 // star clouds, and nebulae (emission, reflection, dark). Pure data: a module's extractor (or the SpaceBackdrop
 // component's seed) fills ResolvedSky::backdrop, the renderer bakes the diffuse part once into a texture in galactic

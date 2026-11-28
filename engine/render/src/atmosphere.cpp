@@ -62,7 +62,7 @@ struct alignas(16) SkyFrame {
     // Spike SP-14 (VCH-090): the starfield (ResolvedSky::stars). x = brightness (0: off), y = a pixel's angle (rad),
     // z = limiting magnitude, w = cells per cube-map face side.
     math::vec4 stars{0.0f};
-    // The space backdrop (ADR 0090, veach/backdrop.slang). Unread unless backdrop_info[3] is 1.
+    // The space backdrop (ADR 0091, veach/backdrop.slang). Unread unless backdrop_info[3] is 1.
     math::vec4 galactic_x{0.0f};  ///< row 0 of galactic from render; w = one pixel's angle
     math::vec4 galactic_y{0.0f};  ///< row 1; w = exposure compensation (stops)
     math::vec4 galactic_z{0.0f};  ///< row 2; w = exposure follow
@@ -314,7 +314,7 @@ SkyResources AtmosphereRenderer::record(RenderGraph& graph, const ResolvedSky& s
                              static_cast<float>(std::max<std::uint32_t>(sky.stars->cells, 1)));
     }
 
-    // The space backdrop (ADR 0090): bake it if it changed, and put the galactic frame and the camera's axes into
+    // The space backdrop (ADR 0091): bake it if it changed, and put the galactic frame and the camera's axes into
     // the frame (render space turns with the camera's reference frame).
     std::optional<GraphResource> backdrop;
     if (sky.backdrop && sky.backdrop_settings.visible) {

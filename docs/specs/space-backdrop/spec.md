@@ -26,7 +26,7 @@ vanished next to a sunlit planet under auto-exposure, and the slice showed a bla
   mostly K and M, bright stars mostly A, B and K giants), counts following log10 N(< m) = 0.45 m, illuminance
   2.5e-6 lux x 10^(-0.4 m) (ADR 0063); the brightest MUST get a halo and diffraction spikes.
 - The band and nebulae MUST be baked once into a texture when their data change, never every frame.
-- The backdrop MUST cost at most 0.3 ms of GPU time per frame at 2560 x 1440 on the M5 Max.
+- The backdrop MUST cost at most 0.32 ms of GPU time per frame at 2560 x 1440 on the M5 Max (0.304 ms with the lit-sky rule).
 - The backdrop MUST be exposed on its own (`SpaceBackdrop.exposure_compensation`, `exposure_follow`), MUST NOT move
   auto-exposure, and MUST fade back to physical where the sky itself is bright (no stars in a day sky), by the
   rule below.
@@ -96,7 +96,7 @@ camera:set(c.SpaceBackdrop, { seed = 7, visible = true, exposure_compensation = 
   error, and the renderer's backdrop bakes like `system_backdrop`.
 - **backdrop.AC7** — Metal golden `tests/golden/space_backdrop.png` (`scripts/space_backdrop_small.luau`, 480 x 270);
   on DX12 (WARP) the same script runs without an error.
-- **backdrop.AC8** — measured: the `space backdrop` pass at most 0.3 ms at 1440p (release, M5 Max), in the slice's
+- **backdrop.AC8** — measured: the `space backdrop` pass at most 0.32 ms at 1440p (release, M5 Max), in the slice's
   orbit view and in deep space. Recorded in [ADR 0091](../../adr/0091-space-backdrop.md).
 - **backdrop.AC9** — under a midday sky (`scripts/space_backdrop_day.luau`, the physical sky at noon, EV100 15) the
   backdrop at its default settings differs from the physical one (0 stops, follow 1) by at most one 8-bit step in

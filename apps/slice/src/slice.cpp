@@ -711,7 +711,7 @@ private:
 
     // ---- The demo's extra views, after the landing and the dig (VEACH_SLICE_SHOTS only) ------------------------
 
-    static constexpr std::uint32_t tour_views = 7;
+    static constexpr std::uint32_t tour_views = 8;
 
     static const char* tour_name(std::uint32_t view) {
         switch (view) {
@@ -721,7 +721,8 @@ private:
             case 4: return "dusk_sun_-3";
             case 5: return "twilight_sun_-6";
             case 6: return "twilight_sun_-10";
-            default: return "night_sun_-18";
+            case 7: return "night_sun_-18";
+            default: return "night_side_from_the_air";
         }
     }
 
@@ -748,6 +749,24 @@ private:
             away = length(away) > 1e-6 ? unit(away) : site_east_;
             eye = up * (ground_radius(up) + 200.0);
             look = eye + away * 1000.0 - up * 60.0;
+            up_hint = up;
+            return;
+        }
+        if (tour_ == 8) {
+            // High in the day side's air (the sun 8 degrees up, at 80 % of the band's top), looking away from the
+            // sun just below the horizon: the terminator and the night side beyond it, under a lit sky (ADR 0095).
+            const double elevation = 8.0 * deg;
+            const dvec3 site_up = unit(site_);
+            dvec3 axis = math::cross(sun, site_up);
+            axis = length(axis) > 1e-6 ? unit(axis) : site_east_;
+            const dvec3 toward = unit(math::cross(axis, sun));
+            const dvec3 up = unit(toward * dmath::cos(elevation) + sun * dmath::sin(elevation));
+            const dvec3 away = -unit(sun - up * math::dot(sun, up));
+            const double r = ground_radius(up);
+            const double altitude = 0.8 * top_;
+            const double dip = dmath::acos(std::clamp(r / (r + altitude), 0.0, 1.0)) + 1.0 * deg;
+            eye = up * (r + altitude);
+            look = eye + (away * dmath::cos(dip) - up * dmath::sin(dip)) * 1000.0;
             up_hint = up;
             return;
         }

@@ -19,6 +19,7 @@ add_executable(veach-tests
     script_tests.cpp
     sky_tests.cpp
     sp10_atmosphere_tests.cpp  # spike SP-10 (VCH-086)
+    sp14_depth_tests.cpp  # spike SP-14 (VCH-090)
     space_gen_tests.cpp
     mcp_tools_tests.cpp
     space_tests.cpp

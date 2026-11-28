@@ -241,8 +241,10 @@ float km(double m) {
     return static_cast<float>(m * 1e-3);
 }
 
+}  // namespace
+
 /// The renderer's medium (km) from the record (m): the record-to-render mapping ADR 0063 gives the renderer.
-veach::render::AtmosphereParams medium_of(const vs::AtmosphereRecord& r) {
+veach::render::AtmosphereParams sp10_medium_of(const vs::AtmosphereRecord& r) {
     const auto per_km = [](math::dvec3 v) {
         return math::vec3(v * 1e3);
     };
@@ -255,6 +257,12 @@ veach::render::AtmosphereParams medium_of(const vs::AtmosphereRecord& r) {
         math::vec4(km(r.radius), km(r.top), static_cast<float>(math::dot(r.ground_albedo, math::dvec3(1.0 / 3.0))),
                    km(r.absorption_half_width));
     return m;
+}
+
+namespace {
+
+veach::render::AtmosphereParams medium_of(const vs::AtmosphereRecord& r) {
+    return sp10_medium_of(r);
 }
 
 /// atmosphere_transmittance's frame: +Y up, from (east, north, up).

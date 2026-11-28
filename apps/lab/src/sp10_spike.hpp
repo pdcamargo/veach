@@ -20,10 +20,15 @@
 //   VEACH_SP10=mars VEACH_SP10_SCALE=0.01 VEACH_SP10_ALTITUDE=orbit \
 //     veach-lab --rhi metal --headless --frames 4 --screenshot out.png
 
+#include <veach/render/atmosphere.hpp>
+#include <veach/space/atmosphere.hpp>
 #include <veach/veach.hpp>
 
 namespace lab {
 
 void register_sp10_spike(veach::World& world);
+
+/// The renderer's medium (km) from an atmosphere record (m). Spike SP-14 reuses it.
+[[nodiscard]] veach::render::AtmosphereParams sp10_medium_of(const veach::space::AtmosphereRecord& record);
 
 }  // namespace lab

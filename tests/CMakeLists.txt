@@ -206,10 +206,10 @@ function(veach_golden_test name script golden rhi)
     if(DEFINED ARG_MAX_OUTLIERS)
         list(APPEND extra -DMAX_OUTLIERS=${ARG_MAX_OUTLIERS})
     endif()
-    set(out_name "${golden}.${rhi}")
+    set(out_name "${script}.${rhi}")  # per script: several scripts may share a golden
     if(ARG_NO_RAY_TRACING)
         list(APPEND extra -DNO_RAY_TRACING=1)
-        set(out_name "${golden}.${rhi}.no_rt")
+        set(out_name "${script}.${rhi}.no_rt")
     endif()
     add_test(NAME "${name}"
         COMMAND "${CMAKE_COMMAND}" -DLAB=$<TARGET_FILE:veach-lab> -DIMGDIFF=$<TARGET_FILE:veach-cli> -DRHI=${rhi}
@@ -254,6 +254,13 @@ function(veach_scene_goldens rhi)
     veach_golden_test("golden: runtime mesh (photo mode${suffix})" runtime_mesh runtime_mesh ${rhi} FRAMES 4)
     # rt.AC8 (VCH-108): upright thin triangles in a smooth surface, with its normals, shade like the surface.
     veach_golden_test("golden: thin triangles (realtime${suffix})" thin_triangles_realtime thin_triangles_realtime ${rhi})
+    # frames.AC8: double positions and camera-relative extraction. The Cornell box and its camera 1 AU out in the root
+    # world, inside a frame 0.1 ly out, and inside a turned frame 1 AU out seen from the root world.
+    veach_golden_test("golden: cornell box 1 AU out (frames${suffix})" frames_1au cornell_box_realtime ${rhi})
+    veach_golden_test("golden: cornell box in a frame 0.1 ly out (frames${suffix})" frames_far_frame
+        cornell_box_realtime ${rhi})
+    veach_golden_test("golden: cornell box in a turned frame, seen from the root (frames${suffix})" frames_across
+        cornell_box_realtime ${rhi})
 endfunction()
 if(APPLE)
     veach_golden_test("golden: background" hello background metal)
@@ -268,6 +275,15 @@ if(APPLE)
         veach_golden_test("golden: bistro at ${_time} (realtime)" bistro_${_time} bistro_${_time} metal)
         set_tests_properties("golden: bistro at ${_time} (realtime)" PROPERTIES LABELS full)
     endforeach()
+    # frames.AC8: inside a frame 0.1 ly out, the image is the one at the origin, bit for bit.
+    add_test(NAME "frames: a scene in a far frame renders byte-identically to the origin"
+        COMMAND "${CMAKE_COMMAND}" -DLAB=$<TARGET_FILE:veach-lab> -DRHI=metal
+                -DSCRIPT_A=scripts/cornell_box_realtime.luau -DSCRIPT_B=scripts/frames_far_frame.luau
+                -DOUT=${CMAKE_CURRENT_BINARY_DIR}/golden/frames_far_frame_exact
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/same_image_test.cmake"
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
+    set_tests_properties("frames: a scene in a far frame renders byte-identically to the origin" PROPERTIES
+        SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE")
     # sky.AC6: lights and no sky: one warning (a warning, not an error: the run still exits 0).
     add_test(NAME "lab: a scene with lights and no sky warns"
         COMMAND veach-lab --rhi metal --headless --frames 3 --script scripts/cornell_box.luau)

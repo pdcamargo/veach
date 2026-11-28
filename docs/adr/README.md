@@ -91,3 +91,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0078 | [Sidedness decides the shading surface: vertex normals for solids, the triangle for thin sheets](0078-sidedness-decides-the-shading-surface.md) | Accepted |
 | 0079 | [Amendments from SP-09: companded samples, measured streaming rates, a visual-only speed floor](0079-amendments-from-sp-09.md) | Accepted |
 | 0080 | [Amendments from SP-13: fictitious forces in rotating free flight, velocity-tracking scenes, handoff bands](0080-amendments-from-sp-13.md) | Accepted |
+| 0081 | [Creator control over atmosphere scaling and sunsets; s_a = √s_p stays the default](0081-creator-control-over-atmosphere-scaling.md) | Accepted |

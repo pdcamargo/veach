@@ -87,3 +87,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0074 | [Amendments from SP-08: LOD-independent samples, remeshing on neighbor change, lattice positions](0074-amendments-from-sp-08.md) | Accepted |
 | 0075 | [Amendments from SP-11: Jolt's build flags, AVX2 on x64, Jolt optimized in Debug](0075-amendments-from-sp-11.md) | Accepted |
 | 0076 | [Amendments from SP-10: the march's cost, eclipses per sample, a body-sized aerial-perspective volume](0076-amendments-from-sp-10.md) | Accepted |
+| 0077 | [Amendments from SP-12: brush reach, owned override samples, K = 2, waking bodies on collider swaps](0077-amendments-from-sp-12.md) | Accepted |

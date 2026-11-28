@@ -727,35 +727,36 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
         return;
     }
 
-    std::vector<GraphResource> buffers;
+    // Scene residency, declared once per frame: every mesh buffer and texture is one read-only group, so a pass that
+    // reads the scene declares a handful of accesses instead of thousands (Bistro has about 3,000).
+    std::vector<rhi::ResourceRef> mesh_refs;
+    mesh_refs.reserve(used_meshes.size() * 7);
     for (const AssetId id : used_meshes) {
         const Impl::GpuMesh& mesh = s.meshes.at(id);
         for (const rhi::BufferHandle b : {mesh.vertices, mesh.indices, mesh.slots, mesh.meshlets, mesh.meshlet_vertices,
                                           mesh.meshlet_triangles, mesh.meshlet_bounds}) {
-            buffers.push_back(graph.import(b, "mesh data", rhi::ResourceState::shader_read));
+            mesh_refs.emplace_back(b);
         }
     }
-    std::vector<GraphResource> textures;
+    std::vector<rhi::ResourceRef> texture_refs;
     for (const auto& [id, texture] : s.textures) {
         if (texture.texture.is_valid()) {
-            textures.push_back(graph.import(texture.texture, "scene texture", rhi::ResourceState::shader_read));
+            texture_refs.emplace_back(texture.texture);
         }
     }
+    const GraphResource mesh_data = graph.import_group(std::move(mesh_refs), "mesh data");
+    const GraphResource texture_data = graph.import_group(std::move(texture_refs), "scene textures");
     const GraphResource material_data =
         graph.import(material_buffer, "scene materials", rhi::ResourceState::shader_read);
     const GraphResource light_data = graph.import(light_buffer, "scene lights", rhi::ResourceState::shader_read);
-    const auto read_meshes = [buffers, instance_data, material_data](PassBuilder& b) {
-        for (const GraphResource& r : buffers) {
-            b.read(r);
-        }
+    const auto read_meshes = [mesh_data, instance_data, material_data](PassBuilder& b) {
+        b.read(mesh_data);
         b.read(instance_data);
         b.read(material_data);
     };
-    const auto read_geometry = [read_meshes, textures, light_data](PassBuilder& b) {
+    const auto read_geometry = [read_meshes, texture_data, light_data](PassBuilder& b) {
         read_meshes(b);
-        for (const GraphResource& r : textures) {
-            b.read(r);
-        }
+        b.read(texture_data);
         b.read(light_data);
     };
     // The sky (ADR 0038): its LUTs for this view. A lit scene without one is dark
@@ -922,9 +923,7 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
         graph.add_transfer_pass(
             "scene: build BLASes",
             [&](PassBuilder& b) {
-                for (const GraphResource& r : buffers) {
-                    b.read(r);
-                }
+                b.read(mesh_data);
                 for (std::size_t i = 0; i < used_meshes.size(); ++i) {
                     if (std::ranges::find(to_build, s.meshes.at(used_meshes[i]).blas) != to_build.end()) {
                         b.write(blases[i], rhi::ResourceState::accel_build);

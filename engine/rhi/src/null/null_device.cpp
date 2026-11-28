@@ -57,6 +57,7 @@ public:
     void copy_buffer_to_texture(BufferHandle, std::uint64_t, std::uint32_t, TextureHandle,
                                 const TextureRegion&) override {}
     void use(ResourceRef, ResourceState) override {}
+    void use_group(std::uint64_t, std::span<const ResourceRef>, ResourceState) override {}
     void barrier(std::span<const Barrier> barriers) override {
         for (const Barrier& b : barriers) {
             if (b.resource.kind == ResourceKind::texture) {

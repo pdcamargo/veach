@@ -40,6 +40,8 @@ renderer pass (VCH-142).
 - The lookup MUST be one call in the shared shading function (`light_shadow`), returning 1 for a light without a map.
 - Nothing MUST need ray tracing; photo mode MUST be unchanged.
 - What each cascade drew MUST be readable (`CullStats::shadow_meshlets_drawn`, MCP `gpu_timings`).
+- The scene's mesh buffers and textures MUST be declared to the render graph once per frame, as read-only groups
+  (`RenderGraph::import_group`), so that the cascades' passes cost no CPU per scene resource (VCH-143).
 
 ## API sketch
 

@@ -81,6 +81,9 @@ Rules:
 - Resources you own across frames are `import()`ed with the state they are in *now*. Track it yourself, the
   way `TriangleFeature` tracks its acceleration structures (`undefined` before the first build, `accel_read`
   after). Transient textures (`graph.create_texture`) are allocated and reused by the graph.
+- Many resources that no pass writes (a scene's mesh buffers and textures) are one `import_group()`: a pass reads
+  the group as one access, the graph emits no barrier for it, and Metal resolves which members need naming once per
+  frame. Bistro's scene is two groups instead of about 3,000 accesses in every pass that reads it.
 - `frame.scene_color` is `rgba8_unorm`, already cleared to `render::background_color`. Draw into it with
   `color_target(..., LoadOp::load)` or write it as a storage texture from compute (`shader_write`).
 - See what the graph decided: `--log-level debug` prints `RenderGraph::describe()` (order, culled passes,

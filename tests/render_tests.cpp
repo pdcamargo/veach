@@ -48,6 +48,10 @@ public:
                         offset, pitch, r.mip, r.base_layer, r.layer_count, r.x, r.y, r.z, r.width, r.height, r.depth));
     }
     void use(rhi::ResourceRef, ResourceState s) override { log(std::format("use {}", rhi::to_string(s))); }
+    void use_group(std::uint64_t group, std::span<const rhi::ResourceRef> r, ResourceState s) override {
+        groups.push_back(group);
+        log(std::format("use_group {} {}", r.size(), rhi::to_string(s)));
+    }
     void barrier(std::span<const rhi::Barrier> barriers) override {
         for (const rhi::Barrier& b : barriers) {
             log(b.mip_count == 0 ? std::format("barrier {}->{}", rhi::to_string(b.before), rhi::to_string(b.after))
@@ -61,6 +65,7 @@ public:
     void end_timing() override { log("end_timing"); }
 
     std::vector<std::string> calls;
+    std::vector<std::uint64_t> groups;  ///< the id of each use_group call
 
 private:
     void log(std::string call) { calls.push_back(std::move(call)); }
@@ -182,6 +187,73 @@ TEST_CASE("[render.AC4] impossible accesses are rejected with render.graph_inval
         render::RenderGraph graph(*f.device, &f.pool);
         const auto out = graph.import(f.texture("out"), "out", ResourceState::undefined);
         graph.add_compute_pass("bad", [&](render::PassBuilder& b) { b.color_target(out); }, noop());
+        CHECK(graph.compile().error().code == ErrorCode::render_graph_invalid);
+    }
+}
+
+TEST_CASE("[shadows.AC7] scene residency is one read-only group: one access per pass, one id per frame") {
+    GraphFixture f;
+    std::vector<rhi::ResourceRef> members;
+    for (int i = 0; i < 3000; ++i) {
+        members.emplace_back(rhi::BufferHandle{static_cast<std::uint32_t>(i + 1), 1});
+    }
+    {
+        render::RenderGraph graph(*f.device, &f.pool);
+        const auto scene = graph.import_group(members, "mesh data");
+        const auto out = graph.import(f.texture("out"), "out", ResourceState::undefined);
+        for (const char* name : {"cull", "draw", "shade"}) {
+            graph.add_compute_pass(
+                name,
+                [&](render::PassBuilder& b) {
+                    b.read(scene);
+                    b.write(out);
+                },
+                noop());
+        }
+        REQUIRE(graph.compile().has_value());
+        CHECK(graph.describe().find("reads mesh data (group of 3000) (shader_read)") != std::string::npos);
+        RecordingCommandList cmd;
+        graph.execute(cmd);
+        CHECK(std::ranges::count(cmd.calls, std::string("use_group 3000 shader_read")) == 3);
+        CHECK(
+            std::ranges::none_of(cmd.calls, [](const std::string& c) { return c.starts_with("barrier shader_read"); }));
+        REQUIRE(cmd.groups.size() == 3);
+        CHECK((cmd.groups[0] == cmd.groups[1] && cmd.groups[1] == cmd.groups[2]));
+        // Another frame's group is another id: a backend never reuses one frame's resolution in the next.
+        render::RenderGraph next(*f.device, &f.pool);
+        const auto again = next.import_group(members, "mesh data");
+        next.add_compute_pass(
+            "cull",
+            [&](render::PassBuilder& b) {
+                b.read(again);
+                b.side_effect();
+            },
+            noop());
+        REQUIRE(next.compile().has_value());
+        RecordingCommandList cmd2;
+        next.execute(cmd2);
+        REQUIRE(cmd2.groups.size() == 1);
+        CHECK(cmd2.groups[0] != cmd.groups[0]);
+    }
+    // A group is only read, in the state it was imported in.
+    for (const auto state : {ResourceState::shader_write, ResourceState::indirect_argument}) {
+        render::RenderGraph graph(*f.device, &f.pool);
+        const auto scene = graph.import_group(members, "mesh data");
+        graph.add_compute_pass(
+            "bad",
+            [&](render::PassBuilder& b) {
+                b.read(scene, state);
+                b.side_effect();
+            },
+            noop());
+        const auto compiled = graph.compile();
+        REQUIRE_FALSE(compiled.has_value());
+        CHECK(compiled.error().code == ErrorCode::render_graph_invalid);
+        CHECK(compiled.error().message.find("group 'mesh data'") != std::string::npos);
+    }
+    {
+        render::RenderGraph graph(*f.device, &f.pool);
+        (void)graph.import_group(members, "written", ResourceState::shader_write);
         CHECK(graph.compile().error().code == ErrorCode::render_graph_invalid);
     }
 }

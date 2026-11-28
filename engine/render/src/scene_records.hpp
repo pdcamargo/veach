@@ -47,7 +47,8 @@ struct InstanceRecord {
     rhi::DescriptorHandle meshlet_bounds;
     math::vec4 sphere{0.0f};  ///< object space: center, radius
     std::uint32_t meshlet_count = 0;
-    std::array<std::uint32_t, 3> pad{};
+    std::uint32_t id = 0;  ///< surface_id(entity): the same every frame (temporal AA's disocclusion test, ADR 0061)
+    std::array<std::uint32_t, 2> pad{};
 };
 static_assert(sizeof(InstanceRecord) == 240);
 static_assert(offsetof(InstanceRecord, object_to_world) == 32);
@@ -56,6 +57,16 @@ static_assert(offsetof(InstanceRecord, meshlets) == 176);
 static_assert(offsetof(InstanceRecord, sphere) == 208);
 static_assert(offsetof(InstanceRecord, meshlet_count) == 224);
 constexpr std::uint32_t instance_cone_culling = 1u << 1;  ///< InstanceRecord::flags: normal cones hold in render space
+
+/// InstanceRecord::id for a draw's entity: 24 bits of a hash, never 0xFFFFFF (temporal AA's id of the sky, taa.slang).
+[[nodiscard]] constexpr std::uint32_t surface_id(std::uint64_t entity) {
+    std::uint64_t h = entity * 0x9E3779B97F4A7C15ull;
+    h ^= h >> 29;
+    h *= 0xBF58476D1CE4E5B9ull;
+    h ^= h >> 32;
+    const auto id = static_cast<std::uint32_t>(h & 0xFFFFFFu);
+    return id == 0xFFFFFFu ? 0xFFFFFEu : id;
+}
 
 /// Mirrors LightRecord.
 struct LightRecord {

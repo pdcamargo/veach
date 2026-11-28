@@ -106,7 +106,7 @@ struct alignas(16) VisibilityParams {
     std::array<float, 2> inverse_size{};
     std::uint32_t list_offset = 0;
     std::uint32_t pad0 = 0;
-    std::array<std::uint32_t, 2> pad1{};
+    std::array<float, 2> jitter{};  ///< UV: the projection's sub-pixel offset this frame (ADR 0061)
 };
 static_assert(rhi::parameters_match<VisibilityParams>(
     veach_render_shaders::layout::realtime_visibility,
@@ -114,7 +114,7 @@ static_assert(rhi::parameters_match<VisibilityParams>(
      VEACH_PARAM(VisibilityParams, instances), VEACH_PARAM(VisibilityParams, materials),
      VEACH_PARAM(VisibilityParams, visible), VEACH_PARAM(VisibilityParams, inverse_size),
      VEACH_PARAM(VisibilityParams, list_offset), VEACH_PARAM(VisibilityParams, pad0),
-     VEACH_PARAM(VisibilityParams, pad1)}));
+     VEACH_PARAM(VisibilityParams, jitter)}));
 
 /// Mirrors ClassifyParams in shaders/classify.slang.
 struct alignas(16) ClassifyParams {
@@ -232,6 +232,60 @@ static_assert(rhi::parameters_match<BackdropCompositeParams>(
      VEACH_PARAM(BackdropCompositeParams, flags)}));
 constexpr std::uint32_t composite_auto_exposure = 1u;
 
+/// Mirrors TaaParams in shaders/taa.slang (ADR 0061).
+struct alignas(16) TaaParams {
+    math::mat4 reprojection{1.0f};
+    rhi::DescriptorHandle radiance;
+    rhi::DescriptorHandle motion;
+    rhi::DescriptorHandle depth;
+    rhi::DescriptorHandle visibility;
+    rhi::DescriptorHandle instances;
+    rhi::DescriptorHandle history;
+    rhi::DescriptorHandle history_meta;
+    rhi::DescriptorHandle linear_clamp;
+    rhi::DescriptorHandle history_out;
+    rhi::DescriptorHandle meta_out;
+    rhi::DescriptorHandle resolved;
+    rhi::DescriptorHandle exposure_state;
+    std::array<std::uint32_t, 2> size{};
+    float near_plane = 0.1f;
+    float exposure_ratio = 1.0f;
+    std::uint32_t flags = 0;  ///< taa_history_valid, taa_auto_exposure
+    float min_weight = 0.0f;
+    float moving_weight = 0.0f;
+    float moving_pixels = 1.0f;
+    float clip_gamma = 1.0f;
+    float edge_weight = 0.5f;
+    float sharpness = 0.0f;
+    float pad0 = 0.0f;
+};
+static_assert(rhi::parameters_match<TaaParams>(
+    veach_render_shaders::layout::taa, {VEACH_PARAM(TaaParams, reprojection),   VEACH_PARAM(TaaParams, radiance),
+                                        VEACH_PARAM(TaaParams, motion),         VEACH_PARAM(TaaParams, depth),
+                                        VEACH_PARAM(TaaParams, visibility),     VEACH_PARAM(TaaParams, instances),
+                                        VEACH_PARAM(TaaParams, history),        VEACH_PARAM(TaaParams, history_meta),
+                                        VEACH_PARAM(TaaParams, linear_clamp),   VEACH_PARAM(TaaParams, history_out),
+                                        VEACH_PARAM(TaaParams, meta_out),       VEACH_PARAM(TaaParams, resolved),
+                                        VEACH_PARAM(TaaParams, exposure_state), VEACH_PARAM(TaaParams, size),
+                                        VEACH_PARAM(TaaParams, near_plane),     VEACH_PARAM(TaaParams, exposure_ratio),
+                                        VEACH_PARAM(TaaParams, flags),          VEACH_PARAM(TaaParams, min_weight),
+                                        VEACH_PARAM(TaaParams, moving_weight),  VEACH_PARAM(TaaParams, moving_pixels),
+                                        VEACH_PARAM(TaaParams, clip_gamma),     VEACH_PARAM(TaaParams, edge_weight),
+                                        VEACH_PARAM(TaaParams, sharpness),      VEACH_PARAM(TaaParams, pad0)}));
+constexpr std::uint32_t taa_history_valid = 1u;
+constexpr std::uint32_t taa_auto_exposure = 2u;
+// The blend (taa.slang), tuned on SP-16's field by eye and by FLIP against 16-sample references, still and moving
+// (VCH-144, docs/research/spikes/vch-144-taa.md): this frame weighs at least taa_min_weight in a still pixel, rising
+// to taa_moving_weight for one that moves taa_moving_pixels a frame or more, and taa_edge_weight where its surface is
+// found only beside where it was; the variance clip keeps taa_clip_gamma standard deviations; the displayed image is
+// sharpened by up to taa_sharpness where it moves.
+constexpr float taa_min_weight = 1.0f / 12.0f;
+constexpr float taa_moving_weight = 0.5f;
+constexpr float taa_moving_pixels = 1.0f;
+constexpr float taa_edge_weight = 1.0f;
+constexpr float taa_clip_gamma = 1.0f;
+constexpr float taa_sharpness = 1.0f;
+
 constexpr std::uint32_t exposure_histogram_size = 132;  ///< 128 bins and the counters (exposure.slang)
 constexpr std::uint32_t exposure_state_size = 4;        ///< float4s
 
@@ -299,7 +353,8 @@ struct RealtimeRenderer::Impl {
 
     /// What the frame before saw, for phase 1's occlusion test and motion vectors.
     struct Previous {
-        math::mat4 view_projection{1.0f};
+        math::mat4 view_projection{1.0f};           ///< unjittered: motion vectors and the history
+        math::mat4 jittered_view_projection{1.0f};  ///< what it rasterized: its HiZ pyramid's
         math::dvec3 origin{0.0};
         std::uint64_t space_frame = 0;
         std::uint64_t camera = 0;
@@ -309,6 +364,22 @@ struct RealtimeRenderer::Impl {
     };
     Previous previous;
     CullStats stats;
+
+    /// Temporal AA's history (ADR 0061): two of each, written in turn, renderer data outside the ECS (ADR 0020).
+    struct History {
+        std::array<rhi::TextureHandle, 2> color;  ///< rgba16_float: the resolved radiance, alpha 1 + backdrop share
+        std::array<rhi::TextureHandle, 2> meta;   ///< rg32_uint: surface id | samples << 24, linear depth
+        std::array<std::uint32_t, 2> size{};
+        std::uint32_t last = 0;      ///< the pair last frame wrote
+        bool valid = false;          ///< last frame wrote it, for this camera, render frame and size
+        std::uint64_t frame = 0;     ///< the device frame that wrote it
+        float exposure = 0.0f;       ///< the pre-exposure it was written with (without auto-exposure)
+        bool auto_exposure = false;  ///< whether it was written under auto-exposure
+    };
+    History history;
+    rhi::PipelineHandle taa_pipeline;
+    rhi::PipelineHandle taa_sharpen_pipeline;
+    rhi::SamplerHandle linear_clamp;
 
     // Spike SP-14 (VCH-090): auto-exposure, created when a view first asks for it.
     struct ExposureReadback {
@@ -360,10 +431,15 @@ struct RealtimeRenderer::Impl {
         if (hiz.is_valid()) {
             device->destroy(hiz);
         }
+        destroy_history();
+        if (linear_clamp.is_valid()) {
+            device->destroy(linear_clamp);
+        }
         std::vector<rhi::PipelineHandle*> pipelines{
-            &cull_reset,       &cull_instances,    &cull_meshlets,      &cull_recheck,      &cull_args,
-            &hiz_reduce,       &classify,          &classify_args,      &visibility_opaque, &visibility_masked,
-            &display_pipeline, &backdrop_pipeline, &histogram_pipeline, &resolve_pipeline};
+            &cull_reset,         &cull_instances,    &cull_meshlets,    &cull_recheck,
+            &cull_args,          &hiz_reduce,        &classify,         &classify_args,
+            &visibility_opaque,  &visibility_masked, &display_pipeline, &backdrop_pipeline,
+            &histogram_pipeline, &resolve_pipeline,  &taa_pipeline,     &taa_sharpen_pipeline};
         for (rhi::PipelineHandle& p : shade) {
             pipelines.push_back(&p);
         }
@@ -430,6 +506,46 @@ struct RealtimeRenderer::Impl {
         hiz_size = size;
         hiz_levels = levels;
         hiz_written = false;
+        return {};
+    }
+
+    void destroy_history() {
+        for (auto* set : {&history.color, &history.meta}) {
+            for (rhi::TextureHandle& t : *set) {
+                if (t.is_valid()) {
+                    device->destroy(t);  // deferred until the frames in flight are done with it
+                    t = {};
+                }
+            }
+        }
+        history.size = {};
+        history.valid = false;
+    }
+
+    /// Temporal AA's history textures at width x height; new ones (after a resize) start invalid.
+    Result<> ensure_history(std::uint32_t width, std::uint32_t height) {
+        if (history.color[0].is_valid() && history.size == std::array<std::uint32_t, 2>{width, height}) {
+            return {};
+        }
+        destroy_history();
+        constexpr rhi::TextureUsage usage = rhi::TextureUsage::storage | rhi::TextureUsage::sampled;
+        for (std::size_t i = 0; i < 2; ++i) {
+            auto color = device->create_texture({width, height, rhi::Format::rgba16_float, usage, "TAA history"});
+            auto meta = device->create_texture({width, height, rhi::Format::rg32_uint, usage, "TAA history ids"});
+            if (!color || !meta) {
+                if (color) {
+                    device->destroy(*color);
+                }
+                if (meta) {
+                    device->destroy(*meta);
+                }
+                destroy_history();
+                return std::unexpected(color ? meta.error() : color.error());
+            }
+            history.color.at(i) = *color;
+            history.meta.at(i) = *meta;
+        }
+        history.size = {width, height};
         return {};
     }
 
@@ -595,6 +711,17 @@ Result<> RealtimeRenderer::prepare(rhi::Device& device, const SceneShaders& shad
         !made) {
         return made;
     }
+    if (auto made = compute(veach_render_shaders::taa(), "taa_resolve", {8, 8, 1}, s.taa_pipeline); !made) {
+        return made;
+    }
+    if (auto made = compute(veach_render_shaders::taa(), "taa_sharpen", {8, 8, 1}, s.taa_sharpen_pipeline); !made) {
+        return made;
+    }
+    auto sampler = device.create_sampler({rhi::Filter::linear, rhi::AddressMode::clamp});
+    if (!sampler) {
+        return std::unexpected(sampler.error());
+    }
+    s.linear_clamp = *sampler;
     for (std::uint32_t i = 0; i < device.frames_in_flight(); ++i) {
         auto view = device.create_buffer({.size = sizeof(CullView),
                                           .memory = rhi::MemoryType::upload,
@@ -621,12 +748,18 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     const bool continuous = s.previous.valid && s.previous.camera == view.camera &&
                             s.previous.space_frame == space.frame && s.previous.width == width &&
                             s.previous.height == height;
+    // This frame's jitter (ADR 0061): culling, the visibility pass and shading see the jittered projection; motion
+    // vectors, the history and the backdrop the unjittered one.
+    const math::mat4 jittered = jittered_view_projection(view.view_projection, view.jitter, width, height);
+    const math::mat4 inverse_jittered =
+        view.jitter == math::vec2(0.0f) ? view.inverse_view_projection : math::inverse(jittered);
     // Last frame's view in this frame's render space: render space moved by whole 64 m cells (ADR 0045).
-    const math::mat4 previous_view_projection =
-        continuous ? s.previous.view_projection *
-                         math::translate(math::mat4(1.0f), math::vec3(space.origin - s.previous.origin))
-                   : view.view_projection;
-    s.previous = {view.view_projection, space.origin, space.frame, view.camera, width, height, true};
+    const math::mat4 shift = math::translate(math::mat4(1.0f), math::vec3(space.origin - s.previous.origin));
+    const math::mat4 previous_view_projection = continuous ? s.previous.view_projection * shift : view.view_projection;
+    const math::mat4 previous_jittered = continuous ? s.previous.jittered_view_projection * shift : jittered;
+    // From this frame's jittered clip space to last frame's unjittered one (taa.slang), composed in double.
+    const math::mat4 reprojection(math::dmat4(previous_view_projection) * math::inverse(math::dmat4(jittered)));
+    s.previous = {view.view_projection, jittered, space.origin, space.frame, view.camera, width, height, true};
 
     // ---- persistent resources, sized for this frame.
     std::uint32_t meshlets = 0;
@@ -660,9 +793,9 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     }
     const bool hiz_valid = continuous && s.hiz_written;
 
-    CullView cull_view{.view_projection = view.view_projection,
-                       .occlusion_view_projection = previous_view_projection,
-                       .planes = frustum_planes(view.view_projection),
+    CullView cull_view{.view_projection = jittered,
+                       .occlusion_view_projection = previous_jittered,
+                       .planes = frustum_planes(jittered),
                        .camera = math::vec4(view.position, view.near_plane),
                        .screen = {width, height},
                        .hiz_size = s.hiz_size,
@@ -709,7 +842,6 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
         frame.blackboard->set("visibility", visibility);
         frame.blackboard->set("depth", depth);
         frame.blackboard->set("motion", motion);
-        frame.blackboard->set("hdr_color", radiance);
     }
 
     const GraphResource instances_resource = scene.instances;
@@ -821,9 +953,10 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     };
     // ---- visibility: opaque lists first, then alpha-tested ones (ADR 0060).
     const VisibilityParams vis_params{
-        .view_projection = view.view_projection,
+        .view_projection = jittered,
         .previous_view_projection = previous_view_projection,
-        .inverse_size = {1.0f / static_cast<float>(width), 1.0f / static_cast<float>(height)}};
+        .inverse_size = {1.0f / static_cast<float>(width), 1.0f / static_cast<float>(height)},
+        .jitter = {view.jitter.x / static_cast<float>(width), view.jitter.y / static_cast<float>(height)}};
     const auto draw = [&](std::uint32_t phase) {
         graph.add_graphics_pass(
             phase == 0 ? "visibility" : "visibility (late)",
@@ -899,7 +1032,7 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     draw(1);
 
     // ---- material binning: the tiles each bin shows, and their dispatches.
-    ClassifyParams classify{.inverse_view_projection = view.inverse_view_projection,
+    ClassifyParams classify{.inverse_view_projection = view.inverse_view_projection,  // the sky's motion: unjittered
                             .previous_view_projection = previous_view_projection,
                             .size = {width, height},
                             .bin_count = bins,
@@ -958,7 +1091,7 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     }
 
     // ---- shade, a dispatch per bin: lights, the sky's ambient light, emission, the sky and aerial perspective.
-    ShadeParams shade{.inverse_view_projection = view.inverse_view_projection,
+    ShadeParams shade{.inverse_view_projection = inverse_jittered,  // the rays of the pixels the visibility pass drew
                       .camera_position = math::vec4(view.position, view.exposure),
                       .size = {width, height},
                       .light_count = scene.light_count,
@@ -1000,7 +1133,125 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
             }
         });
 
-    // ---- the space backdrop (ADR 0091): beyond the sky, on the pixels the shade pass marked, before metering.
+    // ---- temporal AA (ADR 0061): this frame blended with its reprojected history, in pre-exposed radiance, before
+    // the backdrop, metering and the display transform.
+    GraphResource image = radiance;  ///< what the passes below read: the resolved image with TAA
+    const std::uint64_t device_frame = s.device->current_frame().index;
+    if (view.temporal_aa) {
+        if (auto ready = s.ensure_history(width, height); !ready) {
+            log::error("render", ready.error());
+        } else {
+            Impl::History& h = s.history;
+            const bool auto_exposed = exposure_state.has_value();
+            // The history is last frame's, for this camera in this render frame at this size (a cut, a frame switch
+            // or a resize starts over), under the same exposure control.
+            const bool valid = h.valid && continuous && h.frame + 1 == device_frame && h.auto_exposure == auto_exposed;
+            const std::uint32_t read = h.last;
+            const std::uint32_t write = 1 - h.last;
+            // Every frame leaves both pairs in shader_read; an invalid history's contents do not matter.
+            const rhi::ResourceState before = valid ? rhi::ResourceState::shader_read : rhi::ResourceState::undefined;
+            const GraphResource history_color =
+                graph.import(h.color.at(read), "TAA history", before, rhi::ResourceState::shader_read);
+            const GraphResource history_meta =
+                graph.import(h.meta.at(read), "TAA history ids", before, rhi::ResourceState::shader_read);
+            const GraphResource next_color =
+                graph.import(h.color.at(write), "TAA history (next)", rhi::ResourceState::undefined,
+                             rhi::ResourceState::shader_read);
+            const GraphResource next_meta =
+                graph.import(h.meta.at(write), "TAA history ids (next)", rhi::ResourceState::undefined,
+                             rhi::ResourceState::shader_read);
+            const GraphResource resolved =
+                graph.create_texture({width, height, rhi::Format::rgba16_float,
+                                      rhi::TextureUsage::storage | rhi::TextureUsage::sampled, "TAA resolved"});
+            TaaParams taa{.reprojection = reprojection,
+                          .size = {width, height},
+                          .near_plane = view.near_plane,
+                          .exposure_ratio = valid && h.exposure > 0.0f ? view.exposure / h.exposure : 1.0f,
+                          .flags = (valid ? taa_history_valid : 0u) | (auto_exposed ? taa_auto_exposure : 0u),
+                          .min_weight = taa_min_weight,
+                          .moving_weight = taa_moving_weight,
+                          .moving_pixels = taa_moving_pixels,
+                          .clip_gamma = taa_clip_gamma,
+                          .edge_weight = taa_edge_weight,
+                          .sharpness = taa_sharpness};
+            graph.add_compute_pass(
+                "taa",
+                [&](PassBuilder& b) {
+                    read_meshes(b);
+                    b.read(radiance);
+                    b.read(motion);
+                    b.read(depth);
+                    b.read(visibility);
+                    b.read(history_color);
+                    b.read(history_meta);
+                    if (exposure_state) {
+                        b.read(*exposure_state);
+                    }
+                    b.write(next_color, rhi::ResourceState::shader_write);
+                    b.write(next_meta, rhi::ResourceState::shader_write);
+                    b.write(resolved, rhi::ResourceState::shader_write);
+                },
+                [taa, pipeline = s.taa_pipeline, sampler = s.linear_clamp, radiance, motion, depth, visibility,
+                 instances = scene.instances, history_color, history_meta, next_color, next_meta, resolved,
+                 exposure = exposure_state](PassContext& ctx) mutable {
+                    const auto storage = [&](GraphResource r) {
+                        return ctx.device.descriptor(ctx.texture(r), rhi::View::storage);
+                    };
+                    taa.radiance = ctx.device.descriptor(ctx.texture(radiance));
+                    taa.motion = ctx.device.descriptor(ctx.texture(motion));
+                    taa.depth = ctx.device.descriptor(ctx.texture(depth));
+                    taa.visibility = ctx.device.descriptor(ctx.texture(visibility));
+                    taa.instances = ctx.device.descriptor(ctx.buffer(instances));
+                    taa.history = ctx.device.descriptor(ctx.texture(history_color));
+                    taa.history_meta = ctx.device.descriptor(ctx.texture(history_meta));
+                    taa.linear_clamp = ctx.device.descriptor(sampler);
+                    taa.history_out = storage(next_color);
+                    taa.meta_out = storage(next_meta);
+                    taa.resolved = storage(resolved);
+                    if (exposure) {
+                        taa.exposure_state = ctx.device.descriptor(ctx.buffer(*exposure));
+                    }
+                    ctx.cmd.set_pipeline(pipeline);
+                    ctx.cmd.set_parameters(taa);
+                    ctx.cmd.dispatch((taa.size[0] + 7) / 8, (taa.size[1] + 7) / 8);
+                });
+            h.last = write;
+            h.valid = true;
+            h.frame = device_frame;
+            h.exposure = view.exposure;
+            h.auto_exposure = auto_exposed;
+            image = resolved;
+            if (taa.sharpness > 0.0f) {
+                const GraphResource sharpened =
+                    graph.create_texture({width, height, rhi::Format::rgba16_float,
+                                          rhi::TextureUsage::storage | rhi::TextureUsage::sampled, "TAA sharpened"});
+                graph.add_compute_pass(
+                    "taa sharpen",
+                    [&](PassBuilder& b) {
+                        b.read(resolved);
+                        b.read(motion);
+                        b.write(sharpened, rhi::ResourceState::shader_write);
+                    },
+                    [taa, pipeline = s.taa_sharpen_pipeline, resolved, motion, sharpened](PassContext& ctx) mutable {
+                        taa.radiance = ctx.device.descriptor(ctx.texture(resolved));
+                        taa.motion = ctx.device.descriptor(ctx.texture(motion));
+                        taa.resolved = ctx.device.descriptor(ctx.texture(sharpened), rhi::View::storage);
+                        ctx.cmd.set_pipeline(pipeline);
+                        ctx.cmd.set_parameters(taa);
+                        ctx.cmd.dispatch((taa.size[0] + 7) / 8, (taa.size[1] + 7) / 8);
+                    });
+                image = sharpened;
+            }
+        }
+    } else {
+        s.history.valid = false;
+    }
+    if (frame.blackboard != nullptr) {
+        frame.blackboard->set("hdr_color", image);
+    }
+
+    // ---- the space backdrop (ADR 0091): beyond the sky, on the share of each pixel the shade pass marked (smoothed
+    // by TAA), along unjittered rays, before metering.
     if (frame.world.sky.backdrop && frame.world.sky.backdrop_settings.visible) {
         BackdropCompositeParams composite{.inverse_view_projection = view.inverse_view_projection,
                                           .size = {width, height},
@@ -1013,14 +1264,14 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
                 if (exposure_state) {
                     b.read(*exposure_state);
                 }
-                b.write(radiance, rhi::ResourceState::shader_write);
+                b.write(image, rhi::ResourceState::shader_write);
             },
-            [composite, pipeline = s.backdrop_pipeline, radiance, sky = scene.sky,
+            [composite, pipeline = s.backdrop_pipeline, image, sky = scene.sky,
              exposure = exposure_state](PassContext& ctx) mutable {
                 if (exposure) {
                     composite.exposure_state = ctx.device.descriptor(ctx.buffer(*exposure));
                 }
-                composite.radiance = ctx.device.descriptor(ctx.texture(radiance), rhi::View::storage);
+                composite.radiance = ctx.device.descriptor(ctx.texture(image), rhi::View::storage);
                 composite.sky = ctx.device.descriptor(sky);
                 ctx.cmd.set_pipeline(pipeline);
                 ctx.cmd.set_parameters(composite);
@@ -1053,12 +1304,12 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
         graph.add_compute_pass(
             "exposure histogram",
             [&](PassBuilder& b) {
-                b.read(radiance);
+                b.read(image);
                 b.write(state, rhi::ResourceState::shader_write);  // read only; declared storage for its view
                 b.write(histogram_bins, rhi::ResourceState::shader_write);
             },
-            [exposure, pipeline = s.histogram_pipeline, radiance, state, histogram_bins](PassContext& ctx) mutable {
-                exposure.radiance = ctx.device.descriptor(ctx.texture(radiance));
+            [exposure, pipeline = s.histogram_pipeline, image, state, histogram_bins](PassContext& ctx) mutable {
+                exposure.radiance = ctx.device.descriptor(ctx.texture(image));
                 exposure.histogram = ctx.device.descriptor(ctx.buffer(histogram_bins), rhi::View::storage);
                 exposure.state = ctx.device.descriptor(ctx.buffer(state), rhi::View::storage);
                 ctx.cmd.set_pipeline(pipeline);
@@ -1089,18 +1340,18 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     graph.add_compute_pass(
         "display",
         [&](PassBuilder& b) {
-            b.read(radiance);
+            b.read(image);
             if (exposure_state) {
                 b.read(*exposure_state);
             }
             b.write(frame.scene_color, rhi::ResourceState::shader_write);
         },
-        [display, pipeline = s.display_pipeline, radiance, color = frame.scene_color,
+        [display, pipeline = s.display_pipeline, image, color = frame.scene_color,
          exposure = exposure_state](PassContext& ctx) mutable {
             if (exposure) {
                 display.exposure_state = ctx.device.descriptor(ctx.buffer(*exposure));
             }
-            display.radiance = ctx.device.descriptor(ctx.texture(radiance));
+            display.radiance = ctx.device.descriptor(ctx.texture(image));
             display.output = ctx.device.descriptor(ctx.texture(color), rhi::View::storage);
             ctx.cmd.set_pipeline(pipeline);
             ctx.cmd.set_parameters(display);

@@ -690,6 +690,7 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
         }
         inst.object_to_world = rows_of(draw.world);
         inst.normal_to_world = rows_of(math::mat4(math::transpose(math::inverse(linear))));
+        inst.id = surface_id(draw.entity);
         instances.push_back(inst);
         entities.push_back(draw.entity);
         draws.push_back(&draw);

@@ -105,6 +105,13 @@ struct PhotoMode {
     std::uint32_t max_bounces = 8;
 };
 
+/// On a camera entity: anti-aliasing in the real-time renderer (ADR 0061, docs/specs/temporal-aa/spec.md). Without
+/// it, temporal anti-aliasing is on: the projection is jittered by a sub-pixel offset each frame and each pixel blends
+/// with its reprojected history. Photo mode never uses it. Visual only. Scriptable.
+struct AntiAliasing {
+    bool temporal = true;  ///< false: no jitter and no history, each frame's image alone (a debug and test view)
+};
+
 /// On a camera entity: how open its surroundings are to the sky (ADR 0082 rule 5, ADR 0091). Air and surfaces nearer
 /// than `reach` receive the sky's light times `visibility`, rising to all of it at twice the reach: caves and
 /// interiors get no aerial-perspective haze and less of the sky's ambient light, and both return through openings.

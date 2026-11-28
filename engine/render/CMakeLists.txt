@@ -39,6 +39,9 @@ veach_add_shader(veach_render shaders/gpu_cull.slang
 veach_add_shader(veach_render shaders/hiz.slang ENTRIES hiz_reduce:compute)
 veach_add_shader(veach_render shaders/classify.slang ENTRIES classify:compute classify_args:compute
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
+# Temporal anti-aliasing (ADR 0061, docs/specs/temporal-aa/spec.md).
+veach_add_shader(veach_render shaders/taa.slang ENTRIES taa_resolve:compute taa_sharpen:compute
+    INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
 veach_add_shader(veach_render shaders/atmosphere.slang ENTRIES transmittance_lut:compute multiscattering_lut:compute
     sky_view_lut:compute sky_irradiance:compute)
 veach_add_shader(veach_render shaders/aerial_volume.slang ENTRIES aerial_volume:compute)

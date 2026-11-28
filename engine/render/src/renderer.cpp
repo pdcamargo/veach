@@ -228,6 +228,36 @@ std::optional<math::mat4> RenderSpaceMap::matrix(const FrameTransform& pose) {
     return m;
 }
 
+namespace {
+
+/// The radical inverse of `index` in `base`: a coordinate of the Halton sequence.
+float halton(std::uint32_t index, std::uint32_t base) {
+    float result = 0.0f;
+    float fraction = 1.0f;
+    while (index > 0) {
+        fraction /= static_cast<float>(base);
+        result += fraction * static_cast<float>(index % base);
+        index /= base;
+    }
+    return result;
+}
+
+}  // namespace
+
+math::vec2 taa_jitter(std::uint64_t frame) {
+    const auto index = static_cast<std::uint32_t>(frame % 8) + 1;
+    return {halton(index, 2) - 0.5f, halton(index, 3) - 0.5f};
+}
+
+math::mat4 jittered_view_projection(const math::mat4& view_projection, math::vec2 jitter, std::uint32_t width,
+                                    std::uint32_t height) {
+    // A clip-space shear: x + ox * w and y + oy * w move every point by (ox, oy) in NDC, whose y points up.
+    math::mat4 offset(1.0f);
+    offset[3][0] = 2.0f * jitter.x / static_cast<float>(std::max(width, 1u));
+    offset[3][1] = -2.0f * jitter.y / static_cast<float>(std::max(height, 1u));
+    return offset * view_projection;
+}
+
 std::pair<std::uint32_t, std::uint32_t> target_size(const RenderWorld& world) {
     return {world.target_width != 0 ? world.target_width : 1280, world.target_height != 0 ? world.target_height : 720};
 }
@@ -260,7 +290,7 @@ Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device), readba
             out.target_height = handle.height != 0 ? handle.height : window.height;
         });
     });
-    add_extractor("views", [](const World& world, RenderWorld& out) {
+    add_extractor("views", [no_taa = env_is_one("VEACH_DISABLE_TAA")](const World& world, RenderWorld& out) {
         const auto [width, height] = target_size(out);
         const float aspect = static_cast<float>(width) / static_cast<float>(height);
         std::vector<std::pair<std::uint64_t, const Camera*>> cameras;
@@ -315,6 +345,9 @@ Renderer::Renderer(rhi::Device& device) : device_(device), pool_(device), readba
             if (const SkyVisibility* sky = world.entity(id).try_get<SkyVisibility>()) {
                 view.sky_visibility = *sky;
             }
+            const AntiAliasing* aa = world.entity(id).try_get<AntiAliasing>();
+            view.temporal_aa = !no_taa && !view.photo_mode && (aa == nullptr || aa->temporal);
+            view.jitter = view.temporal_aa ? taa_jitter(out.frame) : math::vec2(0.0f);
             view.camera = id;
             out.views.push_back(view);
         }
@@ -740,6 +773,7 @@ RenderModule::RenderModule(World& world) {
         .member(&PhotoMode::samples_per_frame, "samples_per_frame")
         .member(&PhotoMode::max_bounces, "max_bounces")
         .add<Scriptable>();
+    world.component<AntiAliasing>().member(&AntiAliasing::temporal, "temporal").add<Scriptable>();
     world.component<SkyVisibility>()
         .member(&SkyVisibility::visibility, "visibility")
         .member(&SkyVisibility::reach, "reach")

@@ -3,8 +3,9 @@
 // The real-time renderer (docs/adr/0093-gpu-driven-core.md, ADR 0060): GPU-driven culling of the GPU scene's
 // instances and meshlets in two phases against a HiZ pyramid, a visibility buffer drawn from the compacted lists with
 // motion vectors, shading binned by material kind (every punctual light, unshadowed; the sky's ambient light;
-// emission; the sky and aerial perspective), then the display transform. No ray tracing. The scene renderer owns the
-// scene on the GPU and hands it over each frame.
+// emission; the sky and aerial perspective), temporal anti-aliasing (docs/specs/temporal-aa/spec.md, ADR 0096: a
+// jittered projection, a history resolve on pre-exposed radiance), the space backdrop, then the display transform. No
+// ray tracing. The scene renderer owns the scene on the GPU and hands it over each frame.
 
 #include <veach/core/error.hpp>
 #include <veach/render/render_graph.hpp>

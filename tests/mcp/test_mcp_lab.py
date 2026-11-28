@@ -595,6 +595,8 @@ def backdrop_sky(lab: str, out_dir: str) -> None:
         return
     boosted = {"exposure_compensation": 4.0, "exposure_follow": 0.1}
     physical = {"exposure_compensation": 0.0, "exposure_follow": 1.0}
+    # Frames compared pixel for pixel: each its own image, without temporal AA's history (ADR 0061).
+    client.call_json("set_component", entity="camera", component="AntiAliasing", value={"temporal": False})
 
     def largest_difference(time_of_day: float, name: str) -> int:
         client.call_json("set_component", entity="camera", component="Sky", value={"time_of_day": time_of_day})

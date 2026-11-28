@@ -7,6 +7,7 @@ add_executable(veach-tests
     ecs_tests.cpp
     gpu_driven_tests.cpp  # VCH-071, VCH-073: indirect work and readback
     gpu_driven_renderer_tests.cpp  # VCH-138: the GPU-driven real-time renderer
+    taa_tests.cpp  # VCH-144: temporal anti-aliasing
     gpu_texture_tests.cpp
     lifecycle_tests.cpp
     physics_tests.cpp
@@ -234,10 +235,11 @@ endif()
 # (ADR 0033). Skipped on GPUs that can't run them, unless VEACH_REQUIRE_GPU=1.
 set(_golden_dir "${PROJECT_SOURCE_DIR}/tests/golden")
 # veach_golden_test(<name> <script> <golden> <rhi> [FRAMES n] [MAX_MEAN x] [MAX_P999 x] [MAX_OUTLIERS n]
-#                   [NO_RAY_TRACING] [TIMEOUT s])
+#                   [NO_RAY_TRACING] [TAA] [TIMEOUT s])
+# Goldens render without temporal AA (one frame's shading) unless TAA is given (golden_test.cmake, ADR 0061).
 # TIMEOUT is CTest's (default 120 s); the lab gets 15 s less, so a hang prints its log (golden_test.cmake).
 function(veach_golden_test name script golden rhi)
-    cmake_parse_arguments(ARG "NO_RAY_TRACING" "FRAMES;MAX_MEAN;MAX_P999;MAX_OUTLIERS;TIMEOUT" "" ${ARGN})
+    cmake_parse_arguments(ARG "NO_RAY_TRACING;TAA" "FRAMES;MAX_MEAN;MAX_P999;MAX_OUTLIERS;TIMEOUT" "" ${ARGN})
     if(NOT ARG_TIMEOUT)
         set(ARG_TIMEOUT 120)
     endif()
@@ -260,6 +262,9 @@ function(veach_golden_test name script golden rhi)
     if(ARG_NO_RAY_TRACING)
         list(APPEND extra -DNO_RAY_TRACING=1)
         set(out_name "${script}.${rhi}.no_rt")
+    endif()
+    if(ARG_TAA)
+        list(APPEND extra -DTAA=1)
     endif()
     add_test(NAME "${name}"
         COMMAND "${CMAKE_COMMAND}" -DLAB=$<TARGET_FILE:veach-lab> -DIMGDIFF=$<TARGET_FILE:veach-cli> -DRHI=${rhi}
@@ -329,6 +334,18 @@ if(APPLE)
     veach_scene_goldens(metal)
     # backdrop.AC7: the space backdrop alone (stars, band, nebulae), small.
     veach_golden_test("golden: space backdrop" space_backdrop_small space_backdrop metal)
+    # taa.AC3: temporal AA after 24 frames of a turning helmet and a panning camera, in front of the stars.
+    veach_golden_test("golden: temporal AA in motion" taa_motion taa_motion metal TAA FRAMES 24)
+    # taa.AC4: the history survives the render origin's 64 m jump: the frame right after it matches the same strafe
+    # where the origin stays put (mean FLIP 0.004 measured; 0.019 when the jump is not undone and the history lost).
+    add_test(NAME "taa: the history survives a render-origin jump"
+        COMMAND "${CMAKE_COMMAND}" -DLAB=$<TARGET_FILE:veach-lab> -DIMGDIFF=$<TARGET_FILE:veach-cli> -DRHI=metal
+                -DSCRIPT_A=scripts/taa_origin_still.luau -DSCRIPT_B=scripts/taa_origin_jump.luau -DFRAMES=12
+                -DMAX_MEAN=0.008 -DOUT=${CMAKE_CURRENT_BINARY_DIR}/golden/taa_origin
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/same_image_test.cmake"
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/apps/lab")
+    set_tests_properties("taa: the history survives a render-origin jump" PROPERTIES
+        SKIP_REGULAR_EXPRESSION "VEACH_GPU_UNAVAILABLE")
     # rtmesh.AC4: a mesh made at run time (and updated on frame 2), in real time and in photo mode.
     # sky.AC4, rt.AC3: Bistro under the physical sky at noon and at sunset (Metal only: Bistro is too heavy for WARP).
     foreach(_time noon sunset)
@@ -370,12 +387,18 @@ if(APPLE)
             "bistro_noon:bistro_noon:3" "bistro_sunset:bistro_sunset:3"
             "runtime_mesh_realtime:runtime_mesh_realtime:3" "runtime_mesh:runtime_mesh:4"
             "thin_triangles_realtime:thin_triangles_realtime:3" "blend_modes:blend_modes:3"
-            "space_backdrop_small:space_backdrop:3")
+            "space_backdrop_small:space_backdrop:3" "taa_motion:taa_motion:24:taa")
         string(REPLACE ":" ";" _golden "${_golden}")
         list(GET _golden 0 _script)
         list(GET _golden 1 _image)
         list(GET _golden 2 _frames)
-        list(APPEND _update COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 $<TARGET_FILE:veach-lab>
+        # Temporal AA off except in temporal goldens (golden_test.cmake).
+        set(_taa VEACH_DISABLE_TAA=1)
+        list(LENGTH _golden _fields)
+        if(_fields GREATER 3)
+            set(_taa VEACH_DISABLE_TAA=0)
+        endif()
+        list(APPEND _update COMMAND "${CMAKE_COMMAND}" -E env MTL_SHADER_VALIDATION=0 ${_taa} $<TARGET_FILE:veach-lab>
                 --rhi metal --headless --frames ${_frames} --script scripts/${_script}.luau
                 --screenshot "${_golden_dir}/${_image}.png")
     endforeach()

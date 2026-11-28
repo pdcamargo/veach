@@ -81,6 +81,9 @@ Rules:
 - Resources you own across frames are `import()`ed with the state they are in *now*. Track it yourself, the
   way `TriangleFeature` tracks its acceleration structures (`undefined` before the first build, `accel_read`
   after). Transient textures (`graph.create_texture`) are allocated and reused by the graph.
+- Many resources that no pass writes (a scene's mesh buffers and textures) are one `import_group()`: a pass reads
+  the group as one access, the graph emits no barrier for it, and Metal resolves which members need naming once per
+  frame. Bistro's scene is two groups instead of about 3,000 accesses in every pass that reads it.
 - `frame.scene_color` is `rgba8_unorm`, already cleared to `render::background_color`. Draw into it with
   `color_target(..., LoadOp::load)` or write it as a storage texture from compute (`shader_write`).
 - See what the graph decided: `--log-level debug` prints `RenderGraph::describe()` (order, culled passes,
@@ -272,7 +275,12 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   Register it with `veach_add_material(<app> GlowMaterial shaders/glow_material.slang [EMISSIVE])`, then
   `veach_add_scene_shaders(<app> NAMESPACE <ns>)`. A glTF material selects it with `"extras": {"veach_material":
   "GlowMaterial"}`. Renderers call `evaluateSurface(kind, context)` and never read material records directly
-  ([ADR 0035](../adr/0035-material-model.md)).
+  ([ADR 0035](../adr/0035-material-model.md)). A material whose channels share work overrides `evalSurface` (all
+  channels at once). Procedural and triplanar materials read `SurfaceInput`'s object-space position, normal, tangent
+  (as stored), pixel gradients (`object_dx`, `object_dy`), `object_to_world` and the draw's `material_origin`; a
+  `MaterialAsset` gives a kind two 2D arrays (`array_textures`), a `custom` vec4 and anisotropic filtering
+  (`max_anisotropy`), with runtime textures from `MeshStore::add_texture`. The engine's `TerrainMaterial` is one
+  (`veach_add_terrain_material(<app>)`, [terrain materials](terrain-materials.md)).
 - **Lights:** `DirectionalLight` (lux), `PointLight` and `SpotLight` (candela), shining down −Z, and emissive
   surfaces (nits) ([ADR 0036](../adr/0036-lights-in-photometric-units.md)). `PointLight.radius`, `SpotLight.radius`
   (meters) and `DirectionalLight.angle` (angular diameter, radians) give a light a size: soft shadows in photo mode.
@@ -314,22 +322,32 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
      little where it moves. A camera turns it off with `AntiAliasing { temporal = false }`, every camera with
      `VEACH_DISABLE_TAA=1`. A feature that reconstructs positions from `depth` uses
      `render::jittered_view_projection(view.view_projection, view.jitter, width, height)`.
-  8. `space backdrop` (when there is one), metering, `display`: AgX.
+  8. `space backdrop` (when there is one); `bloom: down 0..n`, `bloom: up n..0` ([spec](../specs/bloom/spec.md),
+     [ADR 0099](../adr/0099-bloom.md)): the glare of a lens, threshold-free and energy-conserving, a 13-tap downsample
+     chain from half resolution (Karis's average into level 0) and a tent upsample, its levels weighted by their size
+     on the screen (`render::bloom_chain`); metering (without the bloom); `display`: the bloom blended in
+     (`lerp(image, bloom, intensity)`), then AgX. A camera's `Bloom { intensity, radius }` tunes it (0.04 and 0.12 of
+     the image height by default; `intensity = 0` turns it off), every camera with `VEACH_DISABLE_BLOOM=1`.
 
   `FrameContext::blackboard` hands `visibility`, `depth`, `motion`, `hdr_color` (the resolved image) and
   `ambient_occlusion` to features recorded after it. What culling did (`render::CullStats`: instances visible and
   rechecked, meshlets culled, occluded and drawn per phase) is read back each frame (`SceneRenderer::cull_stats`, MCP `gpu_timings`' `culling`). Lighting has no indirect light
   from surfaces and no local reflections, and uses no ray tracing: `VEACH_DISABLE_RAY_TRACING=1` renders the same
   image. Example: `scripts/flight_helmet_realtime.luau`.
-- **Sun shadows** ([spec](../specs/sun-shadows/spec.md), [ADR 0095](../adr/0095-sun-shadows.md)): the brightest
+- **Sun shadows** ([spec](../specs/sun-shadows/spec.md), [ADR 0095](../adr/0095-sun-shadows.md),
+  [ADR 0100](../adr/0100-sun-shadow-culling.md)): the brightest
   directional lights (at most two) cast cascaded shadow maps, before shading (`shadows.cpp`). A camera's `SunShadows`
   sets how many suns cast (`suns`, 0 turns them off), where the last cascade ends (`distance`, meters, default 1000),
   how many cascades (`cascades`, 1 to 4, each a quarter of the next) and their size (`resolution`, default 2048).
   Each cascade is the bounding sphere of its slice of the frustum, snapped to its texels in the render frame (no
   shimmer as the camera moves or render space changes cell), culled by `gpu_cull.slang` with `cull_shadow_view` (no
-  occlusion, no normal cones; casters must be big enough and their shadow must reach the camera's slice) into its own
-  draw lists, and drawn depth-only into a layer of one `depth32_float` 2D array (`shadow_vs`, `shadow_fs_masked` in
-  `realtime_visibility.slang`). Shading calls `light_shadow` (`veach/shadows.slang`) once per light: the cascade by
+  normal cones; casters must be big enough and their shadow must reach the camera's slice) into its own draw lists,
+  and drawn depth-only into a layer of one `depth32_float` 2D array (`shadow_vs_opaque`, `shadow_vs`,
+  `shadow_fs_masked` in `realtime_visibility.slang`). Culling also drops casters that shadow none of this frame's
+  pixels (receiver pyramids marked from the camera's depth) and casters hidden from the light behind others (two
+  phases, as the camera's HiZ), both in `shadow_pyramids.slang`; the last two of three or four cascades are kept from
+  frame to frame while the scene, render frame and lights are still. `VEACH_SHADOW_NO_RECEIVERS=1`,
+  `VEACH_SHADOW_NO_OCCLUSION=1` and `VEACH_SHADOW_NO_CACHE=1` turn each off, to compare. Shading calls `light_shadow` (`veach/shadows.slang`) once per light: the cascade by
   view depth, a blocker search, then comparison-sampler PCF as wide as the light's angular radius makes the
   penumbra; the last tenth of each cascade blends into the next and the last fifth of the distance fades out.
   Beyond `distance` only a surface's own facing darkens it. `CullStats::shadow_meshlets_drawn` reports each
@@ -413,7 +431,8 @@ build/debug/tools/veach-cli/veach imgdiff tests/golden/flight_helmet_realtime.pn
   return shadows that vary from run to run. Take screenshots you compare the same way.
 - Goldens render **without temporal AA** (`golden_test.cmake` sets `VEACH_DISABLE_TAA=1`): each tests one frame's
   shading. A temporal golden (`veach_golden_test(... TAA FRAMES n)`) renders n frames of the fixed jitter sequence and
-  is byte-identical from run to run; screenshots you compare with a golden need the same setting.
+  is byte-identical from run to run; screenshots you compare with a golden need the same setting. Goldens render
+  **with bloom** (it has no history, so it is deterministic).
 - **Regenerating goldens is a deliberate act:** `cmake --build --preset debug --target update-goldens` writes
   `tests/golden/*.png` (stored in Git LFS). Look at the images before committing, and say why they changed in
   the commit message.

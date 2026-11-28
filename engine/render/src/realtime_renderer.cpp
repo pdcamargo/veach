@@ -1,6 +1,7 @@
 #include "realtime_renderer.hpp"
 
 #include "ambient_occlusion.hpp"
+#include "bloom_renderer.hpp"
 
 #include <veach/asset/scene.hpp>
 #include <veach/core/env.hpp>
@@ -163,6 +164,7 @@ static_assert(rhi::parameters_match<BackdropCompositeParams>(
      VEACH_PARAM(BackdropCompositeParams, size), VEACH_PARAM(BackdropCompositeParams, exposure),
      VEACH_PARAM(BackdropCompositeParams, flags)}));
 constexpr std::uint32_t composite_auto_exposure = 1u;
+constexpr std::uint32_t display_bloom = 4u;  ///< DisplayParams::tonemap: blend the bloom chain in (display.slang)
 
 /// Mirrors TaaParams in shaders/taa.slang (ADR 0061).
 struct alignas(16) TaaParams {
@@ -255,6 +257,7 @@ struct RealtimeRenderer::Impl {
     rhi::PipelineHandle display_pipeline;
     rhi::PipelineHandle backdrop_pipeline;       ///< the space backdrop's composite (ADR 0091)
     AmbientOcclusionRenderer ambient_occlusion;  ///< ADR 0096
+    BloomRenderer bloom;                         ///< docs/specs/bloom/spec.md
 
     /// A persistent buffer of culling's, grown on demand. Every frame leaves it in shader_read.
     struct Buffer {
@@ -644,6 +647,9 @@ Result<> RealtimeRenderer::prepare(rhi::Device& device, const SceneShaders& shad
     if (auto made = s.ambient_occlusion.prepare(device); !made) {
         return made;
     }
+    if (auto made = s.bloom.prepare(device); !made) {
+        return made;
+    }
     if (auto made = s.shadows.prepare(device, shaders); !made) {
         return made;
     }
@@ -806,6 +812,7 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
         p.recheck_meshlets = storage(recheck_meshlets);
         p.visible = storage(visible);
         p.bin_tiles = storage(bin_tiles);
+        p.pyramids = p.view;  // never read: the camera's view has no shadow pyramids
         ctx.cmd.set_parameters(p);
     };
     const auto read_meshes = scene.read_meshes;
@@ -1030,7 +1037,8 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     }
 
     // ---- the sun shadow maps (shadows.hpp): each cascade culled and drawn on its own.
-    const ShadowRenderer::Output shadow_maps = s.shadows.record(graph, frame, view, scene, s.stats);
+    const ShadowRenderer::Output shadow_maps =
+        s.shadows.record(graph, frame, view, scene, depth, inverse_jittered, s.stats);
 
     // ---- ambient occlusion from the final depth (ADR 0096): the shading's ambient light reads it.
     const std::optional<GraphResource> occlusion = s.ambient_occlusion.record(graph, depth, view, width, height);
@@ -1074,6 +1082,9 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
             }
             if (shadow_maps.map) {
                 b.read(*shadow_maps.map);
+            }
+            if (shadow_maps.occluders) {
+                b.read(*shadow_maps.occluders);
             }
             if (occlusion) {
                 b.read(*occlusion);
@@ -1257,6 +1268,10 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
             });
     }
 
+    // ---- bloom (docs/specs/bloom/spec.md): the glow of the image as shown, the backdrop included, before the display
+    // transform blends it in. Metering below reads the image without it.
+    const std::optional<BloomResult> bloom = s.bloom.record(graph, image, view, width, height);
+
     // ---- spike SP-14 (VCH-090): meter the pre-exposed radiance, adapt, and keep the result on the GPU.
     if (exposure_state) {
         const AutoExposureSettings& a = *auto_exposure;
@@ -1314,7 +1329,11 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
     display.size = {width, height};
     display.input_size = {width, height};
     display.exposure = 1.0f;
-    display.tonemap = exposure_state ? 3u : 1u;
+    display.tonemap = (exposure_state ? 3u : 1u) | (bloom ? display_bloom : 0u);
+    if (bloom) {
+        display.bloom_texel = {1.0f / static_cast<float>((width + 1) / 2), 1.0f / static_cast<float>((height + 1) / 2)};
+        display.bloom_intensity = std::min(view.bloom.intensity, 1.0f) * bloom->coverage;
+    }
     graph.add_compute_pass(
         "display",
         [&](PassBuilder& b) {
@@ -1322,12 +1341,20 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
             if (exposure_state) {
                 b.read(*exposure_state);
             }
+            if (bloom) {
+                b.read(bloom->image);
+            }
             b.write(frame.scene_color, rhi::ResourceState::shader_write);
         },
-        [display, pipeline = s.display_pipeline, image, color = frame.scene_color,
-         exposure = exposure_state](PassContext& ctx) mutable {
+        [display, pipeline = s.display_pipeline, image, color = frame.scene_color, exposure = exposure_state,
+         bloom = bloom ? std::optional<GraphResource>(bloom->image) : std::nullopt,
+         sampler = s.bloom.sampler()](PassContext& ctx) mutable {
             if (exposure) {
                 display.exposure_state = ctx.device.descriptor(ctx.buffer(*exposure));
+            }
+            if (bloom) {
+                display.bloom = ctx.device.descriptor(ctx.texture(*bloom), rhi::View::read, ctx.range(*bloom));
+                display.linear_clamp = ctx.device.descriptor(sampler);
             }
             display.radiance = ctx.device.descriptor(ctx.texture(image));
             display.output = ctx.device.descriptor(ctx.texture(color), rhi::View::storage);

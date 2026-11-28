@@ -1,6 +1,7 @@
 // The binding between veach::voxel terrain bodies, reference frames and the renderer (terrain.hpp).
 
 #include <veach/runtime/terrain.hpp>
+#include <veach/runtime/terrain_surface.hpp>
 
 #include <veach/core/hash.hpp>
 #include <veach/core/jobs.hpp>
@@ -37,15 +38,52 @@ TerrainBodies::~TerrainBodies() {
     }
 }
 
+namespace {}  // namespace
+
+std::vector<TerrainVertexInput> terrain_vertex_inputs(const vx::ChunkRecord& record, const vx::TerrainBody* body) {
+    const vx::ChunkMesh& m = record.mesh;
+    std::vector<TerrainVertexInput> inputs(m.fixed.size());
+    constexpr double meters_per_fixed = vx::lod0_cell_meters / static_cast<double>(vx::fixed_one);
+    // Depth below the generated surface only where an edit may have uncovered it: elsewhere the mesh is the
+    // generated surface.
+    bool edited = false;
+    if (body != nullptr) {
+        const vx::LatticeBox box = vx::sample_box(record.slot.key);
+        edited = body->edits().touches(box);
+    }
+    for (std::size_t v = 0; v < m.fixed.size(); ++v) {
+        TerrainVertexInput& in = inputs[v];
+        in.position = math::dvec3(static_cast<double>(m.fixed[v][0]) * meters_per_fixed,
+                                  static_cast<double>(m.fixed[v][1]) * meters_per_fixed,
+                                  static_cast<double>(m.fixed[v][2]) * meters_per_fixed);
+        in.normal = math::vec3(m.normal[v][0], m.normal[v][1], m.normal[v][2]);
+        if (edited) {
+            const std::optional<double> d =
+                body->source().generated_distance(in.position.x, in.position.y, in.position.z);
+            in.depth = d && *d < 0.0 ? -*d : 0.0;
+        }
+    }
+    return inputs;
+}
+
 namespace {
 
 /// A chunk's render mesh, built on its job: positions relative to the chunk origin (exact from the lattice
 /// coordinates), unit normals, a tangent, and one material slot per triangle (its vertices' highest material id).
-vx::ChunkPayload render_payload(std::vector<AssetId> materials) {
-    return [materials = std::move(materials)](const vx::ChunkRecord& record) -> std::shared_ptr<const void> {
+/// With a TerrainSurface, the tangent and uv carry the vertex's six slot weights instead, and every triangle is in
+/// slot 0.
+vx::ChunkPayload render_payload(std::vector<AssetId> materials, std::shared_ptr<const TerrainSurface> surface,
+                                const vx::TerrainBody* body) {
+    return [materials = std::move(materials), surface = std::move(surface),
+            body](const vx::ChunkRecord& record) -> std::shared_ptr<const void> {
         const vx::ChunkMesh& m = record.mesh;
         render::MeshData data;
         data.vertices.resize(m.fixed.size());
+        std::vector<std::array<float, 6>> weights;
+        if (surface) {
+            weights.resize(m.fixed.size());
+            surface->weights(terrain_vertex_inputs(record, body), weights);
+        }
         for (std::size_t v = 0; v < m.fixed.size(); ++v) {
             MeshVertex& out = data.vertices[v];
             out.position = m.position[v];
@@ -53,11 +91,26 @@ vx::ChunkPayload render_payload(std::vector<AssetId> materials) {
             const float length = math::length(n);
             n = length > 0.0f ? n / length : math::vec3(0.0f, 1.0f, 0.0f);
             out.normal = {n.x, n.y, n.z};
+            if (surface) {
+                const std::array<float, 6>& w = weights[v];
+                out.tangent = {w[0], w[1], w[2], w[3]};
+                out.uv = {w[4], w[5]};
+                continue;
+            }
             const math::vec3 t = math::normalize(
                 math::cross(std::abs(n.y) < 0.9f ? math::vec3(0.0f, 1.0f, 0.0f) : math::vec3(1.0f, 0.0f, 0.0f), n));
             out.tangent = {t.x, t.y, t.z, 1.0f};
         }
         data.indices = m.indices;
+        if (surface) {
+            data.materials = {materials.empty() ? AssetId{} : materials.front()};
+            Result<render::RuntimeMesh> built = render::build_runtime_mesh(std::move(data));
+            if (!built) {
+                log::error("terrain", built.error());
+                return nullptr;
+            }
+            return std::make_shared<const render::RuntimeMesh>(std::move(*built));
+        }
         const std::size_t triangles = m.indices.size() / 3;
         const std::uint32_t last = materials.empty() ? 0 : static_cast<std::uint32_t>(materials.size() - 1);
         data.triangle_slots.resize(triangles);
@@ -89,7 +142,7 @@ std::uint64_t draw_id(std::uint64_t frame, const vx::ChunkKey& key) {
 
 vx::TerrainBody& TerrainBodies::add(Entity frame, std::shared_ptr<vx::TerrainBody> body, TerrainLook look) {
     const std::uint64_t id = frame.is_valid() ? frame.id() : 0;
-    body->set_payload(render_payload(look.materials));
+    body->set_payload(render_payload(look.materials, look.surface, body.get()));
     auto b = std::make_unique<Body>();
     b->frame = id;
     b->body = std::move(body);
@@ -209,10 +262,18 @@ TerrainModule::TerrainModule(World& world) {
                     }
                     math::mat4 matrix(axes);
                     matrix[3] = math::vec4(*at, 1.0f);
-                    out.meshes.push_back({.mesh = id->second,
-                                          .materials = mesh->second->materials,
-                                          .world = matrix,
-                                          .entity = draw_id(frame_id, r->slot.key)});
+                    // Where the chunk is in the body frame, wrapped: terrain materials' macro variation continues
+                    // across chunks (origins are whole multiples of 16 m, so the wrap is exact).
+                    const auto wrap = [](double x) {
+                        return static_cast<float>(x - std::floor(x / terrain_material_period_m) *
+                                                          terrain_material_period_m);
+                    };
+                    out.meshes.push_back(
+                        {.mesh = id->second,
+                         .materials = mesh->second->materials,
+                         .world = matrix,
+                         .entity = draw_id(frame_id, r->slot.key),
+                         .material_origin = math::vec3(wrap(origin.x), wrap(origin.y), wrap(origin.z))});
                 }
             }
         });

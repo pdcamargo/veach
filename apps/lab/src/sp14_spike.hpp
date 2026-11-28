@@ -24,7 +24,7 @@
 //     VEACH_SP14_SCALE=s           the planet's s_p (default 1; s_a = sqrt(s_p), as SP-10)
 //     VEACH_SP14_NO_CLAMP=1        no fp16 clamp of the pre-exposed radiance (shows the sun's overflow)
 //     VEACH_SP14_LOW=p VEACH_SP14_HIGH=p   the metered percentile band (default 0.5, 0.9)
-//     VEACH_SP14_PULL=stops        how far the highlight percentile may darken the metered exposure (default 4)
+//     VEACH_SP14_PULL=stops        how far the highlight percentile may darken the metered exposure (default 2)
 //     VEACH_SP14_FROM=f            start the timeline at frame f (with an exposure reset there)
 //     VEACH_SP14_HOLD=1            stay at that frame (for timings)
 //   Both: VEACH_SP14_SIZE=WxH (default 960x540), VEACH_SP14_STARS=brightness (default 1; 0 = none).

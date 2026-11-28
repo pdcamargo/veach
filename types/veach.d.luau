@@ -108,6 +108,10 @@ export type AmbientOcclusion = {
 export type AntiAliasing = {
 	temporal: boolean,
 }
+export type Bloom = {
+	intensity: number,
+	radius: number,
+}
 export type Camera = {
 	fov_y: number,
 	near_plane: number,
@@ -250,6 +254,7 @@ export type Veach = {
 	read components: {
 		read AmbientOcclusion: Component<AmbientOcclusion>,
 		read AntiAliasing: Component<AntiAliasing>,
+		read Bloom: Component<Bloom>,
 		read Camera: Component<Camera>,
 		read DirectionalLight: Component<DirectionalLight>,
 		read FrameSpin: Component<FrameSpin>,

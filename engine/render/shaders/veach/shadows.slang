@@ -33,7 +33,12 @@ struct ShadowFrame {
     float depth_bias;      ///< texels toward the light
     float max_penumbra;    ///< texels: the blocker search's radius and the widest filter
     float blend;           ///< the share of a cascade's far depth over which it blends into the next
-    float pad;
+    uint occluder_base;    ///< where layer 0's occluder pyramid starts in `occluders`
+    /// Each layer's occluder pyramid (shadow_pyramids.slang), level 0 first: the smallest depth of each 16 x 16 texels
+    /// of the map's first phase of casters. A lookup whose reach it puts wholly behind casters is fully shadowed.
+    DescriptorHandle<StructuredBuffer<uint>> occluders;
+    uint occluder_size;    ///< level 0's texels per side; 0: no pyramid
+    uint occluder_stride;  ///< uints from one layer's pyramid to the next (the first at 0)
 };
 
 static const float2 shadow_disk[16] = {
@@ -61,6 +66,24 @@ float cascade_shadow(ShadowFrame f, uint layer, ShadowCascade c, float3 p, float
     }
     const float size = f.resolution;
     const float search = f.max_penumbra;
+    if (f.occluder_size != 0) {
+        // Every texel the search and the filter can read (the widest disk, bilinear taps) is nearer the light than
+        // the receiver: fully shadowed, exactly what the taps would find.
+        const float cells = float(f.occluder_size) / size;
+        const float reach = search + 2.0;
+        const uint last = f.occluder_size - 1;
+        const uint2 a = uint2(clamp(floor((uv * size - reach) * cells), 0.0, float(last)));
+        const uint2 b = uint2(clamp(floor((uv * size + reach) * cells), 0.0, float(last)));
+        float farthest = 3.4e38;
+        for (uint y = a.y; y <= b.y; ++y) {
+            for (uint x = a.x; x <= b.x; ++x) {
+                farthest = min(farthest, asfloat(f.occluders[f.occluder_base + layer * f.occluder_stride + y * f.occluder_size + x]));
+            }
+        }
+        if (farthest > depth) {
+            return 0.0;
+        }
+    }
     // Blockers: texels nearer the light than the receiver (reverse-Z: greater), on a 4x4 grid.
     float blocker_sum = 0.0;
     float blockers = 0.0;

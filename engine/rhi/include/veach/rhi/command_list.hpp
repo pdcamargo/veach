@@ -69,6 +69,16 @@ public:
 
     /// Declares that the current pass accesses `resource` in `state` (residency on Metal).
     virtual void use(ResourceRef resource, ResourceState state) = 0;
+    /// Declares that the current pass reads every resource of `resources` in `state` (a read-only state): a render
+    /// graph's group (RenderGraph::import_group), which no pass writes. Within a command list one `group` id always
+    /// names the same resources, so a backend may resolve them once (Metal: the few that need naming) and reuse that
+    /// for every pass.
+    virtual void use_group(std::uint64_t group, std::span<const ResourceRef> resources, ResourceState state) {
+        (void)group;
+        for (const ResourceRef r : resources) {
+            use(r, state);
+        }
+    }
     virtual void barrier(std::span<const Barrier> barriers) = 0;
 
     virtual void push_debug_group(std::string_view name) = 0;

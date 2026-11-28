@@ -18,6 +18,7 @@
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdlib>
@@ -212,6 +213,7 @@ public:
     void copy_buffer_to_texture(BufferHandle src, std::uint64_t offset, std::uint32_t row_pitch, TextureHandle dst,
                                 const TextureRegion& region) override;
     void use(ResourceRef resource, ResourceState state) override;
+    void use_group(std::uint64_t group, std::span<const ResourceRef> resources, ResourceState state) override;
     void barrier(std::span<const Barrier> barriers) override;
     void push_debug_group(std::string_view name) override { [buffer_ pushDebugGroup:ns(name)]; }
     void pop_debug_group() override { [buffer_ popDebugGroup]; }
@@ -234,11 +236,22 @@ private:
     void write_instances(MetalAccel& tlas, std::span<const TlasInstance> instances);
     void encode_accel(AccelHandle handle, bool refit);
     void use_one(id<MTLResource> resource, ResourceState state);
+    /// Calls `f` with every Metal resource a pass touching `ref` in `state` must name (none when the residency set
+    /// covers it untracked): the resource, a texture's views, a TLAS's BLASes without a residency set.
+    template <class F>
+    void named_resources(ResourceRef ref, ResourceState state, F&& f);
     /// Makes the resources use() collected resident, in one call per usage (a scene pass declares thousands).
     void flush_uses();
     std::vector<__unsafe_unretained id<MTLResource>> pending_reads_;  ///< owned by the device's slots
     std::vector<__unsafe_unretained id<MTLResource>> pending_writes_;
     std::unordered_set<const void*> pending_seen_;
+    /// use_group: each group's members that need naming, resolved at its first use in this command list.
+    struct ResolvedGroup {
+        std::uint64_t group = 0;
+        ResourceState state = ResourceState::undefined;
+        std::vector<__unsafe_unretained id<MTLResource>> resources;
+    };
+    std::vector<ResolvedGroup> groups_;
 
     MetalDevice& device_;
     id<MTLCommandBuffer> buffer_;
@@ -1555,7 +1568,8 @@ void MetalCommandList::flush_uses() {
     flush(pending_writes_, MTLResourceUsageRead | MTLResourceUsageWrite);
 }
 
-void MetalCommandList::use(ResourceRef ref, ResourceState state) {
+template <class F>
+void MetalCommandList::named_resources(ResourceRef ref, ResourceState state, F&& f) {
     if (device_.resident_untracked(ref, is_write(state))) {
         return;
     }
@@ -1565,12 +1579,12 @@ void MetalCommandList::use(ResourceRef ref, ResourceState state) {
         state == ResourceState::index_read) {
         return;  // attachments, blits, builds, and indirect and index buffers name their resources explicitly
     }
-    use_one(device_.resource(ref), state);
+    f(device_.resource(ref));
     if (ref.kind == ResourceKind::texture) {
         // Shaders may reach the texture through its views (ADR 0090): hazards and residency cover those too.
         if (MetalTexture* t = device_.texture(TextureHandle{ref.index, ref.generation})) {
             for (const auto& [key, view] : t->views) {
-                use_one(view, state);
+                f(view);
             }
         }
     }
@@ -1578,10 +1592,38 @@ void MetalCommandList::use(ResourceRef ref, ResourceState state) {
         // A TLAS is only traversable if every BLAS it references is resident too.
         if (MetalAccel* tlas = device_.accel(AccelHandle{ref.index, ref.generation}); tlas && tlas->tlas) {
             for (const AccelHandle blas : tlas->blases) {
-                use_one(device_.resource(blas), ResourceState::accel_read);
+                f(device_.resource(blas));
             }
         }
     }
+}
+
+void MetalCommandList::use(ResourceRef ref, ResourceState state) {
+    named_resources(ref, state, [&](id<MTLResource> r) { use_one(r, state); });
+}
+
+void MetalCommandList::use_group(std::uint64_t group, std::span<const ResourceRef> resources, ResourceState state) {
+    if (!render_ && !compute_) {
+        return;
+    }
+    // Resolved once per command list: with the residency set, a scene's thousands of read-only meshes and textures
+    // usually leave nothing to name.
+    auto it =
+        std::ranges::find_if(groups_, [&](const ResolvedGroup& g) { return g.group == group && g.state == state; });
+    if (it == groups_.end()) {
+        ResolvedGroup resolved{group, state, {}};
+        for (const ResourceRef r : resources) {
+            named_resources(r, state, [&](id<MTLResource> m) {
+                if (m) {
+                    resolved.resources.push_back(m);
+                }
+            });
+        }
+        groups_.push_back(std::move(resolved));
+        it = groups_.end() - 1;
+    }
+    auto& pending = is_write(state) ? pending_writes_ : pending_reads_;
+    pending.insert(pending.end(), it->resources.begin(), it->resources.end());
 }
 
 void MetalCommandList::barrier(std::span<const Barrier> barriers) {

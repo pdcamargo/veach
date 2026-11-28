@@ -3,6 +3,7 @@ veach_add_engine_library(render
         src/ambient_occlusion.cpp
         src/atmosphere.cpp
         src/backdrop.cpp
+        src/bloom.cpp
         src/gpu_scene.cpp
         src/mesh_store.cpp
         src/realtime_renderer.cpp
@@ -31,7 +32,7 @@ veach_add_shader(veach_render shaders/path_tracer.slang ENTRIES trace_pixels:com
 # HiZ pyramid and the classification run no material code.
 veach_add_shader(veach_render shaders/realtime_visibility.slang
     ENTRIES vis_vs:vertex vis_fs:fragment vis_fs_masked:fragment
-            shadow_vs:vertex shadow_fs:fragment shadow_fs_masked:fragment
+            shadow_vs:vertex shadow_vs_opaque:vertex shadow_fs:fragment shadow_fs_masked:fragment
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
 veach_shade_bins("${CMAKE_CURRENT_BINARY_DIR}/generated" 1 _shade_entries)
 veach_add_shader(veach_render "${CMAKE_CURRENT_BINARY_DIR}/generated/realtime_shade_bins.slang"
@@ -41,6 +42,8 @@ veach_add_shader(veach_render shaders/gpu_cull.slang
             cull_args:compute
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
 veach_add_shader(veach_render shaders/hiz.slang ENTRIES hiz_reduce:compute)
+veach_add_shader(veach_render shaders/shadow_pyramids.slang
+    ENTRIES receivers_clear:compute receivers_mark:compute pyramid_reduce:compute occluders_build:compute)
 # GTAO and its blur (ADR 0096, ambient_occlusion.cpp).
 veach_add_shader(veach_render shaders/ambient_occlusion.slang
     ENTRIES ao_view_depth:compute ao_depth_mip:compute ao_trace:compute ao_denoise:compute ao_upsample:compute)
@@ -53,6 +56,8 @@ veach_add_shader(veach_render shaders/classify.slang ENTRIES classify:compute cl
 # Temporal anti-aliasing (ADR 0061, docs/specs/temporal-aa/spec.md).
 veach_add_shader(veach_render shaders/taa.slang ENTRIES taa_resolve:compute taa_sharpen:compute
     INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/default_materials")
+# Bloom (docs/specs/bloom/spec.md, bloom.cpp); the display pass blends it in.
+veach_add_shader(veach_render shaders/bloom.slang ENTRIES bloom_downsample:compute bloom_upsample:compute)
 veach_add_shader(veach_render shaders/atmosphere.slang ENTRIES transmittance_lut:compute multiscattering_lut:compute
     sky_view_lut:compute sky_ambient_lut:compute)
 veach_add_shader(veach_render shaders/aerial_volume.slang ENTRIES aerial_volume:compute)

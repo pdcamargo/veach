@@ -42,6 +42,7 @@ struct RealtimeScene {
     std::uint32_t light_count = 0;
     rhi::BufferHandle sky;                       ///< SkyFrame (ADR 0038)
     std::function<void(PassBuilder&)> read_sky;  ///< declares it and the sky's LUTs
+    bool still = false;  ///< nothing in the scene moved, came, went or changed since the frame before
 };
 
 class RealtimeRenderer {

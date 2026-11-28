@@ -4,6 +4,7 @@
 #include <veach/core/profile.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <format>
 #include <set>
 #include <utility>
@@ -72,6 +73,7 @@ rhi::TextureHandle PassContext::texture(GraphResource resource) const {
 }
 
 rhi::BufferHandle PassContext::buffer(GraphResource resource) const {
+    VEACH_ASSERT(graph_.resources_.at(resource.id).group == 0, "graph resource {} is a group", resource.id);
     const auto& r = graph_.resources_.at(resource.id).ref;
     VEACH_ASSERT(r.kind == rhi::ResourceKind::buffer, "graph resource {} is not a buffer", resource.id);
     return {r.index, r.generation};
@@ -160,6 +162,19 @@ GraphResource RenderGraph::import(rhi::AccelHandle accel, std::string name, rhi:
     return {static_cast<std::uint32_t>(resources_.size() - 1)};
 }
 
+GraphResource RenderGraph::import_group(std::vector<rhi::ResourceRef> members, std::string name,
+                                        rhi::ResourceState state) {
+    static std::atomic<std::uint64_t> next_group{1};
+    if (rhi::is_write(state)) {
+        errors_.push_back(std::format("group '{}' imported in {}: a group is read-only", name, rhi::to_string(state)));
+    }
+    Resource r{std::move(name), {}, state, state, state, true, std::nullopt};
+    r.group = next_group.fetch_add(1, std::memory_order_relaxed);
+    r.members = std::move(members);
+    resources_.push_back(std::move(r));
+    return {static_cast<std::uint32_t>(resources_.size() - 1)};
+}
+
 GraphResource RenderGraph::create_texture(const rhi::TextureDesc& desc) {
     resources_.push_back(
         {desc.debug_name, {}, rhi::ResourceState::undefined, std::nullopt, rhi::ResourceState::undefined, false, desc});
@@ -173,7 +188,7 @@ GraphResource RenderGraph::mips(GraphResource texture, std::uint32_t first_mip, 
     }
     const std::uint32_t root = root_of(texture.id);
     const Resource& base = resources_[root];
-    if (!base.transient && base.ref.kind != rhi::ResourceKind::texture) {
+    if (base.group != 0 || (!base.transient && base.ref.kind != rhi::ResourceKind::texture)) {
         errors_.push_back(std::format("mips() of '{}', which is not a texture", base.name));
         return {};
     }
@@ -309,6 +324,10 @@ Result<> RenderGraph::compile() {
                                                      "per pass",
                                                      resources_[a.resource.id].name));
                 }
+            }
+            if (const Resource& r = resources_[a.resource.id]; r.group != 0 && a.state != r.initial) {
+                return invalid(pass, std::format("accesses group '{}' in {}; a group is only read, in {}", r.name,
+                                                 rhi::to_string(a.state), rhi::to_string(r.initial)));
             }
             if ((a.state == rhi::ResourceState::color_target || a.state == rhi::ResourceState::depth_write) &&
                 pass.kind != PassKind::graphics) {
@@ -569,7 +588,11 @@ void RenderGraph::execute(rhi::CommandList& cmd) {
             case PassKind::transfer: break;
         }
         for (const Access& a : pass.accesses) {
-            cmd.use(resources_[a.resource.id].ref, a.state);
+            if (const Resource& r = resources_[a.resource.id]; r.group != 0) {
+                cmd.use_group(r.group, r.members, a.state);
+            } else {
+                cmd.use(r.ref, a.state);
+            }
         }
         PassContext ctx(cmd, device_, *this);
         if (pass.execute) {
@@ -625,8 +648,11 @@ std::string RenderGraph::describe() const {
                    resources_[pass.accesses[i + run].resource.id].name == name) {
                 ++run;
             }
-            out += std::format("       {} {}{} ({})\n", rhi::is_write(a.state) ? "writes" : "reads", name,
-                               run > 1 ? std::format(" x{}", run) : std::string(), rhi::to_string(a.state));
+            const Resource& r = resources_[a.resource.id];
+            out += std::format("       {} {}{}{} ({})\n", rhi::is_write(a.state) ? "writes" : "reads", name,
+                               run > 1 ? std::format(" x{}", run) : std::string(),
+                               r.group != 0 ? std::format(" (group of {})", r.members.size()) : std::string(),
+                               rhi::to_string(a.state));
             i += run;
         }
     }

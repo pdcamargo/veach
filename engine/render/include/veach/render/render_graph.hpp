@@ -124,6 +124,13 @@ public:
                          std::optional<rhi::ResourceState> final_state = std::nullopt);
     GraphResource import(rhi::AccelHandle accel, std::string name, rhi::ResourceState current,
                          std::optional<rhi::ResourceState> final_state = std::nullopt);
+    /// Many existing resources that no pass of this graph writes (a scene's mesh buffers and textures), brought in
+    /// once per frame as one read-only resource: a pass that reads them declares one access instead of thousands, and
+    /// the graph orders and barriers nothing for them. They stay in `state`; passes may only read the group, in that
+    /// state, and no member may also be imported on its own. The backend names the members for residency with one
+    /// call per pass (rhi::CommandList::use_group), which Metal resolves once per command list.
+    GraphResource import_group(std::vector<rhi::ResourceRef> members, std::string name,
+                               rhi::ResourceState state = rhi::ResourceState::shader_read);
     /// A texture that lives only within this frame (needs a TransientPool).
     GraphResource create_texture(const rhi::TextureDesc& desc);
     /// The description of a texture in the graph (imported or transient), or null for buffers and invalid ids.
@@ -165,6 +172,8 @@ private:
         std::uint32_t root = UINT32_MAX;  ///< the texture a mips() view belongs to; UINT32_MAX for a whole resource
         std::uint32_t first_mip = 0;
         std::uint32_t mip_count = 0;  ///< 0: every mip
+        std::uint64_t group = 0;      ///< import_group: a process-wide id, and the members
+        std::vector<rhi::ResourceRef> members{};
     };
     struct Access {
         GraphResource resource;

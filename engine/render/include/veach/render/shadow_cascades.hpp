@@ -27,17 +27,22 @@ struct CascadeFit {
     math::mat4 clip_from_render{1.0f};
     std::array<math::vec4, 5> planes{};  ///< culling: its four sides and its far side (away from the light)
     math::vec3 center{0.0f};             ///< render space, snapped
-    float radius = 0.0f;                 ///< meters: half the cascade's width
-    float texel = 0.0f;                  ///< meters per texel
-    float depth_range = 0.0f;            ///< meters per unit of depth
+    math::vec3 x{0.0f};                  ///< the map's axes in render space (the light's direction alone sets them)
+    math::vec3 y{0.0f};
+    float radius = 0.0f;       ///< meters: half the cascade's width
+    float texel = 0.0f;        ///< meters per texel
+    float depth_range = 0.0f;  ///< meters per unit of depth
 };
 
 /// The cascade covering view depths [near, far] of `view` for a light toward `l` (unit, toward the light): the
 /// slice's bounding sphere, whose size does not change as the camera turns, centered on a whole texel of a grid fixed
 /// in the render frame (`origin` is render space's origin there), so static shadows do not shimmer as the camera
-/// moves or as render space moves to another cell.
+/// moves or as render space moves to another cell. Its depth reaches twice the radius toward the light, or
+/// `toward_light` meters if that is farther (casters beyond are flattened onto its near plane). `radius_scale` widens
+/// the sphere, so that a cached cascade still covers the slice after the camera moved.
 [[nodiscard]] CascadeFit fit_cascade(const RenderView& view, const math::dvec3& origin, math::vec3 l, float near,
-                                     float far, std::uint32_t resolution);
+                                     float far, std::uint32_t resolution, float toward_light = 0.0f,
+                                     float radius_scale = 1.0f);
 
 /// The planes (inside where dot(xyz, p) + w >= 0) of the slice of `view`'s frustum between view depths `near` and
 /// `far`, each moved out by `margin` meters: what a cascade's shadows must fall in to be seen.

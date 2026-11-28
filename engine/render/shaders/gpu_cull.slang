@@ -23,12 +23,16 @@ struct CullView {
     uint phase_stride;      ///< entries from a phase-1 draw list to the same phase-2 list
     uint4 list_offsets[2];  ///< first entry of each of the 8 draw lists (phase 1)
     uint task_capacity;     ///< meshlet tasks per phase
-    uint pad0;
-    uint pad1;
-    uint pad2;
+    uint receiver_base;     ///< cull_receivers: this cascade's receiver pyramid in CullParams::pyramids...
+    uint pyramid_size;      ///< ...level 0's texels per side of a shadow cascade's pyramids...
+    uint pyramid_levels;    ///< ...and their levels
     /// cull_shadow_view: the camera's frustum slice the cascade's shadows fall in (inside where dot(xyz, p) + w >= 0)...
     float4 receiver_planes[6];
     float4 sweep;  ///< ...the way shadows go (xyz, away from the light), w: the smallest sphere radius that casts
+    uint occluder_base;  ///< a shadow cascade with occlusion: its occluder pyramid in CullParams::pyramids
+    uint pad0;
+    uint pad1;
+    uint pad2;
 };
 
 struct CullParams {
@@ -46,8 +50,8 @@ struct CullParams {
     DescriptorHandle<RWStructuredBuffer<uint>> bin_tiles;          ///< the shading bins' counts (reset only)
     uint phase;                                                    ///< 0 or 1
     uint bin_count;
-    uint pad0;
-    uint pad1;
+    /// Shadow cascades: their receiver and occluder pyramids (shadow_receivers.slang), asuint of depths
+    DescriptorHandle<StructuredBuffer<uint>> pyramids;
 };
 [[vk::push_constant]] ConstantBuffer<CullParams> params;
 
@@ -55,6 +59,8 @@ static const uint cull_previous_hiz = 1u;  ///< CullView::flags: last frame's py
 /// CullView::flags: a shadow cascade (shadows.cpp). No normal cones (every meshlet casts, whichever way it faces);
 /// what passes must also be big enough to cast (sweep.w) and its shadow must fall in the receivers' slice.
 static const uint cull_shadow_view = 2u;
+/// CullView::flags, with cull_shadow_view: drop casters that shadow no receiver this frame (the receiver mask).
+static const uint cull_receivers = 4u;
 static const uint meshlet_task_size = 64;  ///< meshlets per task (a thread group of cull_meshlets)
 static const uint bucket_count = 4;        ///< draw lists by triangle count: <= 16, <= 32, <= 64, <= 124
 static const uint list_count = 8;          ///< opaque buckets, then alpha-tested buckets (render::draw_list_of)
@@ -111,19 +117,73 @@ bool casts_into_view(CullView v, Sphere s) {
     return true;
 }
 
+/// A sphere against one of a shadow cascade's pyramids in CullParams::pyramids (shadow_receivers.slang): level 0 has
+/// a texel per 16 x 16 of the map, each texel of a level the smallest depth (reverse-Z: the farthest from the light)
+/// of the four below it. Returns that smallest depth over the sphere's footprint on the map of the orthographic
+/// `view_projection`, and the sphere's nearest depth to the light in `nearest`; a negative value if the footprint is
+/// off the map. The footprint and the level follow occluded()'s.
+float pyramid_farthest(CullView v, uint base, float4x4 view_projection, Sphere s, out float nearest) {
+    // Orthographic: the sphere's box on the map is its center's projection give or take its radius on each axis.
+    const float4 clip = mul(view_projection, float4(s.center, 1.0));
+    const float3 reach = s.radius * float3(length(view_projection[0].xyz), length(view_projection[1].xyz),
+                                           length(view_projection[2].xyz));
+    const float2 at = float2(clip.x * 0.5 + 0.5, 0.5 - clip.y * 0.5);
+    const float2 lo = at - 0.5 * reach.xy;
+    const float2 hi = at + 0.5 * reach.xy;
+    nearest = clip.z + reach.z;  // reverse-Z: nearer the light is larger
+    if (any(hi < float2(0.0, 0.0)) || any(lo > float2(1.0, 1.0))) {
+        return -1.0;
+    }
+    const float size = float(v.pyramid_size);
+    const float2 t_lo = saturate(lo) * size;
+    const float2 t_hi = saturate(hi) * size;
+    const float extent = max(t_hi.x - t_lo.x, t_hi.y - t_lo.y);
+    const uint level = min(extent <= 1.0 ? 0u : uint(ceil(log2(extent))), v.pyramid_levels - 1u);
+    const uint level_size = v.pyramid_size >> level;
+    const uint offset = base + (4u * v.pyramid_size * v.pyramid_size - 4u * level_size * level_size) / 3u;
+    const uint2 a = min(uint2(t_lo) >> level, uint2(level_size - 1, level_size - 1));
+    const uint2 b = min(uint2(t_hi) >> level, uint2(level_size - 1, level_size - 1));
+    float farthest = 3.4e38;
+    for (uint y = a.y; y <= b.y; ++y) {
+        for (uint x = a.x; x <= b.x; ++x) {
+            farthest = min(farthest, asfloat(params.pyramids[offset + y * level_size + x]));
+        }
+    }
+    return farthest;
+}
+
+/// For a shadow cascade with a receiver mask: true if the sphere shadows no receiver this frame, because every
+/// receiver its footprint covers is nearer the light than the sphere's nearest point, or there is none, or the
+/// footprint is off the map (no lookup reads it).
+bool shadows_nothing(CullView v, Sphere s) {
+    float nearest;
+    const float farthest = pyramid_farthest(v, v.receiver_base, v.view_projection, s, nearest);
+    return farthest < 0.0 || nearest < farthest;
+}
+
 bool in_frustum(CullView v, Sphere s) {
     for (uint i = 0; i < 5; ++i) {
         if (dot(v.planes[i].xyz, s.center) + v.planes[i].w < -s.radius) {
             return false;
         }
     }
-    return (v.flags & cull_shadow_view) == 0 || casts_into_view(v, s);
+    if ((v.flags & cull_shadow_view) == 0) {
+        return true;
+    }
+    return casts_into_view(v, s) && ((v.flags & cull_receivers) == 0 || !shadows_nothing(v, s));
 }
 
 /// True if the sphere is hidden behind the pyramid built from `view_projection`'s depth: its nearest point is farther
 /// than the farthest depth of every pyramid texel its screen rectangle touches. Pyramid texel t of mip L covers
-/// pixels [t, t + 1) * 2^(L + 1), and the last texel of a row or column reaches the edge (hiz.slang).
+/// pixels [t, t + 1) * 2^(L + 1), and the last texel of a row or column reaches the edge (hiz.slang). A shadow
+/// cascade's occluders are the casters already in its map, seen from the light: a caster wholly behind them adds no
+/// texel to it.
 bool occluded(CullView v, float4x4 view_projection, Sphere s) {
+    if ((v.flags & cull_shadow_view) != 0) {
+        float nearest;
+        const float farthest = pyramid_farthest(v, v.occluder_base, view_projection, s, nearest);
+        return farthest >= 0.0 && nearest < farthest;
+    }
     float2 lo = float2(1e30, 1e30);
     float2 hi = float2(-1e30, -1e30);
     float nearest = 0.0;

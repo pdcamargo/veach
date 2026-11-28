@@ -39,6 +39,9 @@ public:
     [[nodiscard]] rhi::BufferHandle buffer() const { return buffer_; }
     /// Bytes the last update() uploaded (0 for a frame where nothing changed).
     [[nodiscard]] std::uint64_t uploaded_bytes() const { return uploaded_bytes_; }
+    /// Whether the last update() found every record as the frame before left it, in the same render space: nothing
+    /// in the scene moved, came or went (what a cached shadow cascade needs to stay valid).
+    [[nodiscard]] bool still() const { return still_; }
 
 private:
     rhi::Device& device_;
@@ -52,6 +55,7 @@ private:
     RenderSpace space_;
     bool has_space_ = false;
     std::uint64_t uploaded_bytes_ = 0;
+    bool still_ = false;
 };
 
 }  // namespace veach::render

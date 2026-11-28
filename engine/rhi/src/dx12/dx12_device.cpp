@@ -713,6 +713,7 @@ public:
     void copy_buffer_to_texture(BufferHandle src, std::uint64_t offset, std::uint32_t row_pitch, TextureHandle dst,
                                 const TextureRegion& region) override;
     void use(ResourceRef, ResourceState) override {}  // committed resources are always resident
+    void use_group(std::uint64_t, std::span<const ResourceRef>, ResourceState) override {}
     void barrier(std::span<const Barrier> barriers) override;
     void push_debug_group(std::string_view name) override {
         const std::string text(name);  // PIX_EVENT_ANSI_VERSION (1): a null-terminated ANSI string

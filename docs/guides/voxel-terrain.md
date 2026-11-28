@@ -145,6 +145,7 @@ engine.import<veach::TerrainModule>();
 auto& terrain = veach::services(world).get<veach::TerrainBodies>();
 const veach::Entity planet = world.entity("planet").set(veach::ReferenceFrame{.up = veach::FrameUp::radial});
 terrain.add(planet, body, {.materials = {lowland, highland, rock}});   // MeshStore materials by voxel material id
+// or {.materials = {*surface->material(store)}, .surface = surface}: terrain materials (terrain-materials.md)
 camera.child_of(planet).add<veach::TerrainViewer>();
 ```
 
@@ -154,6 +155,9 @@ camera.child_of(planet).add<veach::TerrainViewer>();
   a fixed order (deterministic ids) and removed when evicted. Extraction places each chunk at its origin, converted
   from lattice integers to the frame's meters and then to render space relative to the render origin in double; the
   vertices are chunk-relative floats.
+- With `TerrainLook::surface` (a `TerrainSurface`), every chunk draws with its `TerrainMaterial` and each vertex carries
+  the surface's six layer weights, computed on the chunk's job from slope, altitude, depth below the generated
+  surface and the game's fields ([terrain materials](terrain-materials.md)).
 - Without a renderer (a server), the module still streams; nothing is uploaded.
 - `TerrainBodies::stats(frame)` has the last update's `StreamStats`.
 

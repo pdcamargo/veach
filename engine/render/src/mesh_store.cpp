@@ -202,6 +202,40 @@ Result<> MeshStore::remove_material(AssetId material) {
     return {};
 }
 
+Result<AssetId> MeshStore::add_texture(TextureAsset texture) {
+    if (texture.width == 0 || texture.height == 0 || texture.mips.empty() || texture.layers == 0 ||
+        (!texture.array && texture.layers != 1)) {
+        return invalid(std::format("a runtime texture of {}x{} with {} layers and {} mips", texture.width,
+                                   texture.height, texture.layers, texture.mips.size()),
+                       "Give a size, at least one mip level, and layers > 1 only for an array.");
+    }
+    for (std::size_t m = 0; m < texture.mips.size(); ++m) {
+        const std::size_t expected =
+            texture_level_size(texture.format, std::max(1u, texture.width >> m), std::max(1u, texture.height >> m)) *
+            texture.layers;
+        if (texture.mips[m].size() != expected) {
+            return invalid(std::format("mip {} of a runtime texture has {} bytes, expected {}", m,
+                                       texture.mips[m].size(), expected),
+                           "Each level holds every layer, rows tightly packed (TextureAsset).");
+        }
+    }
+    auto shared = std::make_shared<const TextureAsset>(std::move(texture));
+    const std::scoped_lock lock(mutex_);
+    const AssetId id = next_id();
+    assets_.textures.emplace(id, std::move(shared));
+    snapshot_.reset();
+    return id;
+}
+
+Result<> MeshStore::remove_texture(AssetId texture) {
+    const std::scoped_lock lock(mutex_);
+    if (assets_.textures.erase(texture) == 0) {
+        return unknown("texture", texture);
+    }
+    snapshot_.reset();
+    return {};
+}
+
 std::size_t MeshStore::mesh_count() const {
     const std::scoped_lock lock(mutex_);
     return assets_.meshes.size();

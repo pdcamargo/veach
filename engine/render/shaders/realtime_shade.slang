@@ -128,6 +128,11 @@ float4 surface_pixel(SkyFrame sky, uint kind, uint2 visible_id, float2 pixel, fl
     const float2 by = plane_barycentrics(origin, camera_ray(pixel + float2(0.0, 1.0)), p0, p1, p2);
     hit.surface.uv_dx = uv0 * (1.0 - bx.x - bx.y) + uv1 * bx.x + uv2 * bx.y - hit.surface.uv;
     hit.surface.uv_dy = uv0 * (1.0 - by.x - by.y) + uv1 * by.x + uv2 * by.y - hit.surface.uv;
+    // The same for object-space positions (triplanar materials filter by them).
+    hit.surface.object_dx = corners[0] * (1.0 - bx.x - bx.y) + corners[1] * bx.x + corners[2] * bx.y -
+                            hit.surface.object_position;
+    hit.surface.object_dy = corners[0] * (1.0 - by.x - by.y) + corners[1] * by.x + corners[2] * by.y -
+                            hit.surface.object_position;
 
     const float distance = length(hit.surface.position - origin);  // meters, along the view ray
     MaterialContext ctx = { hit.surface, hit.material };

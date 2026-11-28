@@ -8,6 +8,8 @@ veach_add_engine_library(runtime
         src/physics_tools.cpp
         src/replay.cpp
         src/terrain.cpp
+        src/terrain_layers.cpp
+        src/terrain_surface.cpp
         src/terrain_colliders.cpp
     PUBLIC_DEPS veach::ecs veach::platform veach::asset veach::script veach::rhi veach::render veach::voxel
         veach::physics

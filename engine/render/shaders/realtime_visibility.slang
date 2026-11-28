@@ -107,6 +107,26 @@ struct ShadowVertex {
     nointerpolation uint2 id : TEXCOORD1;  ///< instance, meshlet
 };
 
+/// The mesh vertex at corner `corner` of the meshlet's triangle: the one index this vertex needs, not the triangle's
+/// three (a shadow pass is all vertex work).
+uint meshlet_corner(InstanceRecord inst, uint meshlet, uint triangle, uint corner) {
+    const uint vertex_offset = nonuniform(inst.meshlets)[meshlet * 8];
+    const uint triangle_offset = nonuniform(inst.meshlets)[meshlet * 8 + 1];
+    const uint packed = nonuniform(inst.meshlet_triangles)[triangle_offset + triangle];
+    return nonuniform(inst.meshlet_vertices)[vertex_offset + ((packed >> (8 * corner)) & 0xFFu)];
+}
+
+/// A caster's corner in the cascade's clip space, flattened onto its near plane if beyond it.
+float4 shadow_position(InstanceRecord inst, uint vertex) {
+    const uint b = vertex * 12;
+    const float3 p = float3(nonuniform(inst.vertices)[b], nonuniform(inst.vertices)[b + 1],
+                            nonuniform(inst.vertices)[b + 2]);
+    float4 position = mul(visibility.view_projection, float4(to_world(inst.object_to_world, p, 1.0), 1.0));
+    position.z = min(position.z, position.w);  // orthographic: w is 1
+    return position;
+}
+
+/// Alpha-tested casters: the position and the UV their coverage test needs.
 [shader("vertex")]
 ShadowVertex shadow_vs(uint vertex: SV_VertexID, uint draw_instance: SV_InstanceID) {
     veach_scene.instances = visibility.instances;
@@ -120,18 +140,35 @@ ShadowVertex shadow_vs(uint vertex: SV_VertexID, uint draw_instance: SV_Instance
         out.position = float4(0.0, 0.0, 0.0, 1.0);
         return out;
     }
-    const TriangleRef t = meshlet_triangle(inst, entry.y, triangle);
-    const uint corner = vertex % 3;
-    const Corner c = fetch(inst, corner == 0 ? t.vertices.x : (corner == 1 ? t.vertices.y : t.vertices.z));
-    out.position = mul(visibility.view_projection, float4(to_world(inst.object_to_world, c.position, 1.0), 1.0));
-    out.position.z = min(out.position.z, out.position.w);  // orthographic: w is 1
-    out.uv = c.uv;
+    const uint corner = meshlet_corner(inst, entry.y, triangle, vertex % 3);
+    out.position = shadow_position(inst, corner);
+    out.uv = float2(nonuniform(inst.vertices)[corner * 12 + 10], nonuniform(inst.vertices)[corner * 12 + 11]);
+    return out;
+}
+
+struct ShadowDepthVertex {
+    float4 position : SV_Position;
+};
+
+/// Opaque casters: the position only.
+[shader("vertex")]
+ShadowDepthVertex shadow_vs_opaque(uint vertex: SV_VertexID, uint draw_instance: SV_InstanceID) {
+    veach_scene.instances = visibility.instances;
+    const uint2 entry = visibility.visible[visibility.list_offset + draw_instance];
+    const InstanceRecord inst = visibility.instances[entry.x];
+    const uint triangle = vertex / 3;
+    ShadowDepthVertex out;
+    if (triangle >= nonuniform(inst.meshlets)[entry.y * 8 + 3]) {
+        out.position = float4(0.0, 0.0, 0.0, 1.0);
+        return out;
+    }
+    out.position = shadow_position(inst, meshlet_corner(inst, entry.y, triangle, vertex % 3));
     return out;
 }
 
 /// Opaque casters: depth only.
 [shader("fragment")]
-void shadow_fs(ShadowVertex in) {}
+void shadow_fs(ShadowDepthVertex in) {}
 
 /// Alpha-tested casters: the visibility pass's coverage test, so foliage casts the shadow of its cards' texels.
 [shader("fragment")]

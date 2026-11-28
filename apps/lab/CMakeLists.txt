@@ -6,6 +6,7 @@ veach_add_app(veach-lab
         src/runtime_mesh_demo.cpp
         src/sp04_spike.cpp
         src/terrain_view.cpp
+        src/terrain_materials_demo.cpp
         src/sp10_spike.cpp
         src/sp14_spike.cpp
         src/sp16_spike.cpp
@@ -32,5 +33,7 @@ veach_add_shader(veach-lab shaders/sp16_raster.slang
             forward_masked_fs:fragment forward_a2c_fs:fragment prepass_fs:fragment prepass_masked_fs:fragment
             prepass_a2c_fs:fragment sky_vs:vertex sky_fs:fragment count_fs:fragment ${sp16_includes})
 veach_add_shader(veach-lab shaders/sp16_shade.slang ENTRIES shade:compute display:compute quad_stats:compute ${sp16_includes})
+# The engine's terrain material (docs/specs/terrain-materials/spec.md): the terrain materials scene and its golden.
+veach_add_terrain_material(veach-lab)
 veach_add_scene_shaders(veach-lab NAMESPACE lab_shaders)
 veach_shader_library(veach-lab NAMESPACE lab_shaders)

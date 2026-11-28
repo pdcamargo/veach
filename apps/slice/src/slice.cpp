@@ -15,9 +15,11 @@
 #include <veach/render/scene_renderer.hpp>
 #include <veach/rhi/rhi.hpp>
 #include <veach/runtime/terrain_colliders.hpp>
+#include <veach/runtime/terrain_surface.hpp>
 #include <veach/space/flight.hpp>
 #include <veach/space/mcp_tools.hpp>
 #include <veach/space/sun.hpp>
+#include <veach/space/surface.hpp>
 #include <veach/space/universe.hpp>
 
 #include <algorithm>
@@ -26,6 +28,8 @@
 #include <cmath>
 #include <filesystem>
 #include <format>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -711,7 +715,7 @@ private:
 
     // ---- The demo's extra views, after the landing and the dig (VEACH_SLICE_SHOTS only) ------------------------
 
-    static constexpr std::uint32_t tour_views = 8;
+    static constexpr std::uint32_t tour_views = 9;
 
     static const char* tour_name(std::uint32_t view) {
         switch (view) {
@@ -722,15 +726,69 @@ private:
             case 5: return "twilight_sun_-6";
             case 6: return "twilight_sun_-10";
             case 7: return "night_sun_-18";
-            default: return "night_side_from_the_air";
+            case 8: return "night_side_from_the_air";
+            default: return "cliff_close_up";
         }
     }
 
     /// Frames each view waits before its screenshot: terrain streams around the new camera, exposure adapts.
     static std::uint32_t tour_hold(std::uint32_t view) { return view == 1 ? 60 : 900; }
 
+    /// The steepest ground within 400 m of the site (10 m grid, slope from the neighbors' heights): where the
+    /// cliff close-up looks. Found once.
+    [[nodiscard]] dvec3 steepest_near_site() {
+        if (cliff_found_) {
+            return cliff_;
+        }
+        const dvec3 up = unit(site_);
+        const dvec3 east = unit(site_east_ - up * math::dot(site_east_, up));
+        const dvec3 north = math::cross(up, east);
+        constexpr int half = 40;
+        constexpr double step = 10.0;
+        std::vector<double> h(static_cast<std::size_t>((2 * half + 1) * (2 * half + 1)));
+        const auto at = [&](int i, int j) -> double& {
+            return h[static_cast<std::size_t>((j + half) * (2 * half + 1) + (i + half))];
+        };
+        for (int j = -half; j <= half; ++j) {
+            for (int i = -half; i <= half; ++i) {
+                at(i, j) = ground_radius(site_ + east * (i * step) + north * (j * step));
+            }
+        }
+        double best = -1.0;
+        cliff_ = site_;
+        for (int j = -half + 1; j < half; ++j) {
+            for (int i = -half + 1; i < half; ++i) {
+                const double gx = (at(i + 1, j) - at(i - 1, j)) / (2.0 * step);
+                const double gy = (at(i, j + 1) - at(i, j - 1)) / (2.0 * step);
+                const double slope = gx * gx + gy * gy;
+                if (slope > best) {
+                    best = slope;
+                    const dvec3 p = site_ + east * (i * step) + north * (j * step);
+                    cliff_ = unit(p) * at(i, j);
+                    cliff_downhill_ = unit(-(east * gx + north * gy));
+                }
+            }
+        }
+        cliff_found_ = true;
+        veach::log::info("slice", "cliff close-up: the steepest ground near the site rises {:.0f} degrees",
+                         dmath::atan(std::sqrt(best)) / deg);
+        return cliff_;
+    }
+
     /// The camera for tour view `tour_`, body-fixed.
-    void tour_view(dvec3& eye, dvec3& look, dvec3& up_hint) const {
+    void tour_view(dvec3& eye, dvec3& look, dvec3& up_hint) {
+        if (tour_ == 9) {
+            // Down the slope from the steepest ground near the site, 7 m out and 1.7 m up, looking at it.
+            const dvec3 cliff = steepest_near_site();
+            const dvec3 up = unit(cliff);
+            const dvec3 out = unit(cliff_downhill_ - up * math::dot(cliff_downhill_, up));
+            dvec3 base = cliff + out * 7.0;
+            base = unit(base) * ground_radius(base);
+            eye = base + up * 1.7;
+            look = cliff + up * 1.0;
+            up_hint = up;
+            return;
+        }
         const vs::Orientation o = orientation();
         const dvec3 sun = o.to_body(sun_direction_inertial());
         if (tour_ == 1) {
@@ -935,9 +993,10 @@ private:
             double altitude;
             const char* name;
         };
-        const std::array<Mark, 5> marks{{{home_->radius * 0.5, "high"},
+        const std::array<Mark, 6> marks{{{home_->radius * 0.5, "high"},
                                          {top_ * 1.05, "atmosphere_top"},
                                          {top_ * 0.3, "in_atmosphere"},
+                                         {10000.0, "10km"},
                                          {2000.0, "2km"},
                                          {200.0, "200m"}}};
         for (std::size_t i = 0; i < marks.size(); ++i) {
@@ -963,6 +1022,8 @@ private:
     double up_alpha_ = 0.0;
 
     dvec3 site_{0.0}, site_up_{0.0, 1.0, 0.0}, site_east_{1.0, 0.0, 0.0};
+    dvec3 cliff_{0.0}, cliff_downhill_{1.0, 0.0, 0.0};  ///< the cliff close-up's target (steepest_near_site)
+    bool cliff_found_ = false;
     double site_slope_ = 0.0;
     double craft_ground_ = 0.0;  ///< the surface radius under the craft at the start of this step
     ph::SceneId surface_{}, flight_{};
@@ -1005,7 +1066,6 @@ private:
     veach::SkyVisibility sky_;
     double frame_ms_ = 0.0, gpu_ms_ = 0.0, last_frame_ = 0.0;
 };
-
 }  // namespace
 
 std::array<std::int32_t, 5> raw_axes(const Controls& c) {
@@ -1019,6 +1079,40 @@ std::array<std::int32_t, 5> raw_axes(const Controls& c) {
     }
     return out;
 }
+
+namespace {
+
+/// The slice's terrain layers (terrain_layers.json): the Quixel scans in local-assets/ (VEACH_LOCAL_ASSETS, else
+/// next to the repository's apps/), cooked once into local-assets/cache; the toolbox's procedural layers for any
+/// that are missing. Provided before the startup script sets the Universe, which builds the surfaces from them.
+void load_terrain_layers(veach::World& world) {
+    veach::Services& registry = veach::services(world);
+    const std::filesystem::path project = registry.get<veach::AssetServer>().root();
+    const std::filesystem::path config_path = project / "terrain_layers.json";
+    std::ifstream in(config_path, std::ios::binary);
+    if (!in) {
+        return;  // the toolbox's procedural library
+    }
+    const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const std::filesystem::path local = veach::env("VEACH_LOCAL_ASSETS")
+                                            .transform([](const std::string& p) { return std::filesystem::path(p); })
+                                            .value_or(project / ".." / ".." / "local-assets");
+    auto config = veach::read_terrain_library_config(json, local, veach::space::surface_layers());
+    if (!config) {
+        veach::log::error("slice", config.error());
+        return;
+    }
+    auto library = veach::load_terrain_library(config->layers, config->settings, registry.get<veach::JobSystem>());
+    if (!library) {
+        veach::log::error("slice", library.error());
+        return;
+    }
+    static std::shared_ptr<veach::TerrainLayers> held;  // the service outlives the module's systems
+    held = std::make_shared<veach::TerrainLayers>(veach::TerrainLayers{*library});
+    registry.provide<veach::TerrainLayers>(*held);
+}
+
+}  // namespace
 
 SliceModule::SliceModule(veach::World& world) {
     world.module<SliceModule>();
@@ -1065,13 +1159,14 @@ SliceModule::SliceModule(veach::World& world) {
     veach::bind_action(world, exit_action.name, exit_action.pad, exit_action.key);
     veach::bind_action(world, dig_action.name, dig_action.pad, dig_action.key);
 
-    // The scene renderer (real-time and photo mode) with the standard material: terrain chunks and the craft are
-    // runtime meshes.
+    // The scene renderer (real-time and photo mode) with the standard and terrain materials: terrain chunks and the
+    // craft are runtime meshes.
     if (auto* renderer = veach::services(world).find<veach::render::Renderer>()) {
         renderer->add_feature(std::make_unique<veach::render::SceneRenderer>(
             veach::render::SceneShaders{slice_shaders::path_tracer(), slice_shaders::realtime_visibility(),
                                         slice_shaders::realtime_shade_bins()},
             slice_shaders::material_kinds, veach::services(world).get<veach::AssetServer>()));
+        load_terrain_layers(world);
     }
 
     auto game = std::make_shared<Game>();

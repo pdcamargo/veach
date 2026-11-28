@@ -1,5 +1,6 @@
 #include <veach/asset/texture.hpp>
 
+#include <veach/core/jobs.hpp>
 #include <veach/core/profile.hpp>
 
 #include <bc7enc.h>
@@ -24,8 +25,11 @@ constexpr std::uint32_t vk_r8g8b8a8_unorm = 37;
 constexpr std::uint32_t vk_r8g8b8a8_srgb = 43;
 constexpr std::uint32_t vk_bc7_unorm_block = 145;
 constexpr std::uint32_t vk_bc7_srgb_block = 146;
+constexpr std::uint32_t vk_r32g32b32a32_sfloat = 109;
 
 constexpr std::uint32_t khr_df_model_rgbsda = 1;
+constexpr std::uint32_t khr_df_sample_float = 0x80;   ///< qualifier: IEEE float
+constexpr std::uint32_t khr_df_sample_signed = 0x40;  ///< qualifier: signed
 constexpr std::uint32_t khr_df_model_bc7 = 136;
 constexpr std::uint32_t khr_df_primaries_bt709 = 1;
 constexpr std::uint32_t khr_df_transfer_linear = 1;
@@ -49,6 +53,7 @@ std::uint32_t vk_format(TextureFormat f) {
         case TextureFormat::rgba8_srgb: return vk_r8g8b8a8_srgb;
         case TextureFormat::bc7_unorm: return vk_bc7_unorm_block;
         case TextureFormat::bc7_srgb: return vk_bc7_srgb_block;
+        case TextureFormat::rgba32_float: return vk_r32g32b32a32_sfloat;
     }
     return 0;
 }
@@ -79,9 +84,10 @@ std::uint64_t get64(std::string_view in, std::size_t at) {
     return std::uint64_t{get32(in, at)} | (std::uint64_t{get32(in, at + 4)} << 32);
 }
 
-/// The data format descriptor: one basic block, with one sample for BC7 or four (R, G, B, A) for RGBA8.
+/// The data format descriptor: one basic block, with one sample for BC7 or four (R, G, B, A) for RGBA8 and RGBA32F.
 std::string data_format_descriptor(TextureFormat format) {
     const bool bc7 = is_bc7(format);
+    const bool float32 = format == TextureFormat::rgba32_float;
     const std::uint32_t samples = bc7 ? 1 : 4;
     const std::uint32_t block_size = 24 + 16 * samples;
     std::string out;
@@ -90,9 +96,9 @@ std::string data_format_descriptor(TextureFormat format) {
     put32(out, 2 | (block_size << 16));  // versionNumber 2, descriptorBlockSize
     const std::uint32_t transfer = is_srgb(format) ? khr_df_transfer_srgb : khr_df_transfer_linear;
     put32(out, (bc7 ? khr_df_model_bc7 : khr_df_model_rgbsda) | (khr_df_primaries_bt709 << 8) | (transfer << 16));
-    put32(out, bc7 ? (3u | (3u << 8)) : 0u);  // texelBlockDimension0..3 (minus one)
-    put32(out, bc7 ? 16u : 4u);               // bytesPlane0..3
-    put32(out, 0);                            // bytesPlane4..7
+    put32(out, bc7 ? (3u | (3u << 8)) : 0u);     // texelBlockDimension0..3 (minus one)
+    put32(out, bc7 ? 16u : float32 ? 16u : 4u);  // bytesPlane0..3
+    put32(out, 0);                               // bytesPlane4..7
     if (bc7) {
         put32(out, 0 | (127u << 16));  // 128 bits of BC7 color
         put32(out, 0);
@@ -105,6 +111,14 @@ std::string data_format_descriptor(TextureFormat format) {
         std::uint32_t type = channels.at(c);
         if (c == 3 && is_srgb(format)) {
             type |= khr_df_sample_linear;  // alpha is never sRGB-encoded
+        }
+        if (float32) {
+            type |= khr_df_sample_float | khr_df_sample_signed;
+            put32(out, (c * 32) | (31u << 16) | (type << 24));
+            put32(out, 0);
+            put32(out, 0xBF800000u);  // sampleLower: -1.0f
+            put32(out, 0x3F800000u);  // sampleUpper: 1.0f
+            continue;
         }
         put32(out, (c * 8) | (7u << 16) | (type << 24));
         put32(out, 0);
@@ -161,7 +175,29 @@ ImageRgba8 halve(const ImageRgba8& in, bool srgb) {
     return out;
 }
 
-std::vector<std::byte> encode_bc7(const ImageRgba8& image, bool perceptual) {
+/// Encodes block rows [first, last) of `image` into `out`.
+void encode_bc7_rows(const ImageRgba8& image, const bc7enc_compress_block_params& params, std::uint32_t first,
+                     std::uint32_t last, std::span<std::byte> out) {
+    const std::uint32_t blocks_x = (image.width + 3) / 4;
+    std::array<std::uint8_t, 64> block{};
+    for (std::uint32_t by = first; by < last; ++by) {
+        for (std::uint32_t bx = 0; bx < blocks_x; ++bx) {
+            for (std::uint32_t y = 0; y < 4; ++y) {
+                for (std::uint32_t x = 0; x < 4; ++x) {
+                    // Partial blocks repeat their edge pixels.
+                    const std::uint32_t sx = std::min(bx * 4 + x, image.width - 1);
+                    const std::uint32_t sy = std::min(by * 4 + y, image.height - 1);
+                    std::memcpy(&block.at((y * 4 + x) * 4), &image.pixels[(std::size_t{sy} * image.width + sx) * 4], 4);
+                }
+            }
+            bc7enc_compress_block(&out[(std::size_t{by} * blocks_x + bx) * 16], block.data(), &params);
+        }
+    }
+}
+
+}  // namespace
+
+std::vector<std::byte> encode_bc7(const ImageRgba8& image, bool perceptual, JobSystem* jobs) {
     static std::once_flag init;
     std::call_once(init, [] { bc7enc_compress_block_init(); });
     bc7enc_compress_block_params params;
@@ -176,30 +212,61 @@ std::vector<std::byte> encode_bc7(const ImageRgba8& image, bool perceptual) {
     const std::uint32_t blocks_x = (image.width + 3) / 4;
     const std::uint32_t blocks_y = (image.height + 3) / 4;
     std::vector<std::byte> out(std::size_t{blocks_x} * blocks_y * 16);
-    std::array<std::uint8_t, 64> block{};
-    for (std::uint32_t by = 0; by < blocks_y; ++by) {
-        for (std::uint32_t bx = 0; bx < blocks_x; ++bx) {
-            for (std::uint32_t y = 0; y < 4; ++y) {
-                for (std::uint32_t x = 0; x < 4; ++x) {
-                    // Partial blocks repeat their edge pixels.
-                    const std::uint32_t sx = std::min(bx * 4 + x, image.width - 1);
-                    const std::uint32_t sy = std::min(by * 4 + y, image.height - 1);
-                    std::memcpy(&block.at((y * 4 + x) * 4), &image.pixels[(std::size_t{sy} * image.width + sx) * 4], 4);
-                }
-            }
-            bc7enc_compress_block(&out[(std::size_t{by} * blocks_x + bx) * 16], block.data(), &params);
-        }
+    if (jobs == nullptr || blocks_y < 16) {
+        encode_bc7_rows(image, params, 0, blocks_y, out);
+        return out;
     }
+    // Fixed chunks of 8 block rows, each writing only its own bytes: the same output at any thread count.
+    jobs->parallel_for("bc7 rows", blocks_y, 8, [&](std::size_t begin, std::size_t end) {
+        encode_bc7_rows(image, params, static_cast<std::uint32_t>(begin), static_cast<std::uint32_t>(end), out);
+    });
     return out;
 }
 
-}  // namespace
+ImageRgba8 halve_image(const ImageRgba8& image, bool srgb) {
+    return halve(image, srgb);
+}
 
 std::size_t texture_level_size(TextureFormat format, std::uint32_t width, std::uint32_t height) {
     if (is_bc7(format)) {
         return std::size_t{(width + 3) / 4} * ((height + 3) / 4) * 16;
     }
+    if (format == TextureFormat::rgba32_float) {
+        return std::size_t{width} * height * 16;
+    }
     return std::size_t{width} * height * 4;
+}
+
+Result<TextureAsset> stack_layers(std::span<const TextureAsset> textures, std::string_view context) {
+    if (textures.empty()) {
+        return make_error(ErrorCode::asset_load_failed, std::format("{}: no layers to stack", context),
+                          "Give at least one texture.");
+    }
+    const TextureAsset& first = textures.front();
+    TextureAsset out;
+    out.format = first.format;
+    out.width = first.width;
+    out.height = first.height;
+    out.layers = static_cast<std::uint32_t>(textures.size());
+    out.array = true;
+    out.mips.resize(first.mips.size());
+    for (std::size_t i = 0; i < textures.size(); ++i) {
+        const TextureAsset& t = textures[i];
+        if (t.format != first.format || t.width != first.width || t.height != first.height ||
+            t.mips.size() != first.mips.size() || t.array) {
+            return make_error(ErrorCode::asset_load_failed,
+                              std::format("{}: layer {} is {}x{} with {} mips (format {}), layer 0 is {}x{} with {} "
+                                          "mips (format {})",
+                                          context, i, t.width, t.height, t.mips.size(), static_cast<int>(t.format),
+                                          first.width, first.height, first.mips.size(), static_cast<int>(first.format)),
+                              "Every layer of an array has the same format, size and mip count: cook them with the "
+                              "same settings.");
+        }
+        for (std::size_t m = 0; m < t.mips.size(); ++m) {
+            out.mips[m].insert(out.mips[m].end(), t.mips[m].begin(), t.mips[m].end());
+        }
+    }
+    return out;
 }
 
 std::string write_ktx2(const TextureAsset& texture) {
@@ -210,9 +277,9 @@ std::string write_ktx2(const TextureAsset& texture) {
     put32(out, 1);  // typeSize
     put32(out, texture.width);
     put32(out, texture.height);
-    put32(out, 0);  // pixelDepth: 2D
-    put32(out, 0);  // layerCount: not an array
-    put32(out, 1);  // faceCount
+    put32(out, 0);                                   // pixelDepth: 2D
+    put32(out, texture.array ? texture.layers : 0);  // layerCount: 0 is not an array
+    put32(out, 1);                                   // faceCount
     put32(out, levels);
     put32(out, 0);  // supercompressionScheme: none
     const std::size_t dfd_offset = header_size + level_entry_size * levels;
@@ -241,7 +308,8 @@ Result<TextureAsset> read_ktx2(std::string_view in, std::string_view context) {
     const auto invalid = [&](std::string_view why) {
         return make_error(ErrorCode::asset_load_failed,
                           std::format("{}: not a KTX2 texture Veach reads: {}", context, why),
-                          "Veach reads uncompressed-container KTX2 in RGBA8 or BC7, as its importer writes them.");
+                          "Veach reads uncompressed-container KTX2 (2D images and 2D arrays) in RGBA8, BC7 or RGBA32F, "
+                          "as its cookers write them.");
     };
     if (in.size() < header_size || std::memcmp(in.data(), ktx2_identifier.data(), ktx2_identifier.size()) != 0) {
         return invalid("bad identifier");
@@ -256,6 +324,8 @@ Result<TextureAsset> read_ktx2(std::string_view in, std::string_view context) {
         texture.format = TextureFormat::bc7_unorm;
     } else if (format == vk_bc7_srgb_block) {
         texture.format = TextureFormat::bc7_srgb;
+    } else if (format == vk_r32g32b32a32_sfloat) {
+        texture.format = TextureFormat::rgba32_float;
     } else {
         return invalid(std::format("vkFormat {}", format));
     }
@@ -268,9 +338,11 @@ Result<TextureAsset> read_ktx2(std::string_view in, std::string_view context) {
     if (get32(in, 44) != 0) {
         return invalid("supercompressed");
     }
-    if (depth > 1 || layers > 1 || faces != 1 || texture.width == 0 || texture.height == 0) {
-        return invalid("not a single 2D image");
+    if (depth > 1 || faces != 1 || texture.width == 0 || texture.height == 0) {
+        return invalid("not a 2D image or a 2D array");
     }
+    texture.array = layers > 0;
+    texture.layers = std::max(1u, layers);
     if (in.size() < header_size + level_entry_size * levels) {
         return invalid("truncated level index");
     }
@@ -279,7 +351,8 @@ Result<TextureAsset> read_ktx2(std::string_view in, std::string_view context) {
         const std::uint64_t offset = get64(in, at);
         const std::uint64_t length = get64(in, at + 8);
         const std::size_t expected =
-            texture_level_size(texture.format, std::max(1u, texture.width >> i), std::max(1u, texture.height >> i));
+            texture_level_size(texture.format, std::max(1u, texture.width >> i), std::max(1u, texture.height >> i)) *
+            texture.layers;
         if (length != expected || offset + length > in.size()) {
             return invalid(std::format("level {} has {} bytes at {}, expected {}", i, length, offset, expected));
         }
@@ -326,6 +399,10 @@ ImageRgba8 resample(const ImageRgba8& in, std::uint32_t width, std::uint32_t hei
 }
 
 }  // namespace
+
+ImageRgba8 resample_image(const ImageRgba8& image, std::uint32_t width, std::uint32_t height, bool srgb) {
+    return resample(image, width, height, srgb);
+}
 
 TextureAsset cook_texture(const ImageRgba8& source, const TextureCookSettings& settings) {
     VEACH_ZONE("cook_texture");

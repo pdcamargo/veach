@@ -136,6 +136,16 @@ struct AmbientOcclusion {
     float sky_distance = 200.0f;  ///< meters from the camera where the large-scale occlusion has faded out; 0 turns it off
 };
 
+/// On a camera entity: the real-time renderer's bloom (docs/specs/bloom/spec.md), the glare of a lens or an eye: a
+/// share of every pixel's light spread around it, wider the brighter, so a cave's opening, the sun's disk, glints and a
+/// lit limb read as light instead of flat white. Threshold-free and energy-conserving: what the glow spreads it takes
+/// from the pixel. `radius` is a fraction of the image height, so it looks the same at every resolution. On by default:
+/// a camera without it uses these values; photo mode never blooms. Visual only. Scriptable.
+struct Bloom {
+    float intensity = 0.04f;  ///< 0..1: the share of each pixel's light the glow spreads; 0 turns it off
+    float radius = 0.12f;     ///< the widest blur, as a fraction of the image height
+};
+
 /// On a camera entity: the sun shadows of the real-time renderer (docs/specs/sun-shadows/spec.md, ADR 0095). The
 /// brightest directional lights (`suns` of them, at most two) cast cascaded shadow maps from the camera out to
 /// `distance` meters, fading out over its last fifth; beyond it, and for every other light, geometry casts no shadow.

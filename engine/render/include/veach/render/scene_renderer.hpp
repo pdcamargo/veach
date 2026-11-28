@@ -52,7 +52,8 @@ struct MaterialRecord {
     rhi::DescriptorHandle normal_texture;
     rhi::DescriptorHandle emissive_texture;
     math::vec4 custom0{0.0f};
-    math::vec4 custom1{0.0f};
+    rhi::DescriptorHandle array_texture0;  ///< a 2D array (Texture2DArray in Slang)
+    rhi::DescriptorHandle array_texture1;
 };
 static_assert(sizeof(MaterialRecord) == 128);
 static_assert(offsetof(MaterialRecord, roughness) == 48);

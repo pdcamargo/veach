@@ -126,3 +126,134 @@ python3 docs/research/sun-shadows/scripts/sweep.py --table docs/research/sun-sha
 VEACH_SLICE_AUTOPILOT=1 VEACH_SLICE_SHOTS=out build/release/apps/slice/veach-slice \
   --script scripts/slice_s1.luau --rhi metal --headless --frames 30000   # from apps/slice
 ```
+
+## VCH-143: culling and caching
+
+What [ADR 0100](../../adr/0100-sun-shadow-culling.md) changed and what it saves: scene residency declared once per
+frame, casters culled by this frame's receivers and by two-phase occlusion from the light, the shading's
+fully-shadowed early-out, and the far cascades kept while the scene is still. The build before is `main` with ambient
+occlusion and TAA (ADR 0096, 0097); "no maps" is this build with `SunShadows.suns = 0`, the cost's zero line. Apple M5
+Max, Metal, release builds, default settings (4 cascades of 2048² to 1000 m).
+
+### How it was measured
+
+Other sessions ran GPU work on the machine all along; single runs moved by up to a factor of two. The GPU numbers
+below are therefore direct, unpaced runs (`--frames`, `VEACH_GPU_TIMINGS=100,120`), the three builds alternating four
+times, medians: the frame's GPU span is what counts (Apple GPUs overlap passes, so pass times overstate). The CPU
+numbers are wall time per frame of unpaced runs at the scripts' own 640x360, where the CPU is the limit (1,200 frames
+minus 300, three rounds). `scripts/culling_sweep.py` also runs every scene over MCP, twice (three times for the field),
+for the meshlets each cascade drew, the pass sums and the slice ([culling_timings.json](culling_timings.json); its
+frame times carry the machine's noise, and the field's and the slice's frames are CPU-bound, so their GPU spans clock
+down and only the shadow passes' sums compare).
+
+### Results
+
+GPU frame (ms), Bistro, M5 Max:
+
+| Scene | Size | Before | After | No maps | Shadows added before | Shadows added after |
+|---|---|---|---|---|---|---|
+| Bistro, sunset | 1920x1080 | 4.38 | 2.44 | 2.01 | +2.36 | **+0.43** |
+| Bistro, sunset | 2560x1440 | 5.58 | 3.59 | 3.04 | +2.54 | **+0.55** |
+| Bistro, noon | 1920x1080 | 2.97 | 2.53 | 1.99 | +0.98 | **+0.54** |
+| Bistro, noon | 2560x1440 | 4.04 | 3.67 | 3.04 | +1.00 | **+0.63** |
+
+Meshlets drawn per cascade, and the shadow passes' sum (ms, 2560x1440):
+
+| Scene | Before: meshlets | After: meshlets | Before: passes | After: passes |
+|---|---|---|---|---|
+| Bistro, noon | 8,798 / 11,431 / 197 / 0 | 1,930 / 4,817 / 0 / 0 | 4.13 | 0.81 |
+| Bistro, sunset | 25,647 / 48,084 / 37,784 / 25,979 | 315 / 5,563 / 0 / 0 | 5.35 | 0.56 |
+| SP-16 field, ground | 1,077 / 15,209 / 185,917 / 261,374 | 673 / 4,552 / 0 / 0 | 11.41 | 1.07 |
+| Slice landed, s = 0.01 | | | 1.02 | 0.65 |
+| Slice landed, s = 1 | | | 0.94 | 0.65 |
+
+(The far cascades show 0 after: kept from earlier frames, as the scenes are still. Drawn with the receiver test alone,
+the field's take 106,000 and 117,000.)
+
+CPU per frame (ms, unpaced at 640x360): Bistro at sunset 4.80 before, 1.25 after (0.87 without maps); at noon 4.54
+before, 1.31 after.
+
+Other settings, Bistro at 2560x1440, after (GPU frame, ms; 3.06 without maps):
+
+| | 4 x 2048² to 1000 m | 3 x 2048² to 1000 m | 2 x 1024² to 250 m |
+|---|---|---|---|
+| At sunset | 3.59 (+0.55) | 3.48 (+0.42) | 3.71 (+0.65: two cascades keep nothing) |
+| At noon | 3.67 (+0.63) | 3.53 (+0.49) | |
+
+Where Bistro's shadow cost goes now (2560x1440, pass times): the receivers pass 0.12 to 0.14 ms, the two near cascades'
+draws 0.04 to 0.15 ms each, the culling chain (eight small passes) about 0.1 ms, all serial after the camera's
+visibility pass, and the shading's lookups 0.11 to 0.15 ms.
+
+The CPU: sampling a Bistro sunset run (`sample`, 6 s), the render thread spent 36% of its time in
+`RenderGraph::compile` and 27% in `RenderGraph::describe` before (every pass that read the scene declared ~3,000 mesh
+buffers and textures); with the scene as two read-only groups, 0.3% and 1%, and the thread waits for the GPU
+(`begin_frame`) most of the frame. CPU ms per frame in the table includes MCP's stepping.
+
+### Images
+
+Every image is the build before's, frame by frame (FLIP against `main` at the same frame):
+
+| Sequence | Frames | Mean FLIP | Worst pixel |
+|---|---|---|---|
+| Bistro at noon, still, 2560x1440 | 90 | 0.00000 | 0.028 |
+| Bistro at sunset, still, 2560x1440 | 90 | 0.00000 | 0.012 |
+| Bistro at noon, camera 1.3 cm a frame | 60, 61, 62, 120 | 0.00011 to 0.00031 | 0.054 |
+| Bistro at sunset, camera 1.3 cm a frame | 60, 61, 62, 90, 120 | 0.00000 to 0.00001 | 0.023 |
+| Bistro at sunset, flying 30 m/s and turning | 60, 61, 90, 120 | 0.00000 | 0.032 |
+| Bistro at sunset, the sun moving 1.8 s of day a frame | 60, 61, 90, 120 | 0.00000 | 0.023 |
+| SP-16 field, ground, 1920x1080 | 90 | 0.00070 | 0.290 |
+
+The goldens with a sun (Bistro at noon and sunset, FlightHelmet and the runtime mesh in real time) match theirs at FLIP
+0.00000; none was regenerated.
+
+The camera walking at noon: frame 60 before, frame 60 and 61 after (crops enlarged 2x). The bollards' shadows keep
+their edges as the view moves.
+
+![](vch143_moving_noon.png)
+
+The sun moving at sunset, frames 60, 90 and 120 (after): the sliver of sun on the far facade moves smoothly.
+
+![](vch143_sun_moving.png)
+
+The field's largest difference, before and after (enlarged 3x): the canopy's dappling, from the far cascades' 12.5%
+wider texels.
+
+![](vch143_field_worst.png)
+
+There since VCH-142 (left: the VCH-142 build; right: this one): a lighter band where the first cascade ends on
+Bistro's facade, with or without the blend between cascades. Left for VCH-143's remainder.
+
+![](vch143_band.png)
+
+### Findings
+
+1. **Bistro's sun shadows cost 0.43 to 0.63 ms instead of 1.0 to 2.5**, sunset now cheaper than noon. At sunset the
+   receivers and the light's occlusion leave 315 and 5,563 meshlets in the near cascades (from 25,647 and 48,084):
+   a facade in shade only needs the first building toward the sun, and only where the camera sees it. The far
+   cascades cost nothing while the scene is still.
+2. **The receiver test is worth its serialization.** It makes the shadow work wait for the camera's depth instead of
+   overlapping the camera's culling, yet occlusion alone, keeping the overlap, measured 0.2 to 0.35 ms slower.
+3. **Occlusion needs depth order.** A cascade's depth used to end at twice its radius toward the light, flattening
+   every farther caster onto one depth where none can hide another. Reaching the shadow distance (1 km in depth32
+   float, under 0.1 mm a step) let the light's occlusion work; it changed no pixel.
+4. **The cost is vertices, not texels**: a cascade costs the same at 1024² and 4096², so smaller maps would not have
+   helped, and opaque casters reading only their position changed nothing measurable either.
+5. **No new shimmer, no changed pixel**: every sequence above is the build before's frame by frame, the goldens
+   included. Only the far cascades' texels grew (12.5%), visible as FLIP 0.0007 in the field's canopies.
+6. **The CPU's 3.5 ms of graph work per Bistro frame is gone**: scene residency is two read-only groups.
+7. **The field still pays about 1 ms of shadow passes**, now mostly phase 2's instance recheck: occluded grass
+   instances re-read in phase 2 in append order, scattered over 112 MB of records. Vegetation LOD (VCH-139) shrinks it
+   with the camera's own cost.
+8. **The M3 Pro**: scaling by GPU size (18 cores against 40), four cascades would cost about 1.6 to 1.9 ms at 1440p,
+   three about 1.3 to 1.5, above ADR 0062's 1.1 ms estimate for it. Unmeasured (VCH-097).
+9. **A lighter band where the first cascade ends** on Bistro's facade, at noon and at sunset, was there in VCH-142's
+   images and does not depend on the blend between cascades; left in VCH-143.
+
+### Reproduce
+
+```sh
+python3 docs/research/sun-shadows/scripts/culling_sweep.py --new $PWD --old <main tree> --rounds 2 \
+    --out docs/research/sun-shadows/culling_timings.json
+python3 docs/research/sun-shadows/scripts/culling_sweep.py --table docs/research/sun-shadows/culling_timings.json
+VEACH_SHADOW_NO_RECEIVERS=1 VEACH_SHADOW_NO_OCCLUSION=1 VEACH_SHADOW_NO_CACHE=1 build/release/apps/lab/veach-lab ...
+```

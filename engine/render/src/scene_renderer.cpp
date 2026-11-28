@@ -71,6 +71,7 @@ rhi::Format to_rhi(TextureFormat format) {
         case TextureFormat::rgba8_srgb: return rhi::Format::rgba8_srgb;
         case TextureFormat::bc7_unorm: return rhi::Format::bc7_unorm;
         case TextureFormat::bc7_srgb: return rhi::Format::bc7_srgb;
+        case TextureFormat::rgba32_float: return rhi::Format::rgba32_float;
     }
     return rhi::Format::rgba8_unorm;
 }
@@ -128,11 +129,13 @@ struct SceneRenderer::Impl {
     rhi::Device* device = nullptr;
     rhi::PipelineHandle pipeline;
     rhi::PipelineHandle display_pipeline;
-    RealtimeRenderer realtime;            ///< ADR 0093
-    std::unique_ptr<GpuScene> gpu_scene;  ///< the instances both renderers read
-    AtmosphereRenderer atmosphere;        ///< ADR 0038
+    RealtimeRenderer realtime;                   ///< ADR 0093
+    std::unique_ptr<GpuScene> gpu_scene;         ///< the instances both renderers read
+    std::vector<MaterialRecord> last_materials;  ///< the frame before's, to tell a still scene (cached shadows)
+    AtmosphereRenderer atmosphere;               ///< ADR 0038
     bool warned_no_sky = false;
     rhi::SamplerHandle sampler;
+    std::map<std::uint32_t, rhi::SamplerHandle> anisotropic;  ///< by max_anisotropy (MaterialAsset)
     std::unordered_map<AssetId, GpuMesh> meshes;
     std::unordered_map<AssetId, GpuTexture> textures;
     std::shared_ptr<const RuntimeAssets> runtime;  ///< this frame's MeshStore snapshot (RenderWorld::runtime_assets)
@@ -193,6 +196,11 @@ struct SceneRenderer::Impl {
         destroy_if(accumulation);
         destroy_if(pipeline);
         destroy_if(display_pipeline);
+        for (auto& [level, s] : anisotropic) {
+            if (s != sampler) {
+                destroy_if(s);
+            }
+        }
         destroy_if(sampler);
     }
     Impl(const Impl&) = delete;
@@ -294,6 +302,17 @@ struct SceneRenderer::Impl {
                 tlas_meshes.clear();  // the TLAS names this BLAS: recreate it
             }
             it = meshes.erase(it);
+        }
+        for (auto it = textures.begin(); it != textures.end();) {
+            const bool removed = is_runtime_id(it->first) && !runtime->textures.contains(it->first);
+            if (!removed) {
+                ++it;
+                continue;
+            }
+            if (it->second.texture.is_valid()) {
+                device->destroy(it->second.texture);
+            }
+            it = textures.erase(it);
         }
     }
 
@@ -430,7 +449,15 @@ struct SceneRenderer::Impl {
         if (!id) {
             return device->null_descriptor(rhi::DescriptorKind::texture);
         }
-        const TextureAsset* source = assets.get(Handle<TextureAsset>{*id});
+        const TextureAsset* source = nullptr;
+        if (is_runtime_id(*id)) {
+            if (runtime) {
+                const auto it = runtime->textures.find(*id);
+                source = it == runtime->textures.end() ? nullptr : it->second.get();
+            }
+        } else {
+            source = assets.get(Handle<TextureAsset>{*id});
+        }
         if (source == nullptr) {
             return device->null_descriptor(rhi::DescriptorKind::texture);
         }
@@ -443,10 +470,17 @@ struct SceneRenderer::Impl {
             for (const auto& mip : source->mips) {
                 mips.emplace_back(mip);
             }
-            auto created = device->create_texture(
-                {source->width, source->height, to_rhi(source->format), rhi::TextureUsage::sampled, "scene texture",
-                 static_cast<std::uint32_t>(source->mips.size())},
-                mips);
+            rhi::TextureDesc desc{source->width,
+                                  source->height,
+                                  to_rhi(source->format),
+                                  rhi::TextureUsage::sampled,
+                                  is_runtime_id(*id) ? "runtime texture" : "scene texture",
+                                  static_cast<std::uint32_t>(source->mips.size())};
+            if (source->array) {
+                desc.type = rhi::TextureType::d2_array;
+                desc.layers = source->layers;
+            }
+            auto created = device->create_texture(desc, mips);
             if (!created) {
                 report("texture " + id->to_string(), created.error());
                 gpu = {};
@@ -457,6 +491,24 @@ struct SceneRenderer::Impl {
         }
         present = true;
         return device->descriptor(gpu.texture);
+    }
+
+    /// A repeating, trilinear sampler with `anisotropy` (2 to 16), made on first use; the scene's sampler if the
+    /// device refuses it.
+    rhi::SamplerHandle anisotropic_sampler(std::uint32_t anisotropy) {
+        anisotropy = std::clamp(anisotropy, 2u, 16u);
+        if (const auto it = anisotropic.find(anisotropy); it != anisotropic.end()) {
+            return it->second;
+        }
+        auto made = device->create_sampler(
+            {.filter = rhi::Filter::linear, .address = rhi::AddressMode::repeat, .max_anisotropy = anisotropy});
+        if (!made) {
+            report("anisotropic sampler", made.error());
+            anisotropic[anisotropy] = sampler;
+            return sampler;
+        }
+        anisotropic[anisotropy] = *made;
+        return *made;
     }
 
     std::uint32_t kind_of(const std::string& name) {
@@ -478,13 +530,20 @@ struct SceneRenderer::Impl {
     MaterialRecord record_of(AssetId id) {
         MaterialRecord r;
         r.sampler = device->descriptor(sampler);
-        r.base_color_texture = r.metallic_roughness_texture = r.normal_texture = r.emissive_texture =
-            device->null_descriptor(rhi::DescriptorKind::texture);
+        r.base_color_texture = r.metallic_roughness_texture = r.normal_texture = r.emissive_texture = r.array_texture0 =
+            r.array_texture1 = device->null_descriptor(rhi::DescriptorKind::texture);
         const MaterialAsset* m = is_runtime_id(id) ? runtime_material(id) : assets.get(Handle<MaterialAsset>{id});
         if (m == nullptr) {
             return r;
         }
         r.kind = kind_of(m->kind);
+        if (m->max_anisotropy > 1) {
+            r.sampler = device->descriptor(anisotropic_sampler(m->max_anisotropy));
+        }
+        r.custom0 = m->custom;
+        bool array_present = false;
+        r.array_texture0 = texture(m->array_textures[0], array_present);
+        r.array_texture1 = texture(m->array_textures[1], array_present);
         r.alpha_cutoff = m->alpha_cutoff;
         r.normal_scale = m->normal_scale;
         r.base_color = m->base_color;
@@ -691,6 +750,7 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
         inst.object_to_world = rows_of(draw.world);
         inst.normal_to_world = rows_of(math::mat4(math::transpose(math::inverse(linear))));
         inst.id = surface_id(draw.entity);
+        inst.material_origin = draw.material_origin;
         instances.push_back(inst);
         entities.push_back(draw.entity);
         draws.push_back(&draw);
@@ -728,35 +788,36 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
         return;
     }
 
-    std::vector<GraphResource> buffers;
+    // Scene residency, declared once per frame: every mesh buffer and texture is one read-only group, so a pass that
+    // reads the scene declares a handful of accesses instead of thousands (Bistro has about 3,000).
+    std::vector<rhi::ResourceRef> mesh_refs;
+    mesh_refs.reserve(used_meshes.size() * 7);
     for (const AssetId id : used_meshes) {
         const Impl::GpuMesh& mesh = s.meshes.at(id);
         for (const rhi::BufferHandle b : {mesh.vertices, mesh.indices, mesh.slots, mesh.meshlets, mesh.meshlet_vertices,
                                           mesh.meshlet_triangles, mesh.meshlet_bounds}) {
-            buffers.push_back(graph.import(b, "mesh data", rhi::ResourceState::shader_read));
+            mesh_refs.emplace_back(b);
         }
     }
-    std::vector<GraphResource> textures;
+    std::vector<rhi::ResourceRef> texture_refs;
     for (const auto& [id, texture] : s.textures) {
         if (texture.texture.is_valid()) {
-            textures.push_back(graph.import(texture.texture, "scene texture", rhi::ResourceState::shader_read));
+            texture_refs.emplace_back(texture.texture);
         }
     }
+    const GraphResource mesh_data = graph.import_group(std::move(mesh_refs), "mesh data");
+    const GraphResource texture_data = graph.import_group(std::move(texture_refs), "scene textures");
     const GraphResource material_data =
         graph.import(material_buffer, "scene materials", rhi::ResourceState::shader_read);
     const GraphResource light_data = graph.import(light_buffer, "scene lights", rhi::ResourceState::shader_read);
-    const auto read_meshes = [buffers, instance_data, material_data](PassBuilder& b) {
-        for (const GraphResource& r : buffers) {
-            b.read(r);
-        }
+    const auto read_meshes = [mesh_data, instance_data, material_data](PassBuilder& b) {
+        b.read(mesh_data);
         b.read(instance_data);
         b.read(material_data);
     };
-    const auto read_geometry = [read_meshes, textures, light_data](PassBuilder& b) {
+    const auto read_geometry = [read_meshes, texture_data, light_data](PassBuilder& b) {
         read_meshes(b);
-        for (const GraphResource& r : textures) {
-            b.read(r);
-        }
+        b.read(texture_data);
         b.read(light_data);
     };
     // The sky (ADR 0038): its LUTs for this view. A lit scene without one is dark
@@ -779,6 +840,11 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
 
     if (!photo) {
         // ---- the real-time renderer (ADR 0093).
+        // Nothing moved, came, went or changed its material since the frame before: cached shadow cascades hold.
+        const bool still = s.gpu_scene->still() && materials.size() == s.last_materials.size() &&
+                           (materials.empty() || std::memcmp(materials.data(), s.last_materials.data(),
+                                                             materials.size() * sizeof(MaterialRecord)) == 0);
+        s.last_materials = materials;
         const RealtimeScene realtime{.read_meshes = read_meshes,
                                      .read_geometry = read_geometry,
                                      .instances = instance_data,
@@ -789,7 +855,8 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
                                      .lights = light_buffer,
                                      .light_count = static_cast<std::uint32_t>(lights.size()),
                                      .sky = sky.frame,
-                                     .read_sky = sky.read};
+                                     .read_sky = sky.read,
+                                     .still = still};
         s.realtime.record(graph, frame, *view, realtime);
         return;
     }
@@ -923,9 +990,7 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
         graph.add_transfer_pass(
             "scene: build BLASes",
             [&](PassBuilder& b) {
-                for (const GraphResource& r : buffers) {
-                    b.read(r);
-                }
+                b.read(mesh_data);
                 for (std::size_t i = 0; i < used_meshes.size(); ++i) {
                     if (std::ranges::find(to_build, s.meshes.at(used_meshes[i]).blas) != to_build.end()) {
                         b.write(blases[i], rhi::ResourceState::accel_build);

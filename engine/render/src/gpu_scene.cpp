@@ -28,6 +28,7 @@ GraphResource GpuScene::update(RenderGraph& graph, UploadRing& ring, std::vector
     VEACH_ZONE("GpuScene::update");
     const auto count = static_cast<std::uint32_t>(records.size());
     uploaded_bytes_ = 0;
+    still_ = false;
 
     // The buffer grows to twice what it needs; everything is uploaded into a new one.
     bool everything = !written_;
@@ -105,6 +106,7 @@ GraphResource GpuScene::update(RenderGraph& graph, UploadRing& ring, std::vector
             ++changed;
         }
     }
+    still_ = !everything && runs.empty() && count == records_.size() && same_space && space_.origin == space.origin;
     space_ = space;
     has_space_ = true;
     // The mirror of the buffer: only the changed runs are copied (lookups above needed last frame's records).

@@ -53,7 +53,8 @@ wall (0.005). The Bistro and helmet goldens pass.
 
 ## GPU cost
 
-Release, 1920 x 1080, SP-10's lab, median of three rounds of 40 frames, ms:
+Release, 1920 x 1080, SP-10's lab, median of three rounds of 40 frames, ms, measured (like the screenshots) before
+merging the GPU-driven core (ADR 0093), whose shading pass replaced the interim one:
 
 | View | Pass | Before | After |
 |---|---|---|---|

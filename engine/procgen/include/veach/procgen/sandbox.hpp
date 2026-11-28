@@ -1,8 +1,9 @@
 #pragma once
 
-// The Luau procgen sandbox (docs/adr/0052-procgen-runtime.md): a VM for generator hooks, separate from the gameplay
-// ScriptRuntime. Spike SP-07 (VCH-083), throwaway: docs/research/spikes/sp-07-luau-generator.md. It moves to
-// engine/procgen when that area exists (docs/adr/0065-engine-areas-for-the-toolbox.md).
+// The Luau procgen sandbox (docs/adr/0052-procgen-runtime.md, rules in docs/adr/0070-generator-sandbox-rules.md): a VM
+// for generator hooks, separate from engine/script's gameplay ScriptRuntime. Built by spike SP-07 (VCH-083,
+// docs/research/spikes/sp-07-luau-generator.md) and promoted with engine/procgen (VCH-112). Guide:
+// docs/guides/procgen.md.
 //
 // What a hook sees: the standard libraries minus os, debug, print, getfenv/setfenv, gcinfo, collectgarbage and
 // newproxy. `math` is canonical (docs/adr/0043-determinism-tiers-and-strict-floating-point.md): every libm-backed

@@ -16,6 +16,8 @@
 8. The engine owns the threads (ADR 0073): no code under engine/, space/, apps/ or tools/ starts a thread
    (std::thread, std::jthread, std::async, pthread_create, CreateThread, _beginthread) or gives Flecs its own
    (set_threads). Work goes to veach::JobSystem. Tests may start threads to test thread safety.
+9. Authoritative areas never reach the GPU (ADR 0065): engine/procgen and engine/voxel neither link veach::rhi or
+   veach::render nor include their headers, so they run headless on any server.
 """
 
 from __future__ import annotations
@@ -41,6 +43,9 @@ THREAD_ALLOWED = {
     # away from jobs for good (ADR 0073).
     "engine/runtime/src/mcp_server.cpp",
 }
+# Areas that must run without a GPU (ADR 0065), and what they must not name.
+HEADLESS_AREAS = ("engine/procgen/", "engine/voxel/")
+GPU_DEPENDENCY = re.compile(r"veach::(?:rhi|render)\b|\bveach_(?:rhi|render)\b|[<\"]veach/(?:rhi|render)/")
 SELF = pathlib.Path(__file__).resolve()
 
 
@@ -85,6 +90,11 @@ def main() -> int:
                     and path.suffix in (".cpp", ".hpp", ".h", ".mm", ".inl") and THREAD.search(line)):
                 errors.append(f"{rel}:{lineno}: the engine owns the threads (ADR 0073); run the work on "
                               "veach::JobSystem (parallel_for, TaskGroup) instead of starting a thread")
+            if (rel.startswith(HEADLESS_AREAS) and GPU_DEPENDENCY.search(line)
+                    and not (path.name == "CMakeLists.txt" and line.lstrip().startswith("#"))):
+                errors.append(f"{rel}:{lineno}: {rel.split('/')[1]} is authoritative and runs headless; it must not "
+                              "link or include rhi or render (ADR 0065). A GPU evaluator is a render feature in "
+                              "engine/render that reads this area's data.")
             if rel.startswith("apps/") and "flecs::" in line:
                 errors.append(f"{rel}:{lineno}: `flecs::` in apps/ — use the veach:: aliases (veach::World, "
                               "veach::Entity, ...) or veach::ecs:: for raw Flecs")

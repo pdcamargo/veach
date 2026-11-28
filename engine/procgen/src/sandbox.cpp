@@ -1,6 +1,6 @@
-// The Luau procgen sandbox, spike SP-07 (VCH-083): docs/research/spikes/sp-07-luau-generator.md.
+// The Luau procgen sandbox (docs/adr/0070-generator-sandbox-rules.md), from spike SP-07 (VCH-083).
 
-#include <veach/script/procgen_sandbox.hpp>
+#include <veach/procgen/sandbox.hpp>
 
 #include <veach/core/assert.hpp>
 #include <veach/core/dmath.hpp>

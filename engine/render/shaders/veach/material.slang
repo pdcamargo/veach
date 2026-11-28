@@ -23,6 +23,15 @@ struct SurfaceInput {
     float2 uv_dx;             ///< UV change to the next pixel in x and y (texture filtering); 0 = sample mip 0
     float2 uv_dy;
     float3 view;              ///< towards the viewer
+    // For procedural and triplanar materials (terrain, docs/specs/terrain-materials/spec.md): the surface in the
+    // mesh's own space. World directions are mul(object_to_world, v).
+    float3 object_position;   ///< interpolated vertex positions, object space
+    float3 object_normal;     ///< interpolated vertex normal, object space, unit, same side as `normal`
+    float4 object_tangent;    ///< interpolated vertex tangents as stored (meshes may carry other data there)
+    float3 object_dx;         ///< object_position's change to the next pixel in x and y; 0 = sample mip 0
+    float3 object_dy;
+    float3 material_origin;   ///< the draw's MeshDraw::material_origin
+    float3x3 object_to_world; ///< the instance transform's linear part
 };
 
 static const uint material_has_base_color_texture = 1u << 0;
@@ -50,8 +59,10 @@ struct MaterialRecord {
     DescriptorHandle<Texture2D<float4>> metallic_roughness_texture;  ///< G roughness, B metallic
     DescriptorHandle<Texture2D<float4>> normal_texture;              ///< tangent space
     DescriptorHandle<Texture2D<float4>> emissive_texture;            ///< sRGB
-    float4 custom0;  ///< for app materials
-    float4 custom1;
+    float4 custom0;  ///< for app materials (MaterialAsset::custom)
+    /// 2D arrays for kinds that sample them (TerrainMaterial: the layers), MaterialAsset::array_textures.
+    DescriptorHandle<Texture2DArray<float4>> array_texture0;
+    DescriptorHandle<Texture2DArray<float4>> array_texture1;
 };
 
 struct MaterialContext {
@@ -138,12 +149,20 @@ interface IMaterial {
     float2 evalMetallicRoughness(MaterialContext c) { return standardMetallicRoughness(c); }
     /// Emitted radiance, nits.
     float3 evalEmission(MaterialContext c) { return standardEmission(c); }
+    /// Everything at once. The default asks the four functions above; a material whose channels share their work
+    /// (terrain: one set of texture fetches for color, normal and roughness) overrides this instead.
+    SurfaceSample evalSurface(MaterialContext c) { return evaluateChannels(this, c); }
 };
 
 /// glTF metallic-roughness: every default.
 struct StandardMaterial : IMaterial {};
 
 SurfaceSample evaluate<M : IMaterial>(M material, MaterialContext c) {
+    return material.evalSurface(c);
+}
+
+/// A surface from a material's four channel functions.
+SurfaceSample evaluateChannels<M : IMaterial>(M material, MaterialContext c) {
     SurfaceSample s;
     const float4 base = material.evalBaseColor(c);
     s.base_color = base.rgb;

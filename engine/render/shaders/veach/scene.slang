@@ -27,9 +27,10 @@ struct InstanceRecord {
     DescriptorHandle<StructuredBuffer<float4>> meshlet_bounds;
     float4 sphere;  ///< object space: center, radius
     uint meshlet_count;
-    uint pad0;
-    uint pad1;
-    uint pad2;
+    // MeshDraw::material_origin (three floats, not a float3: a float3 would be padded to 16 bytes on Metal).
+    float material_origin_x;
+    float material_origin_y;
+    float material_origin_z;
 };
 
 static const uint instance_has_alpha = 1;     ///< some slot is alpha-masked or blended
@@ -184,6 +185,16 @@ TriangleHit surface_of(InstanceRecord inst, TriangleRef tri, float2 bary, float3
     hit.surface.uv = c0.uv * w.x + c1.uv * w.y + c2.uv * w.z;
     hit.surface.uv_dx = float2(0.0, 0.0);
     hit.surface.uv_dy = float2(0.0, 0.0);
+    hit.surface.object_position = c0.position * w.x + c1.position * w.y + c2.position * w.z;
+    float3 object_normal = c0.normal * w.x + c1.normal * w.y + c2.normal * w.z;
+    const float object_normal_length = length(object_normal);
+    object_normal = object_normal_length > 1e-20 ? object_normal / object_normal_length : float3(0.0, 1.0, 0.0);
+    hit.surface.object_tangent = t;
+    hit.surface.object_dx = float3(0.0, 0.0, 0.0);
+    hit.surface.object_dy = float3(0.0, 0.0, 0.0);
+    hit.surface.material_origin = float3(inst.material_origin_x, inst.material_origin_y, inst.material_origin_z);
+    hit.surface.object_to_world = float3x3(inst.object_to_world[0].xyz, inst.object_to_world[1].xyz,
+                                           inst.object_to_world[2].xyz);
     hit.material = veach_scene.materials[inst.material_base + tri.slot];
     // Every surface is two-sided for the path tracer; `front` remembers which side was hit (emission is one-sided).
     hit.front = dot(geometric, hit.surface.view) >= 0.0;
@@ -195,10 +206,12 @@ TriangleHit surface_of(InstanceRecord inst, TriangleRef tri, float2 bary, float3
         // is seen from behind while its vertex normals face the camera; turning those shaded it dark (VCH-108).
         if ((hit.material.flags & material_double_sided) != 0 || dot(normal, hit.surface.view) < 0.0) {
             normal = -normal;
+            object_normal = -object_normal;
         }
     }
     hit.surface.geometric_normal = geometric;
     hit.surface.normal = normal;
+    hit.surface.object_normal = object_normal;
     return hit;
 }
 

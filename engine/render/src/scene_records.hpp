@@ -47,7 +47,7 @@ struct InstanceRecord {
     rhi::DescriptorHandle meshlet_bounds;
     math::vec4 sphere{0.0f};  ///< object space: center, radius
     std::uint32_t meshlet_count = 0;
-    std::array<std::uint32_t, 3> pad{};
+    math::vec3 material_origin{0.0f};  ///< MeshDraw::material_origin
 };
 static_assert(sizeof(InstanceRecord) == 240);
 static_assert(offsetof(InstanceRecord, object_to_world) == 32);

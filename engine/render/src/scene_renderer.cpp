@@ -71,6 +71,7 @@ rhi::Format to_rhi(TextureFormat format) {
         case TextureFormat::rgba8_srgb: return rhi::Format::rgba8_srgb;
         case TextureFormat::bc7_unorm: return rhi::Format::bc7_unorm;
         case TextureFormat::bc7_srgb: return rhi::Format::bc7_srgb;
+        case TextureFormat::rgba32_float: return rhi::Format::rgba32_float;
     }
     return rhi::Format::rgba8_unorm;
 }
@@ -133,6 +134,7 @@ struct SceneRenderer::Impl {
     AtmosphereRenderer atmosphere;        ///< ADR 0038
     bool warned_no_sky = false;
     rhi::SamplerHandle sampler;
+    std::map<std::uint32_t, rhi::SamplerHandle> anisotropic;  ///< by max_anisotropy (MaterialAsset)
     std::unordered_map<AssetId, GpuMesh> meshes;
     std::unordered_map<AssetId, GpuTexture> textures;
     std::shared_ptr<const RuntimeAssets> runtime;  ///< this frame's MeshStore snapshot (RenderWorld::runtime_assets)
@@ -193,6 +195,11 @@ struct SceneRenderer::Impl {
         destroy_if(accumulation);
         destroy_if(pipeline);
         destroy_if(display_pipeline);
+        for (auto& [level, s] : anisotropic) {
+            if (s != sampler) {
+                destroy_if(s);
+            }
+        }
         destroy_if(sampler);
     }
     Impl(const Impl&) = delete;
@@ -294,6 +301,17 @@ struct SceneRenderer::Impl {
                 tlas_meshes.clear();  // the TLAS names this BLAS: recreate it
             }
             it = meshes.erase(it);
+        }
+        for (auto it = textures.begin(); it != textures.end();) {
+            const bool removed = is_runtime_id(it->first) && !runtime->textures.contains(it->first);
+            if (!removed) {
+                ++it;
+                continue;
+            }
+            if (it->second.texture.is_valid()) {
+                device->destroy(it->second.texture);
+            }
+            it = textures.erase(it);
         }
     }
 
@@ -430,7 +448,15 @@ struct SceneRenderer::Impl {
         if (!id) {
             return device->null_descriptor(rhi::DescriptorKind::texture);
         }
-        const TextureAsset* source = assets.get(Handle<TextureAsset>{*id});
+        const TextureAsset* source = nullptr;
+        if (is_runtime_id(*id)) {
+            if (runtime) {
+                const auto it = runtime->textures.find(*id);
+                source = it == runtime->textures.end() ? nullptr : it->second.get();
+            }
+        } else {
+            source = assets.get(Handle<TextureAsset>{*id});
+        }
         if (source == nullptr) {
             return device->null_descriptor(rhi::DescriptorKind::texture);
         }
@@ -443,10 +469,17 @@ struct SceneRenderer::Impl {
             for (const auto& mip : source->mips) {
                 mips.emplace_back(mip);
             }
-            auto created = device->create_texture(
-                {source->width, source->height, to_rhi(source->format), rhi::TextureUsage::sampled, "scene texture",
-                 static_cast<std::uint32_t>(source->mips.size())},
-                mips);
+            rhi::TextureDesc desc{source->width,
+                                  source->height,
+                                  to_rhi(source->format),
+                                  rhi::TextureUsage::sampled,
+                                  is_runtime_id(*id) ? "runtime texture" : "scene texture",
+                                  static_cast<std::uint32_t>(source->mips.size())};
+            if (source->array) {
+                desc.type = rhi::TextureType::d2_array;
+                desc.layers = source->layers;
+            }
+            auto created = device->create_texture(desc, mips);
             if (!created) {
                 report("texture " + id->to_string(), created.error());
                 gpu = {};
@@ -457,6 +490,24 @@ struct SceneRenderer::Impl {
         }
         present = true;
         return device->descriptor(gpu.texture);
+    }
+
+    /// A repeating, trilinear sampler with `anisotropy` (2 to 16), made on first use; the scene's sampler if the
+    /// device refuses it.
+    rhi::SamplerHandle anisotropic_sampler(std::uint32_t anisotropy) {
+        anisotropy = std::clamp(anisotropy, 2u, 16u);
+        if (const auto it = anisotropic.find(anisotropy); it != anisotropic.end()) {
+            return it->second;
+        }
+        auto made = device->create_sampler(
+            {.filter = rhi::Filter::linear, .address = rhi::AddressMode::repeat, .max_anisotropy = anisotropy});
+        if (!made) {
+            report("anisotropic sampler", made.error());
+            anisotropic[anisotropy] = sampler;
+            return sampler;
+        }
+        anisotropic[anisotropy] = *made;
+        return *made;
     }
 
     std::uint32_t kind_of(const std::string& name) {
@@ -478,13 +529,20 @@ struct SceneRenderer::Impl {
     MaterialRecord record_of(AssetId id) {
         MaterialRecord r;
         r.sampler = device->descriptor(sampler);
-        r.base_color_texture = r.metallic_roughness_texture = r.normal_texture = r.emissive_texture =
-            device->null_descriptor(rhi::DescriptorKind::texture);
+        r.base_color_texture = r.metallic_roughness_texture = r.normal_texture = r.emissive_texture = r.array_texture0 =
+            r.array_texture1 = device->null_descriptor(rhi::DescriptorKind::texture);
         const MaterialAsset* m = is_runtime_id(id) ? runtime_material(id) : assets.get(Handle<MaterialAsset>{id});
         if (m == nullptr) {
             return r;
         }
         r.kind = kind_of(m->kind);
+        if (m->max_anisotropy > 1) {
+            r.sampler = device->descriptor(anisotropic_sampler(m->max_anisotropy));
+        }
+        r.custom0 = m->custom;
+        bool array_present = false;
+        r.array_texture0 = texture(m->array_textures[0], array_present);
+        r.array_texture1 = texture(m->array_textures[1], array_present);
         r.alpha_cutoff = m->alpha_cutoff;
         r.normal_scale = m->normal_scale;
         r.base_color = m->base_color;
@@ -690,6 +748,7 @@ void SceneRenderer::record(RenderGraph& graph, const FrameContext& frame) {
         }
         inst.object_to_world = rows_of(draw.world);
         inst.normal_to_world = rows_of(math::mat4(math::transpose(math::inverse(linear))));
+        inst.material_origin = draw.material_origin;
         instances.push_back(inst);
         entities.push_back(draw.entity);
         draws.push_back(&draw);

@@ -1,0 +1,462 @@
+{
+ "lights": "16",
+ "extra": {},
+ "table": {
+  "vis|ground|1920x1080": {
+   "total": 1.0997,
+   "passes": {
+    "args": 0.002,
+    "cull": 0.1283,
+    "display": 0.0373,
+    "hiz": 0.0466,
+    "shade": 0.282,
+    "visibility": 0.5878
+   },
+   "rounds": [
+    1.0774,
+    1.1055,
+    1.0997
+   ]
+  },
+  "forward|ground|1920x1080": {
+   "total": 1.2208,
+   "passes": {
+    "args": 0.002,
+    "cull": 0.1178,
+    "display": 0.0378,
+    "forward": 1.0075,
+    "hiz": 0.0467
+   },
+   "rounds": [
+    1.2073,
+    1.2257,
+    1.2208
+   ]
+  },
+  "prepass|ground|1920x1080": {
+   "total": 1.2256,
+   "passes": {
+    "args": 0.002,
+    "cull": 0.112,
+    "display": 0.0379,
+    "forward": 1.0243,
+    "hiz": 0.0469
+   },
+   "rounds": [
+    1.2172,
+    1.2539,
+    1.2256
+   ]
+  },
+  "forward_msaa|ground|1920x1080": {
+   "total": 1.3422,
+   "passes": {
+    "args": 0.0021,
+    "cull": 0.1205,
+    "display": 0.0382,
+    "forward": 1.1319,
+    "hiz": 0.0436
+   },
+   "rounds": [
+    1.3422,
+    1.361,
+    1.3343
+   ]
+  },
+  "prepass_msaa|ground|1920x1080": {
+   "total": 1.4048,
+   "passes": {
+    "args": 0.002,
+    "cull": 0.1172,
+    "display": 0.0378,
+    "forward": 1.2031,
+    "hiz": 0.0443
+   },
+   "rounds": [
+    1.4048,
+    1.4671,
+    1.3972
+   ]
+  },
+  "vis|mid|1920x1080": {
+   "total": 0.9752,
+   "passes": {
+    "args": 0.002,
+    "cull": 0.1328,
+    "display": 0.0374,
+    "hiz": 0.0478,
+    "shade": 0.2861,
+    "visibility": 0.4695
+   },
+   "rounds": [
+    0.9752,
+    1.0425,
+    0.9724
+   ]
+  },
+  "forward|mid|1920x1080": {
+   "total": 1.1524,
+   "passes": {
+    "args": 0.0021,
+    "cull": 0.1223,
+    "display": 0.0379,
+    "forward": 0.9404,
+    "hiz": 0.0475
+   },
+   "rounds": [
+    1.1524,
+    1.2045,
+    1.1521
+   ]
+  },
+  "prepass|mid|1920x1080": {
+   "total": 1.196,
+   "passes": {
+    "args": 0.0021,
+    "cull": 0.1179,
+    "display": 0.038,
+    "forward": 0.9903,
+    "hiz": 0.0474
+   },
+   "rounds": [
+    1.1951,
+    1.2406,
+    1.196
+   ]
+  },
+  "forward_msaa|mid|1920x1080": {
+   "total": 1.4291,
+   "passes": {
+    "args": 0.002,
+    "cull": 0.124,
+    "display": 0.0385,
+    "forward": 1.2221,
+    "hiz": 0.0444
+   },
+   "rounds": [
+    1.4154,
+    1.5065,
+    1.4291
+   ]
+  },
+  "prepass_msaa|mid|1920x1080": {
+   "total": 1.4707,
+   "passes": {
+    "args": 0.002,
+    "cull": 0.119,
+    "display": 0.0381,
+    "forward": 1.2667,
+    "hiz": 0.0444
+   },
+   "rounds": [
+    1.4707,
+    1.5198,
+    1.4647
+   ]
+  },
+  "vis|far|1920x1080": {
+   "total": 0.8968,
+   "passes": {
+    "args": 0.002,
+    "cull": 0.1354,
+    "display": 0.0371,
+    "hiz": 0.0465,
+    "shade": 0.235,
+    "visibility": 0.4405
+   },
+   "rounds": [
+    0.8982,
+    0.8968,
+    0.8955
+   ]
+  },
+  "forward|far|1920x1080": {
+   "total": 1.2177,
+   "passes": {
+    "args": 0.002,
+    "cull": 0.1264,
+    "display": 0.0377,
+    "forward": 1.004,
+    "hiz": 0.0458
+   },
+   "rounds": [
+    1.2169,
+    1.2274,
+    1.2177
+   ]
+  },
+  "prepass|far|1920x1080": {
+   "total": 1.253,
+   "passes": {
+    "args": 0.002,
+    "cull": 0.1226,
+    "display": 0.0379,
+    "forward": 1.0425,
+    "hiz": 0.046
+   },
+   "rounds": [
+    1.253,
+    1.2568,
+    1.2514
+   ]
+  },
+  "forward_msaa|far|1920x1080": {
+   "total": 1.5994,
+   "passes": {
+    "args": 0.002,
+    "cull": 0.1268,
+    "display": 0.0381,
+    "forward": 1.3856,
+    "hiz": 0.0433
+   },
+   "rounds": [
+    1.5998,
+    1.5994,
+    1.5986
+   ]
+  },
+  "prepass_msaa|far|1920x1080": {
+   "total": 1.5667,
+   "passes": {
+    "args": 0.002,
+    "cull": 0.1218,
+    "display": 0.038,
+    "forward": 1.3605,
+    "hiz": 0.0435
+   },
+   "rounds": [
+    1.5659,
+    1.5667,
+    1.5668
+   ]
+  },
+  "vis|ground|2560x1440": {
+   "total": 1.4383,
+   "passes": {
+    "args": 0.0021,
+    "cull": 0.1291,
+    "display": 0.067,
+    "hiz": 0.0717,
+    "shade": 0.5075,
+    "visibility": 0.6517
+   },
+   "rounds": [
+    1.4058,
+    1.4383,
+    1.443
+   ]
+  },
+  "forward|ground|2560x1440": {
+   "total": 1.5158,
+   "passes": {
+    "args": 0.002,
+    "cull": 0.1244,
+    "display": 0.0661,
+    "forward": 1.2538,
+    "hiz": 0.0673
+   },
+   "rounds": [
+    1.4955,
+    1.5263,
+    1.5158
+   ]
+  },
+  "prepass|ground|2560x1440": {
+   "total": 1.5488,
+   "passes": {
+    "args": 0.002,
+    "cull": 0.1223,
+    "display": 0.0658,
+    "forward": 1.293,
+    "hiz": 0.0658
+   },
+   "rounds": [
+    1.548,
+    1.5488,
+    1.5528
+   ]
+  },
+  "forward_msaa|ground|2560x1440": {
+   "total": 1.8495,
+   "passes": {
+    "args": 0.0021,
+    "cull": 0.1216,
+    "display": 0.0694,
+    "forward": 1.5904,
+    "hiz": 0.0606
+   },
+   "rounds": [
+    1.7899,
+    1.874,
+    1.8495
+   ]
+  },
+  "prepass_msaa|ground|2560x1440": {
+   "total": 1.9607,
+   "passes": {
+    "args": 0.002,
+    "cull": 0.12,
+    "display": 0.0675,
+    "forward": 1.711,
+    "hiz": 0.0595
+   },
+   "rounds": [
+    1.9438,
+    1.9665,
+    1.9607
+   ]
+  },
+  "vis|mid|2560x1440": {
+   "total": 1.3421,
+   "passes": {
+    "args": 0.002,
+    "cull": 0.1321,
+    "display": 0.0674,
+    "hiz": 0.0729,
+    "shade": 0.5169,
+    "visibility": 0.5475
+   },
+   "rounds": [
+    1.3227,
+    1.3421,
+    1.343
+   ]
+  },
+  "forward|mid|2560x1440": {
+   "total": 1.5125,
+   "passes": {
+    "args": 0.002,
+    "cull": 0.1275,
+    "display": 0.0665,
+    "forward": 1.2494,
+    "hiz": 0.0678
+   },
+   "rounds": [
+    1.488,
+    1.5125,
+    1.5177
+   ]
+  },
+  "prepass|mid|2560x1440": {
+   "total": 1.5454,
+   "passes": {
+    "args": 0.002,
+    "cull": 0.1251,
+    "display": 0.0661,
+    "forward": 1.2848,
+    "hiz": 0.0665
+   },
+   "rounds": [
+    1.5492,
+    1.5454,
+    1.5438
+   ]
+  },
+  "forward_msaa|mid|2560x1440": {
+   "total": 2.0137,
+   "passes": {
+    "args": 0.0021,
+    "cull": 0.1248,
+    "display": 0.071,
+    "forward": 1.7536,
+    "hiz": 0.0615
+   },
+   "rounds": [
+    1.9377,
+    2.0516,
+    2.0137
+   ]
+  },
+  "prepass_msaa|mid|2560x1440": {
+   "total": 1.9826,
+   "passes": {
+    "args": 0.0021,
+    "cull": 0.1231,
+    "display": 0.0678,
+    "forward": 1.7223,
+    "hiz": 0.0602
+   },
+   "rounds": [
+    1.9591,
+    1.9975,
+    1.9826
+   ]
+  },
+  "vis|far|2560x1440": {
+   "total": 1.1272,
+   "passes": {
+    "args": 0.002,
+    "cull": 0.1365,
+    "display": 0.0662,
+    "hiz": 0.0703,
+    "shade": 0.4114,
+    "visibility": 0.44
+   },
+   "rounds": [
+    1.1272,
+    1.1311,
+    1.1262
+   ]
+  },
+  "forward|far|2560x1440": {
+   "total": 1.4589,
+   "passes": {
+    "args": 0.0021,
+    "cull": 0.13,
+    "display": 0.0664,
+    "forward": 1.1912,
+    "hiz": 0.0673
+   },
+   "rounds": [
+    1.4456,
+    1.4617,
+    1.4589
+   ]
+  },
+  "prepass|far|2560x1440": {
+   "total": 1.4572,
+   "passes": {
+    "args": 0.002,
+    "cull": 0.1256,
+    "display": 0.0661,
+    "forward": 1.1977,
+    "hiz": 0.066
+   },
+   "rounds": [
+    1.4792,
+    1.4568,
+    1.4572
+   ]
+  },
+  "forward_msaa|far|2560x1440": {
+   "total": 1.9719,
+   "passes": {
+    "args": 0.0021,
+    "cull": 0.1263,
+    "display": 0.0701,
+    "forward": 1.7056,
+    "hiz": 0.0612
+   },
+   "rounds": [
+    1.903,
+    2.0109,
+    1.9719
+   ]
+  },
+  "prepass_msaa|far|2560x1440": {
+   "total": 1.8711,
+   "passes": {
+    "args": 0.002,
+    "cull": 0.124,
+    "display": 0.0678,
+    "forward": 1.6056,
+    "hiz": 0.0596
+   },
+   "rounds": [
+    1.8711,
+    1.8889,
+    1.8602
+   ]
+  }
+ }
+}

@@ -39,6 +39,7 @@ add_executable(veach-tests
     space_tests.cpp
     transform_tests.cpp
     voxel_tests.cpp
+    terrain_material_tests.cpp
     voxel_terrain_tests.cpp)
 if(WIN32)
     target_sources(veach-tests PRIVATE dx12_tests.cpp)  # DX12 on WARP in hosted CI (ADR 0033)
@@ -56,6 +57,7 @@ veach_add_shader(veach-tests shaders/sampler_states.slang ENTRIES compare_depth:
 veach_add_shader(veach-tests shaders/blend_states.slang ENTRIES vs_main:vertex fs_main:fragment)
 veach_add_shader(veach-tests shaders/msaa_triangle.slang ENTRIES vs_main:vertex fs_main:fragment)
 # The scene shaders with StandardMaterial only, for the renderer tests (gpu_driven_renderer_tests.cpp).
+veach_add_terrain_material(veach-tests)  # terrain_material_tests.cpp
 veach_add_scene_shaders(veach-tests NAMESPACE test_shaders)
 veach_shader_library(veach-tests NAMESPACE test_shaders)
 target_compile_definitions(veach-tests PRIVATE VEACH_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
@@ -341,6 +343,9 @@ if(APPLE)
     veach_scene_goldens(metal)
     # backdrop.AC7: the space backdrop alone (stars, band, nebulae), small.
     veach_golden_test("golden: space backdrop" space_backdrop_small space_backdrop metal)
+    # terrain_materials.AC5: hills, cliffs, snow and a dug hole drawn with TerrainMaterial over the procedural layers (no
+    # local assets: the scans never reach CI).
+    veach_golden_test("golden: terrain materials" terrain_materials terrain_materials metal FRAMES 4)
     # atmosphere.AC7: a planet's sky 10 degrees into twilight, opposite the sun, through SP-10's lab path with the
     # engine's 16 march steps (ADR 0094). At s = 1 it is all multiple scattering, a few 1e-7 per lux of sun: fp16
     # tables drew it in flat bands (mean FLIP 0.22 against the golden). At s = 0.01 the planet's shadow crosses lit air
@@ -394,7 +399,7 @@ if(APPLE)
             "bistro_noon:bistro_noon:3" "bistro_sunset:bistro_sunset:3"
             "runtime_mesh_realtime:runtime_mesh_realtime:3" "runtime_mesh:runtime_mesh:4"
             "thin_triangles_realtime:thin_triangles_realtime:3" "blend_modes:blend_modes:3"
-            "space_backdrop_small:space_backdrop:3")
+            "space_backdrop_small:space_backdrop:3" "terrain_materials:terrain_materials:4")
         string(REPLACE ":" ";" _golden "${_golden}")
         list(GET _golden 0 _script)
         list(GET _golden 1 _image)
@@ -428,6 +433,11 @@ elseif(WIN32)
     add_test(NAME "lab: the space backdrop renders (dx12)"
         COMMAND veach-lab --rhi dx12 --headless --frames 3 --script scripts/space_backdrop_small.luau)
     set_tests_properties("lab: the space backdrop renders (dx12)" PROPERTIES
+        SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable")
+    # terrain_materials.AC5 on DX12 (WARP): the terrain material compiles, binds its arrays and table, and logs no error.
+    add_test(NAME "lab: terrain materials render (dx12)"
+        COMMAND veach-lab --rhi dx12 --headless --frames 4 --script scripts/terrain_materials.luau)
+    set_tests_properties("lab: terrain materials render (dx12)" PROPERTIES
         SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable")
     add_test(NAME "lab: NaN samples are errors (dx12)"
         COMMAND veach-lab --rhi dx12 --headless --frames 3 --script scripts/nonfinite_light.luau)

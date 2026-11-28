@@ -232,7 +232,7 @@ CPMAddPackage(
         "ENABLE_ALL_WARNINGS OFF" "GENERATE_DEBUG_SYMBOLS OFF" "FLOATING_POINT_EXCEPTIONS_ENABLED OFF"
         "DEBUG_RENDERER_IN_DEBUG_AND_RELEASE OFF" "PROFILER_IN_DEBUG_AND_RELEASE OFF" "ENABLE_OBJECT_STREAM OFF"
         "ENABLE_INSTALL OFF" "JPH_USE_DX12 OFF" "JPH_USE_VK OFF" "JPH_USE_MTL OFF" "JPH_USE_CPU_COMPUTE OFF"
-        "CPP_RTTI_ENABLED OFF" "CPP_EXCEPTIONS_ENABLED OFF")
+        "CPP_RTTI_ENABLED ON" "CPP_EXCEPTIONS_ENABLED OFF")
 if(MSVC)
     set(CMAKE_CXX_FLAGS_DEBUG "${veach_debug_flags}")
 endif()
@@ -247,11 +247,6 @@ endif()
 # -mavx2 from Jolt's own CMake. The bits are equal for every ISA (SP-11); this is speed and the minimum CPU.
 if(TARGET Jolt AND MSVC AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|x86_64)$")
     target_compile_options(Jolt PUBLIC /arch:AVX2)
-endif()
-# Jolt builds without RTTI, so UBSan's vptr check in code that uses Jolt's classes links against typeinfo that
-# doesn't exist. Code that links Jolt skips that one check.
-if(TARGET Jolt AND "undefined" IN_LIST VEACH_SANITIZE)
-    target_compile_options(Jolt INTERFACE -fno-sanitize=vptr)
 endif()
 
 # LLVM libc's header-only math (libc/shared/math): backs veach::dmath, correctly rounded math for canonical code

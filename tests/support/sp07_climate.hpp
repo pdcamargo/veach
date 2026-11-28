@@ -9,7 +9,7 @@
 
 #include <veach/core/dmath.hpp>
 #include <veach/core/hash.hpp>
-#include <veach/script/procgen_sandbox.hpp>
+#include <veach/procgen/sandbox.hpp>
 #include <veach/space/gen/system.hpp>
 
 #include <cmath>

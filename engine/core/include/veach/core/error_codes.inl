@@ -58,6 +58,11 @@ VEACH_ERROR(script_unsupported_field, "script.unsupported_field",
             "A component field type cannot be represented in Luau")
 VEACH_ERROR(procgen_budget_exceeded, "procgen.budget_exceeded",
             "A generator hook ran past its safepoint, wall-clock or memory budget")
+VEACH_ERROR(procgen_graph_invalid, "procgen.graph_invalid",
+            "A field graph is malformed: an unknown node type, a bad port, a length without a unit class, a cycle")
+VEACH_ERROR(procgen_stage_invalid, "procgen.stage_invalid",
+            "A generation stage cannot be registered: a duplicate id and version, a malformed id, a tier violation")
+VEACH_ERROR(procgen_stage_failed, "procgen.stage_failed", "A generation stage failed; nothing of its output was kept")
 
 VEACH_ERROR(rhi_backend_unavailable, "rhi.backend_unavailable",
             "The requested RHI backend is not available on this platform")
@@ -70,8 +75,7 @@ VEACH_ERROR(replay_diverged, "replay.diverged", "A replay's simulation state dif
 VEACH_ERROR(render_history_lost, "render.history_lost",
             "Path-traced pixels read back something other than the accumulation they last wrote")
 VEACH_ERROR(render_nonfinite_samples, "render.nonfinite_samples", "The path tracer produced NaN or infinite samples")
-VEACH_ERROR(render_nonfinite_pixels, "render.nonfinite_pixels",
-            "The real-time renderer wrote NaN or infinite radiance")
+VEACH_ERROR(render_nonfinite_pixels, "render.nonfinite_pixels", "The real-time renderer wrote NaN or infinite radiance")
 VEACH_ERROR(render_mesh_invalid, "render.mesh_invalid", "A runtime mesh submitted to the MeshStore is malformed")
 VEACH_ERROR(render_mesh_unknown, "render.mesh_unknown", "A MeshStore call named a mesh or material it does not hold")
 VEACH_ERROR(rhi_invalid_surface, "rhi.invalid_surface", "The native window handle given to the RHI is invalid")

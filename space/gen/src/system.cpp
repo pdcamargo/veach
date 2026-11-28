@@ -11,6 +11,7 @@
 
 #include <veach/core/dmath.hpp>
 #include <veach/core/hash.hpp>
+#include <veach/procgen/stage.hpp>
 
 #include <algorithm>
 #include <bit>
@@ -430,15 +431,6 @@ void make_moons(const SystemRecord& r, const BodyRecord& planet, std::uint64_t s
     }
 }
 
-struct RecordHasher {
-    std::uint64_t h;
-    RecordHasher(std::string_view stage, std::uint32_t version)
-        : h(veach::hash(veach::hash_id(stage), std::uint64_t{version}, std::uint64_t{dm::version})) {}
-    void u(std::uint64_t w) { h = veach::hash(h, w); }
-    void d(double x) { u(x != x ? 0x7FF8000000000000ULL : std::bit_cast<std::uint64_t>(x)); }  // one NaN (ADR 0067)
-    void s(std::string_view x) { u(veach::hash_id(x)); }
-};
-
 bool finite(double x) {
     return x == x && x - x == 0.0;
 }
@@ -525,7 +517,7 @@ struct Walk {
 }  // namespace
 
 std::uint64_t stage_seed(const StageContext& ctx, std::string_view stage_id, std::uint32_t version) {
-    return veach::hash(ctx.universe->seed, ctx.address.value, veach::hash_id(stage_id), std::uint64_t{version});
+    return veach::procgen::stage_seed(ctx.universe->seed, ctx.address.value, stage_id, version);
 }
 
 double roche_limit_m(double primary_radius_m, double primary_density, double satellite_density) {
@@ -723,46 +715,46 @@ std::vector<BodyPhysics> derive_all_body_physics(const StageContext& ctx, const 
 }
 
 std::uint64_t stage_hash(const SystemRecord& r) {
-    RecordHasher h(system_stage_id, system_stage_version);
-    h.u(r.address.value);
+    veach::procgen::RecordHasher h(system_stage_id, system_stage_version);
+    h.add(r.address.value);
     const StarRecord& s = r.star;
-    h.s(s.kind);
-    h.s(s.spectral_class);
+    h.add_id(s.kind);
+    h.add_id(s.spectral_class);
     for (const double x :
          {s.initial_mass_kg, s.mass_kg, s.age_s, s.metallicity_feh, s.zams_luminosity_w, s.luminosity_w, s.radius_m,
           s.temperature_k, r.disk_inner_m, r.disk_outer_m, r.snow_line_m, r.hz_inner_m, r.hz_outer_m}) {
-        h.d(x);
+        h.add_double(x);
     }
-    h.u(r.habitability_anchor ? 1u : 0u);
-    h.u(r.planet_count);
-    h.u(r.bodies.size());
+    h.add(r.habitability_anchor ? 1u : 0u);
+    h.add(r.planet_count);
+    h.add(r.bodies.size());
     for (const BodyRecord& b : r.bodies) {
-        h.u(b.index);
-        h.u(b.parent);
-        h.s(b.composition);
+        h.add(b.index);
+        h.add(b.parent);
+        h.add_id(b.composition);
         for (const double x : {b.mass_kg, b.radius_m, b.density_kg_m3, b.orbit.semi_major_axis_m, b.orbit.eccentricity,
                                b.orbit.inclination_rad, b.orbit.ascending_node_rad, b.orbit.argument_of_periapsis_rad,
                                b.orbit.mean_anomaly_at_epoch_rad, b.sidereal_rotation_s, b.obliquity_rad}) {
-            h.d(x);
+            h.add_double(x);
         }
-        h.u(b.tidally_locked ? 1u : 0u);
+        h.add(b.tidally_locked ? 1u : 0u);
     }
-    return h.h;
+    return h.value();
 }
 
 std::uint64_t stage_hash(const std::vector<BodyPhysics>& r) {
-    RecordHasher h(body_physics_stage_id, body_physics_stage_version);
-    h.u(r.size());
+    veach::procgen::RecordHasher h(body_physics_stage_id, body_physics_stage_version);
+    h.add(r.size());
     for (const BodyPhysics& p : r) {
-        h.u(p.index);
+        h.add(p.index);
         for (const double x : {p.bond_albedo, p.surface_gravity_m_s2, p.escape_velocity_m_s, p.instellation_w_m2,
                                p.equilibrium_temperature_k, p.lightest_retained_molar_mass}) {
-            h.d(x);
+            h.add_double(x);
         }
-        h.u((p.retains_atmosphere ? 1u : 0u) | (p.in_habitable_zone ? 2u : 0u) | (p.potentially_habitable ? 4u : 0u));
-        h.s(p.temperature_class);
+        h.add((p.retains_atmosphere ? 1u : 0u) | (p.in_habitable_zone ? 2u : 0u) | (p.potentially_habitable ? 4u : 0u));
+        h.add_id(p.temperature_class);
     }
-    return h.h;
+    return h.value();
 }
 
 Violations& Violations::operator+=(const Violations& o) {

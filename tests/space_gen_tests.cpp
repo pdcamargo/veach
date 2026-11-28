@@ -1,16 +1,21 @@
 // Spike SP-05 (VCH-081), throwaway: veach::hash test vectors (ADR 0044), system addresses (ADR 0050), and S1/B1
 // stage hashes (ADR 0051): committed values the macOS gate and Windows CI both check, equal across thread counts and
-// generation order, and equal at every scale. docs/research/spikes/sp-05-system-statistics.md.
+// generation order, and equal at every scale. docs/research/spikes/sp-05-system-statistics.md. Since VCH-112 the
+// stages run on engine/procgen's stage runtime, which must give the same hashes (procgen.AC9).
 
 #include <doctest/doctest.h>
 #include <veach/core/hash.hpp>
+#include <veach/core/jobs.hpp>
+#include <veach/procgen/stage.hpp>
 #include <veach/space/gen/address.hpp>
 #include <veach/space/gen/realize.hpp>
+#include <veach/space/gen/stages.hpp>
 #include <veach/space/gen/system.hpp>
 
 #include <cstdint>
 #include <format>
-#include <thread>
+#include <memory>
+#include <string>
 #include <vector>
 
 namespace sg = space::gen;
@@ -113,47 +118,78 @@ StageHashes combine(const std::vector<StageHashes>& h) {  // in index order
     return out;
 }
 
+/// SP-05's stages on the engine's stage runtime (VCH-112), for the sample universe.
+struct Runtime {
+    veach::procgen::StageRegistry registry;
+    sg::Stages stages{};
+    std::unique_ptr<veach::procgen::StageRuntime> runtime;
+
+    explicit Runtime(std::size_t capacity = 0) {
+        auto s = sg::register_stages(registry, sample_universe);
+        REQUIRE_MESSAGE(s.has_value(), (s ? std::string() : s.error().message));
+        stages = *s;
+        runtime = std::make_unique<veach::procgen::StageRuntime>(
+            registry,
+            veach::procgen::RuntimeOptions{.universe_seed = sample_universe.seed, .cache_capacity = capacity});
+    }
+
+    StageHashes hashes(std::uint64_t i) const {
+        const std::uint64_t a = sample_address(i).value;
+        return {*runtime->hash(stages.system, a), *runtime->hash(stages.body_physics, a)};
+    }
+};
+
 }  // namespace
 
-TEST_CASE("[sp05] S1 and B1 stage hashes of a fixed sample match the committed ones") {
-    std::vector<StageHashes> h(sample_size);
+TEST_CASE("[sp05][procgen.AC9] S1 and B1 stage hashes of a fixed sample match the committed ones, on the runtime") {
+    Runtime rt;
+    std::vector<StageHashes> direct(sample_size), on_runtime(sample_size);
     sg::Violations v;
     for (std::uint64_t i = 0; i < sample_size; ++i) {
-        h[i] = generate(i);
-        const sg::StageContext ctx{&sample_universe, sample_address(i)};
-        const sg::SystemRecord r = sg::generate_system(ctx);
-        v += sg::validate(r, sg::derive_all_body_physics(ctx, r));
+        direct[i] = generate(i);
+        on_runtime[i] = rt.hashes(i);
+        const auto system = rt.runtime->get(rt.stages.system, sample_address(i).value);
+        const auto physics = rt.runtime->get(rt.stages.body_physics, sample_address(i).value);
+        REQUIRE(system.has_value());
+        REQUIRE(physics.has_value());
+        v += sg::validate(**system, **physics);
     }
-    const StageHashes c = combine(h);
+    const StageHashes c = combine(direct);
+    const StageHashes r = combine(on_runtime);
     INFO(std::format("S1 0x{:016x}, B1 0x{:016x}", c.s1, c.b1));
     // Regenerate only on purpose: a different value is a stage version bump (system_stage_version,
     // body_physics_stage_version), or a dmath or veach::hash change.
     CHECK(c.s1 == 0xc28a0456eedc0301ULL);
     CHECK(c.b1 == 0xf2f6a4c18dbe873dULL);
+    CHECK(r.s1 == c.s1);
+    CHECK(r.b1 == c.b1);
     CHECK(v.total() == 0);
+    // The runtime's seed is the one the stages always used (ADR 0050).
+    const sg::StageContext ctx{&sample_universe, sample_address(5)};
+    CHECK(veach::procgen::StageContext{sample_universe.seed, sample_address(5).value, sg::system_stage_id,
+                                       sg::system_stage_version}
+              .seed() == sg::stage_seed(ctx, sg::system_stage_id, sg::system_stage_version));
 }
 
-TEST_CASE("[sp05] stage hashes don't depend on thread count or generation order") {
-    std::vector<StageHashes> one(sample_size), four(sample_size);
+TEST_CASE("[sp05][procgen.AC9] stage hashes don't depend on thread count or generation order") {
+    std::vector<StageHashes> one(sample_size);
     for (std::uint64_t i = 0; i < sample_size; ++i) {
         one[i] = generate(i);
     }
-    std::vector<std::thread> pool;
-    for (std::uint64_t t = 0; t < 4; ++t) {
-        pool.emplace_back([&four, t] {
-            for (std::uint64_t i = sample_size; i-- > 0;) {  // backward, interleaved
-                if (i % 4 == t) {
-                    four[i] = generate(i);
-                }
+    for (const std::uint32_t threads : {1u, 4u}) {
+        Runtime rt(256);  // a small cache: evictions mid-run must not change anything
+        veach::JobSystem jobs(threads);
+        std::vector<StageHashes> got(sample_size);
+        jobs.parallel_for("sp05 stages", sample_size, 25, [&](std::size_t begin, std::size_t end) {
+            for (std::size_t i = end; i-- > begin;) {  // backward within each chunk
+                got[i] = rt.hashes(i);
             }
         });
+        const StageHashes a = combine(one), b = combine(got);
+        CHECK(a.s1 == b.s1);
+        CHECK(a.b1 == b.b1);
+        CHECK(rt.runtime->stats().evictions > 0);
     }
-    for (std::thread& th : pool) {
-        th.join();
-    }
-    const StageHashes a = combine(one), b = combine(four);
-    CHECK(a.s1 == b.s1);
-    CHECK(a.b1 == b.b1);
 }
 
 TEST_CASE("[sp05] records are equal at s = 1, 0.1 and 0.01; only realized geometry scales") {

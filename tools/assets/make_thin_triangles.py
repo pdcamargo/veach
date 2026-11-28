@@ -112,13 +112,6 @@ def main() -> int:
     }
     (out / "thin_triangles.bin").write_bytes(bytes(binary))
     (out / "thin_triangles.gltf").write_text(json.dumps(gltf, indent=1) + "\n")
-    # VCH-110: the same buffer with the ground's primitive alone (no thin triangles, one primitive), for the DX12
-    # diagnostic that splits the scene's hypotheses.
-    ground_only = json.loads(json.dumps(gltf))
-    ground_only["scenes"][0]["name"] = "thin triangles, ground only"
-    ground_only["nodes"][0]["name"] = ground_only["meshes"][0]["name"] = "ground"
-    ground_only["meshes"][0]["primitives"] = ground_only["meshes"][0]["primitives"][:1]
-    (out / "thin_triangles_ground.gltf").write_text(json.dumps(ground_only, indent=1) + "\n")
     return 0
 
 

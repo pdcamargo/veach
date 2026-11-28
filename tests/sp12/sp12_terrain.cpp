@@ -88,6 +88,16 @@ std::array<std::int64_t, 3> site_offset_mm(std::int64_t east, std::int64_t north
             dig_site_mm[2] + north};
 }
 
+std::array<std::int64_t, 3> site_offset_mm(const Site& site, std::int64_t east, std::int64_t north, std::int64_t up) {
+    std::array<std::int64_t, 3> p{};
+    for (std::size_t a = 0; a < 3; ++a) {
+        const double d = site.east[a] * static_cast<double>(east) + site.north[a] * static_cast<double>(north) +
+                         site.up[a] * static_cast<double>(up);
+        p[a] = site.center_mm[a] + static_cast<std::int64_t>(std::nearbyint(d));
+    }
+    return p;
+}
+
 ChunkKey chunk_of_mm(const std::array<std::int64_t, 3>& p) {
     constexpr std::int64_t chunk_mm = chunk_cells * lod0_cell_mm;
     return ChunkKey{0, static_cast<std::int32_t>(floor_div(p[0], chunk_mm)),

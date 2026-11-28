@@ -14,7 +14,7 @@ namespace veach::sp12 {
 
 using namespace voxel;
 
-std::vector<BrushOp> dig_log() {
+std::vector<BrushOp> dig_log(const Site& site) {
     std::vector<BrushOp> log;
     const auto op = [&](std::uint64_t tick, BrushKind kind, const std::array<std::int64_t, 3>& center,
                         std::int32_t radius, std::uint8_t material) {
@@ -28,14 +28,14 @@ std::vector<BrushOp> dig_log() {
         log.push_back(o);
     };
     // Tick 90: the ball has landed and rolls about the basin.
-    op(90, BrushKind::subtract, site_offset_mm(0, 0, 0), 3'000, 0);             // the pit, centered on the surface
-    op(90, BrushKind::subtract, site_offset_mm(1'500, 500, -1'000), 2'000, 0);  // deeper, off-center
+    op(90, BrushKind::subtract, site_offset_mm(site, 0, 0, 0), 3'000, 0);  // the pit, centered on the surface
+    op(90, BrushKind::subtract, site_offset_mm(site, 1'500, 500, -1'000), 2'000, 0);  // deeper, off-center
     // The ground 5 m west is 0.39 m higher (veach-bench-sp12 --surface -5000 0): the mound sits on it.
-    op(90, BrushKind::add, site_offset_mm(-5'000, 0, 395), 1'500, 3);               // a mound of material 3
-    op(90, BrushKind::subtract, site_offset_mm(-5'000, 0, 1'395), 800, 0);          // a dent in the mound's top
-    op(90, BrushKind::subtract, site_offset_mm(5'000, 10'000, -25'000), 2'500, 0);  // a cavity in rock
+    op(90, BrushKind::add, site_offset_mm(site, -5'000, 0, 395), 1'500, 3);               // a mound of material 3
+    op(90, BrushKind::subtract, site_offset_mm(site, -5'000, 0, 1'395), 800, 0);          // a dent in the mound's top
+    op(90, BrushKind::subtract, site_offset_mm(site, 5'000, 10'000, -25'000), 2'500, 0);  // a cavity in rock
     // Tick second_dig_tick: the ball sleeps at the pit's bottom; a sump under it wakes it and it falls again.
-    op(second_dig_tick, BrushKind::subtract, site_offset_mm(0, 0, -3'200), 1'200, 0);
+    op(second_dig_tick, BrushKind::subtract, site_offset_mm(site, 0, 0, -3'200), 1'200, 0);
     return log;
 }
 
@@ -58,7 +58,8 @@ ScenarioResult run_scenario(const ScenarioConfig& config) {
     ScenarioResult r;
     JobSystem jobs(config.workers);
     const PlanetField field;
-    const ChunkKey center = chunk_of_mm(dig_site_mm);
+    const Site& at = config.site;
+    const ChunkKey center = chunk_of_mm(at.center_mm);
     Terrain terrain(field, center, config.half);
     terrain.load(jobs);
     r.base_samples_hash = terrain.samples_hash();
@@ -77,11 +78,11 @@ ScenarioResult run_scenario(const ScenarioConfig& config) {
     // The dig site and up, in the scene (exact: integer millimeters minus an integer origin).
     std::array<double, 3> site{};
     for (std::size_t a = 0; a < 3; ++a) {
-        site[a] = static_cast<double>(dig_site_mm[a] - origin[a] * lod0_cell_mm) / 1000.0;
+        site[a] = static_cast<double>(at.center_mm[a] - origin[a] * lod0_cell_mm) / 1000.0;
     }
     std::array<double, 3> start{};
     for (std::size_t a = 0; a < 3; ++a) {
-        start[a] = site[a] + 2.5 * site_up[a];
+        start[a] = site[a] + 2.5 * at.up[a];
     }
     scene.add_ball(start, 0.4f);
     const auto relative = [&](const BallState& b, double& depth, double& lateral) {
@@ -89,12 +90,12 @@ ScenarioResult run_scenario(const ScenarioConfig& config) {
         for (std::size_t a = 0; a < 3; ++a) {
             d[a] = b.position[a] - site[a];
         }
-        depth = d[0] * site_up[0] + d[1] * site_up[1] + d[2] * site_up[2];
+        depth = d[0] * at.up[0] + d[1] * at.up[1] + d[2] * at.up[2];
         const double l2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2] - depth * depth;
         lateral = std::sqrt(l2 > 0.0 ? l2 : 0.0);
     };
 
-    const std::vector<BrushOp> log = config.dig ? dig_log() : std::vector<BrushOp>{};
+    const std::vector<BrushOp> log = config.dig ? dig_log(at) : std::vector<BrushOp>{};
     std::size_t next_op = 0;
     std::vector<std::pair<int, std::vector<Collider>>> pending;  // install tick, colliders in key order
     std::map<ChunkKey, int> changed;

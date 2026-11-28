@@ -9,7 +9,7 @@
 #include <support/sp07_climate.hpp>
 #include <veach/core/dmath.hpp>
 #include <veach/core/hash.hpp>
-#include <veach/script/procgen_sandbox.hpp>
+#include <veach/procgen/sandbox.hpp>
 
 #include <algorithm>
 #include <chrono>

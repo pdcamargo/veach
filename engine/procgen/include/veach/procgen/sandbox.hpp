@@ -1,8 +1,9 @@
 #pragma once
 
-// The Luau procgen sandbox (docs/adr/0052-procgen-runtime.md): a VM for generator hooks, separate from the gameplay
-// ScriptRuntime. Spike SP-07 (VCH-083), throwaway: docs/research/spikes/sp-07-luau-generator.md. It moves to
-// engine/procgen when that area exists (docs/adr/0065-engine-areas-for-the-toolbox.md).
+// The Luau procgen sandbox (docs/adr/0052-procgen-runtime.md, rules in docs/adr/0070-generator-sandbox-rules.md): a VM
+// for generator hooks, separate from engine/script's gameplay ScriptRuntime. Built by spike SP-07 (VCH-083,
+// docs/research/spikes/sp-07-luau-generator.md) and promoted with engine/procgen (VCH-112). Guide:
+// docs/guides/procgen.md.
 //
 // What a hook sees: the standard libraries minus os, debug, print, getfenv/setfenv, gcinfo, collectgarbage and
 // newproxy. `math` is canonical (docs/adr/0043-determinism-tiers-and-strict-floating-point.md): every libm-backed
@@ -15,8 +16,12 @@
 // A hook is a chunk that returns one function `(ctx, inputs, outputs)`. Each call loads the chunk afresh into a new
 // sandboxed thread, so nothing (globals, upvalues) survives from one invocation to the next and results never depend
 // on call order. One Sandbox per worker thread; a Sandbox is not thread-safe.
+//
+// The same sandbox runs field-graph builder scripts (build_graph): Luau that declares a graph and gets the IR the JSON
+// loader would read (docs/guides/procgen.md).
 
 #include <veach/core/error.hpp>
+#include <veach/procgen/field_graph.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -85,6 +90,11 @@ public:
     [[nodiscard]] Result<HookId> load(std::string_view source, std::string_view chunk_name);
     /// Runs a hook once. Fails with procgen.budget_exceeded or script.runtime_error; outputs are untouched on failure.
     [[nodiscard]] Result<> run(HookId hook, const HookCall& call);
+    /// Runs a field-graph builder: a chunk that returns `function(procgen)`, which makes a graph with
+    /// procgen.graph(id), adds inputs, nodes and outputs, and returns it. The result is validated like JSON. Fails with
+    /// script.compile_failed, procgen.graph_invalid (the builder raised an error, with its line, or the graph is
+    /// invalid) or procgen.budget_exceeded (the same budgets as hooks).
+    [[nodiscard]] Result<FieldGraph> build_graph(std::string_view source, std::string_view chunk_name);
 
     [[nodiscard]] const HookStats& last_stats() const;
     [[nodiscard]] const SandboxOptions& options() const;

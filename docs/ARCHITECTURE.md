@@ -78,7 +78,7 @@ flowchart BT
     rhi["rhi: Device, CommandList, bindless handles; null, metal, dx12"]
     render["render: Renderer, RenderGraph, features, extraction, photo mode"]
     physics["physics (planned): Jolt, scenes per frame, gravity registry"]
-    procgen["procgen (planned): stage runtime, field graphs, Luau procgen sandbox"]
+    procgen["procgen: stage runtime and cache, field graphs, CPU interpreter, Luau generator sandbox"]
     voxel["voxel (planned): density chunks, mesher, edits, streaming"]
     runtime["runtime: Engine, config, main loop, MCP server"]
     space["space/: the toolbox (empty until the first slice)"]
@@ -92,7 +92,7 @@ flowchart BT
     render --> ecs
     render --> asset
     physics -.-> ecs
-    procgen -.-> script
+    procgen --> core
     voxel -.-> procgen
     runtime --> script
     runtime --> render
@@ -102,7 +102,7 @@ flowchart BT
     games --> space
     games --> runtime
     classDef planned stroke-dasharray: 5 5
-    class physics,procgen,voxel planned
+    class physics,voxel planned
 ```
 
 - **core** depends only on glm (and Tracy when profiling). No Flecs, no SDL.
@@ -244,7 +244,7 @@ GPU error callbacks arrive on Metal's thread, which is why the log and the engin
 | `engine/include/veach/veach.hpp` | The umbrella header |
 | `engine/core/`, `engine/ecs/` (planned additions) | `veach::dmath`, counter-based hash RNG; double positions in a reference-frame tree ([ADR 0065](adr/0065-engine-areas-for-the-toolbox.md)) |
 | `engine/physics/` (planned) | Jolt in double precision, one scene per frame, the gravity registry ([ADR 0058](adr/0058-physics-jolt.md)) |
-| `engine/procgen/` (planned) | Generation stage runtime, field-graph IR and interpreters, the Luau procgen sandbox ([ADR 0052](adr/0052-procgen-runtime.md)) |
+| `engine/procgen/` | Generation stage runtime and cache, field-graph IR, JSON loader and canonical CPU interpreter, the Luau generator sandbox ([ADR 0052](adr/0052-procgen-runtime.md), [spec](specs/procgen/spec.md)). Links core only, never rhi or render |
 | `engine/voxel/` (planned) | Density chunks, the CPU mesher, edits, streaming ([ADR 0053](adr/0053-terrain-density-field.md)) |
 | `space/` | The space toolbox: a layer above the engine, empty until the first slice (galaxy, addresses, body kinds, orbits, planetary terrain, atmospheres, flight and travel) |
 | `apps/lab/` | The prototype app (`veach.project.json`, `scripts/`, sample assets, its own shaders and materials) |

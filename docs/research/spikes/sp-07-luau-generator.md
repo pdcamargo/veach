@@ -1,5 +1,8 @@
 # SP-07: deterministic Luau generator (VCH-083)
 
+> **Promoted (VCH-112).** The sandbox is now `engine/procgen` (`veach/procgen/sandbox.hpp`); the tests and the
+> committed climate hash are unchanged. See the [procgen spec](../../specs/procgen/spec.md).
+
 Validates the Luau procgen sandbox of [ADR 0052](../../adr/0052-procgen-runtime.md) and the Luau rules of
 [ADR 0043](../../adr/0043-determinism-tiers-and-strict-floating-point.md), on `veach::dmath`
 ([ADR 0067](../../adr/0067-dmath-on-llvm-libc.md)) and `veach::hash` ([ADR 0044](../../adr/0044-counter-based-hash-randomness.md)).

@@ -1,7 +1,9 @@
 # Spike SP-06 (VCH-082), throwaway: one field graph, three evaluators (docs/research/spikes/sp-06-field-graph.md).
-# A static library shared by the unit tests and the bench, so the shaders compile once.
-add_library(veach-sp06 STATIC field_graph.cpp field_gpu.cpp)
-target_link_libraries(veach-sp06 PUBLIC veach::veach PRIVATE nlohmann_json::nlohmann_json)
+# The compiler and the CPU interpreter are engine/procgen now (VCH-112); this keeps the two GPU evaluators, which
+# prototype the render feature ADR 0065 puts in engine/render. A static library shared by the unit tests and the
+# bench, so the shaders compile once.
+add_library(veach-sp06 STATIC field_gpu.cpp)
+target_link_libraries(veach-sp06 PUBLIC veach::veach)
 target_include_directories(veach-sp06 PUBLIC "${PROJECT_SOURCE_DIR}/tests")
 target_compile_definitions(veach-sp06 PRIVATE VEACH_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 set(_sp06_shaders "${CMAKE_CURRENT_SOURCE_DIR}/shaders")

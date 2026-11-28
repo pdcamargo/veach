@@ -1,6 +1,8 @@
-// The Luau procgen sandbox, spike SP-07 (VCH-083): docs/research/spikes/sp-07-luau-generator.md.
+// The Luau procgen sandbox (docs/adr/0070-generator-sandbox-rules.md), from spike SP-07 (VCH-083).
 
-#include <veach/script/procgen_sandbox.hpp>
+#include <veach/procgen/sandbox.hpp>
+
+#include "field_graph_ir.hpp"
 
 #include <veach/core/assert.hpp>
 #include <veach/core/dmath.hpp>
@@ -11,12 +13,14 @@
 #include <Luau/Parser.h>
 #include <lua.h>
 #include <lualib.h>
+#include <nlohmann/json.hpp>
 
 #include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <expected>
 #include <format>
 #include <vector>
 
@@ -41,6 +45,80 @@ constexpr std::array<const char*, 9> removed_globals{"os",     "debug",         
 constexpr std::array<const char*, 3> removed_math{"random", "randomseed", "noise"};
 
 constexpr int max_hash_words = 6;  // veach::hash takes 1 to 6 key words
+
+// The field-graph builder's library (docs/guides/procgen.md), run in the sandbox before a builder script. It only
+// collects tables; the C++ side turns the graph into JSON and validates it with the JSON loader, so both routes give
+// the same IR and the same errors.
+constexpr std::string_view graph_prelude = R"luau(
+local procgen = {}
+local Graph = {}
+Graph.__index = Graph
+
+local function ref_of(v)
+    if type(v) == "table" and type(v.ref) == "string" then
+        return v.ref
+    end
+    return nil
+end
+
+function procgen.graph(id)
+    if type(id) ~= "string" then
+        error("procgen.graph(id): the id is a string like \"mymod:terrain\"", 2)
+    end
+    return setmetatable({ veach_graph = 1, id = id, inputs = {}, nodes = {}, outputs = {}, used = {} }, Graph)
+end
+
+function procgen.planet_m(x)
+    return { planet_m = x }
+end
+
+function procgen.m(x)
+    return { m = x }
+end
+
+function Graph:input(name, kind)
+    if type(name) ~= "string" or (kind ~= "p_planet" and kind ~= "p_local") then
+        error("g:input(name, kind): kind is \"p_planet\" or \"p_local\"", 2)
+    end
+    if self.used[name] then
+        error("'" .. name .. "' is used twice", 2)
+    end
+    self.used[name] = true
+    self.inputs[name] = kind
+    return { ref = name }
+end
+
+function Graph:node(id, node_type, args)
+    if type(id) ~= "string" or type(node_type) ~= "string" then
+        error("g:node(id, type, args): id and type are strings, like g:node(\"hills\", \"veach:fbm@1\", {...})", 2)
+    end
+    if self.used[id] then
+        error("node id '" .. id .. "' is used twice", 2)
+    end
+    self.used[id] = true
+    local inputs, params = {}, {}
+    for k, v in pairs(args or {}) do
+        local r = ref_of(v)
+        if r then
+            inputs[k] = r
+        else
+            params[k] = v
+        end
+    end
+    table.insert(self.nodes, { id = id, type = node_type, inputs = inputs, params = params })
+    return { ref = id }
+end
+
+function Graph:output(name, value)
+    local r = ref_of(value)
+    if type(name) ~= "string" or not r then
+        error("g:output(name, node): pass a name and what g:node returned", 2)
+    end
+    self.outputs[name] = r
+end
+
+return procgen
+)luau";
 
 /// Finds `^` and `^=`: libm pow, either folded by the compiler on the host or run by the VM.
 struct PowFinder : Luau::AstVisitor {
@@ -252,7 +330,8 @@ struct Sandbox::Impl {
         enforce_memory = true;
     }
 
-    Result<HookId> load(std::string_view source, std::string_view chunk_name) {
+    /// Compiles a chunk with the sandbox's rules: `^` rejected, the libm builtins disabled.
+    Result<std::string> compile_source(std::string_view source, std::string_view chunk_name) const {
         const std::string name(chunk_name);
         {
             Luau::Allocator allocator;
@@ -281,7 +360,15 @@ struct Sandbox::Impl {
             return make_error(ErrorCode::script_compile_failed, std::format("{}{}", name, bytecode.substr(1)),
                               "Fix the syntax error; run luau-analyze on the file for full diagnostics.");
         }
-        hooks.push_back({std::format("@{}", name), std::move(bytecode)});
+        return bytecode;
+    }
+
+    Result<HookId> load(std::string_view source, std::string_view chunk_name) {
+        auto bytecode = compile_source(source, chunk_name);
+        if (!bytecode) {
+            return std::unexpected(std::move(bytecode.error()));
+        }
+        hooks.push_back({std::format("@{}", chunk_name), std::move(*bytecode)});
         const auto id = static_cast<HookId>(hooks.size() - 1);
         // Validate once: the chunk must return a function.
         if (auto ran = run(id, HookCall{}, /*validate_only=*/true); !ran) {
@@ -291,8 +378,13 @@ struct Sandbox::Impl {
         return id;
     }
 
-    Error failure(const Hook& hook, std::string message) const {
+    Error failure(const Hook& hook, std::string message, bool builder = false) const {
         const std::string chunk = hook.chunk_name.substr(1);
+        if (builder && exceeded == Exceeded::none) {
+            return Error{ErrorCode::procgen_graph_invalid, std::format("field graph builder '{}': {}", chunk, message),
+                         "The builder raised an error; no graph was made. Fix the error at the line shown "
+                         "(docs/guides/procgen.md has the builder's API)."};
+        }
         switch (exceeded) {
             case Exceeded::safepoints:
                 return Error{
@@ -418,6 +510,147 @@ struct Sandbox::Impl {
         lua_settop(L, top);
         return {};
     }
+
+    // ---- the field-graph builder ---------------------------------------------
+
+    std::string prelude;  ///< graph_prelude's bytecode, compiled on first use
+
+    Result<FieldGraph> build_graph(std::string_view source, std::string_view chunk_name) {
+        auto bytecode = compile_source(source, chunk_name);
+        if (!bytecode) {
+            return std::unexpected(std::move(bytecode.error()));
+        }
+        if (prelude.empty()) {
+            auto compiled = compile_source(graph_prelude, "procgen.graph");
+            VEACH_ASSERT(compiled.has_value(), "procgen sandbox: the graph builder's prelude does not compile");
+            prelude = std::move(*compiled);
+        }
+        const Hook hook{std::format("@{}", chunk_name), std::move(*bytecode)};
+        stats = {};
+        exceeded = Exceeded::none;
+        seed = 0;
+        if (options.wall_budget_ms > 0) {
+            deadline = Clock::now() + std::chrono::duration_cast<Clock::duration>(
+                                          std::chrono::duration<double, std::milli>(options.wall_budget_ms));
+        }
+
+        const int top = lua_gettop(L);
+        lua_State* T = lua_newthread(L);
+        luaL_sandboxthread(T);
+        auto fail = [&](Error e) -> Result<FieldGraph> {
+            lua_settop(L, top);
+            return std::unexpected(std::move(e));
+        };
+        auto message = [&] {
+            return std::string(lua_tostring(T, -1) ? lua_tostring(T, -1) : "error");
+        };
+        // The prelude returns the `procgen` table the builder receives.
+        if (luau_load(T, "=procgen.graph", prelude.data(), prelude.size(), 0) != 0 || lua_pcall(T, 0, 1, 0) != LUA_OK) {
+            return fail(
+                Error{ErrorCode::internal, "procgen sandbox: the graph builder's prelude failed: " + message(), {}});
+        }
+        if (luau_load(T, hook.chunk_name.c_str(), hook.bytecode.data(), hook.bytecode.size(), 0) != 0) {
+            return fail(Error{ErrorCode::script_compile_failed, message(), {}});
+        }
+        if (lua_pcall(T, 0, 1, 0) != LUA_OK) {
+            return fail(failure(hook, message(), /*builder=*/true));
+        }
+        if (lua_type(T, -1) != LUA_TFUNCTION) {
+            return fail(Error{ErrorCode::procgen_graph_invalid,
+                              std::format("field graph builder '{}' returned a {}, not a function", chunk_name,
+                                          lua_typename(T, lua_type(T, -1))),
+                              "End the file with `return function(procgen) ... return g end`."});
+        }
+        lua_insert(T, -2);  // the builder below its argument
+        if (lua_pcall(T, 1, 1, 0) != LUA_OK) {
+            return fail(failure(hook, message(), /*builder=*/true));
+        }
+        if (lua_type(T, -1) != LUA_TTABLE) {
+            return fail(Error{ErrorCode::procgen_graph_invalid,
+                              std::format("field graph builder '{}' returned a {}, not a graph", chunk_name,
+                                          lua_typename(T, lua_type(T, -1))),
+                              "Return the graph that procgen.graph(id) made."});
+        }
+        nlohmann::json doc = nlohmann::json::object();
+        for (const char* key : {"veach_graph", "id", "inputs", "nodes", "outputs"}) {
+            lua_getfield(T, -1, key);
+            if (!lua_isnil(T, -1)) {
+                auto value = to_json(T, -1, 0);
+                if (!value) {
+                    return fail(Error{ErrorCode::procgen_graph_invalid,
+                                      std::format("field graph builder '{}': {}: {}", chunk_name, key, value.error()),
+                                      "Node parameters are numbers, strings, booleans, lists and tables of them."});
+                }
+                doc[key] = std::move(*value);
+            }
+            lua_pop(T, 1);
+        }
+        lua_settop(L, top);
+        return parse_field_graph_json(doc, chunk_name);
+    }
+
+    /// A Luau value as JSON: numbers (whole ones as integers), strings, booleans, and tables as arrays (1..n) or
+    /// objects (string keys).
+    static std::expected<nlohmann::json, std::string> to_json(lua_State* T, int index, int depth) {
+        if (depth > 16) {
+            return std::unexpected(std::string("tables nest too deep (a cycle?)"));
+        }
+        index = lua_absindex(T, index);
+        switch (lua_type(T, index)) {
+            case LUA_TNUMBER: {
+                const double x = lua_tonumber(T, index);
+                if (!std::isfinite(x)) {
+                    return std::unexpected(std::format("{} is not a finite number", x));
+                }
+                if (x == std::floor(x) && std::abs(x) < 0x1p53) {
+                    return nlohmann::json(static_cast<std::int64_t>(x));
+                }
+                return nlohmann::json(x);
+            }
+            case LUA_TSTRING: {
+                std::size_t len = 0;
+                const char* s = lua_tolstring(T, index, &len);
+                return nlohmann::json(std::string(s, len));
+            }
+            case LUA_TBOOLEAN: return nlohmann::json(lua_toboolean(T, index) != 0);
+            case LUA_TTABLE: {
+                const int n = lua_objlen(T, index);
+                if (n > 0) {
+                    nlohmann::json out = nlohmann::json::array();
+                    for (int i = 1; i <= n; ++i) {
+                        lua_rawgeti(T, index, i);
+                        auto item = to_json(T, -1, depth + 1);
+                        lua_pop(T, 1);
+                        if (!item) {
+                            return item;
+                        }
+                        out.push_back(std::move(*item));
+                    }
+                    return out;
+                }
+                nlohmann::json out = nlohmann::json::object();
+                lua_pushnil(T);
+                while (lua_next(T, index) != 0) {
+                    if (lua_type(T, -2) != LUA_TSTRING) {
+                        lua_pop(T, 2);
+                        return std::unexpected(std::string("a table has a key that is not a string"));
+                    }
+                    const std::string key = lua_tostring(T, -2);
+                    auto item = to_json(T, -1, depth + 1);
+                    lua_pop(T, 1);
+                    if (!item) {
+                        lua_pop(T, 1);
+                        return std::unexpected(std::format("'{}': {}", key, item.error()));
+                    }
+                    out[key] = std::move(*item);
+                }
+                return out;
+            }
+            default:
+                return std::unexpected(
+                    std::format("a {} cannot be part of a field graph", lua_typename(T, lua_type(T, index))));
+        }
+    }
 };
 
 Sandbox::Sandbox(SandboxOptions options) : impl_(std::make_unique<Impl>(options)) {}
@@ -429,6 +662,10 @@ Result<Sandbox::HookId> Sandbox::load(std::string_view source, std::string_view 
 
 Result<> Sandbox::run(HookId hook, const HookCall& call) {
     return impl_->run(hook, call);
+}
+
+Result<FieldGraph> Sandbox::build_graph(std::string_view source, std::string_view chunk_name) {
+    return impl_->build_graph(source, chunk_name);
 }
 
 const HookStats& Sandbox::last_stats() const {

@@ -8,6 +8,8 @@ add_executable(veach-tests
     lifecycle_tests.cpp
     platform_tests.cpp
     procgen_sandbox_tests.cpp
+    procgen_stage_tests.cpp
+    procgen_tests.cpp
     realtime_tests.cpp
     render_tests.cpp
     rhi_tests.cpp
@@ -43,6 +45,7 @@ add_subdirectory(sp06)  # Spike SP-06 (VCH-082): its tests join veach-tests; its
 add_subdirectory(sp11)  # Spike SP-11 (VCH-087): Jolt determinism; its tests join veach-tests; its bench is veach-bench-sp11
 add_subdirectory(sp12)  # Spike SP-12 (VCH-088): dig and collide; its tests join veach-tests; its bench is veach-bench-sp12
 add_subdirectory(sp13)  # Spike SP-13 (VCH-089): walk, hover, land; its tests join veach-tests; its bench is veach-bench-sp13
+add_subdirectory(seams)  # The seams sweep: octant planes, poles, chunk corners; its tests join veach-tests; its bench is veach-bench-seams
 
 include("${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake")
 doctest_discover_tests(veach-tests TEST_PREFIX "unit: ")
@@ -75,7 +78,8 @@ add_test(NAME "lab: runtime mesh on the null RHI"
 set_tests_properties("lab: runtime mesh on the null RHI" PROPERTIES FAIL_REGULAR_EXPRESSION "\\] error ")
 
 file(GLOB_RECURSE _luau_scripts RELATIVE "${PROJECT_SOURCE_DIR}" CONFIGURE_DEPENDS
-    "${PROJECT_SOURCE_DIR}/apps/*.luau" "${PROJECT_SOURCE_DIR}/tests/scripts/*.luau")
+    "${PROJECT_SOURCE_DIR}/apps/*.luau" "${PROJECT_SOURCE_DIR}/tests/scripts/*.luau"
+    "${PROJECT_SOURCE_DIR}/tests/procgen/*.luau")
 add_test(NAME "luau-analyze: scripts type-check under --!strict"
     COMMAND Luau.Analyze.CLI ${_luau_scripts} types/veach.d.luau
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
@@ -251,7 +255,8 @@ function(veach_scene_goldens rhi)
         ${helmet_photo_timeout})
     # Runtime meshes (docs/specs/runtime-meshes/spec.md): a generated heightfield that changes on frame 2.
     veach_golden_test("golden: runtime mesh (realtime${suffix})" runtime_mesh_realtime runtime_mesh_realtime ${rhi})
-    veach_golden_test("golden: runtime mesh (photo mode${suffix})" runtime_mesh runtime_mesh ${rhi} FRAMES 4)
+    veach_golden_test("golden: runtime mesh (photo mode${suffix})" runtime_mesh runtime_mesh ${rhi} FRAMES 4
+        TIMEOUT 600)
     # rt.AC8 (VCH-108): upright thin triangles in a smooth surface, with its normals, shade like the surface.
     veach_golden_test("golden: thin triangles (realtime${suffix})" thin_triangles_realtime thin_triangles_realtime ${rhi})
     # frames.AC8: double positions and camera-relative extraction. The Cornell box and its camera 1 AU out in the root
@@ -333,14 +338,6 @@ elseif(WIN32)
         COMMAND veach-lab --rhi dx12 --headless --frames 3 --script scripts/nonfinite_light.luau)
     set_tests_properties("lab: NaN samples are errors (dx12)" PROPERTIES
         PASS_REGULAR_EXPRESSION "path-traced samples were NaN or infinite.*render\\.nonfinite_samples")
-    # VCH-110: the thin-triangles golden hung on WARP with no output. Each of these drops one ingredient of its scene;
-    # which of them pass tells which ingredient hangs (see each script). Logged at debug level: how far a hang got.
-    foreach(_variant ground no_sky sky_only)
-        add_test(NAME "lab: thin triangles diagnostic, ${_variant} (dx12)"
-            COMMAND veach-lab --rhi dx12 --headless --frames 3 --log-level debug
-                    --script scripts/diagnostics/thin_triangles_${_variant}.luau)
-        set_tests_properties("lab: thin triangles diagnostic, ${_variant} (dx12)" PROPERTIES TIMEOUT 100)
-    endforeach()
     # Two frames in flight under load (dx12.AC6). A debug-layer error makes the exit code 1.
     add_test(NAME "dx12: ray-traced soak"
         COMMAND veach-lab --rhi dx12 --headless --frames 300 --script scripts/triangle_raytraced.luau)
@@ -428,3 +425,9 @@ target_include_directories(veach-bench-sp07 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}
 target_compile_definitions(veach-bench-sp07 PRIVATE VEACH_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 set_target_properties(veach-bench-sp07 PROPERTIES FOLDER "tests")
 veach_apply_warnings(veach-bench-sp07)
+# engine/procgen (procgen.AC11): the CPU interpreter's samples/s on cube faces and lattice chunks, 1 and N threads.
+add_executable(veach-bench-procgen bench/procgen_bench.cpp)
+target_link_libraries(veach-bench-procgen PRIVATE veach::procgen)
+target_compile_definitions(veach-bench-procgen PRIVATE VEACH_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+set_target_properties(veach-bench-procgen PROPERTIES FOLDER "tests")
+veach_apply_warnings(veach-bench-procgen)

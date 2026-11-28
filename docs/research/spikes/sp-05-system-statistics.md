@@ -1,5 +1,8 @@
 # SP-05: system statistics (VCH-081)
 
+> **Since VCH-112** S1 and B1 run on `engine/procgen`'s stage runtime (`space/gen/src/stages.cpp`), with the same
+> committed hashes. See the [procgen spec](../../specs/procgen/spec.md).
+
 Validates [ADR 0044](../../adr/0044-counter-based-hash-randomness.md) (counter-based hash),
 [0050](../../adr/0050-universe-addresses-and-seeds.md) (addresses and seeds) and
 [0051](../../adr/0051-staged-generation-pipeline.md) (staged physical records that never read s) with spike S3.2 of

@@ -36,10 +36,11 @@ struct Planet {
     std::int64_t spin_period_q = 0;     ///< sidereal day, 2^-16 tick units
     double obliquity = 0.0;             ///< radians
     double omega = 0.0;                 ///< rad/s, about the body's +Y
-    dvec3 site{0.0};                    ///< the landing pad, on the sphere, body-fixed (latitude 30°, longitude 0)
+    dvec3 site{0.0};                    ///< the landing pad on the sphere, body-fixed (Config::latitude, lon 0)
     dvec3 site_east{0.0}, site_north{0.0}, site_up{0.0};  ///< the pad's tangent frame, body-fixed
 };
-[[nodiscard]] Planet make_planet(double scale);
+/// `latitude_deg`: the pad's latitude at longitude 0 (the seams sweep moves it to the pole).
+[[nodiscard]] Planet make_planet(double scale, double latitude_deg = 30.0);
 
 enum class Frame : std::uint8_t { inertial, body_fixed };
 enum class Scene : std::uint8_t { surface, flight };
@@ -58,6 +59,7 @@ inline constexpr std::int32_t control_one = 65536;
 
 struct Config {
     double scale = 0.01;
+    double latitude = 30.0;  ///< the pad's latitude, degrees (the seams sweep lands at the pole)
     bool craft = true;
     double craft_altitude = 0.0;  ///< start height above the pad; 0: 1.15 × the atmosphere top (in I)
     double craft_descent =

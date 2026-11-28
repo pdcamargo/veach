@@ -11,6 +11,7 @@ import veach.scene;
 static const uint no_geometry = 0xFFFFFFFFu;
 static const uint bin_header = 32;         ///< bin_tiles starts with a count per bin (at most 32 bins)
 static const uint groups_per_row = 32768;  ///< as gpu_cull.slang: D3D12 caps a dispatch row at 65535 groups
+static const uint tile_mixed = 1u << 31;   ///< a bin_tiles entry: x | y << 16, and this bit if the tile is mixed
 
 struct ClassifyParams {
     float4x4 inverse_view_projection;
@@ -20,7 +21,7 @@ struct ClassifyParams {
     DescriptorHandle<StructuredBuffer<InstanceRecord>> instances;
     DescriptorHandle<StructuredBuffer<MaterialRecord>> materials;
     DescriptorHandle<RWStructuredBuffer<uint>> bin_args;   ///< 16-byte DispatchIndirectArgs per bin
-    /// bin_header counts, then per bin tile_capacity tiles: x | y << 16 (zeroed by gpu_cull.slang's cull_reset)
+    /// bin_header counts, then per bin tile_capacity tiles: x | y << 16 | tile_mixed (counts zeroed by cull_reset)
     DescriptorHandle<RWStructuredBuffer<uint>> bin_tiles;
     uint2 size;
     uint bin_count;  ///< material kinds + 1
@@ -60,7 +61,9 @@ void classify(uint3 id: SV_DispatchThreadID, uint3 group: SV_GroupID, uint index
     if (index < params.bin_count && (tile_bins & (1u << index)) != 0) {
         uint slot;
         InterlockedAdd(params.bin_tiles[index], 1u, slot);
-        params.bin_tiles[bin_header + index * params.tile_capacity + slot] = group.x | (group.y << 16);
+        // Bit 31: the tile shows other bins too, so the shading checks each pixel's bin; most tiles show one.
+        const uint mixed = (tile_bins & ~(1u << index)) != 0 ? tile_mixed : 0u;
+        params.bin_tiles[bin_header + index * params.tile_capacity + slot] = group.x | (group.y << 16) | mixed;
     }
 }
 

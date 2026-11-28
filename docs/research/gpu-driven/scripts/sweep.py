@@ -29,18 +29,27 @@ def configs(only: list[str]) -> list[dict]:
         for view in ("ground", "mid", "far"):
             out.append({"name": f"field_{view}|{size}", "app": "lab", "script": None, "size": size,
                         "env": {"VEACH_SP16": "engine", "VEACH_SP16_VIEW": view}, "warmup": 60, "samples": 40})
-        for scale in ("s0.01", "s1"):
-            out.append({"name": f"slice_{scale}_landed|{size}", "app": "slice", "script": f"scripts/slice_{scale}.luau",
-                        "size": size, "env": {"VEACH_SLICE_AUTOPILOT": "1"}, "until": "autopilot: landed",
-                        "samples": 60})
+    # The slice at its own window size (2560 x 1440), from the frame its autopilot lands (found once per scale).
+    for scale in ("s0.01", "s1"):
+        out.append({"name": f"slice_{scale}_landed|2560x1440", "app": "slice", "script": f"scripts/slice_{scale}.luau",
+                    "size": "2560x1440", "env": {"VEACH_SLICE_AUTOPILOT": "1"}, "until": "autopilot: landed",
+                    "samples": 60})
     return [c for c in out if not only or any(c["name"].startswith(o) for o in only)]
+
+
+LANDED: dict[str, int] = {}  # script -> the frame its autopilot lands (deterministic: the same in both builds)
 
 
 def run(tree: str, c: dict) -> dict:
     app = os.path.join(tree, "build/release/apps", c["app"], f"veach-{c['app']}")
     project = os.path.join(tree, "apps", c["app"])
+    if c.get("until"):
+        if c["script"] not in LANDED:
+            LANDED[c["script"]] = timings.find_frame(app, project, c["script"], c["size"], c["env"], c["until"])
+        return timings.measure_direct(app, project, c["script"], c.get("samples", 100), LANDED[c["script"]],
+                                      c["env"])
     return timings.measure(app, project, c["script"], c["size"], c.get("warmup", 120), c.get("samples", 100),
-                           c["env"], c.get("until"))
+                           c["env"])
 
 
 def main() -> int:
@@ -52,25 +61,36 @@ def main() -> int:
     parser.add_argument("--out", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "../timings.json"))
     args = parser.parse_args()
     results: dict[str, dict[str, list[dict]]] = {}
+
+    def save() -> dict:
+        summary = {}
+        for name, by_build in results.items():
+            summary[name] = {}
+            for label, runs in by_build.items():
+                passes = sorted({p for run_ in runs for p in run_["passes"]})
+                summary[name][label] = {
+                    "rounds": len(runs),
+                    "total_ms": statistics.median(run_["total_ms"] for run_ in runs),
+                    "passes": {p: statistics.median(run_["passes"].get(p, 0.0) for run_ in runs) for p in passes},
+                    "wall_ms_per_frame": statistics.median(run_["wall_ms_per_frame"] for run_ in runs),
+                    "culling": next((run_["culling"] for run_ in reversed(runs) if run_.get("culling")), None),
+                }
+        with open(args.out, "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=1, sort_keys=True)
+        return summary
+
     for r in range(args.rounds):
         for c in configs(args.only):
             for label, tree in (("interim", args.old), ("gpu_driven", args.new)):
-                result = run(tree, c)
+                try:
+                    result = run(tree, c)
+                except RuntimeError as e:  # one failed run does not lose the sweep
+                    print(f"round {r} {c['name']} {label}: failed: {e}", flush=True)
+                    continue
                 results.setdefault(c["name"], {}).setdefault(label, []).append(result)
                 print(f"round {r} {c['name']} {label}: {result['total_ms']:.3f} ms", flush=True)
-    summary = {}
-    for name, by_build in results.items():
-        summary[name] = {}
-        for label, runs in by_build.items():
-            passes = sorted({p for run_ in runs for p in run_["passes"]})
-            summary[name][label] = {
-                "total_ms": statistics.median(run_["total_ms"] for run_ in runs),
-                "passes": {p: statistics.median(run_["passes"].get(p, 0.0) for run_ in runs) for p in passes},
-                "wall_ms_per_frame": statistics.median(run_["wall_ms_per_frame"] for run_ in runs),
-                "culling": runs[-1].get("culling"),
-            }
-    with open(args.out, "w", encoding="utf-8") as f:
-        json.dump(summary, f, indent=1, sort_keys=True)
+                save()
+    summary = save()
     print(json.dumps({k: {b: round(v["total_ms"], 3) for b, v in d.items()} for k, d in summary.items()}, indent=1))
     return 0
 

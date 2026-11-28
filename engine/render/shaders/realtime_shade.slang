@@ -22,6 +22,7 @@ static const uint no_geometry = 0xFFFFFFFFu;  ///< the visibility buffer's clear
 static const uint shade_tile_size = 8;        ///< classify.slang's tiles
 static const uint bin_header = 32;            ///< classify.slang: bin_tiles starts with a count per bin
 static const uint groups_per_row = 32768;     ///< classify_args: a bin's groups come in rows
+static const uint tile_mixed = 1u << 31;      ///< classify.slang: the tile shows other bins too
 
 struct ShadeParams {
     float4x4 inverse_view_projection;
@@ -159,20 +160,23 @@ void shade_bin(uint bin, uint3 group, uint3 thread) {
         return;
     }
     const uint tile = params.bin_tiles[bin_header + bin * params.tile_capacity + t];
-    const uint2 id = uint2(tile & 0xFFFFu, tile >> 16) * shade_tile_size + thread.xy;
+    const uint2 id = uint2(tile & 0xFFFFu, (tile >> 16) & 0x7FFFu) * shade_tile_size + thread.xy;
     if (any(id >= params.size)) {
         return;
     }
     const uint2 visible_id = params.visibility.Load(int3(id, 0));
-    if (visible_id.x == no_geometry) {
-        if (bin != 0) {
+    // A tile that shows only this bin (bit 31 clear) needs no check per pixel.
+    if ((tile & tile_mixed) != 0) {
+        if (visible_id.x == no_geometry) {
+            if (bin != 0) {
+                return;
+            }
+        } else if (bin == 0 ||
+                   params.materials[params.instances[visible_id.x].material_base +
+                                    nonuniform(params.instances[visible_id.x].meshlets)[(visible_id.y >> 7) * 8 + 4]]
+                           .kind != bin - 1) {
             return;
         }
-    } else if (bin == 0 ||
-               params.materials[params.instances[visible_id.x].material_base +
-                                nonuniform(params.instances[visible_id.x].meshlets)[(visible_id.y >> 7) * 8 + 4]]
-                       .kind != bin - 1) {
-        return;
     }
     veach_scene.instances = params.instances;
     veach_scene.materials = params.materials;

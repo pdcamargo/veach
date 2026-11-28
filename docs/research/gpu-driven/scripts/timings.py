@@ -83,6 +83,26 @@ def measure(app: str, project: str, script: str | None, size: str, warmup: int, 
             "culling": culling}
 
 
+def measure_direct(app: str, project: str, script: str | None, samples: int, first: int,
+                   env: dict[str, str]) -> dict:
+    """At the project's own window size, without MCP: `--frames` runs unpaced, as fast as the app can (the slice's
+    descent takes minutes when stepped over MCP)."""
+    import subprocess
+    command = [app, "--headless", "--rhi", "metal", "--project", project, "--frames", str(first + samples + 300)]
+    if script:
+        command += ["--script", script]
+    run_env = {**os.environ, **env, "VEACH_GPU_TIMINGS": f"{samples},{first}"}
+    t0 = time.time()
+    proc = subprocess.run(command, env=run_env, capture_output=True, text=True, check=False, cwd=project)
+    wall_ms = (time.time() - t0) * 1000.0 / (first + samples + 300)
+    lines = [line for line in (proc.stdout + proc.stderr).splitlines() if "gpu_timings" in line]
+    if not lines:
+        raise RuntimeError(f"no gpu_timings line (exit {proc.returncode}):\n{proc.stderr[-2000:]}")
+    report = json.loads(lines[0].split("gpu_timings ", 1)[1])
+    return {"script": script, "env": env, "from_frame": first, "total_ms": report["total_ms"],
+            "passes": report["passes"], "wall_ms_per_frame": wall_ms, "culling": None}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--app", required=True)

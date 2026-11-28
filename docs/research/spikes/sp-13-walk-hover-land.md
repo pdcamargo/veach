@@ -27,6 +27,11 @@ its Coriolis and centrifugal forces, and a co-moving scene re-centers velocity a
 
 ## What was built
 
+> **Since VCH-113** the simulation runs on `engine/physics` ([spec](../../specs/physics/spec.md)): scenes, transfers,
+> re-anchors, the gravity hook, fictitious forces and characters are the engine's, `tests/support/jolt_runtime.hpp`
+> is gone, and every hash below reproduces unchanged (checked step by step against the old code for whole landings
+> at s = 0.01 and 1). The planet, handoff bands, flight model and autopilot stay here until VCH-115.
+
 Throwaway, under `tests/sp13/` like SP-11, plus a lab view. Nothing in `engine/` except one input fix (below).
 
 | Piece | Where | Notes |

@@ -29,6 +29,11 @@ materialized on first touch, waking bodies when a collider is swapped, and a val
 
 ## What was built
 
+> **Since VCH-113** the colliders, installs and the ball run on `engine/physics` ([spec](../../specs/physics/spec.md)):
+> `sp12_physics.*` and `sp12_jolt.hpp` are gone, the scenario requests colliders with `request_colliders` (K = 2 is
+> the engine's), and every hash below reproduces unchanged. `--build-speed` went with them (the engine cooks
+> `FavorRuntimePerformance`). The terrain region stays here until VCH-114.
+
 Throwaway, except the edit record and its applier, which ADR 0054 puts in `engine/voxel` and SP-20 (VCH-096) will
 need as they are.
 
@@ -215,7 +220,6 @@ arm64 and x86-64.
 build/debug/tests/veach-tests -tc="*sp12*"                     # the committed hashes, 1 and 4 workers, reverse order
 cmake --preset release && cmake --build --preset release --target veach-bench-sp12
 build/release/tests/sp12/veach-bench-sp12                      # hashes on 1 and 4 workers, the tables above
-build/release/tests/sp12/veach-bench-sp12 --build-speed        # the same with FavorBuildSpeed
 build/release/tests/sp12/veach-bench-sp12 --out build/sp12      # lab project: pit.luau, side.luau, overview.luau
 build/debug/apps/lab/veach-lab --project build/sp12 --rhi metal --headless --frames 3 --script scripts/pit.luau \
     --screenshot pit.png

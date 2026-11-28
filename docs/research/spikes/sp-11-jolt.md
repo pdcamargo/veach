@@ -24,6 +24,11 @@ The two positions give different hashes, as they must. Placing a body 6,371 km o
 
 ## What was built
 
+> **Since VCH-113** this spike's scene runs on `engine/physics` ([spec](../../specs/physics/spec.md)): `tests/sp11` is
+> gone, its hashes are `[physics.AC2]` in `tests/physics_tests.cpp` (on `veach::JobSystem` with 1 and 5 threads, not
+> Jolt's thread pool), and `veach-bench-physics` replaces `veach-bench-sp11` for the timings. The tables below are
+> the spike's.
+
 Throwaway, under `tests/sp11/`, like SP-06. Nothing was added to `engine/`: `engine/physics` should start from
 ADR 0058's scene design and the VCH-015 job system, not from this test scene.
 
@@ -183,6 +188,6 @@ the same time (load average 13), so the per-step times are upper bounds. Mean ov
 ```sh
 build/debug/tests/veach-tests -tc="*sp11*"                       # the committed hashes, 1 and 4 workers
 cmake --preset release && cmake --build --preset release --target veach-bench-sp11
-build/release/tests/sp11/veach-bench-sp11                        # hashes and timings, 200 and 2,000 bodies, 0/1/4/8 workers
-build/release/tests/sp11/veach-bench-sp11 --sweep [--boxes] [--mesh] [--bodies 2000]   # large-world sweep
+build/release/tests/veach-bench-physics                          # timings, 200 and 2,000 bodies (VCH-113)
+build/debug/tests/veach-tests -tc='*physics.AC2*'                 # the committed hashes, 1 and 5 threads
 ```

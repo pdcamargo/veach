@@ -96,3 +96,4 @@ An ADR records one decision: the context, what we chose, what it costs, and what
 | 0083 | [Terrain colliders carry their neighbors' border triangles as adjacency](0083-terrain-colliders-with-an-adjacency-ring.md) | Accepted |
 | 0084 | [Amendments from building engine/procgen: per-sample positions, no level-based band limits, two domains](0084-amendments-from-building-procgen.md) | Accepted |
 | 0085 | [Amendments from VCH-111: the render origin on a 64 m grid, frame up, FrameTransform's frame, pose sources](0085-amendments-from-vch-111.md) | Accepted |
+| 0086 | [Amendments from building engine/physics: the gravity hook's contract, rings for rigid bodies, four threads per step, Jolt optimized in MSVC Debug](0086-amendments-from-vch-113.md) | Accepted |

@@ -18,6 +18,7 @@ add_executable(veach-tests
     scene_tests.cpp
     script_tests.cpp
     sky_tests.cpp
+    sp10_atmosphere_tests.cpp  # spike SP-10 (VCH-086)
     space_gen_tests.cpp
     space_tests.cpp
     transform_tests.cpp

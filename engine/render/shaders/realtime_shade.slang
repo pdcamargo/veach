@@ -71,7 +71,7 @@ void shade(uint3 id: SV_DispatchThreadID) {
 
     const uint2 visible_id = params.visibility.Load(int3(id.xy, 0));
     if (visible_id.x == no_geometry) {  // the sky, with the sun's disk
-        params.radiance[id.xy] = float4(sky_radiance(sky, direction, true) * exposure, 1.0);
+        params.radiance[id.xy] = float4(sky_radiance_any(sky, direction, true) * exposure, 1.0);
         return;
     }
     const InstanceRecord inst = params.instances[visible_id.x];

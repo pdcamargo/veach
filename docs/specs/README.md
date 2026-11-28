@@ -28,6 +28,7 @@ acceptance criteria (`[area.ACn] ...`) → status Implemented.
 | [Runtime meshes](runtime-meshes/spec.md) | render | Implemented |
 | [Job system](job-system/spec.md) | core | Implemented |
 | [Procgen: stage runtime, field graphs, generator sandbox](procgen/spec.md) | procgen | Implemented |
+| [Space backdrop](space-backdrop/spec.md) | render, space | Implemented |
 | [Reference frames and double positions](frames/spec.md) | ecs, render, script | Implemented |
 | [Physics: Jolt behind veach::physics, one scene per frame](physics/spec.md) | physics, runtime | Implemented |
 | [Voxel terrain: streaming, edits and collider meshes](voxel-terrain/spec.md) | voxel, runtime | Implemented |

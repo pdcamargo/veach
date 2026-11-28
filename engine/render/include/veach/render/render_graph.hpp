@@ -51,6 +51,9 @@ public:
     /// cascade draws into one layer of a d2_array with `slice`.
     void depth_target(GraphResource resource, rhi::LoadOp load = rhi::LoadOp::load, float clear_depth = 0.0f,
                       rhi::TargetSlice slice = {});
+    /// Spike SP-16 (VCH-092), Metal only: at the end of the pass, the multisampled color or depth target
+    /// `multisampled` (declared first) is resolved into the single-sampled `target`, which the pass writes.
+    void resolve(GraphResource multisampled, GraphResource target);
     /// Keep this pass even if nothing reads what it writes (e.g. debug output).
     void side_effect();
 
@@ -161,9 +164,11 @@ private:
         std::vector<Access> accesses;
         std::array<rhi::ColorAttachment, 4> colors{};
         std::array<GraphResource, 4> color_resources{};
+        std::array<GraphResource, 4> resolve_resources{};
         std::uint32_t color_count = 0;
         rhi::DepthAttachment depth{};
         GraphResource depth_resource{};
+        GraphResource depth_resolve_resource{};
         bool side_effect = false;
         Execute execute;
         std::vector<rhi::Barrier> barriers;  ///< computed by compile()

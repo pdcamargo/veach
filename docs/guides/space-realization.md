@@ -73,9 +73,25 @@ Every body frame is written in PostSimulation for the end of the step from the t
 velocities from the orbit tree, orientations from the exact spin phase. The gravity hook answers every query in a
 body's two frames with that body's pull. Home and its moons get a terrain body; the renderer gets the nearest
 atmosphere, the sun at its physical illuminance (dimmed by its visible fraction behind a moon), the four bodies of
-largest angular size as eclipsing occluders, and the starfield. A game sets its camera's `SkyVisibility` (the slice
-measures it with `physics::sky_visibility` against its surface scene) so caves and dug holes get no haze
-([ADR 0092](../adr/0092-aerial-perspective-follows-the-air.md)).
+largest angular size as eclipsing occluders, and the system's space backdrop. A game sets its camera's
+`SkyVisibility` (the slice measures it with `physics::sky_visibility` against its surface scene) so caves and dug
+holes get no haze ([ADR 0092](../adr/0092-aerial-perspective-follows-the-air.md)).
+
+## The sky beyond the bodies
+
+`space::system_backdrop(config)` (`veach/space/backdrop.hpp`, [ADR 0091](../adr/0091-space-backdrop.md)) turns the
+universe seed and the system address into the engine's `render::Backdrop`: stars, the galactic band, nebulae.
+Canonical and independent of the scale: every system has its own sky, the same on every revisit and at s = 0.01 and
+s = 1. Where the system is in the galaxy shapes it (`space::galaxy_view`, a stand-in disk and bulge until the galaxy
+query exists): toward the center the band is brighter, the bulge bigger and the anticenter as bright as the center;
+far above the plane the band is fainter, wider and lower, with fewer nebulae. The galactic plane is turned at random
+against the system's. UniverseModule turns it into render space every frame (it stays fixed while the planet spins
+under a body-fixed camera).
+
+How bright it looks is the creator's: a `SpaceBackdrop` component anywhere in the world
+(`exposure_compensation`, `exposure_follow`, `visible`; [Luau API](luau-api.md)). The defaults keep it visible next
+to a sunlit planet, about 1.7 stops dimmer than in deep space, and never let it move auto-exposure. Screenshots:
+[space-backdrop](../research/spikes/space-backdrop/README.md).
 
 ## Flight policy
 

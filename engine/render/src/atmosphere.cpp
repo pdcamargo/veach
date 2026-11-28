@@ -1,5 +1,7 @@
 #include "atmosphere.hpp"
 
+#include "backdrop.hpp"
+
 #include <veach/core/log.hpp>
 #include <veach/core/profile.hpp>
 
@@ -71,10 +73,19 @@ struct alignas(16) SkyFrame {
     /// The starfield (ResolvedSky::stars). x = brightness (0: off), y = a pixel's angle (rad), z = limiting
     /// magnitude, w = cells per cube-map face side.
     math::vec4 stars{0.0f};
+    // The space backdrop (ADR 0091, veach/backdrop.slang). Unread unless backdrop_info[3] is 1.
+    math::vec4 galactic_x{0.0f};  ///< row 0 of galactic from render; w = one pixel's angle
+    math::vec4 galactic_y{0.0f};  ///< row 1; w = exposure compensation (stops)
+    math::vec4 galactic_z{0.0f};  ///< row 2; w = exposure follow
+    math::vec4 camera_right{0.0f};
+    math::vec4 camera_up{0.0f};
+    math::vec4 backdrop_stars{0.0f};               ///< density, magnitude scale, saturation, sky veil
+    std::array<std::uint32_t, 4> backdrop_info{};  ///< seed, width, height, on
+    rhi::DescriptorHandle backdrop;
+    rhi::DescriptorHandle linear_repeat;
     math::vec4 occlusion{1.0f, 0.0f, 0.0f, 0.0f};  ///< x = sky visibility, y = its reach (km)
-    rhi::DescriptorHandle linear_wrap;
     std::uint32_t occluder_count = 0;
-    std::uint32_t pad2 = 0;
+    std::array<std::uint32_t, 3> pad2{};
 };
 static_assert(offsetof(SkyFrame, inverse_view_projection) == 128);
 static_assert(offsetof(SkyFrame, transmittance) == 192);
@@ -86,10 +97,17 @@ static_assert(offsetof(SkyFrame, sun_directions) == 432);
 static_assert(offsetof(SkyFrame, sun_colors) == 496);
 static_assert(offsetof(SkyFrame, planet) == 560);
 static_assert(offsetof(SkyFrame, stars) == 576);
-static_assert(offsetof(SkyFrame, occlusion) == 592);
-static_assert(offsetof(SkyFrame, linear_wrap) == 608);
-static_assert(offsetof(SkyFrame, occluder_count) == 616);
-static_assert(sizeof(SkyFrame) == 624);
+static_assert(offsetof(SkyFrame, galactic_x) == 592);
+static_assert(offsetof(SkyFrame, backdrop_info) == 688);
+static_assert(offsetof(SkyFrame, backdrop) == 704);
+static_assert(offsetof(SkyFrame, linear_repeat) == 712);
+static_assert(offsetof(SkyFrame, occlusion) == 720);
+static_assert(offsetof(SkyFrame, occluder_count) == 736);
+static_assert(sizeof(SkyFrame) == 752);
+
+/// How fast a lit sky hides the backdrop's boost: its gain falls by e per this much exposed sky luminance
+/// (veach/backdrop.slang's backdrop_gain). A day sky (about 0.2 exposed) hides it; a twilight sky (0.01) does not.
+constexpr float backdrop_sky_veil = 30.0f;
 
 struct Lut {
     const char* name;
@@ -236,6 +254,7 @@ struct AtmosphereRenderer::Impl {
     std::array<std::uint32_t, 2> aerial_size{};
     rhi::SamplerHandle linear_clamp, linear_wrap;
     std::vector<rhi::BufferHandle> frame_buffers;
+    BackdropRenderer backdrop;
 
     ~Impl() {
         if (device == nullptr) {
@@ -385,7 +404,7 @@ Result<> AtmosphereRenderer::prepare(rhi::Device& device) {
         return std::unexpected(wrap.error());
     }
     s.linear_wrap = *wrap;
-    return {};
+    return s.backdrop.prepare(device);
 }
 
 namespace {
@@ -472,13 +491,36 @@ SkyResources AtmosphereRenderer::record(RenderGraph& graph, const ResolvedSky& s
     f.aerial = device.descriptor(s.aerial.handle);
     f.irradiance = device.descriptor(s.irradiance.handle);
     f.linear_clamp = device.descriptor(s.linear_clamp);
-    f.linear_wrap = device.descriptor(s.linear_wrap);
+    f.linear_repeat = device.descriptor(s.linear_wrap);  // the backdrop's, when it draws, is the same
 
     if (sky.stars) {
         // One pixel's angle at the image's center: 2 tan(fov / 2) / height.
         const float pixel = view.height > 0 ? 2.0f / (view.projection[1][1] * static_cast<float>(view.height)) : 0.0f;
         f.stars = math::vec4(sky.stars->brightness, pixel, sky.stars->limiting_magnitude,
                              static_cast<float>(std::max<std::uint32_t>(sky.stars->cells, 1)));
+    }
+
+    // The space backdrop (ADR 0091): bake it if it changed, and put the galactic frame and the camera's axes into
+    // the frame (render space turns with the camera's reference frame).
+    std::optional<GraphResource> backdrop;
+    if (sky.backdrop && sky.backdrop_settings.visible) {
+        backdrop = s.backdrop.record(graph, *sky.backdrop);
+    }
+    if (backdrop) {
+        const Backdrop& b = *sky.backdrop;
+        const math::mat3 to_galactic = math::transpose(b.orientation);  // rows: the galactic axes in render space
+        const float pixel = view.height > 0 ? 2.0f / (view.projection[1][1] * static_cast<float>(view.height)) : 1e-3f;
+        const math::mat3 world_from_view = math::transpose(math::mat3(view.view));
+        f.galactic_x = math::vec4(b.orientation[0], pixel);
+        f.galactic_y = math::vec4(b.orientation[1], sky.backdrop_settings.exposure_compensation);
+        f.galactic_z = math::vec4(b.orientation[2], std::clamp(sky.backdrop_settings.exposure_follow, 0.0f, 1.0f));
+        f.camera_right = math::vec4(to_galactic * world_from_view[0], 0.0f);
+        f.camera_up = math::vec4(to_galactic * world_from_view[1], 0.0f);
+        f.backdrop_stars = math::vec4(b.star_density, b.star_magnitude_scale, b.star_saturation, backdrop_sky_veil);
+        const std::uint32_t width = backdrop_width(b);
+        f.backdrop_info = {b.seed, width, width / 2, 1u};
+        f.backdrop = device.descriptor(s.backdrop.texture());
+        f.linear_repeat = device.descriptor(s.backdrop.sampler());
     }
 
     const std::array<SkyFrame, 1> records{f};
@@ -555,10 +597,13 @@ SkyResources AtmosphereRenderer::record(RenderGraph& graph, const ResolvedSky& s
     }
 
     const std::array<GraphResource, 5> targets{transmittance, multiscattering, sky_view, irradiance, aerial};
-    return {*buffer, [frame, targets](PassBuilder& b) {
+    return {*buffer, [frame, targets, backdrop](PassBuilder& b) {
                 b.read(frame);
                 for (const GraphResource& t : targets) {
                     b.read(t);
+                }
+                if (backdrop) {
+                    b.read(*backdrop);
                 }
             }};
 }

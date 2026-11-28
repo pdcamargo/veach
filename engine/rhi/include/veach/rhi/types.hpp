@@ -192,6 +192,10 @@ struct TextureDesc {
     TextureType type = TextureType::d2;
     std::uint32_t depth = 1;   ///< d3 only: slices of mip 0 (mip n has mip_size(depth, n))
     std::uint32_t layers = 1;  ///< d2_array: slices; cube: 6; cube_array: 6 per cube; 1 for d2 and d3
+    /// Spike SP-16 (VCH-092), Metal only: 2, 4 or 8 makes a multisampled attachment that lives in tile memory
+    /// (memoryless): usable only as a color or depth target, never loaded or stored, only resolved
+    /// (ColorAttachment::resolve, DepthAttachment::resolve). DX12 rejects it (rhi.not_implemented).
+    std::uint32_t sample_count = 1;
 };
 
 /// Layers of a texture: `layers` for arrays and cubes, 1 for d2 and d3.
@@ -312,6 +316,10 @@ struct GraphicsPipelineDesc {
     std::string debug_name;
     std::array<BlendMode, 4> blend{};  ///< per color target, opaque by default; integer targets cannot blend
     DepthBias depth_bias{};            ///< needs a depth_format
+    /// Spike SP-16 (VCH-092), Metal only: the attachments' sample count (TextureDesc::sample_count).
+    std::uint32_t sample_count = 1;
+    /// Spike SP-16: color 0's alpha becomes the fragment's coverage mask (needs sample_count > 1).
+    bool alpha_to_coverage = false;
 };
 
 struct ComputePipelineDesc {
@@ -368,6 +376,9 @@ struct ColorAttachment {
     /// values up to 2^24 and 0xFFFFFFFF (which saturates) are exact, others are rounded (and logged).
     std::array<std::uint32_t, 4> clear_uint{};
     TargetSlice slice{};  ///< the mip and layer drawn into
+    /// Spike SP-16: with a multisampled `texture`, the single-sampled texture its samples are averaged into at the
+    /// end of the pass (on tile). Invalid: the samples are discarded.
+    TextureHandle resolve;
 };
 
 struct DepthAttachment {
@@ -375,6 +386,9 @@ struct DepthAttachment {
     LoadOp load = LoadOp::clear;
     float clear_depth = 0.0f;  ///< reverse-Z (conventions.md): 0 is the far plane
     TargetSlice slice{};       ///< the mip and layer drawn into (one shadow cascade of a d2_array)
+    /// Spike SP-16: with a multisampled `texture`, the single-sampled depth texture that receives each pixel's
+    /// farthest sample (the minimum, reverse-Z) at the end of the pass. Invalid: the samples are discarded.
+    TextureHandle resolve;
 };
 
 struct RenderPassDesc {

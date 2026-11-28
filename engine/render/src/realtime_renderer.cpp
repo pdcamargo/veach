@@ -103,6 +103,24 @@ static_assert(rhi::parameters_match<ExposureParams>(veach_render_shaders::layout
                                                      VEACH_PARAM(ExposureParams, highlight_white),
                                                      VEACH_PARAM(ExposureParams, reset),
                                                      VEACH_PARAM(ExposureParams, highlight_max_pull)}));
+/// Mirrors CompositeParams in shaders/backdrop_composite.slang (the space backdrop, ADR 0091).
+struct alignas(16) BackdropCompositeParams {
+    math::mat4 inverse_view_projection{1.0f};
+    rhi::DescriptorHandle radiance;
+    rhi::DescriptorHandle sky;
+    rhi::DescriptorHandle exposure_state;
+    std::array<std::uint32_t, 2> size{};
+    float exposure = 1.0f;
+    std::uint32_t flags = 0;  ///< composite_auto_exposure
+};
+static_assert(rhi::parameters_match<BackdropCompositeParams>(
+    veach_render_shaders::layout::backdrop_composite,
+    {VEACH_PARAM(BackdropCompositeParams, inverse_view_projection), VEACH_PARAM(BackdropCompositeParams, radiance),
+     VEACH_PARAM(BackdropCompositeParams, sky), VEACH_PARAM(BackdropCompositeParams, exposure_state),
+     VEACH_PARAM(BackdropCompositeParams, size), VEACH_PARAM(BackdropCompositeParams, exposure),
+     VEACH_PARAM(BackdropCompositeParams, flags)}));
+constexpr std::uint32_t composite_auto_exposure = 1u;
+
 constexpr std::uint32_t exposure_histogram_size = 132;  ///< 128 bins and the counters (exposure.slang)
 constexpr std::uint32_t exposure_state_size = 4;        ///< float4s
 
@@ -115,6 +133,7 @@ struct RealtimeRenderer::Impl {
     rhi::PipelineHandle visibility_pipeline;
     rhi::PipelineHandle shade_pipeline;
     rhi::PipelineHandle display_pipeline;
+    rhi::PipelineHandle backdrop_pipeline;  ///< the space backdrop's composite (ADR 0091)
 
     // Spike SP-14 (VCH-090): auto-exposure, created when a view first asks for it.
     struct ExposureReadback {
@@ -154,8 +173,8 @@ struct RealtimeRenderer::Impl {
                 device->destroy(*b);
             }
         }
-        for (rhi::PipelineHandle* p :
-             {&visibility_pipeline, &shade_pipeline, &display_pipeline, &histogram_pipeline, &resolve_pipeline}) {
+        for (rhi::PipelineHandle* p : {&visibility_pipeline, &shade_pipeline, &display_pipeline, &backdrop_pipeline,
+                                       &histogram_pipeline, &resolve_pipeline}) {
             if (p->is_valid()) {
                 device->destroy(*p);
             }
@@ -281,6 +300,12 @@ Result<> RealtimeRenderer::prepare(rhi::Device& device, const SceneShaders& shad
         return std::unexpected(display.error());
     }
     s.display_pipeline = *display;
+    auto backdrop = device.create_compute_pipeline(
+        {&veach_render_shaders::backdrop_composite(), "backdrop_composite", {8, 8, 1}, "space backdrop"});
+    if (!backdrop) {
+        return std::unexpected(backdrop.error());
+    }
+    s.backdrop_pipeline = *backdrop;
     return {};
 }
 
@@ -377,6 +402,34 @@ void RealtimeRenderer::record(RenderGraph& graph, const FrameContext& frame, con
             ctx.cmd.set_parameters(shade);
             ctx.cmd.dispatch((shade.size[0] + 7) / 8, (shade.size[1] + 7) / 8);
         });
+
+    // ---- the space backdrop (ADR 0091): beyond the sky, on the pixels the shade pass marked, before metering.
+    if (frame.world.sky.backdrop && frame.world.sky.backdrop_settings.visible) {
+        BackdropCompositeParams composite{.inverse_view_projection = view.inverse_view_projection,
+                                          .size = {width, height},
+                                          .exposure = view.exposure,
+                                          .flags = exposure_state ? composite_auto_exposure : 0u};
+        graph.add_compute_pass(
+            "space backdrop",
+            [&](PassBuilder& b) {
+                scene.read_sky(b);
+                if (exposure_state) {
+                    b.read(*exposure_state);
+                }
+                b.write(radiance, rhi::ResourceState::shader_write);
+            },
+            [composite, pipeline = s.backdrop_pipeline, radiance, sky = scene.sky,
+             exposure = exposure_state](PassContext& ctx) mutable {
+                if (exposure) {
+                    composite.exposure_state = ctx.device.descriptor(ctx.buffer(*exposure));
+                }
+                composite.radiance = ctx.device.descriptor(ctx.texture(radiance), rhi::View::storage);
+                composite.sky = ctx.device.descriptor(sky);
+                ctx.cmd.set_pipeline(pipeline);
+                ctx.cmd.set_parameters(composite);
+                ctx.cmd.dispatch((composite.size[0] + 7) / 8, (composite.size[1] + 7) / 8);
+            });
+    }
 
     // ---- spike SP-14 (VCH-090): meter the pre-exposed radiance, adapt, and keep the result on the GPU.
     if (exposure_state) {

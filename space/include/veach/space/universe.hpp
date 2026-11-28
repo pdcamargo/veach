@@ -19,7 +19,8 @@
 // exact spin phase, never integrated. The planet the creator's settings name (`home`) and its moons get a voxel
 // TerrainBody in their body-fixed frame (TerrainModule draws and streams it); the physics gravity hook answers for
 // every body frame with that body's g R² (ADR 0059); an extractor gives the renderer the sky of the nearest body with
-// an atmosphere, the sun from the orbit tree at its physical illuminance, the starfield and auto-exposure.
+// an atmosphere, the sun from the orbit tree at its physical illuminance, the system's space backdrop
+// (veach/space/backdrop.hpp, under the creator's SpaceBackdrop settings) and auto-exposure.
 
 #include <veach/space/realization.hpp>
 
@@ -94,6 +95,7 @@ public:
         ecs::entity_t fixed = 0;
     };
     std::shared_ptr<const StarSystem> system_;
+    render::Backdrop backdrop_;  ///< the system's sky beyond its bodies, in the system frame's axes
     std::size_t home_ = 0;
     std::int64_t tick_ = 0;
     Entity system_frame_;

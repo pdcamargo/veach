@@ -1,6 +1,7 @@
 add_executable(veach-tests
     main.cpp
     asset_tests.cpp
+    backdrop_tests.cpp  # VCH-133: the space backdrop
     core_tests.cpp
     determinism_tests.cpp
     ecs_tests.cpp
@@ -27,6 +28,7 @@ add_executable(veach-tests
     atmosphere_tests.cpp  # VCH-131: the planet atmosphere
     sp10_atmosphere_tests.cpp  # spike SP-10 (VCH-086)
     sp14_depth_tests.cpp  # spike SP-14 (VCH-090)
+    sp16_msaa_tests.cpp  # spike SP-16 (VCH-092): MSAA in tile memory, Metal only
     space_gen_tests.cpp
     space_realization_tests.cpp  # VCH-115: the realization layer
     slice_tests.cpp  # VCH-115: the first slice, end to end (links the slice app's module)
@@ -49,6 +51,7 @@ veach_add_shader(veach-tests shaders/texture_kinds.slang ENTRIES write_volume:co
     sample_volume:compute sample_layers:compute sample_cube:compute)
 veach_add_shader(veach-tests shaders/sampler_states.slang ENTRIES compare_depth:compute sample_grad:compute)
 veach_add_shader(veach-tests shaders/blend_states.slang ENTRIES vs_main:vertex fs_main:fragment)
+veach_add_shader(veach-tests shaders/msaa_triangle.slang ENTRIES vs_main:vertex fs_main:fragment)
 veach_shader_library(veach-tests NAMESPACE test_shaders)
 target_compile_definitions(veach-tests PRIVATE VEACH_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 target_include_directories(veach-tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -61,12 +64,9 @@ add_subdirectory(sp13)  # Spike SP-13 (VCH-089): walk, hover, land; its tests jo
 add_subdirectory(seams)  # The seams sweep: octant planes, poles, chunk corners; its tests join veach-tests; its bench is veach-bench-seams
 
 include("${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake")
-# Sanitized builds run the heavier canonical tests (octree welds, physics replays) about ten times slower.
-if(VEACH_SANITIZE)
-    doctest_discover_tests(veach-tests TEST_PREFIX "unit: " PROPERTIES TIMEOUT 600)
-else()
-    doctest_discover_tests(veach-tests TEST_PREFIX "unit: ")
-endif()
+# The end-to-end slice replays (orbit to a dug hole) take minutes in Debug on CI's runners, and sanitized builds run
+# the heavier canonical tests about ten times slower (VCH-131 makes them faster).
+doctest_discover_tests(veach-tests TEST_PREFIX "unit: " PROPERTIES TIMEOUT 900)
 
 # ---- Integration checks (acceptance criteria that need the real binaries) ----
 
@@ -312,6 +312,8 @@ if(APPLE)
     veach_golden_test("golden: triangle (camera, raster)" triangle_camera_raster triangle_camera metal)
     veach_golden_test("golden: triangle (camera, raytraced)" triangle_camera_raytraced triangle_camera metal)
     veach_scene_goldens(metal)
+    # backdrop.AC7: the space backdrop alone (stars, band, nebulae), small.
+    veach_golden_test("golden: space backdrop" space_backdrop_small space_backdrop metal)
     # rtmesh.AC4: a mesh made at run time (and updated on frame 2), in real time and in photo mode.
     # sky.AC4, rt.AC3: Bistro under the physical sky at noon and at sunset (Metal only: Bistro is too heavy for WARP).
     foreach(_time noon sunset)
@@ -352,7 +354,8 @@ if(APPLE)
             "cornell_box_realtime:cornell_box_realtime:3" "flight_helmet_realtime:flight_helmet_realtime:3"
             "bistro_noon:bistro_noon:3" "bistro_sunset:bistro_sunset:3"
             "runtime_mesh_realtime:runtime_mesh_realtime:3" "runtime_mesh:runtime_mesh:4"
-            "thin_triangles_realtime:thin_triangles_realtime:3" "blend_modes:blend_modes:3")
+            "thin_triangles_realtime:thin_triangles_realtime:3" "blend_modes:blend_modes:3"
+            "space_backdrop_small:space_backdrop:3")
         string(REPLACE ":" ";" _golden "${_golden}")
         list(GET _golden 0 _script)
         list(GET _golden 1 _image)
@@ -372,6 +375,12 @@ elseif(WIN32)
     veach_golden_test("golden: triangle (camera, raster, dx12)" triangle_camera_raster triangle_camera dx12)
     veach_golden_test("golden: triangle (camera, raytraced, dx12)" triangle_camera_raytraced triangle_camera dx12)
     veach_scene_goldens(dx12)
+    # backdrop.AC7 on DX12 (WARP): the bake and the composite run and log no error. The image is Metal's golden only:
+    # a star exactly on a cell edge may land in another pixel with another GPU's float rounding.
+    add_test(NAME "lab: the space backdrop renders (dx12)"
+        COMMAND veach-lab --rhi dx12 --headless --frames 3 --script scripts/space_backdrop_small.luau)
+    set_tests_properties("lab: the space backdrop renders (dx12)" PROPERTIES
+        SKIP_REGULAR_EXPRESSION "rhi\\.backend_unavailable")
     add_test(NAME "lab: NaN samples are errors (dx12)"
         COMMAND veach-lab --rhi dx12 --headless --frames 3 --script scripts/nonfinite_light.luau)
     set_tests_properties("lab: NaN samples are errors (dx12)" PROPERTIES
@@ -396,7 +405,8 @@ if(VEACH_LEAK_CHECK)
         message(FATAL_ERROR "VEACH_LEAK_CHECK needs macOS and no VEACH_SANITIZE (use the 'leaks' preset)")
     endif()
     set(_leak_check sh "${PROJECT_SOURCE_DIR}/tools/scripts/leak-check.sh")
-    add_test(NAME "leaks: unit tests" COMMAND ${_leak_check} $<TARGET_FILE:veach-tests>)
+    # Without the end-to-end slice replays, which alone take most of the time under `leaks`.
+    add_test(NAME "leaks: unit tests" COMMAND ${_leak_check} $<TARGET_FILE:veach-tests> "--test-case-exclude=*the slice at s =*")
     # The whole unit suite under `leaks`: 115 s on CI's runner before the frames and procgen tests joined.
     set_tests_properties("leaks: unit tests" PROPERTIES TIMEOUT 600)
     add_test(NAME "leaks: lab headless run"

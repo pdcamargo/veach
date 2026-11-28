@@ -1,6 +1,7 @@
 veach_add_engine_library(render
     SOURCES
         src/atmosphere.cpp
+        src/backdrop.cpp
         src/mesh_store.cpp
         src/realtime_renderer.cpp
         src/scene_renderer.cpp
@@ -28,6 +29,9 @@ veach_add_shader(veach_render shaders/realtime_shade.slang ENTRIES shade:compute
 veach_add_shader(veach_render shaders/atmosphere.slang ENTRIES transmittance_lut:compute multiscattering_lut:compute
     sky_view_lut:compute sky_irradiance:compute)
 veach_add_shader(veach_render shaders/aerial_volume.slang ENTRIES aerial_volume:compute)
+# The space backdrop's bake and its composite on the real-time image (ADR 0091, backdrop.cpp).
+veach_add_shader(veach_render shaders/backdrop.slang ENTRIES backdrop_bake:compute)
+veach_add_shader(veach_render shaders/backdrop_composite.slang ENTRIES backdrop_composite:compute)
 veach_shader_library(veach_render NAMESPACE veach_render_shaders)
 # png.cpp compiles stb's implementation; its warnings are not ours.
 set_source_files_properties(src/png.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)

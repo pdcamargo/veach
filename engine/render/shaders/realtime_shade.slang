@@ -6,6 +6,7 @@
 // layout matches render::ShadeParams (realtime_renderer.cpp).
 
 import veach.atmosphere;
+import veach.backdrop;  // backdrop_on
 import veach.bindless;
 import veach.brdf;
 import veach.lights;
@@ -40,11 +41,13 @@ static const float fp16_max = 65504.0;
 /// The exposed radiance as rgba16_float stores it, clamped to the fp16 maximum: the sun's disk (about 1.9e9 nits above
 /// the air) exceeds it at any exposure below about EV100 14.5. Apple GPUs saturate such writes anyway; IEEE rounding
 /// gives infinity. NaN is kept, for the exposure pass's check to count it (spike SP-14).
-float4 storable(float3 c) {
+/// `metered` (alpha) is the share of the pixel's luminance auto-exposure meters (exposure.slang): 1 but where the space
+/// backdrop shows, which is exposed on its own (ADR 0091) and must not pull the camera's exposure.
+float4 storable(float3 c, float metered = 1.0) {
     if ((params.flags & shade_no_fp16_clamp) == 0) {
         c = float3(c.x > fp16_max ? fp16_max : c.x, c.y > fp16_max ? fp16_max : c.y, c.z > fp16_max ? fp16_max : c.z);
     }
-    return float4(c, 1.0);
+    return float4(c, metered);
 }
 
 float3 camera_ray(float2 pixel) {
@@ -98,7 +101,9 @@ void shade(uint3 id: SV_DispatchThreadID) {
 
     const uint2 visible_id = params.visibility.Load(int3(id.xy, 0));
     if (visible_id.x == no_geometry) {  // the sky, with the sun's disk
-        params.radiance[id.xy] = storable(sky_radiance_any(sky, direction, true) * exposure);
+        // Alpha 2 marks the pixels the space backdrop pass (shaders/backdrop.slang) draws into: it adds the backdrop
+        // and sets alpha to the share auto-exposure meters.
+        params.radiance[id.xy] = storable(sky_radiance_any(sky, direction, true) * exposure, backdrop_on(sky) ? 2.0 : 1.0);
         return;
     }
     const InstanceRecord inst = params.instances[visible_id.x];

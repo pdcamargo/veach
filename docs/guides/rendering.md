@@ -114,6 +114,12 @@ desc.cull = rhi::CullMode::back;                    // front faces wind counter-
 - Integer formats (`rg32_uint`, `r32_uint`) are read with `Load` (never filtered) and cleared with
   `color_target_uint`. Metal clears them exactly; DX12 clears through floats, so integer clear values must be at
   most 2^24 or exactly `0xFFFFFFFF` (anything else is logged as an error).
+- **MSAA, Metal only (spike SP-16).** A texture with `sample_count` 2, 4 or 8 lives in tile memory: usable only as a
+  color or depth target of one pass, never loaded, stored, sampled or copied. `PassBuilder::resolve(ms, target)`
+  averages its samples into a single-sampled `target` at the end of the pass (depth: the farthest sample). Pipelines
+  set the same `sample_count`, and `alpha_to_coverage` for foliage. DX12 rejects it (`rhi.not_implemented`); the
+  real-time renderer does not use it ([ADR 0060](../adr/0060-gpu-driven-visibility-buffer.md),
+  [SP-16](../research/spikes/sp-16-visibility-vs-forward.md)).
 
 ## Indirect draws and dispatches
 
@@ -305,6 +311,15 @@ renders the goldens with it on WARP, so non-portable Slang fails CI either way.
   path applies it with `aerial_perspective(sky, direction, uv, distance)` and occludes the sky's ambient light with
   `sky_ambient_radiance(sky, distance)`. A camera's `SkyVisibility { visibility, reach }` keeps haze and sky light
   out of caves and interiors; `physics::sky_visibility` measures it from static colliders.
+- **The space backdrop** ([ADR 0091](../adr/0091-space-backdrop.md), [spec](../specs/space-backdrop/spec.md)): stars,
+  the galactic band and nebulae beyond every body, behind the sky and through its air. Data in
+  `ResolvedSky::backdrop` (`render::Backdrop`, from a module's extractor or the `SpaceBackdrop` component's `seed`;
+  `generate_backdrop(seed, GalaxyView)` makes one). The band and nebulae are baked once into a 4096 x 2048 lat-long
+  in galactic coordinates (`space backdrop bake`, when they change); the stars are drawn per pixel by the
+  `space backdrop` pass after shading (0.3 ms at 1440p on the M5 Max). It has its own exposure
+  (`SpaceBackdrop.exposure_compensation`, `exposure_follow`) and is left out of auto-exposure's metering: the radiance
+  target's alpha is the share of a pixel that is metered, so a pass that writes the HDR target before metering
+  writes alpha 1. Example: `scripts/space_backdrop.luau` (deep space, no meshes: a scene with a backdrop draws).
 - **Meshes made at run time** ([spec](../specs/runtime-meshes/spec.md), [ADR 0072](../adr/0072-runtime-meshes.md)):
   terrain chunks and other generated geometry go through the `render::MeshStore` service, not the cook step.
   `add(MeshData{vertices, indices, triangle_slots, materials})` validates the data (`render.mesh_invalid`), builds

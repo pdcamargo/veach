@@ -49,6 +49,9 @@ struct SkyFrame {
     uint sun_count;
     uint march;        ///< 0: the sky-view LUT inside the atmosphere, a per-pixel march outside; 1: always march; 2: never
     uint march_steps;  ///< steps of the per-pixel march and the sky-view LUT
+    // Spike SP-14 (VCH-090), throwaway: a procedural starfield (planet mode, or no sky). x = brightness (0: off; 1 is
+    // physical), y = one pixel's angle (radians), z = limiting magnitude, w = cells per cube-map face side.
+    float4 stars;
 };
 
 // ---- the medium ----------------------------------------------------------------------------------------------
@@ -214,7 +217,8 @@ float3 sky_radiance(SkyFrame s, float3 direction, bool with_sun) {
 /// The real-time renderer's ambient radiance over the upper hemisphere (nits): the sky's cosine-weighted average.
 float3 sky_ambient_radiance(SkyFrame s) {
     if (s.mode == sky_physical) {
-        return s.irradiance.Load(int3(0, 0, 0)).rgb * s.sun.w;
+        // In planet mode ground.w scales it (spike SP-14: a cave's stand-in for occlusion; 1 otherwise).
+        return s.irradiance.Load(int3(0, 0, 0)).rgb * s.sun.w * (s.planet != 0 ? s.ground.w : 1.0);
     }
     return s.mode == sky_constant ? s.constant.xyz : float3(0.0, 0.0, 0.0);
 }
@@ -437,6 +441,95 @@ float3 planet_sky_view_direction(SkyFrame s, float2 uv) {
                      planet_frame_z(s) * (cos(elevation) * sin(azimuth)));
 }
 
+// ---- spike SP-14 (VCH-090), throwaway: a procedural starfield -------------------------------------------------
+//
+// One star or none per cell of a cube map with stars.w cells per face side, so the field is fixed on the sky. Counts
+// follow the real sky (N(< m) = 4800 * 10^(0.49 (m - 6)): about 15 stars brighter than 1, 4800 than 6) up to the
+// limiting magnitude. Each draws as an energy-conserving point: a Gaussian of 0.6 px whose integral over solid angle is
+// its illuminance, E = 2.5e-6 lux * 10^(-0.4 m) (ADR 0063), so exposure sees stars physically. Stands in for the galaxy
+// query's near stars.
+
+uint star_hash(uint3 v) {  // pcg3d (Jarzynski and Olano 2020)
+    v = v * 1664525u + 1013904223u;
+    v.x += v.y * v.z;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+    v ^= v >> 16u;
+    v.x += v.y * v.z;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+    return v.x ^ v.y ^ v.z;
+}
+
+float star_unit(uint h) {
+    return (float(h >> 8) + 0.5) / 16777216.0;
+}
+
+float3 star_face_direction(uint face, float2 uv) {
+    switch (face) {
+    case 0: return float3(1.0, uv.y, -uv.x);
+    case 1: return float3(-1.0, uv.y, uv.x);
+    case 2: return float3(uv.x, 1.0, -uv.y);
+    case 3: return float3(uv.x, -1.0, uv.y);
+    case 4: return float3(uv.x, uv.y, 1.0);
+    default: return float3(-uv.x, uv.y, -1.0);
+    }
+}
+
+/// The starfield's radiance toward `d` (nits).
+float3 starfield_radiance(SkyFrame s, float3 d) {
+    if (s.stars.x <= 0.0) {
+        return float3(0.0, 0.0, 0.0);
+    }
+    const float3 a = abs(d);
+    uint face;
+    float2 uv;
+    if (a.x >= a.y && a.x >= a.z) {
+        face = d.x > 0.0 ? 0u : 1u;
+        uv = float2(d.x > 0.0 ? -d.z : d.z, d.y) / a.x;
+    } else if (a.y >= a.z) {
+        face = d.y > 0.0 ? 2u : 3u;
+        uv = float2(d.x, d.y > 0.0 ? -d.z : d.z) / a.y;
+    } else {
+        face = d.z > 0.0 ? 4u : 5u;
+        uv = float2(d.z > 0.0 ? d.x : -d.x, d.y) / a.z;
+    }
+    const float n = s.stars.w;
+    const int2 cell = int2(floor((uv * 0.5 + 0.5) * n));
+    const float total = 4800.0 * pow(10.0, 0.49 * (s.stars.z - 6.0));  // stars brighter than the limit
+    const float p_mean = total / (6.0 * n * n);  // the mean chance a cell has one
+    const float sigma = 0.6 * s.stars.y;
+    float3 sum = float3(0.0, 0.0, 0.0);
+    for (int dy = -1; dy <= 1; ++dy) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            const int2 c = cell + int2(dx, dy);
+            if (any(c < 0) || any(c >= int(n))) {
+                continue;
+            }
+            // Cells near a face's corners cover less sky (solid angle ~ 1 / (1 + u^2 + v^2)^1.5; 4 pi / 6 on
+            // average, hence 6 / pi): the chance follows it, so the density is the same everywhere.
+            const float2 st = (float2(c) + 0.5) / n * 2.0 - 1.0;
+            const float p = min(p_mean * (6.0 / atmosphere_pi) / pow(1.0 + dot(st, st), 1.5), 1.0);
+            const uint h = star_hash(uint3(uint(c.x), uint(c.y), face));
+            const float u = star_unit(h);
+            if (u > p) {
+                continue;
+            }
+            const uint h2 = star_hash(uint3(h, 0x5a1u, face));
+            const float2 jitter = float2(star_unit(h2), star_unit(h2 * 747796405u + 2891336453u));
+            const float3 direction = normalize(star_face_direction(face, (float2(c) + jitter) / n * 2.0 - 1.0));
+            const float magnitude = 6.0 + log10(max(u / p, 1e-9) * total / 4800.0) / 0.49;
+            const float illuminance = 2.5e-6 * pow(10.0, -0.4 * magnitude);
+            const float chord = length(d - direction);  // the angle, for the few pixels that matter
+            const float psf = exp(-chord * chord / (2.0 * sigma * sigma)) / (2.0 * atmosphere_pi * sigma * sigma);
+            // From blue-white to orange, normalized to unit luminance.
+            const float3 tint = lerp(float3(0.78, 0.88, 1.18), float3(1.22, 0.96, 0.70), star_unit(h2 * 2654435761u));
+            sum += tint / dot(tint, float3(0.2126, 0.7152, 0.0722)) * (illuminance * psf);
+        }
+    }
+    return sum * s.stars.x;
+}
+
 /// True when this view uses the per-pixel march rather than the sky-view LUT.
 bool planet_marches(SkyFrame s) {
     return s.march == 1 || (s.march == 0 && s.atmosphere.planet.x + s.origin.w >= s.atmosphere.planet.y);
@@ -481,6 +574,9 @@ float3 planet_sky_radiance(SkyFrame s, float3 direction, bool with_sun) {
                     l += t * s.sun_colors[i].xyz / (2.0 * atmosphere_pi * (1.0 - cos(radius)));
                 }
             }
+            if (s.stars.x > 0.0) {  // spike SP-14
+                l += t * starfield_radiance(s, direction) / s.sun.w;
+            }
         }
     }
     return l * s.sun.w;
@@ -491,6 +587,9 @@ float3 planet_sky_radiance(SkyFrame s, float3 direction, bool with_sun) {
 float3 sky_radiance_any(SkyFrame s, float3 direction, bool with_sun) {
     if (s.planet != 0 && s.mode == sky_physical) {
         return planet_sky_radiance(s, direction, with_sun);
+    }
+    if (s.mode == sky_none && with_sun && s.stars.x > 0.0) {  // spike SP-14: deep space
+        return starfield_radiance(s, direction);
     }
     return sky_radiance(s, direction, with_sun);
 }

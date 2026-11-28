@@ -8,6 +8,7 @@
 #ifdef VEACH_LAB_SP13
 #include "sp13_spike.hpp"
 #endif
+#include "sp14_spike.hpp"
 #include "triangle_feature.hpp"
 
 #include "lab_shaders.hpp"
@@ -52,6 +53,7 @@ LabModule::LabModule(veach::World& world) {
 #ifdef VEACH_LAB_SP13
     register_sp13_spike(world);  // spike SP-13 (VCH-089), throwaway: walk, hover and land, drawn
 #endif
+    register_sp14_spike(world);  // spike SP-14 (VCH-090), throwaway: exposure and depth, cockpit to deep space
 
     world.system<const Spinner>("ReportSpinner").kind<veach::phase::Shutdown>().each([](const Spinner& s) {
         veach::log::info("lab", "spinner turned {:.4f} rad", s.angle);

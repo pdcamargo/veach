@@ -57,6 +57,9 @@ struct alignas(16) SkyFrame {
     std::uint32_t sun_count = 0;
     std::uint32_t march = 0;
     std::uint32_t march_steps = 0;
+    // Spike SP-14 (VCH-090): the starfield (ResolvedSky::stars). x = brightness (0: off), y = a pixel's angle (rad),
+    // z = limiting magnitude, w = cells per cube-map face side.
+    math::vec4 stars{0.0f};
 };
 static_assert(offsetof(SkyFrame, inverse_view_projection) == 128);
 static_assert(offsetof(SkyFrame, transmittance) == 192);
@@ -65,7 +68,8 @@ static_assert(offsetof(SkyFrame, origin) == 256);
 static_assert(offsetof(SkyFrame, sun_directions) == 336);
 static_assert(offsetof(SkyFrame, sun_colors) == 400);
 static_assert(offsetof(SkyFrame, planet) == 464);
-static_assert(sizeof(SkyFrame) == 480);
+static_assert(offsetof(SkyFrame, stars) == 480);
+static_assert(sizeof(SkyFrame) == 496);
 
 struct Lut {
     const char* name;
@@ -275,12 +279,19 @@ SkyResources AtmosphereRenderer::record(RenderGraph& graph, const ResolvedSky& s
                                       : math::cross(up, math::vec3(0.0f, 0.0f, 1.0f));
         }
         f.frame_x = math::vec4(math::normalize(x), 0.0f);
-        f.ground = math::vec4(p.ground_albedo, 1.0f);
+        f.ground = math::vec4(p.ground_albedo, p.ambient);
         f.occluder =
             p.occluder.w > 0.0f ? math::vec4(math::vec3(p.occluder) - p.center, p.occluder.w) : math::vec4(0.0f);
         f.occluder_albedo = math::vec4(p.occluder_albedo, 0.0f);
         f.march = p.march;
         f.march_steps = std::max<std::uint32_t>(p.march_steps, 1);
+    }
+
+    if (sky.stars) {
+        // One pixel's angle at the image's center: 2 tan(fov / 2) / height.
+        const float pixel = view.height > 0 ? 2.0f / (view.projection[1][1] * static_cast<float>(view.height)) : 0.0f;
+        f.stars = math::vec4(sky.stars->brightness, pixel, sky.stars->limiting_magnitude,
+                             static_cast<float>(std::max<std::uint32_t>(sky.stars->cells, 1)));
     }
 
     const std::array<SkyFrame, 1> records{f};

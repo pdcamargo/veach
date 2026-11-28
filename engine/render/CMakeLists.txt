@@ -13,6 +13,8 @@ veach_add_engine_library(render
 
 veach_add_shader(veach_render shaders/present.slang ENTRIES vs_main:vertex fs_main:fragment)
 veach_add_shader(veach_render shaders/display.slang ENTRIES display:compute)
+# Spike SP-14 (VCH-090): auto-exposure (realtime_renderer.cpp).
+veach_add_shader(veach_render shaders/exposure.slang ENTRIES exposure_histogram:compute exposure_resolve:compute)
 # Photo mode's path tracer with StandardMaterial only. Apps with their own materials compile their own copy
 # (veach_add_scene_shaders); this one also anchors the C++ parameter layout check (scene_renderer.cpp).
 veach_add_shader(veach_render shaders/path_tracer.slang ENTRIES trace_pixels:compute

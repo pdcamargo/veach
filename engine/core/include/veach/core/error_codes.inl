@@ -65,6 +65,7 @@ VEACH_ERROR(replay_diverged, "replay.diverged", "A replay's simulation state dif
 VEACH_ERROR(render_history_lost, "render.history_lost",
             "Path-traced pixels read back something other than the accumulation they last wrote")
 VEACH_ERROR(render_nonfinite_samples, "render.nonfinite_samples", "The path tracer produced NaN or infinite samples")
+VEACH_ERROR(render_nonfinite_pixels, "render.nonfinite_pixels", "The real-time renderer wrote NaN or infinite radiance")
 VEACH_ERROR(render_mesh_invalid, "render.mesh_invalid", "A runtime mesh submitted to the MeshStore is malformed")
 VEACH_ERROR(render_mesh_unknown, "render.mesh_unknown", "A MeshStore call named a mesh or material it does not hold")
 VEACH_ERROR(rhi_invalid_surface, "rhi.invalid_surface", "The native window handle given to the RHI is invalid")

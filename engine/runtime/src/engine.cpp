@@ -5,6 +5,7 @@
 #include <veach/asset/asset_server.hpp>
 #include <veach/asset/scene.hpp>
 #include <veach/asset/texture.hpp>
+#include <veach/core/assert.hpp>
 #include <veach/core/jobs.hpp>
 #include <veach/core/log.hpp>
 #include <veach/core/profile.hpp>
@@ -125,6 +126,7 @@ Result<> Engine::init() {
     auto step = run_step(
         "core",
         [&]() -> Result<std::string> {
+            report_crashes_on_stderr();
             log::configure({.format = project.log_format,
                             .min_level = project.log_level,
                             .console = config_.log_to_console,

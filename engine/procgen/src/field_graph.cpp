@@ -388,14 +388,13 @@ Result<FieldGraph> parse_field_graph_json(const json& doc, std::string_view sour
             if (position) {
                 node.position = *kind;
                 if (node.type->op == Op::fbm && node.unit != unit_of(*kind)) {
-                    return err.node(
-                        ErrorCode::procgen_graph_invalid, node.id,
-                        std::format("'wavelength' is in {} but its position '{}' is {}", unit_name(node.unit), ref,
-                                    kind_name(*kind)),
-                        std::format("{} lengths sample {}: write {{\"{}\": ...}}, or connect a {} input",
-                                    unit_name(unit_of(*kind)), kind_name(*kind), unit_name(unit_of(*kind)),
-                                    kind_name(node.position == PositionKind::p_planet ? PositionKind::p_local
-                                                                                      : PositionKind::p_planet)));
+                    return err.node(ErrorCode::procgen_graph_invalid, node.id,
+                                    std::format("'wavelength' is in {} but its position '{}' is {}",
+                                                unit_name(node.unit), ref, kind_name(*kind)),
+                                    std::format("planet_m lengths go with p_planet and m lengths with p_local: write "
+                                                "{{\"{}\": ...}}, or connect a {} input",
+                                                unit_name(unit_of(*kind)),
+                                                node.unit == LengthUnit::planet_m ? "p_planet" : "p_local"));
                 }
             }
         }

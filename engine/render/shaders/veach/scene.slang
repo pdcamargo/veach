@@ -177,15 +177,21 @@ TriangleHit surface_of(InstanceRecord inst, TriangleRef tri, float2 bary, float3
     hit.surface.uv = c0.uv * w.x + c1.uv * w.y + c2.uv * w.z;
     hit.surface.uv_dx = float2(0.0, 0.0);
     hit.surface.uv_dy = float2(0.0, 0.0);
+    hit.material = veach_scene.materials[inst.material_base + tri.slot];
     // Every surface is two-sided for the path tracer; `front` remembers which side was hit (emission is one-sided).
     hit.front = dot(geometric, hit.surface.view) >= 0.0;
     if (!hit.front) {
         geometric = -geometric;
-        normal = -normal;
+        // A double-sided material is a thin sheet: seen from behind, its normal turns with it (glTF). A single-sided
+        // one bounds a solid whose vertex normals are the surface: they turn only if they face away from the viewer.
+        // A thin triangle standing in a smooth surface (a fold, a Transvoxel transition cell in a chunk's face plane)
+        // is seen from behind while its vertex normals face the camera; turning those shaded it dark (VCH-108).
+        if ((hit.material.flags & material_double_sided) != 0 || dot(normal, hit.surface.view) < 0.0) {
+            normal = -normal;
+        }
     }
     hit.surface.geometric_normal = geometric;
     hit.surface.normal = normal;
-    hit.material = veach_scene.materials[inst.material_base + tri.slot];
     return hit;
 }
 

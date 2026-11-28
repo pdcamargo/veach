@@ -55,7 +55,8 @@ float3 camera_ray(float2 pixel) {
 }
 
 /// Barycentrics (of p1, p2) where the ray meets the triangle's plane; outside the triangle too, for the
-/// neighboring pixels' rays that give UV gradients.
+/// neighboring pixels' rays that give UV gradients. Ill-conditioned for a triangle thinner than a pixel or seen edge
+/// on: the rasterizer's snapped vertices cover pixel centers the exact triangle misses, by up to the whole triangle.
 float2 plane_barycentrics(float3 origin, float3 direction, float3 p0, float3 p1, float3 p2) {
     const float3 e1 = p1 - p0;
     const float3 e2 = p2 - p0;
@@ -65,6 +66,14 @@ float2 plane_barycentrics(float3 origin, float3 direction, float3 p0, float3 p1,
     const float3 tv = origin - p0;
     const float3 qv = cross(tv, e1);
     return float2(dot(tv, pv) * inv, dot(direction, qv) * inv);
+}
+
+/// The nearest barycentrics inside the triangle: the pixel shows this triangle (the visibility buffer says so), so
+/// its surface is interpolated, never extrapolated, from the triangle's corners.
+float2 inside_triangle(float2 b) {
+    float3 w = max(float3(1.0 - b.x - b.y, b.x, b.y), float3(0.0, 0.0, 0.0));
+    w /= max(w.x + w.y + w.z, 1e-20);
+    return w.yz;
 }
 
 [shader("compute")]
@@ -98,7 +107,7 @@ void shade(uint3 id: SV_DispatchThreadID) {
     const float3 p0 = to_world(inst.object_to_world, corners[0], 1.0);
     const float3 p1 = to_world(inst.object_to_world, corners[1], 1.0);
     const float3 p2 = to_world(inst.object_to_world, corners[2], 1.0);
-    TriangleHit hit = surface_of(inst, tri, plane_barycentrics(origin, direction, p0, p1, p2), origin);
+    TriangleHit hit = surface_of(inst, tri, inside_triangle(plane_barycentrics(origin, direction, p0, p1, p2)), origin);
     // UV gradients from the neighboring pixels' rays on the same plane (no quad derivatives in compute).
     const float2 uv0 = fetch(inst, tri.vertices.x).uv;
     const float2 uv1 = fetch(inst, tri.vertices.y).uv;
@@ -111,6 +120,11 @@ void shade(uint3 id: SV_DispatchThreadID) {
     MaterialContext ctx = { hit.surface, hit.material };
     const SurfaceSample s = evaluateSurface(hit.material.kind, ctx);
     const bool double_sided = (hit.material.flags & material_double_sided) != 0;
+    // Which way the surface faces, to keep lights behind it out. A double-sided material is a thin sheet: its triangle.
+    // A single-sided one bounds a solid: its interpolated normal. A thin triangle standing in a smooth surface (a
+    // Transvoxel transition cell in a chunk's face plane) faces away from a light the surface faces; by the triangle
+    // it kept only the sky's ambient light, which under SP-08's magenta sky looked like pinholes (VCH-108).
+    const float3 facing = double_sided ? hit.surface.geometric_normal : hit.surface.normal;
     float3 light = hit.front || double_sided ? s.emission : float3(0.0, 0.0, 0.0);
     // A normal map can turn the shading normal away from the camera at grazing angles: bend it back until the
     // surface faces the viewer, so such pixels are lit rather than black (photo mode averages them out instead).
@@ -127,8 +141,8 @@ void shade(uint3 id: SV_DispatchThreadID) {
             float3 l;
             float distance;
             const float3 irradiance = punctual_irradiance(veach_scene.lights[i], hit.surface.position, l, distance);
-            if (dot(hit.surface.geometric_normal, l) <= 0.0) {
-                continue;  // behind the surface itself: with no shadows, a normal map would otherwise leak it in
+            if (dot(facing, l) <= 0.0) {
+                continue;  // behind the surface: with no shadows, a normal map would otherwise leak it in
             }
             float pdf;
             light += irradiance * brdf_eval(b, v, frame.to_local(l), pdf);

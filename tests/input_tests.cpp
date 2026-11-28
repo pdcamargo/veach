@@ -411,3 +411,28 @@ TEST_CASE("[input.AC14] recorded axes replay bit for bit") {
     CHECK_FALSE(replay.logs.contains("replay.diverged"));
     CHECK_MESSAGE(replay.logs.errors().empty(), replay.logs.errors());
 }
+
+namespace {
+/// Binds an action and an axis from its constructor, inside its own module scope.
+struct BindingModule {
+    explicit BindingModule(World& world) {
+        world.module<BindingModule>();
+        bind_action(world, "module_fire", Key::space);
+        bind_axis(world, "module_throttle", {.source = Axis::gamepad_right_trigger});
+    }
+};
+}  // namespace
+
+TEST_CASE("[input.AC17] actions and axes bound inside a module's scope live at the root") {
+    World world;
+    world.import<CoreModule>();
+    world.import<PlatformModule>();
+    world.import<BindingModule>();
+    CHECK(world.lookup("veach::actions::module_fire").is_valid());
+    CHECK(world.lookup("veach::actions::module_throttle").is_valid());
+    Input& input = world.get_mut<Input>();
+    input.move_axis(Axis::gamepad_right_trigger, axis_one / 2);
+    Entity throttle = world.lookup("veach::actions::module_throttle");
+    throttle.get_mut<InputAxis>().value = evaluate_axis(throttle.get<InputAxis>().binding, input);
+    CHECK(axis_value(world, "module_throttle") == 0.5f);
+}

@@ -3,7 +3,11 @@
 #include "runtime_mesh_demo.hpp"
 #include "sp03_spike.hpp"
 #include "sp04_spike.hpp"
+#include "sp09_spike.hpp"
 #include "sp10_spike.hpp"
+#ifdef VEACH_LAB_SP13
+#include "sp13_spike.hpp"
+#endif
 #include "sp14_spike.hpp"
 #include "triangle_feature.hpp"
 
@@ -44,7 +48,11 @@ LabModule::LabModule(veach::World& world) {
 
     register_sp03_spike(world);  // spike SP-03 (VCH-079), throwaway: camera-relative extraction
     register_sp04_spike(world);  // spike SP-04 (VCH-080), throwaway: the sun from the system
+    register_sp09_spike(world);  // spike SP-09 (VCH-085), throwaway: planet octree and governed descent
     register_sp10_spike(world);  // spike SP-10 (VCH-086), throwaway: a planet's atmosphere from ground to orbit
+#ifdef VEACH_LAB_SP13
+    register_sp13_spike(world);  // spike SP-13 (VCH-089), throwaway: walk, hover and land, drawn
+#endif
     register_sp14_spike(world);  // spike SP-14 (VCH-090), throwaway: exposure and depth, cockpit to deep space
 
     world.system<const Spinner>("ReportSpinner").kind<veach::phase::Shutdown>().each([](const Spinner& s) {

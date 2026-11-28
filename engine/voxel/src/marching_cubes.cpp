@@ -40,6 +40,13 @@ class TransvoxelMesher final : public IsoMesher {
 public:
     explicit TransvoxelMesher(TransvoxelOptions options) : options_(options) {
         regular_edges_.resize(static_cast<std::size_t>(3 * lattice * lattice * lattice));
+        if (options_.encoding != DistanceEncoding::linear) {
+            decoded_.resize(65536);
+            for (std::size_t i = 0; i < decoded_.size(); ++i) {
+                decoded_[i] =
+                    decode_distance(static_cast<std::int16_t>(static_cast<int>(i) - 32768), options_.encoding);
+            }
+        }
         for (auto& f : face_edges_) {
             f.resize(static_cast<std::size_t>(2 * face_lattice * face_lattice));
         }
@@ -80,6 +87,23 @@ public:
 private:
     std::int16_t d(int x, int y, int z) const { return s_->at(x, y, z).distance; }
 
+    /// What interpolation and gradients read: the code itself (linear, exact integers as SP-08 committed), or the
+    /// decoded distance.
+    double value(std::int16_t code) const {
+        return decoded_.empty() ? static_cast<double>(code) : decoded_[static_cast<std::size_t>(code + 32768)];
+    }
+    double v(int x, int y, int z) const { return value(d(x, y, z)); }
+
+    /// Offset of the crossing along an edge of length `len` (fixed point) from the sample with code c0.
+    std::int64_t crossing(std::int16_t c0, std::int16_t c1, std::int64_t len) const {
+        if (decoded_.empty()) {
+            return std::int64_t{c0} * len / (std::int64_t{c0} - c1);
+        }
+        const double v0 = value(c0), v1 = value(c1);
+        const auto off = static_cast<std::int64_t>(std::floor(v0 / (v0 - v1) * static_cast<double>(len) + 0.5));
+        return std::clamp<std::int64_t>(off, 0, len);
+    }
+
     std::uint32_t emit(const std::array<std::int64_t, 3>& local, const std::array<float, 3>& n, std::uint8_t material) {
         const auto index = static_cast<std::uint32_t>(out_->fixed.size());
         std::array<std::int64_t, 3> global{};
@@ -95,8 +119,8 @@ private:
         return index;
     }
 
-    static std::array<float, 3> normal(const std::array<int, 3>& g0, const std::array<int, 3>& g1, std::int64_t off,
-                                       std::int64_t len) {
+    static std::array<float, 3> normal(const std::array<double, 3>& g0, const std::array<double, 3>& g1,
+                                       std::int64_t off, std::int64_t len) {
         const float t = static_cast<float>(off) / static_cast<float>(len);
         std::array<float, 3> n{};
         for (std::size_t a = 0; a < 3; ++a) {
@@ -114,8 +138,8 @@ private:
         return n;
     }
 
-    std::array<int, 3> gradient(int x, int y, int z) const {
-        return {d(x + 1, y, z) - d(x - 1, y, z), d(x, y + 1, z) - d(x, y - 1, z), d(x, y, z + 1) - d(x, y, z - 1)};
+    std::array<double, 3> gradient(int x, int y, int z) const {
+        return {v(x + 1, y, z) - v(x - 1, y, z), v(x, y + 1, z) - v(x, y - 1, z), v(x, y, z + 1) - v(x, y, z - 1)};
     }
 
     /// Lengyel's shrink: moves a vertex of the boundary cell layer inward on faces with transition cells, projected
@@ -164,7 +188,7 @@ private:
         const int x1 = x + (axis == 0), y1 = y + (axis == 1), z1 = z + (axis == 2);
         const Sample& s0 = s_->at(x, y, z);
         const Sample& s1 = s_->at(x1, y1, z1);
-        const std::int64_t off = std::int64_t{s0.distance} * cell_ / (std::int64_t{s0.distance} - s1.distance);
+        const std::int64_t off = crossing(s0.distance, s1.distance, cell_);
         std::array<std::int64_t, 3> q{x * cell_, y * cell_, z * cell_};
         q[static_cast<std::size_t>(axis)] += off;
         const auto n = normal(gradient(x, y, z), gradient(x1, y1, z1), off, cell_);
@@ -235,18 +259,19 @@ private:
         const Sample& s0 = s_->face_at(f, u, v, 0);
         const Sample& s1 = s_->face_at(f, u1, v1, 0);
         const std::int64_t half = cell_ / 2;
-        const std::int64_t off = std::int64_t{s0.distance} * half / (std::int64_t{s0.distance} - s1.distance);
+        const std::int64_t off = crossing(s0.distance, s1.distance, half);
         std::array<std::int64_t, 3> q{};
         q[static_cast<std::size_t>(a)] = (f & 1) ? chunk_cells * cell_ : 0;
         q[static_cast<std::size_t>(b)] = u * half + (dir == 0 ? off : 0);
         q[static_cast<std::size_t>(c)] = v * half + (dir == 1 ? off : 0);
         const auto grad = [&](int pu, int pv) {
-            std::array<int, 3> g{};
-            g[static_cast<std::size_t>(a)] = s_->face_at(f, pu, pv, 1).distance - s_->face_at(f, pu, pv, -1).distance;
-            g[static_cast<std::size_t>(b)] =
-                s_->face_at(f, pu + 1, pv, 0).distance - s_->face_at(f, pu - 1, pv, 0).distance;
-            g[static_cast<std::size_t>(c)] =
-                s_->face_at(f, pu, pv + 1, 0).distance - s_->face_at(f, pu, pv - 1, 0).distance;
+            const auto at = [&](int du, int dv, int layer) {
+                return value(s_->face_at(f, du, dv, layer).distance);
+            };
+            std::array<double, 3> g{};
+            g[static_cast<std::size_t>(a)] = at(pu, pv, 1) - at(pu, pv, -1);
+            g[static_cast<std::size_t>(b)] = at(pu + 1, pv, 0) - at(pu - 1, pv, 0);
+            g[static_cast<std::size_t>(c)] = at(pu, pv + 1, 0) - at(pu, pv - 1, 0);
             return g;
         };
         const auto n = normal(grad(u, v), grad(u1, v1), off, half);
@@ -314,6 +339,7 @@ private:
     }
 
     TransvoxelOptions options_;
+    std::vector<double> decoded_;  ///< companded: distance by code + 32768; empty for linear
     std::vector<std::int32_t> regular_edges_;
     std::array<std::vector<std::int32_t>, 6> face_edges_;
     const ChunkSamples* s_ = nullptr;

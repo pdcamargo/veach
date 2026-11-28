@@ -235,8 +235,18 @@ std::string action_path(std::string_view name) {
     return std::string(actions_scope) + "::" + std::string(name);
 }
 
-Entity bind_action(World& world, std::string_view name, Key primary, Key secondary) {
+namespace {
+/// The action entity at veach::actions::<name> from the root, even when a module binds it from its own scope.
+Entity action_entity(World& world, std::string_view name) {
+    const flecs::entity scope = world.set_scope(0);
     Entity e = world.entity(action_path(name).c_str());
+    world.set_scope(scope);
+    return e;
+}
+}  // namespace
+
+Entity bind_action(World& world, std::string_view name, Key primary, Key secondary) {
+    Entity e = action_entity(world, name);
     e.set<InputAction>({.primary = primary, .secondary = secondary});
     return e;
 }
@@ -257,7 +267,7 @@ bool action_released(const World& world, std::string_view name) {
 }
 
 Entity bind_axis(World& world, std::string_view name, const AxisBinding& binding) {
-    Entity e = world.entity(action_path(name).c_str());
+    Entity e = action_entity(world, name);
     e.set<InputAxis>({.binding = binding, .value = evaluate_axis(binding, world.get<Input>())});
     return e;
 }

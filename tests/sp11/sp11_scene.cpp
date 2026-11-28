@@ -3,9 +3,8 @@
 
 #include "sp11/sp11_scene.hpp"
 
-#include <Jolt/Jolt.h>  // Must come first.
+#include "support/jolt_runtime.hpp"  // Jolt.h first
 
-#include <Jolt/Core/Factory.h>
 #include <Jolt/Core/JobSystemSingleThreaded.h>
 #include <Jolt/Core/JobSystemThreadPool.h>
 #include <Jolt/Core/TempAllocator.h>
@@ -22,13 +21,10 @@
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/StateRecorderImpl.h>
-#include <Jolt/RegisterTypes.h>
 
 #include <algorithm>
 #include <bit>
 #include <chrono>
-#include <cstdarg>
-#include <cstdio>
 #include <memory>
 #include <string>
 #include <utility>
@@ -36,43 +32,6 @@
 
 namespace veach::sp11 {
 namespace {
-
-void trace(const char* format, ...) {
-    va_list args;
-    va_start(args, format);
-    std::vfprintf(stderr, format, args);
-    va_end(args);
-    std::fputc('\n', stderr);
-}
-
-#ifdef JPH_ENABLE_ASSERTS
-bool assert_failed(const char* expression, const char* message, const char* file, JPH::uint line) {
-    std::fprintf(stderr, "Jolt assert %s:%u: (%s) %s\n", file, line, expression, message ? message : "");
-    return true;  // Break.
-}
-#endif
-
-/// Jolt's process-wide state: allocator hooks, the type factory and the collision dispatch tables.
-struct JoltRuntime {
-    JoltRuntime() {
-        JPH::RegisterDefaultAllocator();
-        JPH::Trace = trace;
-        JPH_IF_ENABLE_ASSERTS(JPH::AssertFailed = assert_failed;)
-        JPH::Factory::sInstance = new JPH::Factory();
-        JPH::RegisterTypes();
-    }
-    ~JoltRuntime() {
-        JPH::UnregisterTypes();
-        delete JPH::Factory::sInstance;
-        JPH::Factory::sInstance = nullptr;
-    }
-    JoltRuntime(const JoltRuntime&) = delete;
-    JoltRuntime& operator=(const JoltRuntime&) = delete;
-};
-
-void ensure_jolt() {
-    static const JoltRuntime runtime;
-}
 
 std::uint64_t mix(std::uint64_t x) {
     x ^= x >> 33;
@@ -143,7 +102,7 @@ JPH::RefConst<JPH::Shape> make_ground(Ground kind) {
         result = settings.Create();
     }
     if (result.HasError()) {
-        trace("sp11: ground: %s", result.GetError().c_str());
+        test::jolt_trace("sp11: ground: %s", result.GetError().c_str());
         return nullptr;
     }
     return result.Get();
@@ -158,6 +117,10 @@ std::uint64_t hash_bytes(const std::string& bytes) {
 }
 
 }  // namespace
+
+void ensure_jolt() {
+    test::ensure_jolt();
+}
 
 SceneResult run_scene(const SceneConfig& config) {
     ensure_jolt();

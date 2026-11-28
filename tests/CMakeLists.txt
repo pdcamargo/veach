@@ -40,6 +40,8 @@ veach_apply_warnings(veach-tests)
 veach_deploy_d3d12(veach-tests)
 add_subdirectory(sp06)  # Spike SP-06 (VCH-082): its tests join veach-tests; its bench is veach-bench-sp06
 add_subdirectory(sp11)  # Spike SP-11 (VCH-087): Jolt determinism; its tests join veach-tests; its bench is veach-bench-sp11
+add_subdirectory(sp12)  # Spike SP-12 (VCH-088): dig and collide; its tests join veach-tests; its bench is veach-bench-sp12
+add_subdirectory(sp13)  # Spike SP-13 (VCH-089): walk, hover, land; its tests join veach-tests; its bench is veach-bench-sp13
 
 include("${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake")
 doctest_discover_tests(veach-tests TEST_PREFIX "unit: ")
@@ -237,6 +239,8 @@ function(veach_scene_goldens rhi)
     # Runtime meshes (docs/specs/runtime-meshes/spec.md): a generated heightfield that changes on frame 2.
     veach_golden_test("golden: runtime mesh (realtime${suffix})" runtime_mesh_realtime runtime_mesh_realtime ${rhi})
     veach_golden_test("golden: runtime mesh (photo mode${suffix})" runtime_mesh runtime_mesh ${rhi} FRAMES 4)
+    # rt.AC8 (VCH-108): upright thin triangles in a smooth surface, with its normals, shade like the surface.
+    veach_golden_test("golden: thin triangles (realtime${suffix})" thin_triangles_realtime thin_triangles_realtime ${rhi})
 endfunction()
 if(APPLE)
     veach_golden_test("golden: background" hello background metal)
@@ -275,7 +279,8 @@ if(APPLE)
             "triangle_camera_raster:triangle_camera:3" "cornell_box:cornell_box:4" "flight_helmet:flight_helmet:4"
             "cornell_box_realtime:cornell_box_realtime:3" "flight_helmet_realtime:flight_helmet_realtime:3"
             "bistro_noon:bistro_noon:3" "bistro_sunset:bistro_sunset:3"
-            "runtime_mesh_realtime:runtime_mesh_realtime:3" "runtime_mesh:runtime_mesh:4")
+            "runtime_mesh_realtime:runtime_mesh_realtime:3" "runtime_mesh:runtime_mesh:4"
+            "thin_triangles_realtime:thin_triangles_realtime:3")
         string(REPLACE ":" ";" _golden "${_golden}")
         list(GET _golden 0 _script)
         list(GET _golden 1 _image)
